@@ -1,0 +1,34 @@
+# TODO
+
+- [x] 1. pnpm 모노레포로 전환하고 packages/core, packages/base 구성. package-lock.json 제거.
+  - [x] core: 현재 구현한 오케스트레이터 코드 이전
+  - [x] base: 기본 extension 묶음 구현
+    - [x] skill (스킬 기능)
+    - [x] connectors/slack
+    - [x] tools/slack
+    - [x] compaction (컨텍스트 압축 도구)
+- [x] 2. 전체 TypeScript 전환 (최신 문법, moduleResolution=NodeNext, verbatimModuleSyntax, allowImportingTsExtensions 활성화)
+- [x] 3. LLM 어댑터 구현 (AI-SDK v6 래핑, provider=ai-sdk@v6 형태로 메시지 저장)
+- [x] 4. OAuthManager 구현
+- [x] 5. goondan_spec 기반 YAML 스펙 구체화 → docs/spec_config.md 작성 및 AGENTS.md 참조 추가
+- [x] 6. docs/spec_config.md 기반 validator 구현
+- [x] 7. 요구사항 작업 시 goondan_spec.md / docs/spec_config.md 수정 여부 검토 규칙을 AGENTS.md에 추가
+- [x] 8. base 하위 구현 항목 전부 구현
+- [x] 9. 단위 테스트 추가 및 전체 테스트 수행
+- [x] 10. 리포지토리 정리 (.gitignore 추가, 빌드/의존성 산출물 추적 제거)
+- [x] 11. Runtime 초기화 시 Config 스펙 검증 연결
+- [x] 12. OAuthManager 보완 (refresh, subject 검증, resume 이벤트 발행)
+- [x] 13. goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토 (변경 없음)
+- [x] 14. liveConfig.patchProposed 이벤트 경로 추가
+- [x] 15. auth.pending 컨텍스트 블록 주입 (authorization_required 수집)
+- [x] 16. validator 보완 (liveConfig.applyAt, connector staticToken, export auth scopes)
+- [x] 17. Connector 런타임/egress updatePolicy 통합
+- [x] 18. MCPServer 런타임 통합 (리소스/툴/프롬프트 주입)
+- [x] 19. ToolSearch 확장 구현 및 LiveConfig 제안 흐름 연결
+- [x] 20. LiveConfig 정본 파일 직접 수정 방지(권한/락) 적용
+- [x] 21. MCP 어댑터(실제 프로토콜) 구현 및 테스트
+- [x] 22. Connector 진행 업데이트 자동화(턴/스텝 기반 기본 정책)
+- [x] 23. goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토 (변경 없음)
+- [x] 24. identity 기반 reconcile(extensions/hooks/tools) 및 제거 처리
+- [x] 25. MCP attach.scope(instance/agent) 적용
+- [x] 26. workspace 이벤트를 runtime.events로 전달

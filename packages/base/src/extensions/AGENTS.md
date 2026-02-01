@@ -8,3 +8,4 @@ base 확장 모음입니다.
 
 ## 참고 사항
 - tool-search는 확장이 아니라 tool로 분류합니다.
+- 각 확장은 bundle include용 extension.yaml을 포함합니다.

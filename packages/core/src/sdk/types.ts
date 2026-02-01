@@ -356,8 +356,8 @@ export interface BundleManifest {
   metadata: ResourceMeta;
   spec: {
     version?: string;
-    baseDir?: string;
-    resources: Resource[];
+    dependencies?: string[];
+    include: string[];
   };
 }
 
@@ -367,6 +367,20 @@ export interface BundleRegistration {
   enabled?: boolean;
   fingerprint?: string;
   updatedAt?: string;
+  source?: {
+    type: 'npm' | 'git';
+    name?: string;
+    version?: string;
+    registry?: string;
+    host?: string;
+    org?: string;
+    repo?: string;
+    path?: string;
+    ref?: string;
+    url?: string;
+    commit?: string;
+    spec?: string;
+  };
 }
 
 export interface BundleLockfile {

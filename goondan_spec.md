@@ -1278,9 +1278,13 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 
 ## 18. Bundle(확장 묶음)
 
-Bundle은 Tool/Extension/Connector 등 **확장을 묶어서 등록**하기 위한 패키징 단위이다. Bundle은 Config Plane 리소스를 그대로 담되, `spec.resources`에 포함된 각 리소스의 `spec.entry` 경로를 Bundle 위치 기준으로 해석한다.
+Bundle은 Tool/Extension/Connector 등 **확장을 묶어서 등록**하기 위한 패키징 단위이다. Bundle의 실체는 `bundle.yaml`이 위치한 **폴더 전체**이며, 이 폴더 안에는 스크립트(예: Node/Python), YAML 정의, 기타 실행 리소스가 함께 포함될 수 있다.
 
-Bundle은 런타임 외부에서 등록/관리될 수 있으며, 런타임 초기화 시 등록된 Bundle 리소스를 ConfigRegistry에 합쳐 사용하는 것을 권장한다.
+Bundle은 **Git 기반으로 식별/다운로드**되는 것을 기본으로 한다. 번들 참조는 `github.com/<org>/<repo>/<path>@<ref?>` 형태를 권장하며, `@ref`가 없으면 기본 브랜치를 사용한다(MAY). 번들 다운로드 시 `bundle.yaml`이 있는 폴더는 **전체를 내려받아야** 하며, `spec.include`는 **최종 Config에 포함할 YAML 목록**을 정의할 뿐 다운로드 범위를 제한하지 않는다(MUST).
+
+각 리소스의 `spec.entry` 경로는 **Bundle Root 기준 상대 경로**로 해석한다(MUST). 런타임은 등록된 Bundle의 리소스를 ConfigRegistry에 합쳐 사용하며, 충돌 시 정책에 따라 덮어쓰기/에러 처리한다(MAY).
+
+npm은 **선택적 호스팅 채널**로만 활용할 수 있으며, 번들 배포/해석의 필수 요건은 아니다. 번들 스펙 및 상세 예시는 `docs/spec_bundle.md`를 참조한다.
 
 예시:
 
@@ -1290,16 +1294,11 @@ kind: Bundle
 metadata:
   name: base
 spec:
-  version: "0.1.0"
-  resources:
-    - kind: Tool
-      metadata:
-        name: toolSearch
-      spec:
-        runtime: node
-        entry: "./dist/tools/tool-search/index.js"
-        exports:
-          - name: toolSearch.find
+  dependencies:
+    - github.com/goondan/foo-bar@v0.2.0
+  include:
+    - tools/fileRead/tool.yaml
+    - extensions/skills/extension.yaml
 ```
 
 ---

@@ -1,0 +1,15 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: slackToolkit
+  labels:
+    tier: base
+spec:
+  runtime: node
+  entry: "./dist/tools/slack/index.js"
+  exports:
+    - name: slack.postMessage
+      description: "Slack 메시지 전송"
+      parameters:
+        type: object
+        additionalProperties: true

@@ -101,3 +101,46 @@ pnpm -C packages/sample export
 - CI에서 `bundle lock` 생성 → `bundle verify-lock` 강제 정책 추가
 - sample을 2개 이상(예: MCP 연동, OAuth 흐름)로 확장
 
+## 7) 추가 작업 (mise, npm 배포)
+- mise.toml에 Node 버전(24.5.0) 등록으로 버전 고정
+- @goondan/core, @goondan/base `pnpm publish` 시도: 빌드 완료 후 **NPM_TOKEN 만료/권한 문제로 배포 실패**
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 8) 추가 작업 (로컬 env 파일 정리)
+- `.envrc`/`.envrc.example` 제거, `mise.local.toml`로 로컬 env를 받도록 전환
+- `.gitignore`에 `mise.local.toml` 추가
+- `.nvmrc` 제거 (mise 단일 기준 유지)
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 9) 추가 작업 (루트 스크립트 정비)
+- 루트 `package.json`에 패키지 빌드/배포용 스크립트 추가 (core/base publish 포함)
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 검토: **변경 없음**
+
+## 10) 추가 작업 (Bundle Git 요구사항 문서화)
+- `docs/spec_bundle.md` 신설: Git 기반 번들 요구사항, include 규칙, 상세 예시 정리
+- `goondan_spec.md` §18 업데이트: Git 기반 Bundle 개념 및 include 의미 반영
+- `docs/spec_api.md` / `docs/scenario_example1.md`에서 번들 등록 예시를 Git 참조로 정정
+- `AGENTS.md`, `docs/AGENTS.md` 문서 목록 최신화
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **goondan_spec.md 변경**, **docs/spec_config.md 변경 없음**
+- 관련 validator 영향: **변경 없음** (Bundle 스펙 문서화 단계)
+
+## 11) 추가 작업 (Bundle include 스키마/베이스 마이그레이션)
+- Bundle 스키마 갱신: `BundleManifest.spec`를 dependencies/include 중심으로 변경
+- bundle 로더 갱신: include YAML 로딩, include/dependencies 검증, entry 경로 절대화
+- CLI 갱신: bundle info에서 include/dependencies 출력, include 기반 리소스 집계
+- base 번들 마이그레이션: bundle.yaml include 전환, 리소스 YAML 추가, npm files 포함
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 12) 추가 작업 (Git 번들 다운로드/캐시/의존성 해석)
+- Git Bundle 설치 로직 추가: `packages/core/src/bundles/git.ts` (ref 파싱, 캐시 디렉터리, git clone/fetch/checkout)
+- Bundle 로더에서 dependencies 재귀 해석 + include YAML 로딩 유지
+- CLI init/bundle add에서 Git Bundle 등록 지원 및 기본 base 스펙을 Git으로 전환
+- bundle info/validate/run/export에서 stateRootDir 전달로 dependency 해석 활성화
+- `docs/spec_api.md`의 init 설명을 Git Bundle 기준으로 정정
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 13) 추가 작업 (빌드 오류 수정 및 core/base 빌드)
+- git bundle ref 파싱 엄격화 및 타입 오류 수정: `packages/core/src/bundles/git.ts`
+- dependency 로딩 타입 오류 수정: `packages/core/src/bundles/loader.ts`
+- core/base 빌드 완료: `pnpm -C packages/core build`, `pnpm -C packages/base build`
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**

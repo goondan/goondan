@@ -47,7 +47,11 @@ export class BundleRegistry {
     return this.entries.find((entry) => entry.name === name) || null;
   }
 
-  async add(manifestPath: string, nameOverride?: string): Promise<BundleRegistration> {
+  async add(
+    manifestPath: string,
+    nameOverride?: string,
+    metadata: Partial<BundleRegistration> = {}
+  ): Promise<BundleRegistration> {
     await this.load();
     const resolvedPath = await resolveBundleManifestPath(manifestPath);
     const manifest = await readSingleManifest(resolvedPath);
@@ -59,6 +63,7 @@ export class BundleRegistry {
       enabled: true,
       fingerprint: fingerprint || undefined,
       updatedAt: new Date().toISOString(),
+      ...metadata,
     };
     this.entries = this.entries.filter((item) => item.name !== name);
     this.entries.push(entry);

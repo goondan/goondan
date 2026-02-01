@@ -1,0 +1,9 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+  labels:
+    tier: base
+spec:
+  type: cli
+  ingress: []

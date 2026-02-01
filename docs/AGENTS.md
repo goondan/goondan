@@ -5,6 +5,7 @@
 ## 주요 문서
 - spec_config.md: Goondan Config YAML 스펙 구체화
 - spec_api.md: Runtime/SDK API 스펙
+- spec_bundle.md: Bundle(Git 기반) 요구사항
 - scenario_example1.md: CLI로 스웜 생성/실행 시나리오
 
 ## 참고 사항

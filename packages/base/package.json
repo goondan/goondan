@@ -1,6 +1,6 @@
 {
   "name": "@goondan/base",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,11 +10,22 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "bundle.yaml",
+    "src/extensions/**/extension.yaml",
+    "src/tools/**/tool.yaml",
+    "src/connectors/**/connector.yaml"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@goondan/core": "workspace:*"
+    "@goondan/core": "workspace:^"
   }
 }

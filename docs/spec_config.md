@@ -118,7 +118,11 @@ spec:
     params:
       temperature: 0.5
   prompts:
+    # 파일 참조
     systemRef: "./prompts/planner.system.md"
+    # 또는 인라인 시스템 프롬프트
+    # system: |
+    #   너는 planner 에이전트다.
   tools:
     - { kind: Tool, name: slackToolkit }
   extensions:
@@ -181,6 +185,16 @@ spec:
     updatePolicy:
       mode: updateInThread
       debounceMs: 1500
+
+# CLI connector 예시
+kind: Connector
+spec:
+  type: cli
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"
 ```
 
 규칙

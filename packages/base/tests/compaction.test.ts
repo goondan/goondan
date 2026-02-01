@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { handlers } from '../src/tools/compaction/index.js';
+import { compactBlocks } from '../src/extensions/compaction/index.js';
 
-describe('compaction tool', () => {
+describe('compaction extension', () => {
   it('compresses long text', async () => {
     const text = 'A '.repeat(2000);
-    const result = await handlers['compaction.compress']({}, { text, maxChars: 100 });
-    expect((result as { content: string }).content.length).toBeLessThanOrEqual(103);
+    const result = compactBlocks([{ type: 'input', content: text }], 100);
+    expect(result.length).toBeLessThanOrEqual(103);
   });
 });

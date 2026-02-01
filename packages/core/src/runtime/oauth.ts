@@ -4,6 +4,15 @@ import path from 'node:path';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import { resolveRef } from '../config/ref.js';
 import { ensureDir, readFileIfExists } from '../utils/fs.js';
+import type {
+  AuthResumePayload,
+  EventBus,
+  JsonObject,
+  ObjectRefLike,
+  OAuthAppSpec,
+  OAuthTokenResult,
+  ValueSource,
+} from '../sdk/types.js';
 
 interface OAuthManagerOptions {
   registry?: ConfigRegistry | null;
@@ -11,87 +20,33 @@ interface OAuthManagerOptions {
   encryptionKey?: string;
   publicBaseUrl?: string;
   logger?: Console;
-  events?: { emit?: (event: string, payload: Record<string, unknown>) => void } | null;
+  events?: EventBus | null;
 }
 
-interface OAuthTokenReady {
-  status: 'ready';
-  accessToken: string;
-  tokenType?: string;
-  expiresAt?: string;
-  scopes?: string[];
-}
-
-interface OAuthTokenAuthorizationRequired {
-  status: 'authorization_required';
-  authSessionId: string;
-  authorizationUrl: string;
-  expiresAt: string;
-  message: string;
-}
-
-interface OAuthTokenError {
-  status: 'error';
-  error: { code: string; message: string };
-}
-
-export type OAuthTokenResult = OAuthTokenReady | OAuthTokenAuthorizationRequired | OAuthTokenError;
 
 interface OAuthRequest {
-  oauthAppRef: { kind: string; name: string };
+  oauthAppRef: ObjectRefLike;
   scopes?: string[];
   minTtlSeconds?: number;
 }
 
-interface TurnAuthContext {
-  actor?: Record<string, unknown>;
+type TurnAuthContext = JsonObject & {
+  actor?: JsonObject;
   subjects?: { global?: string; user?: string };
-}
+};
 
 interface OAuthContext {
   auth?: TurnAuthContext;
-  origin?: Record<string, unknown>;
+  origin?: JsonObject;
   swarmRef?: { kind: string; name: string };
   instanceKey?: string;
   agentName?: string;
 }
 
-interface OAuthContext {
-  auth?: TurnAuthContext;
-  origin?: Record<string, unknown>;
-  swarmRef?: { kind: string; name: string };
-  instanceKey?: string;
-  agentName?: string;
-}
-
-interface OAuthAppResource extends Resource {
-  spec?: {
-    provider?: string;
-    flow?: 'authorizationCode' | 'deviceCode';
-    subjectMode?: 'global' | 'user';
-    client?: {
-      clientId?: ValueSource;
-      clientSecret?: ValueSource;
-    };
-    endpoints?: {
-      authorizationUrl?: string;
-      tokenUrl?: string;
-    };
-    scopes?: string[];
-    redirect?: { callbackPath?: string };
-    options?: Record<string, unknown>;
-  };
-}
-
-interface ValueSource {
-  value?: string;
-  valueFrom?: {
-    env?: string;
-    secretRef?: { ref: string; key: string };
-  };
-}
+type OAuthAppResource = Resource<OAuthAppSpec>;
 
 type EncryptedString = string;
+type StringMap = { [key: string]: string };
 
 interface OAuthGrantRecord {
   apiVersion?: string;
@@ -99,7 +54,7 @@ interface OAuthGrantRecord {
   metadata: { name: string };
   spec: {
     provider: string;
-    oauthAppRef: { kind: string; name: string };
+    oauthAppRef: ObjectRefLike;
     subject: string;
     flow: 'authorization_code' | 'device_code';
     scopesGranted: string[];
@@ -112,7 +67,7 @@ interface OAuthGrantRecord {
     createdAt: string;
     updatedAt: string;
     revoked?: boolean;
-    providerData?: Record<string, unknown>;
+    providerData?: JsonObject;
   };
 }
 
@@ -139,7 +94,7 @@ interface AuthSessionRecord {
     status: 'pending' | 'completed' | 'failed' | 'expired';
     createdAt: string;
     expiresAt: string;
-    resume?: Record<string, unknown>;
+    resume?: AuthResumePayload;
   };
 }
 
@@ -209,10 +164,10 @@ class OAuthStore {
     await fs.writeFile(this.sessionIndexPath(), JSON.stringify(index, null, 2), 'utf8');
   }
 
-  private async loadSessionIndex(): Promise<Record<string, string>> {
+  private async loadSessionIndex(): Promise<StringMap> {
     const content = await readFileIfExists(this.sessionIndexPath());
     if (!content) return {};
-    return JSON.parse(content) as Record<string, string>;
+    return JSON.parse(content) as StringMap;
   }
 
   encrypt(value: string): EncryptedString {
@@ -413,7 +368,7 @@ export class OAuthManager {
       body,
     });
 
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await response.json()) as JsonObject;
     if (!response.ok) {
       session.spec.status = 'failed';
       await this.store.updateSession(session);
@@ -492,7 +447,7 @@ export class OAuthManager {
     oauthApp: OAuthAppResource;
     subject: string;
     scopes: string[];
-    resume?: Record<string, unknown>;
+    resume?: AuthResumePayload;
   }): Promise<AuthSessionRecord> {
     const sessionId = `as-${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date();
@@ -573,7 +528,7 @@ function base64Url(buffer: Buffer): string {
     .replace(/=+$/g, '');
 }
 
-function buildResumePayload(context?: OAuthContext): Record<string, unknown> | undefined {
+function buildResumePayload(context?: OAuthContext): AuthResumePayload | undefined {
   if (!context?.swarmRef || !context.instanceKey || !context.agentName) return undefined;
   return {
     swarmRef: context.swarmRef,
@@ -584,7 +539,7 @@ function buildResumePayload(context?: OAuthContext): Record<string, unknown> | u
   };
 }
 
-function verifySubjectMatch(oauthApp: OAuthAppResource, subject: string, payload: Record<string, unknown>): boolean {
+function verifySubjectMatch(oauthApp: OAuthAppResource, subject: string, payload: JsonObject): boolean {
   const provider = oauthApp.spec?.provider || 'unknown';
   if (provider === 'slack') {
     const teamId = extractSlackTeamId(payload);
@@ -606,12 +561,12 @@ function verifySubjectMatch(oauthApp: OAuthAppResource, subject: string, payload
   return false;
 }
 
-function extractSlackTeamId(payload: Record<string, unknown>): string | undefined {
+function extractSlackTeamId(payload: JsonObject): string | undefined {
   const team = payload.team as { id?: string } | undefined;
   return team?.id || (payload.team_id as string | undefined);
 }
 
-function extractSlackUserId(payload: Record<string, unknown>): string | undefined {
+function extractSlackUserId(payload: JsonObject): string | undefined {
   const authedUser = payload.authed_user as { id?: string } | undefined;
   return authedUser?.id || (payload.user_id as string | undefined);
 }
@@ -646,7 +601,7 @@ async function refreshGrant(options: {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body,
   });
-  const payload = await response.json();
+  const payload = (await response.json()) as JsonObject;
   if (!response.ok) {
     logger.warn('OAuth refresh 실패', payload);
     return null;
@@ -665,9 +620,12 @@ async function refreshGrant(options: {
     spec: {
       ...grant.spec,
       token: {
-        tokenType: payload.token_type || grant.spec.token.tokenType,
+        tokenType: typeof payload.token_type === 'string' ? payload.token_type : grant.spec.token.tokenType,
         accessToken: store.encrypt(accessToken),
-        refreshToken: payload.refresh_token ? store.encrypt(payload.refresh_token) : grant.spec.token.refreshToken,
+        refreshToken:
+          typeof payload.refresh_token === 'string'
+            ? store.encrypt(payload.refresh_token)
+            : grant.spec.token.refreshToken,
         expiresAt,
       },
       updatedAt: now.toISOString(),
@@ -685,15 +643,17 @@ async function resolveValueSource(source: ValueSource | undefined, stateDir: str
   if (source.valueFrom?.env) return process.env[source.valueFrom.env];
   if (source.valueFrom?.secretRef) {
     const { ref, key } = source.valueFrom.secretRef;
-    const [kind, name] = ref.split('/');
+    const refValue = String(ref);
+    const keyValue = String(key);
+    const [kind, name] = refValue.split('/');
     if (kind !== 'Secret' || !name) return undefined;
-    const envKey = `GOONDAN_SECRET_${name}_${key}`.toUpperCase();
+    const envKey = `GOONDAN_SECRET_${name}_${keyValue}`.toUpperCase();
     if (process.env[envKey]) return process.env[envKey];
     const secretPath = path.join(stateDir, 'secrets', `${name}.json`);
     const content = await readFileIfExists(secretPath);
     if (!content) return undefined;
-    const secret = JSON.parse(content) as Record<string, string>;
-    return secret[key];
+    const secret = JSON.parse(content) as StringMap;
+    return secret[keyValue];
   }
   return undefined;
 }

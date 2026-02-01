@@ -5,66 +5,28 @@ import type { Operation } from 'fast-json-patch';
 import { LiveConfigStore } from './store.js';
 import { deepClone } from '../utils/json.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
+import type {
+  EffectiveConfig,
+  EventBus,
+  LiveConfigCursor,
+  LiveConfigPatchProposal,
+  LiveConfigPatchSpec,
+  LivePatch,
+  LivePatchStatus,
+  SwarmSpec,
+} from '../sdk/types.js';
 
 const { applyPatch } = jsonPatch;
 const DEFAULT_APPLY_AT = ['step.config'];
 
-interface PatchOp {
-  op: string;
-  path: string;
-  from?: string;
-  value?: unknown;
-}
-
-interface PatchSpec {
-  type: 'json6902';
-  ops: PatchOp[];
-}
-
-interface PatchProposal {
-  scope: 'agent' | 'swarm';
-  target?: { kind: string; name?: string };
-  applyAt: string;
-  patch: PatchSpec;
-  source?: { type: 'tool' | 'extension' | 'sidecar' | 'system'; name?: string };
-  reason?: string;
-}
-
-interface LivePatch {
-  apiVersion?: string;
-  kind: 'LivePatch';
-  metadata: { name: string };
-  spec: PatchProposal & { recordedAt: string };
-}
-
-interface PatchStatus {
-  patchName: string;
-  agentName: string;
-  result: 'applied' | 'pending' | 'rejected' | 'failed';
-  evaluatedAt: string;
-  appliedAt?: string;
-  effectiveRevision?: number;
-  appliedInStepId?: string;
-  reason?: string;
-}
-
-interface LiveConfigPolicy {
-  enabled?: boolean;
-  applyAt?: string[];
-  allowedPaths?: {
-    agentRelative?: string[];
-    swarmAbsolute?: string[];
-  };
-  store?: { instanceStateDir?: string };
-  emitConfigChangedEvent?: boolean;
-}
+type LiveConfigPolicy = NonNullable<NonNullable<SwarmSpec['policy']>['liveConfig']>;
 
 interface LiveConfigManagerOptions {
   instanceId: string;
   swarmConfig: Resource;
   registry: ConfigRegistry;
   logger?: Console;
-  events?: { emit?: (event: string, payload: Record<string, unknown>) => void } | null;
+  events?: EventBus | null;
   stateDir?: string;
   writeSnapshots?: boolean;
 }
@@ -73,7 +35,7 @@ interface AgentState {
   agentConfig: Resource;
   overlay: Resource;
   revision: number;
-  cursor: Record<string, unknown>;
+  cursor: LiveConfigCursor;
   agentStore: LiveConfigStore;
   swarmStore: LiveConfigStore;
 }
@@ -121,7 +83,7 @@ export class LiveConfigManager {
     await swarmStore.ensure();
     await this.ensureLockFile(path.join(swarmRoot, '.lock'));
 
-    const cursor = (await agentStore.readCursor<Record<string, unknown>>()) || {
+    const cursor = (await agentStore.readCursor<LiveConfigCursor>()) || {
       version: 1,
       patchLog: { format: 'jsonl' },
       swarmPatchLog: { format: 'jsonl' },
@@ -131,7 +93,7 @@ export class LiveConfigManager {
     const state: AgentState = {
       agentConfig,
       overlay: deepClone(agentConfig),
-      revision: (cursor.effective as { revision?: number } | undefined)?.revision || 0,
+      revision: cursor.effective?.revision || 0,
       cursor,
       agentStore,
       swarmStore,
@@ -140,7 +102,7 @@ export class LiveConfigManager {
     this.agentStates.set(agentName, state);
   }
 
-  async proposePatch(proposal: Partial<PatchProposal>, options: { agentName?: string } = {}): Promise<LivePatch> {
+  async proposePatch(proposal: Partial<LiveConfigPatchProposal>, options: { agentName?: string } = {}): Promise<LivePatch> {
     const agentName = options.agentName;
     if (!agentName) {
       throw new Error('agentName이 필요합니다.');
@@ -175,7 +137,7 @@ export class LiveConfigManager {
       result: 'pending',
       evaluatedAt: new Date().toISOString(),
       reason: 'proposed',
-    } satisfies PatchStatus);
+    } satisfies LivePatchStatus);
 
     return livePatch;
   }
@@ -186,7 +148,7 @@ export class LiveConfigManager {
   }: {
     agentName: string;
     stepId: string;
-  }): Promise<Record<string, unknown> | null> {
+  }): Promise<EffectiveConfig | null> {
     const agentState = this.agentStates.get(agentName);
     if (!agentState) {
       throw new Error(`AgentInstance 상태를 찾을 수 없습니다: ${agentName}`);
@@ -231,7 +193,7 @@ export class LiveConfigManager {
     return this.getEffectiveConfig(agentName);
   }
 
-  getEffectiveConfig(agentName: string): Record<string, unknown> | null {
+  getEffectiveConfig(agentName: string): EffectiveConfig | null {
     const agentState = this.agentStates.get(agentName);
     if (!agentState) return null;
     return {
@@ -258,10 +220,10 @@ export class LiveConfigManager {
   }): Promise<void> {
     const agentState = this.agentStates.get(agentName);
     if (!agentState) return;
-    const cursorKey = scope === 'swarm' ? 'swarmPatchLog' : 'patchLog';
-    const cursor = (agentState.cursor[cursorKey] as Record<string, unknown>) || { format: 'jsonl' };
+    const cursorKey: 'swarmPatchLog' | 'patchLog' = scope === 'swarm' ? 'swarmPatchLog' : 'patchLog';
+    const cursor = (agentState.cursor[cursorKey] || { format: 'jsonl' }) as NonNullable<LiveConfigCursor['patchLog']>;
     const patches = await store.readPatches<LivePatch>();
-    const newPatches = filterNewPatches(patches, cursor.lastEvaluatedPatchName as string | undefined);
+    const newPatches = filterNewPatches(patches, cursor.lastEvaluatedPatchName);
 
     for (const patch of newPatches) {
       const result = await this.evaluatePatch({
@@ -301,9 +263,9 @@ export class LiveConfigManager {
     scope: 'agent' | 'swarm';
     applyAtAllowed: string[];
     now: string;
-  }): Promise<{ applied: boolean; status: PatchStatus; appliedAt?: string }> {
+  }): Promise<{ applied: boolean; status: LivePatchStatus; appliedAt?: string }> {
     const agentState = this.agentStates.get(agentName);
-    const status: PatchStatus = {
+    const status: LivePatchStatus = {
       patchName: patch.metadata?.name,
       agentName,
       result: 'pending',
@@ -400,7 +362,7 @@ export class LiveConfigManager {
     return { applied: true, status, appliedAt: now };
   }
 
-  normalizeProposal(proposal: Partial<PatchProposal>, agentName: string): PatchProposal {
+  normalizeProposal(proposal: Partial<LiveConfigPatchProposal>, agentName: string): LiveConfigPatchProposal {
     const scope = proposal.scope || 'agent';
     const target =
       proposal.target ||
@@ -412,13 +374,13 @@ export class LiveConfigManager {
       scope,
       target,
       applyAt: proposal.applyAt || 'step.config',
-      patch: proposal.patch as PatchSpec,
+      patch: proposal.patch as LiveConfigPatchSpec,
       source: proposal.source || { type: 'system', name: 'runtime' },
       reason: proposal.reason || '',
     };
   }
 
-  validateProposal(proposal: PatchProposal): void {
+  validateProposal(proposal: LiveConfigPatchProposal): void {
     if (!proposal.patch || proposal.patch.type !== 'json6902') {
       throw new Error('proposal.patch.type은 json6902이어야 합니다.');
     }
@@ -432,7 +394,7 @@ export class LiveConfigManager {
   }
 
   getLiveConfigPolicy(): LiveConfigPolicy {
-    return (this.swarmConfig?.spec as { policy?: { liveConfig?: LiveConfigPolicy } })?.policy?.liveConfig || {};
+    return ((this.swarmConfig?.spec as { policy?: { liveConfig?: LiveConfigPolicy } })?.policy?.liveConfig || {}) as LiveConfigPolicy;
   }
 
   isPatchAllowed(scope: 'agent' | 'swarm', patch: LivePatch, agentConfig: Resource): boolean {

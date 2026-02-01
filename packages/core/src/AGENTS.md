@@ -10,6 +10,9 @@ Goondan 오케스트레이터의 실행 코드가 모이는 최상위 소스 폴
 - runtime: Swarm/Agent 인스턴스, Turn/Step 실행 루프, 파이프라인
 - extensions: Extension 로더
 - tools: Tool 레지스트리
+- bundles: Bundle 로더/등록
+- cli: core CLI 엔트리
+- sdk: SDK 타입 정의
 - utils: 공통 유틸리티
 - runtime/llm: LLM 어댑터 구현
 

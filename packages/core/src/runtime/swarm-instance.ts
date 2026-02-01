@@ -2,6 +2,7 @@ import { AgentInstance } from './agent-instance.js';
 import { LiveConfigManager } from '../live-config/manager.js';
 import { resolveRef } from '../config/ref.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
+import type { JsonObject, ObjectRefLike, SwarmSpec } from '../sdk/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { Runtime } from './runtime.js';
 
@@ -19,9 +20,9 @@ interface SwarmInstanceOptions {
 interface SwarmEvent {
   agentName?: string;
   input: string;
-  origin?: Record<string, unknown>;
-  auth?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
+  origin?: JsonObject;
+  auth?: JsonObject;
+  metadata?: JsonObject;
 }
 
 export class SwarmInstance {
@@ -58,9 +59,9 @@ export class SwarmInstance {
   }
 
   async init(): Promise<void> {
-    const agentRefs = (this.swarmConfig?.spec as { agents?: Array<Record<string, unknown>> })?.agents || [];
+    const agentRefs = (this.swarmConfig?.spec as SwarmSpec | undefined)?.agents || [];
     for (const ref of agentRefs) {
-      const agentResource = resolveRef(this.registry, ref, 'Agent');
+      const agentResource = resolveRef(this.registry, ref as ObjectRefLike, 'Agent');
       if (agentResource) {
         await this.addAgent(agentResource);
       }
@@ -91,8 +92,8 @@ export class SwarmInstance {
   }
 
   enqueueEvent(event: SwarmEvent): void {
-    const entrypoint = (this.swarmConfig?.spec as { entrypoint?: Record<string, unknown> })?.entrypoint;
-    const entryAgent = entrypoint ? resolveRef(this.registry, entrypoint, 'Agent') : null;
+    const entrypoint = (this.swarmConfig?.spec as SwarmSpec | undefined)?.entrypoint;
+    const entryAgent = entrypoint ? resolveRef(this.registry, entrypoint as ObjectRefLike, 'Agent') : null;
     const agentName = event.agentName || entryAgent?.metadata?.name;
     if (!agentName) {
       throw new Error('Swarm entrypoint 또는 agentName이 필요합니다.');

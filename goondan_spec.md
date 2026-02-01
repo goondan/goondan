@@ -447,7 +447,11 @@ spec:
       temperature: 0.5
 
   prompts:
+    # 파일 참조
     systemRef: "./prompts/planner.system.md"
+    # 또는 인라인 시스템 프롬프트
+    # system: |
+    #   너는 planner 에이전트다.
 
   tools:
     - { kind: Tool, name: slackToolkit }
@@ -603,6 +607,22 @@ spec:
         swarmRef: { kind: Swarm, name: default }
         instanceKeyFrom: "$.event.thread_ts"
         inputFrom: "$.event.text"
+```
+
+CLI Connector 예시는 다음과 같다.
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"
 ```
 
 규칙:
@@ -1199,10 +1219,10 @@ Skill은 SKILL.md 중심 번들로서 다음 기능을 통해 활용된다.
 
 ---
 
-## 15. 대표 확장 패턴: ToolSearch
+## 15. 대표 도구 패턴: ToolSearch
 
-ToolSearch는 도구가 많아졌을 때 Step별로 필요한 도구만 노출하도록 `step.tools`에서 Tool Catalog를 최적화한다.
-또한 ToolSearch는 다음 Step부터 필요한 도구를 활성화하기 위해 LiveConfigManager에 patch를 제안할 수 있다(§12.4).
+ToolSearch는 LLM이 tool catalog를 탐색/요약할 수 있도록 제공되는 **Tool**이다.
+ToolSearch는 검색 결과에 따라 다음 Step부터 필요한 도구를 활성화하기 위해 LiveConfigManager에 patch를 제안할 수 있다(§12.4).
 
 ---
 
@@ -1218,7 +1238,7 @@ AgentInstance가 작업 중 특정 repo를 확보하면 workspace 이벤트가 �
 
 ### 16.3 ToolSearch로 도구 노출을 최적화하는 흐름
 
-ToolSearch는 Step별 최소 도구만 노출하고, 검색 결과에 따라 도구를 단계적으로 확장한다.
+ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색 결과에 따라 다음 Step부터 도구를 단계적으로 확장한다.
 
 ### 16.4 프리셋/번들 선택과 부분 덮어쓰기
 
@@ -1253,6 +1273,34 @@ ToolSearch는 Step별 최소 도구만 노출하고, 검색 결과에 따라 도
 5. Live Config는 “파일로 관측 가능”하지만 정본 기록은 LiveConfigManager 단일 작성자 모델로 안정적으로 운영된다.
 6. reconcile이 identity 기반으로 수행되고 stateful MCP 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
 7. OAuthApp 도입으로 Tool/Connector의 인증/토큰 취득 방식이 표준화되어, 통합 난이도와 운영 복잡성이 감소한다.
+
+---
+
+## 18. Bundle(확장 묶음)
+
+Bundle은 Tool/Extension/Connector 등 **확장을 묶어서 등록**하기 위한 패키징 단위이다. Bundle은 Config Plane 리소스를 그대로 담되, `spec.resources`에 포함된 각 리소스의 `spec.entry` 경로를 Bundle 위치 기준으로 해석한다.
+
+Bundle은 런타임 외부에서 등록/관리될 수 있으며, 런타임 초기화 시 등록된 Bundle 리소스를 ConfigRegistry에 합쳐 사용하는 것을 권장한다.
+
+예시:
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Bundle
+metadata:
+  name: base
+spec:
+  version: "0.1.0"
+  resources:
+    - kind: Tool
+      metadata:
+        name: toolSearch
+      spec:
+        runtime: node
+        entry: "./dist/tools/tool-search/index.js"
+        exports:
+          - name: toolSearch.find
+```
 
 ---
 

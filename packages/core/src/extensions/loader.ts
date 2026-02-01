@@ -2,14 +2,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { resolveRef } from '../config/ref.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
+import type { ExtensionSpec, JsonObject, ObjectRefLike } from '../sdk/types.js';
 
-interface ExtensionResource extends Resource {
-  spec?: {
-    runtime?: string;
-    entry?: string;
-    [key: string]: unknown;
-  };
-}
+interface ExtensionResource extends Resource<ExtensionSpec<JsonObject>> {}
 
 interface LoadOptions<TApi> {
   baseDir?: string;
@@ -27,13 +22,13 @@ export async function loadExtensions<TApi>(
   const loaded: Array<{ resource: ExtensionResource; api: TApi }> = [];
 
   for (const ref of extensionRefs) {
-    const extensionResource = resolveRef(registry, ref as Record<string, unknown>, 'Extension') as ExtensionResource;
-    const spec = extensionResource?.spec || {};
-    const entry = spec.entry;
+    const extensionResource = resolveRef(registry, ref as ObjectRefLike, 'Extension') as unknown as ExtensionResource;
+    const spec = extensionResource?.spec as ExtensionSpec<JsonObject> | undefined;
+    const entry = spec?.entry;
     if (!entry) {
       throw new Error(`Extension ${extensionResource?.metadata?.name}에 spec.entry가 필요합니다.`);
     }
-    if (spec.runtime && spec.runtime !== 'node') {
+    if (spec?.runtime && spec.runtime !== 'node') {
       throw new Error(`Extension runtime은 node만 지원합니다: ${extensionResource.metadata?.name}`);
     }
     const entryPath = path.isAbsolute(entry) ? entry : path.join(baseDir, entry);

@@ -11,22 +11,34 @@ import { SwarmInstance } from './swarm-instance.js';
 import { OAuthManager } from './oauth.js';
 import { createAiSdkAdapter } from './llm/ai-sdk.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
+import type {
+  AuthResumePayload,
+  Block,
+  DynamicToolDefinition,
+  EffectiveConfig,
+  JsonObject,
+  LlmResult,
+  ObjectRefLike,
+  Step,
+  ToolCatalogItem,
+  Turn,
+} from '../sdk/types.js';
 import { validateConfig } from '../config/validator.js';
 
 export interface LlmCallInput {
   model: Resource | null;
-  params: Record<string, unknown>;
-  blocks: Array<Record<string, unknown>>;
-  tools: Array<Record<string, unknown>>;
-  turn: unknown;
-  step: unknown;
-  effectiveConfig: Record<string, unknown> | null;
+  params: JsonObject;
+  blocks: Block[];
+  tools: ToolCatalogItem[];
+  turn: Turn;
+  step: Step | null;
+  effectiveConfig: EffectiveConfig | null;
 }
 
 export interface LlmCallResult {
   content?: string;
-  toolCalls?: Array<{ id?: string; name: string; input?: Record<string, unknown> }>;
-  meta?: unknown;
+  toolCalls?: Array<{ id?: string; name: string; input?: JsonObject }>;
+  meta?: LlmResult['meta'];
 }
 
 export type LlmAdapter = (input: LlmCallInput) => Promise<LlmCallResult>;
@@ -58,7 +70,7 @@ export class Runtime {
   connectors: Map<string, ConnectorAdapter>;
   mcpManager: McpManager;
   progressTimers: Map<string, NodeJS.Timeout>;
-  progressPayloads: Map<string, { connectorName: string; origin: Record<string, unknown>; text: string; debounceMs: number }>;
+  progressPayloads: Map<string, { connectorName: string; origin: JsonObject; text: string; debounceMs: number }>;
 
   constructor(options: RuntimeOptions = {}) {
     this.configPaths = options.configPaths || [];
@@ -79,18 +91,18 @@ export class Runtime {
     this.progressPayloads = new Map();
 
     this.events.on('auth.granted', (payload) => {
-      const resume = (payload as { resume?: Record<string, unknown> }).resume;
+      const resume = (payload as { resume?: AuthResumePayload }).resume;
       if (!resume) return;
-      const swarmRef = resume.swarmRef as Record<string, unknown> | undefined;
-      const instanceKey = resume.instanceKey as string | undefined;
+      const swarmRef = resume.swarmRef;
+      const instanceKey = resume.instanceKey;
       if (!swarmRef || !instanceKey) return;
       void this.handleEvent({
         swarmRef,
         instanceKey,
-        agentName: resume.agentName as string | undefined,
+        agentName: resume.agentName,
         input: '',
-        origin: resume.origin as Record<string, unknown> | undefined,
-        auth: resume.auth as Record<string, unknown> | undefined,
+        origin: resume.origin,
+        auth: resume.auth,
         metadata: { type: 'auth.granted', resume },
       });
     });
@@ -126,7 +138,7 @@ export class Runtime {
     await this.loadMcpServers();
   }
 
-  async getOrCreateSwarmInstance(swarmRef: Record<string, unknown>, instanceKey: string): Promise<SwarmInstance> {
+  async getOrCreateSwarmInstance(swarmRef: ObjectRefLike, instanceKey: string): Promise<SwarmInstance> {
     if (!this.registry) throw new Error('registry가 필요합니다.');
     const swarmResource = resolveRef(this.registry, swarmRef, 'Swarm');
     if (!swarmResource) {
@@ -160,13 +172,13 @@ export class Runtime {
     auth,
     metadata,
   }: {
-    swarmRef: Record<string, unknown>;
+    swarmRef: ObjectRefLike;
     instanceKey: string;
     agentName?: string;
     input: string;
-    origin?: Record<string, unknown>;
-    auth?: Record<string, unknown>;
-    metadata?: Record<string, unknown>;
+    origin?: JsonObject;
+    auth?: JsonObject;
+    metadata?: JsonObject;
   }): Promise<void> {
     const swarmInstance = await this.getOrCreateSwarmInstance(swarmRef, instanceKey);
     swarmInstance.enqueueEvent({
@@ -178,10 +190,7 @@ export class Runtime {
     });
   }
 
-  registerDynamicTool(
-    toolDef: { name: string; handler: (ctx: unknown, input: Record<string, unknown>) => unknown; tool?: Resource; definition?: Record<string, unknown> },
-    owner?: string
-  ): void {
+  registerDynamicTool(toolDef: DynamicToolDefinition, owner?: string): void {
     if (!toolDef?.name || typeof toolDef.handler !== 'function') {
       throw new Error('동적 Tool 등록에는 name과 handler가 필요합니다.');
     }
@@ -189,8 +198,8 @@ export class Runtime {
       throw new Error('ToolRegistry가 초기화되지 않았습니다.');
     }
     this.toolRegistry.exports.set(toolDef.name, {
-      tool: (toolDef.tool as Resource) || null,
-      definition: (toolDef.definition || { name: toolDef.name }) as { name: string },
+      tool: toolDef.tool || null,
+      definition: toolDef.definition || { name: toolDef.name },
       handler: toolDef.handler,
       owner,
     });
@@ -208,7 +217,7 @@ export class Runtime {
     this.mcpManager.registerAdapter(type, factory);
   }
 
-  async handleConnectorEvent(connectorName: string, payload: Record<string, unknown>): Promise<void> {
+  async handleConnectorEvent(connectorName: string, payload: JsonObject): Promise<void> {
     const connector = this.connectors.get(connectorName);
     if (!connector) {
       throw new Error(`Connector를 찾을 수 없습니다: ${connectorName}`);
@@ -216,7 +225,7 @@ export class Runtime {
     await connector.handleEvent(payload);
   }
 
-  async emitProgress(origin: Record<string, unknown>, text: string, auth?: Record<string, unknown>): Promise<void> {
+  async emitProgress(origin: JsonObject, text: string, auth?: JsonObject): Promise<void> {
     const connectorName = origin.connector as string | undefined;
     if (!connectorName) return;
     const connectorConfig = this.registry?.get('Connector', connectorName);
@@ -248,7 +257,7 @@ export class Runtime {
     this.progressTimers.set(key, timer);
   }
 
-  async emitFinal(origin: Record<string, unknown>, text: string, auth?: Record<string, unknown>): Promise<void> {
+  async emitFinal(origin: JsonObject, text: string, auth?: JsonObject): Promise<void> {
     const connectorName = origin.connector as string | undefined;
     if (!connectorName) return;
     const connectorConfig = this.registry?.get('Connector', connectorName);
@@ -260,7 +269,7 @@ export class Runtime {
     await adapter.postMessage({ channel, threadTs, text, origin, auth });
   }
 
-  async emitWorkspaceEvent(point: 'workspace.repoAvailable' | 'workspace.worktreeMounted', payload: Record<string, unknown>): Promise<void> {
+  async emitWorkspaceEvent(point: 'workspace.repoAvailable' | 'workspace.worktreeMounted', payload: JsonObject): Promise<void> {
     this.events.emit(point, payload);
     for (const instance of this.swarmInstances.values()) {
       for (const agent of instance.agents.values()) {

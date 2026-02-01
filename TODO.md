@@ -6,7 +6,7 @@
     - [x] skill (스킬 기능)
     - [x] connectors/slack
     - [x] tools/slack
-    - [x] compaction (컨텍스트 압축 도구)
+    - [x] compaction (컨텍스트 압축 확장)
 - [x] 2. 전체 TypeScript 전환 (최신 문법, moduleResolution=NodeNext, verbatimModuleSyntax, allowImportingTsExtensions 활성화)
 - [x] 3. LLM 어댑터 구현 (AI-SDK v6 래핑, provider=ai-sdk@v6 형태로 메시지 저장)
 - [x] 4. OAuthManager 구현
@@ -24,7 +24,7 @@
 - [x] 16. validator 보완 (liveConfig.applyAt, connector staticToken, export auth scopes)
 - [x] 17. Connector 런타임/egress updatePolicy 통합
 - [x] 18. MCPServer 런타임 통합 (리소스/툴/프롬프트 주입)
-- [x] 19. ToolSearch 확장 구현 및 LiveConfig 제안 흐름 연결
+- [x] 19. ToolSearch 도구 구현 및 LiveConfig 제안 흐름 연결
 - [x] 20. LiveConfig 정본 파일 직접 수정 방지(권한/락) 적용
 - [x] 21. MCP 어댑터(실제 프로토콜) 구현 및 테스트
 - [x] 22. Connector 진행 업데이트 자동화(턴/스텝 기반 기본 정책)

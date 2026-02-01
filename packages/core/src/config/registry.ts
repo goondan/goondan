@@ -1,16 +1,8 @@
-export interface ResourceMeta {
-  name: string;
-  labels?: Record<string, string>;
-  [key: string]: unknown;
-}
+import type { JsonObject, Resource } from '../sdk/types.js';
 
-export interface Resource {
-  apiVersion?: string;
-  kind: string;
-  metadata: ResourceMeta;
-  spec?: Record<string, unknown>;
-  [key: string]: unknown;
-}
+export type { Resource } from '../sdk/types.js';
+
+type LabelMap = JsonObject;
 
 interface RegistryOptions {
   baseDir?: string;
@@ -66,9 +58,9 @@ export class ConfigRegistry {
     return [...kindMap.values()];
   }
 
-  findByLabels(kind: string, matchLabels: Record<string, string> = {}): Resource[] {
+  findByLabels(kind: string, matchLabels: LabelMap = {}): Resource[] {
     return this.list(kind).filter((resource) => {
-      const labels = resource.metadata?.labels || {};
+      const labels = (resource.metadata?.labels || {}) as LabelMap;
       return Object.entries(matchLabels).every(([key, value]) => labels[key] === value);
     });
   }

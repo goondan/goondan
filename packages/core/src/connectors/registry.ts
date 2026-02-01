@@ -1,9 +1,10 @@
 import type { Runtime } from '../runtime/runtime.js';
 import type { Resource } from '../config/registry.js';
+import type { JsonObject } from '../sdk/types.js';
 
 export interface ConnectorAdapter {
-  handleEvent: (payload: Record<string, unknown>) => Promise<void>;
-  postMessage?: (input: { channel: string; text: string; threadTs?: string; origin?: Record<string, unknown>; auth?: Record<string, unknown> }) => Promise<unknown>;
+  handleEvent: (payload: JsonObject) => Promise<void>;
+  postMessage?: (input: { channel: string; text: string; threadTs?: string; origin?: JsonObject; auth?: JsonObject }) => Promise<unknown>;
 }
 
 export type ConnectorFactory = (options: {

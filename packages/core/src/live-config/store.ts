@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { appendJsonl, ensureDir, readJsonl, readLastJsonl, readYamlIfExists, writeYaml } from '../utils/fs.js';
+import type { JsonObject } from '../sdk/types.js';
 
 interface LiveConfigStoreOptions {
   rootDir: string;
@@ -46,15 +47,15 @@ export class LiveConfigStore {
     await fs.chmod(this.statusLogPath, 0o600);
   }
 
-  async readPatches<T = Record<string, unknown>>(): Promise<T[]> {
+  async readPatches<T = JsonObject>(): Promise<T[]> {
     return readJsonl<T>(this.patchLogPath);
   }
 
-  async readLastPatch<T = Record<string, unknown>>(): Promise<T | null> {
+  async readLastPatch<T = JsonObject>(): Promise<T | null> {
     return readLastJsonl<T>(this.patchLogPath);
   }
 
-  async readCursor<T = Record<string, unknown>>(): Promise<T | null> {
+  async readCursor<T = JsonObject>(): Promise<T | null> {
     return readYamlIfExists<T>(this.cursorPath);
   }
 

@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import type { Block, ExtensionApi, JsonObject } from '@goondan/core';
 
-interface SkillEntry {
+interface SkillEntry extends JsonObject {
   name: string;
   skillPath: string;
   dir: string;
@@ -13,8 +14,12 @@ interface SkillExtensionState {
   rootDir: string;
 }
 
-export async function register(api: Record<string, unknown>): Promise<void> {
-  const extState = (api as { extState?: () => SkillExtensionState }).extState?.() || {
+interface SkillExtensionConfig {
+  rootDir?: string;
+}
+
+export async function register(api: ExtensionApi<SkillExtensionState, SkillExtensionConfig>): Promise<void> {
+  const extState = api.extState?.() || {
     catalog: [],
     rootDir: process.cwd(),
   };
@@ -22,9 +27,8 @@ export async function register(api: Record<string, unknown>): Promise<void> {
   extState.rootDir = resolveRootDir(api);
   extState.catalog = await scanSkills(extState.rootDir);
 
-  const pipelines = api.pipelines as { mutate?: (point: string, fn: (ctx: Record<string, unknown>) => Record<string, unknown>) => void };
-  pipelines?.mutate?.('step.blocks', (ctx) => {
-    const blocks = (ctx.blocks as Array<Record<string, unknown>> | undefined) || [];
+  api.pipelines.mutate('step.blocks', (ctx) => {
+    const blocks: Block[] = ctx.blocks ? [...ctx.blocks] : [];
     blocks.push({
       type: 'skills.catalog',
       items: extState.catalog,
@@ -32,15 +36,14 @@ export async function register(api: Record<string, unknown>): Promise<void> {
     return { ...ctx, blocks };
   });
 
-  const tools = api.tools as { register?: (toolDef: { name: string; handler: (ctx: unknown, input: Record<string, unknown>) => Promise<unknown> }) => void };
-  tools?.register?.({
+  api.tools.register({
     name: 'skills.list',
     handler: async () => ({ items: extState.catalog }),
   });
 
-  tools?.register?.({
+  api.tools.register({
     name: 'skills.open',
-    handler: async (_ctx, input) => {
+    handler: async (_ctx, input: JsonObject) => {
       const skillPath = String(input.path || '');
       if (!skillPath) {
         throw new Error('path가 필요합니다.');
@@ -50,9 +53,9 @@ export async function register(api: Record<string, unknown>): Promise<void> {
     },
   });
 
-  tools?.register?.({
+  api.tools.register({
     name: 'skills.run',
-    handler: async (_ctx, input) => {
+    handler: async (_ctx, input: JsonObject) => {
       const command = String(input.command || '');
       const args = Array.isArray(input.args) ? input.args.map(String) : [];
       const cwd = input.cwd ? String(input.cwd) : undefined;
@@ -64,16 +67,15 @@ export async function register(api: Record<string, unknown>): Promise<void> {
     },
   });
 
-  const events = api.events as { on?: (event: string, fn: (payload: Record<string, unknown>) => void) => void };
-  events?.on?.('workspace.repoAvailable', async (payload) => {
-    const repoPath = typeof payload?.path === 'string' ? payload.path : extState.rootDir;
+  api.events.on?.('workspace.repoAvailable', async (payload) => {
+    const payloadObj = payload as JsonObject;
+    const repoPath = typeof payloadObj?.path === 'string' ? payloadObj.path : extState.rootDir;
     extState.catalog = await scanSkills(repoPath);
   });
 }
 
-function resolveRootDir(api: Record<string, unknown>): string {
-  const extension = api.extension as { spec?: { config?: { rootDir?: string } } } | undefined;
-  return extension?.spec?.config?.rootDir || process.cwd();
+function resolveRootDir(api: ExtensionApi<SkillExtensionState, SkillExtensionConfig>): string {
+  return api.extension?.spec?.config?.rootDir || process.cwd();
 }
 
 async function scanSkills(rootDir: string): Promise<SkillEntry[]> {

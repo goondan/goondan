@@ -1,0 +1,48 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: mock-model
+spec:
+  provider: mock
+  name: mock
+  options:
+    temperature: 0
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: planner
+spec:
+  modelConfig:
+    modelRef: Model/mock-model
+    params:
+      temperature: 0
+  prompts:
+    systemRef: "./prompts/planner.system.md"
+  tools:
+    - { kind: Tool, name: toolSearch }
+  extensions:
+    - { kind: Extension, name: compaction }
+  liveConfig:
+    allowedPaths:
+      agentRelative:
+        - "/spec/tools"
+        - "/spec/extensions"
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entrypoint: { kind: Agent, name: planner }
+  agents:
+    - { kind: Agent, name: planner }
+  policy:
+    maxStepsPerTurn: 8
+    liveConfig:
+      enabled: true
+      applyAt: ["step.config"]
+      allowedPaths:
+        agentRelative:
+          - "/spec/tools"
+          - "/spec/extensions"

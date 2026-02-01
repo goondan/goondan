@@ -28,7 +28,12 @@ export function createSlackConnector(options) {
             return;
         }
     }
-    async function postMessage(input) {
+    async function send(input) {
+        const channel = input.origin?.channel;
+        const threadTs = input.origin?.threadTs;
+        if (!channel) {
+            throw new Error('Slack connector: origin.channel이 필요합니다.');
+        }
         let token = resolveStaticToken(config);
         if (!token) {
             const oauthAppRef = config.spec?.auth?.oauthAppRef;
@@ -52,14 +57,14 @@ export function createSlackConnector(options) {
                 'Content-Type': 'application/json; charset=utf-8',
             },
             body: JSON.stringify({
-                channel: input.channel,
+                channel,
                 text: input.text,
-                thread_ts: input.threadTs,
+                thread_ts: threadTs,
             }),
         });
         return (await response.json());
     }
-    return { handleEvent, postMessage };
+    return { handleEvent, send };
 }
 function resolveStaticToken(config) {
     const tokenConfig = config.spec?.auth?.staticToken;

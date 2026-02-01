@@ -16,3 +16,6 @@ Runtime Plane의 Turn/Step 실행 루프와 파이프라인을 구현합니다.
 - Step 시작 시 LiveConfigManager를 통해 Effective Config를 고정합니다.
 - toolCall/llmCall 파이프라인은 wrapper 기반 onion 구조를 사용합니다.
 - OAuth 암호화 키는 `GOONDAN_DATA_SECRET_KEY`로만 로드합니다.
+- 등록되지 않은 Connector 어댑터는 ingress/egress가 있을 때만 경고합니다.
+- CLI origin은 첫 LLM 호출 시 진행 메시지를 한 번 출력합니다.
+- channel이 없는 Connector(예: cli)는 emitFinal/emitProgress에서 바로 send를 호출합니다.

@@ -170,3 +170,32 @@ OAuth 암호화 키 env를 `GOONDAN_DATA_SECRET_KEY`로 통일하고, 구 키/�
 ## 18) 추가 작업 (@ai-sdk 패키지 최신화)
 - `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/anthropic` 최신 버전으로 갱신
 - core 빌드 재확인 완료
+
+## 19) 추가 작업 (CLI 입력/커넥터 경고 개선)
+- `goondan run`에서 TTY 대화형 입력이 정상 동작하도록 입력 처리 순서 수정
+- 미등록 Connector 어댑터 경고를 ingress/egress가 있는 경우로 제한해 불필요한 경고 감소
+
+## 20) 추가 작업 (AI SDK tool 이름 sanitize)
+- tool 이름을 provider 제약에 맞게 안전한 이름으로 변환하고 결과는 원래 이름으로 매핑
+- AI SDK trace에 tool 이름 매핑 정보를 포함
+
+## 21) 추가 작업 (모델 이름 오타 수정)
+- `claude-sonnect-4-5` 오타를 `claude-sonnet-4-5`로 수정 (init 템플릿/시나리오 문서)
+
+## 22) 추가 작업 (CLI 응답/LiveConfig lock 개선)
+- CLI에서 첫 LLM 호출 시 진행 메시지를 출력해 응답 대기 상태를 표시
+- LiveConfig lock 파일이 stale(pid 없음)일 경우 자동 정리 후 재생성
+
+## 23) 추가 작업 (LLM 호출 timeout 기본값)
+- ai-sdk 호출에 기본 timeout(60초) 추가 및 실패 메시지에 모델/timeout 정보를 포함
+- timeout은 params/options/env로 override 가능
+
+## 24) 추가 작업 (CLI 출력 보장)
+- channel 없는 Connector(cli 등)도 emitFinal/emitProgress에서 직접 send 호출
+- Connector egress가 channel 필드에 의존하지 않도록 정리
+
+## 25) 추가 작업 (ConnectorAdapter 일반화)
+- ConnectorAdapter `postMessage`를 `send`로 변경하고 slack 전용 필드 제거
+- Runtime egress는 origin 기반으로 전송하며, progress/final 구분을 kind로 전달
+- docs/spec_api.md 및 base/core 커넥터 구현 반영
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**

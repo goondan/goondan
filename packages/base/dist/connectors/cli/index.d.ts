@@ -16,7 +16,7 @@ interface CliConnectorOptions {
 }
 export declare function createCliConnector(options: CliConnectorOptions): {
     handleEvent: (payload: JsonObject) => Promise<void>;
-    postMessage: (input: {
+    send: (input: {
         text: string;
     }) => Promise<{
         ok: true;

@@ -4,7 +4,15 @@ import type { JsonObject } from '../sdk/types.js';
 
 export interface ConnectorAdapter {
   handleEvent: (payload: JsonObject) => Promise<void>;
-  postMessage?: (input: { channel: string; text: string; threadTs?: string; origin?: JsonObject; auth?: JsonObject }) => Promise<unknown>;
+  send?: (input: ConnectorEgressInput) => Promise<unknown>;
+}
+
+export interface ConnectorEgressInput {
+  text: string;
+  origin?: JsonObject;
+  auth?: JsonObject;
+  metadata?: JsonObject;
+  kind?: 'progress' | 'final';
 }
 
 export type ConnectorFactory = (options: {

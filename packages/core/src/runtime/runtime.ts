@@ -230,15 +230,16 @@ export class Runtime {
     if (!connectorName) return;
     const connectorConfig = this.registry?.get('Connector', connectorName);
     const adapter = this.connectors.get(connectorName);
-    if (!connectorConfig || !adapter?.postMessage) return;
+    if (!connectorConfig || !adapter?.send) return;
 
     const updatePolicy = (connectorConfig.spec as { egress?: { updatePolicy?: { mode?: string; debounceMs?: number } } })?.egress?.updatePolicy;
-    if (updatePolicy?.mode !== 'updateInThread') return;
-
-    const debounceMs = updatePolicy.debounceMs ?? 1500;
+    const debounceMs = updatePolicy?.debounceMs ?? 1500;
     const channel = origin.channel as string | undefined;
-    if (!channel) return;
     const threadTs = origin.threadTs as string | undefined;
+    if (updatePolicy?.mode !== 'updateInThread' || !channel) {
+      await adapter.send({ text, origin, auth, kind: 'progress' });
+      return;
+    }
     const key = `${connectorName}:${channel}:${threadTs || ''}`;
 
     this.progressPayloads.set(key, { connectorName, origin, text, debounceMs });
@@ -252,7 +253,7 @@ export class Runtime {
       if (!payload) return;
       this.progressPayloads.delete(key);
       this.progressTimers.delete(key);
-      await adapter.postMessage?.({ channel, threadTs, text: payload.text, origin: payload.origin, auth });
+      await adapter.send?.({ text: payload.text, origin: payload.origin, auth, kind: 'progress' });
     }, debounceMs);
     this.progressTimers.set(key, timer);
   }
@@ -262,11 +263,8 @@ export class Runtime {
     if (!connectorName) return;
     const connectorConfig = this.registry?.get('Connector', connectorName);
     const adapter = this.connectors.get(connectorName);
-    if (!connectorConfig || !adapter?.postMessage) return;
-    const channel = origin.channel as string | undefined;
-    if (!channel) return;
-    const threadTs = origin.threadTs as string | undefined;
-    await adapter.postMessage({ channel, threadTs, text, origin, auth });
+    if (!connectorConfig || !adapter?.send) return;
+    await adapter.send({ text, origin, auth, kind: 'final' });
   }
 
   async emitWorkspaceEvent(point: 'workspace.repoAvailable' | 'workspace.worktreeMounted', payload: JsonObject): Promise<void> {
@@ -282,11 +280,17 @@ export class Runtime {
     if (!this.registry) return;
     const connectors = this.registry.list('Connector');
     for (const connector of connectors) {
-      const type = (connector.spec as { type?: string } | undefined)?.type;
+      const spec = connector.spec as { type?: string; ingress?: Array<unknown>; egress?: unknown } | undefined;
+      const type = spec?.type;
       if (!type) continue;
       const adapter = this.connectorRegistry.createConnector(type, { runtime: this, connectorConfig: connector, logger: this.logger });
       if (!adapter) {
-        this.logger.warn(`Connector ${connector.metadata.name} 타입(${type}) 어댑터가 없습니다.`);
+        const ingress = Array.isArray(spec?.ingress) ? spec?.ingress : [];
+        const hasIngress = ingress.length > 0;
+        const hasEgress = Boolean(spec?.egress);
+        if (hasIngress || hasEgress) {
+          this.logger.warn(`Connector ${connector.metadata.name} 타입(${type}) 어댑터가 없습니다.`);
+        }
         continue;
       }
       this.connectors.set(connector.metadata.name, adapter);

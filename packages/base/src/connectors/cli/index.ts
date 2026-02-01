@@ -72,14 +72,14 @@ export function createCliConnector(options: CliConnectorOptions) {
     }
   }
 
-  async function postMessage(input: { text: string }): Promise<{ ok: true }> {
+  async function send(input: { text: string }): Promise<{ ok: true }> {
     if (input?.text) {
       console.log(input.text);
     }
     return { ok: true };
   }
 
-  return { handleEvent, postMessage };
+  return { handleEvent, send };
 }
 
 function readPath(payload: JsonObject, expr?: string): unknown {

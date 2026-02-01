@@ -17,7 +17,7 @@ goondan init
 또한 `goondan init`는 Git 번들 `github.com/goondan/goondan/packages/base`를 자동 등록한다.
 네트워크 접근이 불가능하면 등록이 실패할 수 있다.
 
-- **Model**: anthropic `claude-sonnect-4-5`
+- **Model**: anthropic `claude-sonnet-4-5`
   - openai `gpt-5.2`, google `gemini-2.5-flash`는 주석 처리된 샘플로 제공
 - **Agent**: `default`
   - `prompts.system`으로 인라인 시스템 프롬프트 구성
@@ -72,7 +72,7 @@ metadata:
   name: default-model
 spec:
   provider: anthropic
-  name: claude-sonnect-4-5
+  name: claude-sonnet-4-5
 ---
 kind: Agent
 metadata:

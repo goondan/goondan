@@ -110,12 +110,12 @@ Connector는 외부 이벤트를 Runtime에 전달하는 어댑터이다.
 ```ts
 interface ConnectorAdapter {
   handleEvent(payload: JsonObject): Promise<void>;
-  postMessage?: (input: {
-    channel: string;
+  send?: (input: {
     text: string;
-    threadTs?: string;
     origin?: JsonObject;
     auth?: JsonObject;
+    metadata?: JsonObject;
+    kind?: 'progress' | 'final';
   }) => Promise<unknown>;
 }
 ```

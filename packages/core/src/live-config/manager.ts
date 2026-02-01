@@ -451,6 +451,11 @@ export class LiveConfigManager {
       await handle.close();
     } catch (err) {
       if (err && typeof err === 'object' && 'code' in err && err.code === 'EEXIST') {
+        const stale = await isStaleLock(lockPath);
+        if (stale) {
+          await fs.unlink(lockPath).catch(() => undefined);
+          return this.ensureLockFile(lockPath);
+        }
         this.logger.warn(`LiveConfig lock 이미 존재: ${lockPath}`);
         return;
       }
@@ -472,6 +477,22 @@ function filterNewPatches(patches: LivePatch[], lastEvaluatedPatchName?: string)
   const idx = patches.findIndex((patch) => patch.metadata?.name === lastEvaluatedPatchName);
   if (idx === -1) return patches;
   return patches.slice(idx + 1);
+}
+
+async function isStaleLock(lockPath: string): Promise<boolean> {
+  const content = await fs.readFile(lockPath, 'utf8').catch(() => null);
+  if (!content) return true;
+  const pid = Number.parseInt(content.trim(), 10);
+  if (!pid) return true;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ESRCH') {
+      return true;
+    }
+    return false;
+  }
 }
 
 function isPathAllowed(pathValue: string, allowedPaths?: string[] | string): boolean {

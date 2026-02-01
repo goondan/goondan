@@ -39,13 +39,13 @@ export function createCliConnector(options) {
             });
         }
     }
-    async function postMessage(input) {
+    async function send(input) {
         if (input?.text) {
             console.log(input.text);
         }
         return { ok: true };
     }
-    return { handleEvent, postMessage };
+    return { handleEvent, send };
 }
 function readPath(payload, expr) {
     if (!expr)

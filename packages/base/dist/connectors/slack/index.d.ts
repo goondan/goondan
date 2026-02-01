@@ -26,10 +26,9 @@ interface SlackConnectorOptions {
 }
 export declare function createSlackConnector(options: SlackConnectorOptions): {
     handleEvent: (payload: JsonObject) => Promise<void>;
-    postMessage: (input: {
-        channel: string;
+    send: (input: {
         text: string;
-        threadTs?: string;
+        origin?: JsonObject;
         auth?: JsonObject;
     }) => Promise<JsonObject>;
 };

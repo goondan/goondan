@@ -161,11 +161,6 @@ async function runCommand(options: RunOptions): Promise<void> {
     throw new Error('agentName 또는 Swarm.entrypoint가 필요합니다.');
   }
 
-  const input = options.input ?? (await readStdin());
-  if (!input) {
-    throw new Error('입력 텍스트가 비어 있습니다. --input 또는 stdin을 사용하세요.');
-  }
-
   const cliConnector = registry.get('Connector', 'cli');
   const dispatchInput = async (text: string) => {
     if (cliConnector) {
@@ -515,7 +510,7 @@ metadata:
   name: default-model
 spec:
   provider: anthropic
-  name: claude-sonnect-4-5
+  name: claude-sonnet-4-5
 
 # ---
 # apiVersion: agents.example.io/v1alpha1
@@ -1051,14 +1046,14 @@ function createCliConnectorAdapter(options: { runtime: Runtime; connectorConfig:
     }
   }
 
-  async function postMessage(input: { text: string }): Promise<{ ok: true }> {
+  async function send(input: { text: string }): Promise<{ ok: true }> {
     if (input?.text) {
       console.log(input.text);
     }
     return { ok: true };
   }
 
-  return { handleEvent, postMessage };
+  return { handleEvent, send };
 }
 
 function readPath(payload: JsonObject, expr?: string): unknown {

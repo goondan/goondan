@@ -407,6 +407,11 @@ export class AgentInstance {
       ? resolveRef(this.registry, modelConfig.modelRef as ObjectRefLike, 'Model')
       : null;
     const llm = this.runtime.llm || (async () => ({ content: '', toolCalls: [] }));
+    const metadata = (stepCtx.turn.metadata ||= {});
+    if ((stepCtx.turn.origin as JsonObject | undefined)?.connector === 'cli' && !metadata._llmProgressEmitted) {
+      metadata._llmProgressEmitted = true;
+      await this.runtime.emitProgress(stepCtx.turn.origin, '모델 호출 중...', stepCtx.turn.auth);
+    }
 
     return llm({
       model: modelRef,

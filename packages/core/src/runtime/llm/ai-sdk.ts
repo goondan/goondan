@@ -13,6 +13,7 @@ interface AiSdkTrace {
     system?: string;
     prompt?: string;
     tools: string[];
+    toolNameMap?: Record<string, string>;
   };
   response: {
     text: string;
@@ -43,41 +44,53 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
     const system = extractSystemPrompt(input.blocks);
     const prompt = extractUserPrompt(input.blocks);
 
-    const tools = buildAiTools(input.tools);
+    const { tools, toolNameMap } = buildAiTools(input.tools);
     const messages = buildMessages(system, prompt);
 
-    const result = await (generateText as unknown as (args: UnknownObject) => Promise<any>)({
-      model,
-      messages,
-      tools: tools as unknown as UnknownObject,
-      ...(input.params || {}),
-    });
+    const timeout = resolveTimeout(input.params, modelSpec.options);
+    try {
+      const result = await (generateText as unknown as (args: UnknownObject) => Promise<any>)({
+        model,
+        messages,
+        tools: tools as unknown as UnknownObject,
+        ...(timeout ? { timeout } : {}),
+        ...(input.params || {}),
+      });
 
-    const toolCalls = (result.toolCalls || []).map((call: any) => ({
-      id: call.toolCallId,
-      name: call.toolName,
-      input: (call as { input?: JsonObject }).input,
-    }));
+      const toolCalls = (result.toolCalls || []).map((call: any) => {
+        const rawName = call.toolName as string;
+        return {
+          id: call.toolCallId,
+          name: toolNameMap[rawName] || rawName,
+          input: (call as { input?: JsonObject }).input,
+        };
+      });
 
-    const trace: AiSdkTrace = {
-      provider: providerTag,
-      request: {
-        model: modelId,
-        system,
-        prompt,
-        tools: Object.keys(tools),
-      },
-      response: {
-        text: result.text,
-        toolCalls: (result.toolCalls || []) as Array<{ toolCallId?: string; toolName: string; input?: JsonObject }>,
-      },
-    };
+      const trace: AiSdkTrace = {
+        provider: providerTag,
+        request: {
+          model: modelId,
+          system,
+          prompt,
+          tools: Object.keys(tools),
+          toolNameMap: Object.keys(toolNameMap).length > 0 ? toolNameMap : undefined,
+        },
+        response: {
+          text: result.text,
+          toolCalls: (result.toolCalls || []) as Array<{ toolCallId?: string; toolName: string; input?: JsonObject }>,
+        },
+      };
 
-    return {
-      content: result.text,
-      toolCalls,
-      meta: trace,
-    };
+      return {
+        content: result.text,
+        toolCalls,
+        meta: trace,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const timeoutInfo = timeout ? ` (timeout=${timeout}ms)` : '';
+      throw new Error(`LLM 호출 실패: ${modelId}${timeoutInfo} - ${message}`);
+    }
   };
 }
 
@@ -175,11 +188,17 @@ function buildMessages(system?: string, prompt?: string): ModelMessage[] {
 
 function buildAiTools(toolCatalog: ToolCatalogItem[]) {
   const tools: { [key: string]: ReturnType<typeof aiTool> } = {};
+  const toolNameMap: Record<string, string> = {};
+  const usedNames = new Set<string>();
+  let index = 0;
 
   for (const item of toolCatalog) {
-    const name = String(item.name || '');
-    if (!name) continue;
-    const description = typeof item.description === 'string' ? item.description : '';
+    const originalName = String(item.name || '').trim();
+    if (!originalName) continue;
+    const name = sanitizeToolName(originalName, usedNames, index);
+    index += 1;
+    toolNameMap[name] = originalName;
+    const description = describeTool(originalName, name, item.description);
     const parameters = (item.parameters || { type: 'object', additionalProperties: true }) as JsonObject;
 
     tools[name] = aiTool({
@@ -188,5 +207,47 @@ function buildAiTools(toolCatalog: ToolCatalogItem[]) {
     });
   }
 
-  return tools;
+  return { tools, toolNameMap };
+}
+
+function sanitizeToolName(original: string, used: Set<string>, index: number): string {
+  let name = original.replace(/[^a-zA-Z0-9_-]/g, '_');
+  name = name.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  if (!name) {
+    name = `tool_${index + 1}`;
+  }
+  name = name.slice(0, 128);
+  let candidate = name;
+  let counter = 1;
+  while (used.has(candidate)) {
+    const suffix = `_${counter}`;
+    const maxBaseLen = 128 - suffix.length;
+    candidate = `${name.slice(0, Math.max(1, maxBaseLen))}${suffix}`;
+    counter += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function describeTool(originalName: string, sanitizedName: string, description?: string): string {
+  const base = typeof description === 'string' ? description : '';
+  if (sanitizedName === originalName) {
+    return base;
+  }
+  const hint = `original: ${originalName}`;
+  if (!base) return hint;
+  return `${base} (${hint})`;
+}
+
+function resolveTimeout(params?: JsonObject, options?: JsonObject): number | undefined {
+  const paramTimeout = params?.timeout ?? params?.timeoutMs;
+  if (typeof paramTimeout === 'number' && Number.isFinite(paramTimeout)) return paramTimeout;
+  const optionTimeout = options?.timeout ?? options?.timeoutMs;
+  if (typeof optionTimeout === 'number' && Number.isFinite(optionTimeout)) return optionTimeout;
+  const envTimeout = process.env.GOONDAN_LLM_TIMEOUT_MS;
+  if (envTimeout) {
+    const parsed = Number.parseInt(envTimeout, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 60000;
 }

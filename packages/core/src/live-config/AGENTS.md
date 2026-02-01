@@ -9,3 +9,4 @@ Live Config 오버레이 및 patch log/status/cursor 관리 로직이 위치합�
 ## 참고 사항
 - patches.jsonl/patch-status.jsonl/cursor.yaml은 LiveConfigManager 단일 작성자 원칙을 지킵니다.
 - 적용은 step.config Safe Point에서만 이루어집니다.
+- LiveConfig lock 파일은 stale(pid 없음)일 경우 자동으로 정리합니다.

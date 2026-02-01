@@ -1,9 +1,7 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import { resolveRef } from '../config/ref.js';
-import { ensureDir, readFileIfExists } from '../utils/fs.js';
 import type {
   AuthResumePayload,
   EventBus,
@@ -13,6 +11,10 @@ import type {
   OAuthTokenResult,
   ValueSource,
 } from '../sdk/types.js';
+import { createAes256GcmCodec, loadEncryptionKey } from '../utils/encryption.js';
+import { readFileIfExists } from '../utils/fs.js';
+import type { AuthSessionRecord, OAuthGrantRecord, StringMap } from './oauth-store.js';
+import { OAuthStore } from './oauth-store.js';
 
 interface OAuthManagerOptions {
   registry?: ConfigRegistry | null;
@@ -44,163 +46,6 @@ interface OAuthContext {
 }
 
 type OAuthAppResource = Resource<OAuthAppSpec>;
-
-type EncryptedString = string;
-type StringMap = { [key: string]: string };
-
-interface OAuthGrantRecord {
-  apiVersion?: string;
-  kind: 'OAuthGrantRecord';
-  metadata: { name: string };
-  spec: {
-    provider: string;
-    oauthAppRef: ObjectRefLike;
-    subject: string;
-    flow: 'authorization_code' | 'device_code';
-    scopesGranted: string[];
-    token: {
-      tokenType?: string;
-      accessToken: EncryptedString;
-      refreshToken?: EncryptedString;
-      expiresAt?: string;
-    };
-    createdAt: string;
-    updatedAt: string;
-    revoked?: boolean;
-    providerData?: JsonObject;
-  };
-}
-
-interface AuthSessionRecord {
-  apiVersion?: string;
-  kind: 'AuthSessionRecord';
-  metadata: { name: string };
-  spec: {
-    provider: string;
-    oauthAppRef: { kind: string; name: string };
-    subjectMode: 'global' | 'user';
-    subject: string;
-    requestedScopes: string[];
-    flow: {
-      type: 'authorization_code';
-      pkce: {
-        method: 'S256';
-        codeVerifier: EncryptedString;
-        codeChallenge: string;
-      };
-      state: EncryptedString;
-      stateHash: string;
-    };
-    status: 'pending' | 'completed' | 'failed' | 'expired';
-    createdAt: string;
-    expiresAt: string;
-    resume?: AuthResumePayload;
-  };
-}
-
-class OAuthStore {
-  private rootDir: string;
-  private key: Buffer;
-
-  constructor(rootDir: string, key: Buffer) {
-    this.rootDir = rootDir;
-    this.key = key;
-  }
-
-  private grantPath(subjectHash: string) {
-    return path.join(this.rootDir, 'grants', `${subjectHash}.json`);
-  }
-
-  private sessionPath(sessionId: string) {
-    return path.join(this.rootDir, 'sessions', `${sessionId}.json`);
-  }
-
-  private sessionIndexPath() {
-    return path.join(this.rootDir, 'sessions', 'index.json');
-  }
-
-  async ensure(): Promise<void> {
-    await ensureDir(path.join(this.rootDir, 'grants'));
-    await ensureDir(path.join(this.rootDir, 'sessions'));
-  }
-
-  async loadGrant(subjectHash: string): Promise<OAuthGrantRecord | null> {
-    const content = await readFileIfExists(this.grantPath(subjectHash));
-    if (!content) return null;
-    return JSON.parse(content) as OAuthGrantRecord;
-  }
-
-  async saveGrant(subjectHash: string, record: OAuthGrantRecord): Promise<void> {
-    await this.ensure();
-    await fs.writeFile(this.grantPath(subjectHash), JSON.stringify(record, null, 2), 'utf8');
-  }
-
-  async loadSession(sessionId: string): Promise<AuthSessionRecord | null> {
-    const content = await readFileIfExists(this.sessionPath(sessionId));
-    if (!content) return null;
-    return JSON.parse(content) as AuthSessionRecord;
-  }
-
-  async saveSession(record: AuthSessionRecord): Promise<void> {
-    await this.ensure();
-    await fs.writeFile(this.sessionPath(record.metadata.name), JSON.stringify(record, null, 2), 'utf8');
-    await this.indexSession(record);
-  }
-
-  async updateSession(record: AuthSessionRecord): Promise<void> {
-    await fs.writeFile(this.sessionPath(record.metadata.name), JSON.stringify(record, null, 2), 'utf8');
-  }
-
-  async findSessionByStateHash(stateHash: string): Promise<AuthSessionRecord | null> {
-    const index = await this.loadSessionIndex();
-    const sessionId = index[stateHash];
-    if (!sessionId) return null;
-    return this.loadSession(sessionId);
-  }
-
-  private async indexSession(record: AuthSessionRecord): Promise<void> {
-    const index = await this.loadSessionIndex();
-    index[record.spec.flow.stateHash] = record.metadata.name;
-    await fs.writeFile(this.sessionIndexPath(), JSON.stringify(index, null, 2), 'utf8');
-  }
-
-  private async loadSessionIndex(): Promise<StringMap> {
-    const content = await readFileIfExists(this.sessionIndexPath());
-    if (!content) return {};
-    return JSON.parse(content) as StringMap;
-  }
-
-  encrypt(value: string): EncryptedString {
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    const tag = cipher.getAuthTag();
-
-    const payload = {
-      alg: 'A256GCM',
-      iv: iv.toString('base64'),
-      tag: tag.toString('base64'),
-      data: encrypted.toString('base64'),
-    };
-    return `enc:${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')}`;
-  }
-
-  decrypt(value: EncryptedString): string {
-    if (!value.startsWith('enc:')) {
-      return value;
-    }
-    const payloadJson = Buffer.from(value.slice(4), 'base64').toString('utf8');
-    const payload = JSON.parse(payloadJson) as { iv: string; tag: string; data: string };
-    const iv = Buffer.from(payload.iv, 'base64');
-    const tag = Buffer.from(payload.tag, 'base64');
-    const encrypted = Buffer.from(payload.data, 'base64');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, iv);
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-    return decrypted.toString('utf8');
-  }
-}
-
 export class OAuthManager {
   private registry: ConfigRegistry | null;
   private stateDir: string;
@@ -214,8 +59,11 @@ export class OAuthManager {
     this.stateDir = options.stateDir || path.join(process.cwd(), 'state');
     this.publicBaseUrl = options.publicBaseUrl || process.env.GOONDAN_PUBLIC_URL || null;
     this.logger = options.logger || console;
-    const key = loadEncryptionKey(options.encryptionKey || process.env.GOONDAN_OAUTH_KEY, this.logger);
-    this.store = new OAuthStore(path.join(this.stateDir, 'oauth'), key);
+    const key = loadEncryptionKey(
+      options.encryptionKey || process.env.GOONDAN_DATA_SECRET_KEY,
+      'GOONDAN_DATA_SECRET_KEY'
+    );
+    this.store = new OAuthStore(path.join(this.stateDir, 'oauth'), createAes256GcmCodec(key));
     this.events = options.events || null;
   }
 
@@ -498,26 +346,6 @@ function hashSubject(appName: string, subject: string): string {
 
 function hashValue(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
-}
-
-function loadEncryptionKey(rawKey: string | undefined, logger: Console): Buffer {
-  if (!rawKey) {
-    logger.warn('GOONDAN_OAUTH_KEY가 없어 임시 키를 생성했습니다. 재시작 시 토큰 복호화가 불가능할 수 있습니다.');
-    return crypto.randomBytes(32);
-  }
-  if (rawKey.startsWith('base64:')) {
-    const buf = Buffer.from(rawKey.replace('base64:', ''), 'base64');
-    if (buf.length !== 32) throw new Error('GOONDAN_OAUTH_KEY는 32바이트여야 합니다.');
-    return buf;
-  }
-  if (/^[0-9a-fA-F]{64}$/.test(rawKey)) {
-    return Buffer.from(rawKey, 'hex');
-  }
-  const buf = Buffer.from(rawKey, 'base64');
-  if (buf.length !== 32) {
-    throw new Error('GOONDAN_OAUTH_KEY는 32바이트여야 합니다.');
-  }
-  return buf;
 }
 
 function base64Url(buffer: Buffer): string {

@@ -7,6 +7,7 @@
 - merge.ts: Config 병합 규칙 구현
 - ids.ts: ID 생성
 - json.ts: 깊은 복제
+- encryption.ts: AES-256-GCM 암호화/복호화 및 키 파싱
 
 ## 참고 사항
 - merge.js는 배열을 덮어쓰는 병합 규칙을 따릅니다.

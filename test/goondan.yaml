@@ -1,0 +1,68 @@
+# Goondan init template
+# - base 번들은 Git 번들로 등록됩니다.
+
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  name: claude-sonnect-4-5
+
+# ---
+# apiVersion: agents.example.io/v1alpha1
+# kind: Model
+# metadata:
+#   name: openai-gpt-5-2
+# spec:
+#   provider: openai
+#   name: gpt-5.2
+
+# ---
+# apiVersion: agents.example.io/v1alpha1
+# kind: Model
+# metadata:
+#   name: google-gemini-2-5-flash
+# spec:
+#   provider: google
+#   name: gemini-2.5-flash
+
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: default
+spec:
+  modelConfig:
+    modelRef: Model/default-model
+  prompts:
+    system: |
+      너는 Goondan default 에이전트다.
+      사용자의 요청을 수행하기 위해 필요한 경우 도구를 호출한다.
+  tools:
+    - { kind: Tool, name: fileRead }
+  extensions:
+    - { kind: Extension, name: compaction }
+
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entrypoint: { kind: Agent, name: default }
+  agents:
+    - { kind: Agent, name: default }
+
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

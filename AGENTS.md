@@ -21,7 +21,10 @@
 - @REPORT.md : 작업 보고서
 - @docs/spec_config.md : Config 스펙 구체화 문서
 - @docs/spec_api.md : Runtime/SDK API 스펙 문서
+- @docs/spec_bundle.md : Bundle(Git 기반) 요구사항 문서
 - @docs/scenario_example1.md : CLI 기반 스웜 실행 시나리오
+- mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
+- mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
 - packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig

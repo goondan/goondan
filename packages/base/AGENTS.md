@@ -10,4 +10,6 @@
 
 ## 참고 사항
 - core와의 인터페이스는 spec_config.md 기준으로 유지합니다.
-- bundle.yaml은 base 확장 묶음 등록용 매니페스트입니다.
+- bundle.yaml은 base 번들 매니페스트이며 spec.include로 YAML 정의를 참조합니다.
+- npm 배포 시 bundle.yaml, dist, 리소스 YAML(extensions/tools/connectors)을 files에 포함합니다.
+- publishConfig(access=public) 및 prepublishOnly(build)를 유지합니다.

@@ -14,6 +14,8 @@ goondan init
 
 ### 결과
 현재 디렉터리에 `goondan.yaml`이 생성된다. 기본 구성은 다음을 포함한다.
+또한 `goondan init`는 npm 레지스트리의 `@goondan/base` 번들을 자동 등록한다.
+네트워크 접근이 불가능하면 등록이 실패할 수 있다.
 
 - **Model**: anthropic `claude-sonnect-4-5`
   - openai `gpt-5.2`, google `gemini-2.5-flash`는 주석 처리된 샘플로 제공
@@ -32,8 +34,10 @@ goondan init
 
 ## 2) base 번들 등록
 ```bash
-goondan bundle add <base-bundle.yaml>
+goondan bundle add github.com/goondan/goondan/base
 ```
+
+> `goondan init`에서 기본 등록이 수행되므로, 필요 시 재등록/갱신 용도로 사용한다.
 
 - CLI 기준 기본 경로는 `state/bundles.json`에 기록된다.
 - 이후 `goondan run`에서 별도 `-b` 옵션 없이 사용할 수 있다.
@@ -45,8 +49,9 @@ goondan run
 
 ### 동작
 - `goondan.yaml`이 기본 config로 사용된다.
-- 기존 SwarmInstance가 있으면 재사용한다.
+- 동일 instanceKey를 사용하면 같은 SwarmInstance를 재사용한다.
 - CLI 입력이 Agent에 전달되고, 응답은 터미널에 출력된다.
+- 종료는 `:exit` 또는 `:quit` 입력으로 가능하다.
 
 ## 4) 새로운 인스턴스로 실행
 ```bash

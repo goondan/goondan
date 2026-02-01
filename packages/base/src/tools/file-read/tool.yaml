@@ -1,0 +1,15 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: fileRead
+  labels:
+    tier: base
+spec:
+  runtime: node
+  entry: "./dist/tools/file-read/index.js"
+  exports:
+    - name: file.read
+      description: "로컬 파일 읽기"
+      parameters:
+        type: object
+        additionalProperties: true

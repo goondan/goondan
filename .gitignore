@@ -7,3 +7,4 @@ dist/
 .vite/
 **/.vite/
 **/tmp-live-config-*/
+mise.local.toml

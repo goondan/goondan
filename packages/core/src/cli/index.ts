@@ -2,6 +2,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { input as promptInput } from '@inquirer/prompts';
+import { object, or } from '@optique/core/constructs';
+import { multiple, optional, withDefault } from '@optique/core/modifiers';
+import { argument, command, constant, option } from '@optique/core/primitives';
+import { string } from '@optique/core/valueparser';
+import { run as runOptique } from '@optique/run';
 import { ConfigRegistry } from '../config/registry.js';
 import type { Resource } from '../config/registry.js';
 import { loadConfigResources } from '../config/loader.js';
@@ -10,6 +16,8 @@ import { validateConfig } from '../config/validator.js';
 import { Runtime, type LlmAdapter } from '../runtime/runtime.js';
 import { BundleRegistry } from '../bundles/registry.js';
 import { loadBundleResources, readBundleManifests } from '../bundles/loader.js';
+import { installGitBundle, isGitBundleRef } from '../bundles/git.js';
+import { installNpmBundle } from '../bundles/npm.js';
 import type {
   BundleLockfile,
   BundleManifest,
@@ -23,9 +31,9 @@ import type {
 import YAML from 'yaml';
 
 const args = process.argv.slice(2);
-const command = args[0];
+const top = args[0];
 
-if (!command || command === 'help' || command === '--help' || command === '-h') {
+if (!top || top === 'help' || top === '--help' || top === '-h') {
   printUsage();
   process.exit(0);
 }
@@ -36,21 +44,58 @@ void main().catch((err) => {
 });
 
 async function main(): Promise<void> {
-  switch (command) {
+  const parser = buildCliParser();
+  const parsed = (await runOptique(parser, { programName: 'goondan', args })) as any;
+
+  switch (parsed.action) {
     case 'init':
-      await initCommand(args.slice(1));
+      await initCommand({ force: Boolean(parsed.force) });
       return;
     case 'run':
-      await runCommand(args.slice(1));
-      return;
-    case 'bundle':
-      await bundleCommand(args.slice(1));
+      await runCommand({
+        configPaths: parsed.configPaths || [],
+        bundlePaths: parsed.bundlePaths || [],
+        stateRootDir: parsed.stateRootDir,
+        swarmName: parsed.swarmName,
+        agentName: parsed.agentName,
+        input: parsed.input,
+        instanceKey: parsed.instanceKey,
+        mock: Boolean(parsed.mock),
+        noRegistryBundles: Boolean(parsed.noRegistryBundles),
+        newInstance: Boolean(parsed.newInstance),
+      });
       return;
     case 'validate':
-      await validateCommand(args.slice(1));
+      await validateCommand({
+        configPaths: parsed.configPaths || [],
+        bundlePaths: parsed.bundlePaths || [],
+        stateRootDir: parsed.stateRootDir,
+        noRegistryBundles: Boolean(parsed.noRegistryBundles),
+        strict: Boolean(parsed.strict),
+      });
       return;
     case 'export':
-      await exportCommand(args.slice(1));
+      await exportCommand({
+        configPaths: parsed.configPaths || [],
+        bundlePaths: parsed.bundlePaths || [],
+        output: parsed.output,
+        format: parsed.format || 'yaml',
+        stateRootDir: parsed.stateRootDir,
+        noRegistryBundles: Boolean(parsed.noRegistryBundles),
+      });
+      return;
+    case 'bundle:add':
+    case 'bundle:remove':
+    case 'bundle:enable':
+    case 'bundle:disable':
+    case 'bundle:info':
+    case 'bundle:validate':
+    case 'bundle:verify':
+    case 'bundle:lock':
+    case 'bundle:verify-lock':
+    case 'bundle:refresh':
+    case 'bundle:list':
+      await bundleCommand(parsed);
       return;
     default:
       printUsage();
@@ -58,8 +103,20 @@ async function main(): Promise<void> {
   }
 }
 
-async function runCommand(argsList: string[]): Promise<void> {
-  const options = parseRunArgs(argsList);
+type RunOptions = {
+  configPaths: string[];
+  bundlePaths: string[];
+  stateRootDir?: string;
+  swarmName?: string;
+  agentName?: string;
+  input?: string;
+  instanceKey?: string;
+  mock?: boolean;
+  noRegistryBundles?: boolean;
+  newInstance?: boolean;
+};
+
+async function runCommand(options: RunOptions): Promise<void> {
   if (options.configPaths.length === 0) {
     const defaultPath = path.join(process.cwd(), 'goondan.yaml');
     const exists = await fs.stat(defaultPath).then(() => true).catch(() => false);
@@ -74,7 +131,8 @@ async function runCommand(argsList: string[]): Promise<void> {
   await bundleRegistry.load();
   const bundlePaths = options.noRegistryBundles ? options.bundlePaths : [...bundleRegistry.resolveEnabledPaths(), ...options.bundlePaths];
 
-  const bundleResources = bundlePaths.length > 0 ? await loadBundleResources(bundlePaths, { baseDir: process.cwd() }) : [];
+  const bundleResources =
+    bundlePaths.length > 0 ? await loadBundleResources(bundlePaths, { baseDir: process.cwd(), stateRootDir }) : [];
   const configResources = await loadConfigResources(options.configPaths, { baseDir: process.cwd() });
   const registry = new ConfigRegistry([...bundleResources, ...configResources], { baseDir: process.cwd() });
 
@@ -109,34 +167,53 @@ async function runCommand(argsList: string[]): Promise<void> {
   }
 
   const cliConnector = registry.get('Connector', 'cli');
-  if (cliConnector) {
-    await runtime.handleConnectorEvent('cli', {
-      text: input,
-      instanceKey,
-      swarmRef,
-      agentName,
-    } as JsonObject);
+  const dispatchInput = async (text: string) => {
+    if (cliConnector) {
+      await runtime.handleConnectorEvent('cli', {
+        text,
+        instanceKey,
+        swarmRef,
+        agentName,
+      } as JsonObject);
+      return;
+    }
+
+    const swarmInstance = await runtime.getOrCreateSwarmInstance(swarmRef, instanceKey);
+    const agent = swarmInstance.getAgent(agentName);
+    if (!agent) {
+      throw new Error(`AgentInstance를 찾을 수 없습니다: ${agentName}`);
+    }
+
+    const turn = await agent.runTurn({
+      input: text,
+      origin: { connector: 'cli' },
+      auth: {},
+      metadata: { source: 'cli' },
+    });
+    printTurnResult(turn);
+  };
+
+  if (options.input) {
+    await dispatchInput(options.input);
     return;
   }
 
-  const swarmInstance = await runtime.getOrCreateSwarmInstance(swarmRef, instanceKey);
-  const agent = swarmInstance.getAgent(agentName);
-  if (!agent) {
-    throw new Error(`AgentInstance를 찾을 수 없습니다: ${agentName}`);
+  if (!process.stdin.isTTY) {
+    const stdinInput = await readStdin();
+    if (!stdinInput) {
+      throw new Error('입력 텍스트가 비어 있습니다. --input 또는 stdin을 사용하세요.');
+    }
+    await dispatchInput(stdinInput);
+    return;
   }
 
-  const turn = await agent.runTurn({
-    input,
-    origin: { connector: 'cli' },
-    auth: {},
-    metadata: { source: 'cli' },
-  });
-
-  printTurnResult(turn);
+  await startInteractiveSession(dispatchInput);
 }
 
-async function initCommand(argsList: string[]): Promise<void> {
-  const force = argsList.includes('--force') || argsList.includes('-f');
+const DEFAULT_BASE_SPEC = 'github.com/goondan/goondan/base';
+
+async function initCommand(options: { force: boolean }): Promise<void> {
+  const force = options.force;
   const target = path.join(process.cwd(), 'goondan.yaml');
   const exists = await fs.stat(target).then(() => true).catch(() => false);
   if (exists && !force) {
@@ -146,34 +223,39 @@ async function initCommand(argsList: string[]): Promise<void> {
   const content = buildInitTemplate();
   await fs.writeFile(target, content, 'utf8');
   console.log(`goondan.yaml 생성 완료: ${target}`);
+  try {
+    const stateRootDir = path.join(process.cwd(), 'state');
+    const registry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
+    const installed = await installBundleSpec(DEFAULT_BASE_SPEC, { stateRootDir });
+    await registry.add(installed.manifestPath, 'base', installed.metadata);
+    console.log(`base 번들 등록 완료: ${installed.label}`);
+  } catch (err) {
+    throw new Error(`base 번들 등록 실패: ${(err as Error).message}`);
+  }
 }
 
-async function bundleCommand(argsList: string[]): Promise<void> {
-  const sub = argsList[0];
-  const stateRootDir = parseOptionValue(argsList, '--state-root') || path.join(process.cwd(), 'state');
+async function bundleCommand(parsed: any): Promise<void> {
+  const stateRootDir = parsed.stateRootDir || path.join(process.cwd(), 'state');
   const registry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
 
-  switch (sub) {
-    case 'add': {
-      const pathArg = argsList[1];
-      if (!pathArg) throw new Error('bundle add <path> 형태로 경로를 지정해야 합니다.');
-      const nameOverride = parseOptionValue(argsList, '--name');
-      const entry = await registry.add(pathArg, nameOverride || undefined);
+  switch (parsed.action) {
+    case 'bundle:add': {
+      const resolved = await resolveBundleAddTarget(parsed.path, parsed.stateRootDir || path.join(process.cwd(), 'state'));
+      const nameOverride = parsed.name || resolved.name;
+      const entry = await registry.add(resolved.manifestPath, nameOverride || undefined, resolved.metadata);
       console.log(`Bundle 등록 완료: ${entry.name} -> ${entry.path}`);
       return;
     }
-    case 'remove': {
-      const name = argsList[1];
-      if (!name) throw new Error('bundle remove <name> 형태로 이름을 지정해야 합니다.');
-      const removed = await registry.remove(name);
+    case 'bundle:remove': {
+      const removed = await registry.remove(parsed.name);
       if (!removed) {
-        console.log(`Bundle 없음: ${name}`);
+        console.log(`Bundle 없음: ${parsed.name}`);
       } else {
-        console.log(`Bundle 제거 완료: ${name}`);
+        console.log(`Bundle 제거 완료: ${parsed.name}`);
       }
       return;
     }
-    case 'list': {
+    case 'bundle:list': {
       await registry.load();
       const entries = registry.list();
       if (entries.length === 0) {
@@ -186,46 +268,37 @@ async function bundleCommand(argsList: string[]): Promise<void> {
       }
       return;
     }
-    case 'enable': {
-      const name = argsList[1];
-      if (!name) throw new Error('bundle enable <name> 형태로 이름을 지정해야 합니다.');
-      const ok = await registry.enable(name);
+    case 'bundle:enable': {
+      const ok = await registry.enable(parsed.name);
       if (!ok) {
-        console.log(`Bundle 없음: ${name}`);
+        console.log(`Bundle 없음: ${parsed.name}`);
       } else {
-        console.log(`Bundle 활성화: ${name}`);
+        console.log(`Bundle 활성화: ${parsed.name}`);
       }
       return;
     }
-    case 'disable': {
-      const name = argsList[1];
-      if (!name) throw new Error('bundle disable <name> 형태로 이름을 지정해야 합니다.');
-      const ok = await registry.disable(name);
+    case 'bundle:disable': {
+      const ok = await registry.disable(parsed.name);
       if (!ok) {
-        console.log(`Bundle 없음: ${name}`);
+        console.log(`Bundle 없음: ${parsed.name}`);
       } else {
-        console.log(`Bundle 비활성화: ${name}`);
+        console.log(`Bundle 비활성화: ${parsed.name}`);
       }
       return;
     }
-    case 'info': {
-      const target = argsList[1];
-      if (!target) throw new Error('bundle info <name|path> 형태로 지정해야 합니다.');
-      const resolved = await resolveBundleTarget(target, registry);
+    case 'bundle:info': {
+      const resolved = await resolveBundleTarget(parsed.target, registry);
       const manifest = await readBundleManifest(resolved.path);
       const hash = await computeFileHash(resolved.path);
-      printBundleInfo(manifest, resolved.path, hash, resolved.entry?.fingerprint || null);
+      const resources = await loadBundleResources(resolved.path, { baseDir: process.cwd(), stateRootDir });
+      printBundleInfo(manifest, resolved.path, hash, resolved.entry?.fingerprint || null, resources);
       return;
     }
-    case 'validate': {
-      const target = argsList[1];
-      if (!target || target.startsWith('-')) {
-        throw new Error('bundle validate <name|path> 형태로 지정해야 합니다.');
-      }
-      const strict = argsList.includes('--strict');
-      const resolved = await resolveBundleTarget(target, registry);
+    case 'bundle:validate': {
+      const strict = Boolean(parsed.strict);
+      const resolved = await resolveBundleTarget(parsed.target, registry);
       const manifestPath = resolved.path;
-      const resources = await loadBundleResources(manifestPath, { baseDir: process.cwd() });
+      const resources = await loadBundleResources(manifestPath, { baseDir: process.cwd(), stateRootDir });
       const validation = strict
         ? validateConfig(resources, { registry: new ConfigRegistry(resources, { baseDir: process.cwd() }) })
         : validateConfig(resources);
@@ -242,12 +315,8 @@ async function bundleCommand(argsList: string[]): Promise<void> {
       console.log('Bundle 검증 성공');
       return;
     }
-    case 'verify': {
-      const target = argsList[1];
-      if (!target || target.startsWith('-')) {
-        throw new Error('bundle verify <name|path> 형태로 지정해야 합니다.');
-      }
-      const resolved = await resolveBundleTarget(target, registry);
+    case 'bundle:verify': {
+      const resolved = await resolveBundleTarget(parsed.target, registry);
       const hash = await computeFileHash(resolved.path);
       if (!hash) throw new Error('Bundle 해시를 계산할 수 없습니다.');
       if (!resolved.entry?.fingerprint) {
@@ -261,19 +330,19 @@ async function bundleCommand(argsList: string[]): Promise<void> {
       console.log(`Bundle fingerprint 일치: ${hash}`);
       return;
     }
-    case 'lock': {
-      const includeDisabled = argsList.includes('--all') || argsList.includes('--include-disabled');
+    case 'bundle:lock': {
+      const includeDisabled = Boolean(parsed.includeDisabled);
       await registry.load();
       const entries = registry.list().filter((entry) => includeDisabled || entry.enabled !== false);
-      const output = parseOptionValue(argsList, '--output') || path.join(stateRootDir, 'bundles.lock.json');
+      const output = parsed.output || path.join(stateRootDir, 'bundles.lock.json');
       const lockfile = await buildBundleLockfile(entries);
       const outPath = path.isAbsolute(output) ? output : path.join(process.cwd(), output);
       await fs.writeFile(outPath, JSON.stringify(lockfile, null, 2), 'utf8');
       console.log(`Bundle lockfile 생성: ${outPath}`);
       return;
     }
-    case 'verify-lock': {
-      const lockPath = parseOptionValue(argsList, '--lock') || path.join(stateRootDir, 'bundles.lock.json');
+    case 'bundle:verify-lock': {
+      const lockPath = parsed.lock || path.join(stateRootDir, 'bundles.lock.json');
       const resolved = path.isAbsolute(lockPath) ? lockPath : path.join(process.cwd(), lockPath);
       const lockfile = await readBundleLockfile(resolved);
       const errors = await verifyBundleLockfile(lockfile);
@@ -283,14 +352,10 @@ async function bundleCommand(argsList: string[]): Promise<void> {
       console.log('Bundle lock 검증 성공');
       return;
     }
-    case 'refresh': {
-      const name = argsList[1];
-      if (!name || name.startsWith('-')) {
-        throw new Error('bundle refresh <name> 형태로 지정해야 합니다.');
-      }
-      const entry = await registry.refresh(name);
+    case 'bundle:refresh': {
+      const entry = await registry.refresh(parsed.name);
       if (!entry) {
-        console.log(`Bundle 없음: ${name}`);
+        console.log(`Bundle 없음: ${parsed.name}`);
         return;
       }
       console.log(`Bundle fingerprint 갱신: ${entry.fingerprint || 'unknown'}`);
@@ -302,13 +367,22 @@ async function bundleCommand(argsList: string[]): Promise<void> {
   }
 }
 
-async function validateCommand(argsList: string[]): Promise<void> {
-  const options = parseRunArgs(argsList);
+type ValidateOptions = {
+  configPaths: string[];
+  bundlePaths: string[];
+  stateRootDir?: string;
+  noRegistryBundles?: boolean;
+  strict?: boolean;
+};
+
+async function validateCommand(options: ValidateOptions): Promise<void> {
   if (options.configPaths.length === 0) {
     throw new Error('--config 또는 -c 옵션으로 config 파일을 지정해야 합니다.');
   }
-  const strict = argsList.includes('--strict');
-  const bundleResources = options.bundlePaths.length > 0 ? await loadBundleResources(options.bundlePaths, { baseDir: process.cwd() }) : [];
+  const strict = Boolean(options.strict);
+  const stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
+  const bundleResources =
+    options.bundlePaths.length > 0 ? await loadBundleResources(options.bundlePaths, { baseDir: process.cwd(), stateRootDir }) : [];
   const configResources = await loadConfigResources(options.configPaths, { baseDir: process.cwd() });
   const resources = [...bundleResources, ...configResources];
   const registry = new ConfigRegistry(resources, { baseDir: process.cwd() });
@@ -326,8 +400,16 @@ async function validateCommand(argsList: string[]): Promise<void> {
   console.log('Config 검증 성공');
 }
 
-async function exportCommand(argsList: string[]): Promise<void> {
-  const options = parseExportArgs(argsList);
+type ExportOptions = {
+  configPaths: string[];
+  bundlePaths: string[];
+  output?: string;
+  format?: string;
+  stateRootDir?: string;
+  noRegistryBundles?: boolean;
+};
+
+async function exportCommand(options: ExportOptions): Promise<void> {
   if (options.configPaths.length === 0) {
     throw new Error('--config 또는 -c 옵션으로 config 파일을 지정해야 합니다.');
   }
@@ -337,7 +419,8 @@ async function exportCommand(argsList: string[]): Promise<void> {
   await bundleRegistry.load();
   const bundlePaths = options.noRegistryBundles ? options.bundlePaths : [...bundleRegistry.resolveEnabledPaths(), ...options.bundlePaths];
 
-  const bundleResources = bundlePaths.length > 0 ? await loadBundleResources(bundlePaths, { baseDir: process.cwd() }) : [];
+  const bundleResources =
+    bundlePaths.length > 0 ? await loadBundleResources(bundlePaths, { baseDir: process.cwd(), stateRootDir }) : [];
   const configResources = await loadConfigResources(options.configPaths, { baseDir: process.cwd() });
   const resources = [...bundleResources, ...configResources];
   const sorted = resources.slice().sort((a, b) => {
@@ -346,7 +429,8 @@ async function exportCommand(argsList: string[]): Promise<void> {
     return ak.localeCompare(bk);
   });
 
-  const output = renderResources(sorted, options.format);
+  const format = options.format === 'json' ? 'json' : 'yaml';
+  const output = renderResources(sorted, format);
   if (options.output) {
     const outPath = path.isAbsolute(options.output) ? options.output : path.join(process.cwd(), options.output);
     await fs.writeFile(outPath, output, 'utf8');
@@ -354,128 +438,6 @@ async function exportCommand(argsList: string[]): Promise<void> {
     return;
   }
   console.log(output);
-}
-
-function parseRunArgs(argsList: string[]) {
-  const configPaths: string[] = [];
-  const bundlePaths: string[] = [];
-  let stateRootDir: string | undefined;
-  let swarmName: string | undefined;
-  let agentName: string | undefined;
-  let input: string | undefined;
-  let instanceKey: string | undefined;
-  let mock = false;
-  let noRegistryBundles = false;
-  let newInstance = false;
-
-  for (let i = 0; i < argsList.length; i += 1) {
-    const arg = argsList[i];
-    if (!arg) continue;
-    switch (arg) {
-      case '--config':
-      case '-c':
-        configPaths.push(requireValue(argsList, ++i, arg));
-        break;
-      case '--bundle':
-      case '-b':
-        bundlePaths.push(requireValue(argsList, ++i, arg));
-        break;
-      case '--state-root':
-        stateRootDir = requireValue(argsList, ++i, arg);
-        break;
-      case '--swarm':
-        swarmName = requireValue(argsList, ++i, arg);
-        break;
-      case '--agent':
-        agentName = requireValue(argsList, ++i, arg);
-        break;
-      case '--input':
-        input = requireValue(argsList, ++i, arg);
-        break;
-      case '--instance-key':
-        instanceKey = requireValue(argsList, ++i, arg);
-        break;
-      case '--new':
-      case '-n':
-        newInstance = true;
-        break;
-      case '--mock':
-        mock = true;
-        break;
-      case '--no-registry-bundles':
-        noRegistryBundles = true;
-        break;
-      default:
-        if (arg.startsWith('-')) {
-          throw new Error(`알 수 없는 옵션: ${arg}`);
-        }
-        break;
-    }
-  }
-
-  return {
-    configPaths,
-    bundlePaths,
-    stateRootDir,
-    swarmName,
-    agentName,
-    input,
-    instanceKey,
-    mock,
-    noRegistryBundles,
-    newInstance,
-  };
-}
-
-function parseExportArgs(argsList: string[]) {
-  const configPaths: string[] = [];
-  const bundlePaths: string[] = [];
-  let stateRootDir: string | undefined;
-  let output: string | undefined;
-  let format: 'yaml' | 'json' = 'yaml';
-  let noRegistryBundles = false;
-
-  for (let i = 0; i < argsList.length; i += 1) {
-    const arg = argsList[i];
-    if (!arg) continue;
-    switch (arg) {
-      case '--config':
-      case '-c':
-        configPaths.push(requireValue(argsList, ++i, arg));
-        break;
-      case '--bundle':
-      case '-b':
-        bundlePaths.push(requireValue(argsList, ++i, arg));
-        break;
-      case '--state-root':
-        stateRootDir = requireValue(argsList, ++i, arg);
-        break;
-      case '--output':
-      case '-o':
-        output = requireValue(argsList, ++i, arg);
-        break;
-      case '--format':
-        format = (requireValue(argsList, ++i, arg) as 'yaml' | 'json') || 'yaml';
-        break;
-      case '--no-registry-bundles':
-        noRegistryBundles = true;
-        break;
-      default:
-        if (arg.startsWith('-')) {
-          throw new Error(`알 수 없는 옵션: ${arg}`);
-        }
-        break;
-    }
-  }
-
-  return {
-    configPaths,
-    bundlePaths,
-    stateRootDir,
-    output,
-    format,
-    noRegistryBundles,
-  };
 }
 
 function resolveSwarmResource(registry: ConfigRegistry, swarmName?: string): Resource {
@@ -515,20 +477,6 @@ function printTurnResult(turn: Turn) {
   console.log(JSON.stringify(output, null, 2));
 }
 
-function parseOptionValue(argsList: string[], name: string): string | undefined {
-  const idx = argsList.findIndex((value) => value === name);
-  if (idx === -1) return undefined;
-  return argsList[idx + 1];
-}
-
-function requireValue(argsList: string[], index: number, flag: string): string {
-  const value = argsList[index];
-  if (!value) {
-    throw new Error(`${flag} 옵션에는 값이 필요합니다.`);
-  }
-  return value;
-}
-
 function createMockLlmAdapter(): LlmAdapter {
   return async (input) => {
     const text = input.turn?.input || '';
@@ -559,7 +507,7 @@ function printBundleUsage(): void {
 
 function buildInitTemplate(): string {
   return `# Goondan init template
-# - base bundle 필요: fileRead tool, compaction extension, cli connector
+# - base 번들은 Git 번들로 등록됩니다.
 
 apiVersion: agents.example.io/v1alpha1
 kind: Model
@@ -645,6 +593,110 @@ async function resolveBundleTarget(
   return { path: entry.path, entry };
 }
 
+async function installBundleSpec(
+  spec: string,
+  options: { stateRootDir: string }
+): Promise<{ manifestPath: string; metadata?: Partial<BundleRegistration>; label: string }> {
+  if (isGitBundleRef(spec)) {
+    const installed = await installGitBundle(spec, { stateRootDir: options.stateRootDir });
+    const pathPart = installed.ref.path ? `/${installed.ref.path}` : '';
+    const refPart = installed.ref.ref ? `@${installed.ref.ref}` : '';
+    const label = `${installed.ref.host}/${installed.ref.org}/${installed.ref.repo}${pathPart}${refPart}`;
+    return {
+      manifestPath: installed.manifestPath,
+      metadata: {
+        source: {
+          type: 'git',
+          host: installed.ref.host,
+          org: installed.ref.org,
+          repo: installed.ref.repo,
+          path: installed.ref.path,
+          ref: installed.ref.ref,
+          url: installed.ref.url,
+          commit: installed.commit,
+          spec,
+        },
+      },
+      label,
+    };
+  }
+
+  if (spec.startsWith('npm:') || spec.startsWith('@')) {
+    const installed = await installNpmBundle(spec, { stateRootDir: options.stateRootDir });
+    return {
+      manifestPath: installed.manifestPath,
+      metadata: {
+        source: {
+          type: 'npm',
+          name: installed.name,
+          version: installed.version,
+          registry: installed.registry,
+          spec,
+        },
+      },
+      label: `${installed.name}@${installed.version}`,
+    };
+  }
+
+  const resolved = path.isAbsolute(spec) ? spec : path.join(process.cwd(), spec);
+  const stat = await fs.stat(resolved).catch(() => null);
+  if (stat?.isFile() || stat?.isDirectory()) {
+    return { manifestPath: resolved, label: resolved };
+  }
+
+  throw new Error(`지원하지 않는 Bundle spec입니다: ${spec}`);
+}
+
+async function resolveBundleAddTarget(
+  input: string,
+  stateRootDir: string
+): Promise<{ manifestPath: string; name?: string; metadata?: Partial<BundleRegistration> }> {
+  const resolved = path.isAbsolute(input) ? input : path.join(process.cwd(), input);
+  const stat = await fs.stat(resolved).catch(() => null);
+  if (stat?.isFile() || stat?.isDirectory()) {
+    return { manifestPath: resolved };
+  }
+
+  if (isGitBundleRef(input)) {
+    const installed = await installGitBundle(input, { stateRootDir });
+    return {
+      manifestPath: installed.manifestPath,
+      metadata: {
+        source: {
+          type: 'git',
+          host: installed.ref.host,
+          org: installed.ref.org,
+          repo: installed.ref.repo,
+          path: installed.ref.path,
+          ref: installed.ref.ref,
+          url: installed.ref.url,
+          commit: installed.commit,
+          spec: input,
+        },
+      },
+    };
+  }
+
+  if (input.startsWith('npm:') || input.startsWith('@')) {
+    const installed = await installNpmBundle(input, { stateRootDir });
+    return {
+      manifestPath: installed.manifestPath,
+      name: installed.name,
+      metadata: {
+        source: {
+          type: 'npm',
+          name: installed.name,
+          version: installed.version,
+          registry: installed.registry,
+          spec: input,
+        },
+      },
+    };
+  }
+
+  throw new Error(`지원하지 않는 Bundle 경로입니다: ${input}`);
+}
+
 async function readBundleManifest(manifestPath: string): Promise<BundleManifest> {
   const manifests = await readBundleManifests(manifestPath, { baseDir: process.cwd() });
   if (manifests.length === 0) {
@@ -660,10 +712,12 @@ function printBundleInfo(
   manifest: BundleManifest,
   manifestPath: string,
   hash: string | null,
-  stored: string | null
+  stored: string | null,
+  resources: Array<{ kind?: string; metadata?: ResourceMeta }> = []
 ): void {
-  const resources = manifest.spec?.resources || [];
   const kinds = summarizeKinds(resources.map((resource) => resource.kind));
+  const dependencies = manifest.spec?.dependencies || [];
+  const include = manifest.spec?.include || [];
   console.log(`Bundle: ${manifest.metadata?.name || 'unknown'}`);
   console.log(`Path: ${manifestPath}`);
   if (hash) {
@@ -677,8 +731,17 @@ function printBundleInfo(
   if (manifest.spec?.version) {
     console.log(`Version: ${manifest.spec.version}`);
   }
-  if (manifest.spec?.baseDir) {
-    console.log(`BaseDir: ${manifest.spec.baseDir}`);
+  if (dependencies.length > 0) {
+    console.log('Dependencies:');
+    for (const dep of dependencies) {
+      console.log(`  - ${dep}`);
+    }
+  }
+  if (include.length > 0) {
+    console.log('Include:');
+    for (const item of include) {
+      console.log(`  - ${item}`);
+    }
   }
   if (Object.keys(kinds).length > 0) {
     console.log('Kinds:');
@@ -752,6 +815,177 @@ function renderResources(resources: Array<unknown>, format: 'yaml' | 'json'): st
   }
   const docs = resources.map((resource) => YAML.stringify(resource).trim()).filter(Boolean);
   return `${docs.join('\n---\n')}\n`;
+}
+
+function buildCliParser() {
+  const initParser = command(
+    'init',
+    object({
+      action: constant('init'),
+      force: optional(option('-f', '--force')),
+    })
+  );
+
+  const runParser = command(
+    'run',
+    object({
+      action: constant('run'),
+      configPaths: withDefault(multiple(option('-c', '--config', string())), []),
+      bundlePaths: withDefault(multiple(option('-b', '--bundle', string())), []),
+      stateRootDir: optional(option('--state-root', string())),
+      swarmName: optional(option('--swarm', string())),
+      agentName: optional(option('--agent', string())),
+      input: optional(option('--input', string())),
+      instanceKey: optional(option('--instance-key', string())),
+      mock: optional(option('--mock')),
+      noRegistryBundles: optional(option('--no-registry-bundles')),
+      newInstance: optional(option('-n', '--new')),
+    })
+  );
+
+  const validateParser = command(
+    'validate',
+    object({
+      action: constant('validate'),
+      configPaths: withDefault(multiple(option('-c', '--config', string())), []),
+      bundlePaths: withDefault(multiple(option('-b', '--bundle', string())), []),
+      stateRootDir: optional(option('--state-root', string())),
+      noRegistryBundles: optional(option('--no-registry-bundles')),
+      strict: optional(option('--strict')),
+    })
+  );
+
+  const exportParser = command(
+    'export',
+    object({
+      action: constant('export'),
+      configPaths: withDefault(multiple(option('-c', '--config', string())), []),
+      bundlePaths: withDefault(multiple(option('-b', '--bundle', string())), []),
+      output: optional(option('-o', '--output', string())),
+      format: withDefault(option('--format', string()), 'yaml'),
+      stateRootDir: optional(option('--state-root', string())),
+      noRegistryBundles: optional(option('--no-registry-bundles')),
+    })
+  );
+
+  const bundleParser = command(
+    'bundle',
+    or(
+      command(
+        'add',
+        object({
+          action: constant('bundle:add'),
+          path: argument(string()),
+          name: optional(option('--name', string())),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'remove',
+        object({
+          action: constant('bundle:remove'),
+          name: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'enable',
+        object({
+          action: constant('bundle:enable'),
+          name: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'disable',
+        object({
+          action: constant('bundle:disable'),
+          name: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'info',
+        object({
+          action: constant('bundle:info'),
+          target: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'validate',
+        object({
+          action: constant('bundle:validate'),
+          target: argument(string()),
+          strict: optional(option('--strict')),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'verify',
+        object({
+          action: constant('bundle:verify'),
+          target: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'lock',
+        object({
+          action: constant('bundle:lock'),
+          output: optional(option('--output', string())),
+          includeDisabled: optional(option('--all', '--include-disabled')),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'verify-lock',
+        object({
+          action: constant('bundle:verify-lock'),
+          lock: optional(option('--lock', string())),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'refresh',
+        object({
+          action: constant('bundle:refresh'),
+          name: argument(string()),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      ),
+      command(
+        'list',
+        object({
+          action: constant('bundle:list'),
+          stateRootDir: optional(option('--state-root', string())),
+        })
+      )
+    )
+  );
+
+  return or(initParser, runParser, validateParser, exportParser, bundleParser);
+}
+
+async function startInteractiveSession(dispatch: (input: string) => Promise<void>): Promise<void> {
+  while (true) {
+    let line = '';
+    try {
+      line = await promptInput({ message: '> ' }, { clearPromptOnDone: false });
+    } catch (err) {
+      const name = (err as { name?: string }).name;
+      if (name === 'AbortPromptError') return;
+      throw err;
+    }
+    const trimmed = String(line || '').trim();
+    if (!trimmed) continue;
+    if (trimmed === ':exit' || trimmed === ':quit') return;
+    try {
+      await dispatch(trimmed);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+    }
+  }
 }
 
 function createCliConnectorAdapter(options: { runtime: Runtime; connectorConfig: { spec?: unknown; metadata?: { name?: string } }; logger?: Console }) {

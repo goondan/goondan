@@ -6,3 +6,6 @@
 - slack: Slack API 호출 도구
 - tool-search: ToolSearch 도구
 - file-read: 로컬 파일 읽기 도구
+
+## 참고 사항
+- 각 도구 디렉터리에 bundle include용 tool.yaml을 둡니다.

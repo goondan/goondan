@@ -9,3 +9,4 @@ base 패키지의 소스 코드 루트입니다.
 
 ## 참고 사항
 - core 런타임 인터페이스와 호환되도록 작성합니다.
+- 번들 include용 YAML 정의는 하위 디렉터리의 extension/tool/connector YAML로 관리합니다.

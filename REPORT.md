@@ -151,3 +151,22 @@ pnpm -C packages/sample export
 - base 패키징 정리(불필요한 index 엔트리 제거, files 범위 축소)
 - 문서/스펙에서 base Git 경로 및 dist include 예시 갱신
 - goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **goondan_spec.md 변경**, **docs/spec_config.md 변경 없음**
+
+## 15) 추가 작업 (데이터 암호화 키 명칭 정리)
+OAuth 암호화 키 env를 `GOONDAN_DATA_SECRET_KEY`로 통일하고, 구 키/폴백 제거
+- 암호화 유틸과 스토리지 계층 분리 (`utils/encryption.ts`, `runtime/oauth-store.ts`)
+- 키 누락/길이 검증 메시지를 새 키 명칭으로 정정 (누락 시 오류)
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 16) 추가 작업 (AI SDK provider 패키지 사용)
+- `provider/modelName` 문자열 대신 `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/anthropic`로 모델 생성
+- 모델 spec의 `endpoint/options`를 provider 생성 옵션으로 전달
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 17) 추가 작업 (ai 패키지 최신화)
+- `ai` 패키지를 최신 버전으로 갱신하고 lockfile 반영
+- core 빌드 재확인 완료
+
+## 18) 추가 작업 (@ai-sdk 패키지 최신화)
+- `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/anthropic` 최신 버전으로 갱신
+- core 빌드 재확인 완료

@@ -1,6 +1,6 @@
 import { generateText, jsonSchema, tool as aiTool, type ModelMessage } from 'ai';
 import type { LlmAdapter, LlmCallInput, LlmCallResult } from '../runtime.js';
-import type { Block, JsonObject, ToolCatalogItem, UnknownObject } from '../../sdk/types.js';
+import type { Block, JsonObject, ModelSpec, ToolCatalogItem, UnknownObject } from '../../sdk/types.js';
 
 interface AiSdkAdapterOptions {
   providerTag?: string;
@@ -29,9 +29,16 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
       throw new Error('modelRef가 필요합니다.');
     }
 
-    const provider = (modelResource.spec as { provider?: string })?.provider || 'unknown';
-    const modelName = (modelResource.spec as { name?: string })?.name || modelResource.metadata?.name || '';
+    const modelSpec = (modelResource.spec || {}) as unknown as Partial<ModelSpec>;
+    const provider = modelSpec.provider || 'unknown';
+    const modelName = modelSpec.name || modelResource.metadata?.name || '';
     const modelId = `${provider}/${modelName}`;
+    const model = await resolveProviderModel({
+      provider,
+      modelName,
+      endpoint: modelSpec.endpoint,
+      options: modelSpec.options,
+    });
 
     const system = extractSystemPrompt(input.blocks);
     const prompt = extractUserPrompt(input.blocks);
@@ -40,7 +47,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
     const messages = buildMessages(system, prompt);
 
     const result = await (generateText as unknown as (args: UnknownObject) => Promise<any>)({
-      model: modelId,
+      model,
       messages,
       tools: tools as unknown as UnknownObject,
       ...(input.params || {}),
@@ -72,6 +79,75 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
       meta: trace,
     };
   };
+}
+
+async function resolveProviderModel(input: {
+  provider: string;
+  modelName: string;
+  endpoint?: string;
+  options?: JsonObject;
+}): Promise<unknown> {
+  const provider = input.provider?.trim();
+  const modelName = input.modelName?.trim();
+  if (!provider) {
+    throw new Error('model.spec.provider가 필요합니다.');
+  }
+  if (!modelName) {
+    throw new Error('model.spec.name가 필요합니다.');
+  }
+
+  const providerOptions = buildProviderOptions(input.options, input.endpoint);
+
+  switch (provider) {
+    case 'openai':
+      return buildProviderModel(await import('@ai-sdk/openai'), 'openai', 'createOpenAI', modelName, providerOptions);
+    case 'google':
+      return buildProviderModel(await import('@ai-sdk/google'), 'google', 'createGoogleGenerativeAI', modelName, providerOptions);
+    case 'anthropic':
+      return buildProviderModel(await import('@ai-sdk/anthropic'), 'anthropic', 'createAnthropic', modelName, providerOptions);
+    default:
+      throw new Error(`지원하지 않는 model provider입니다: ${provider}`);
+  }
+}
+
+function buildProviderOptions(options?: JsonObject, endpoint?: string): JsonObject {
+  const providerOptions: JsonObject = { ...(options || {}) };
+  if (endpoint && !('baseURL' in providerOptions) && !('baseUrl' in providerOptions)) {
+    providerOptions.baseURL = endpoint;
+  }
+  return providerOptions;
+}
+
+function buildProviderModel(
+  moduleRef: { [key: string]: unknown },
+  defaultExportName: string,
+  createExportName: string,
+  modelName: string,
+  options: JsonObject
+): unknown {
+  const factory = resolveProviderFactory(moduleRef, defaultExportName, createExportName, options);
+  return factory(modelName);
+}
+
+function resolveProviderFactory(
+  moduleRef: { [key: string]: unknown },
+  defaultExportName: string,
+  createExportName: string,
+  options: JsonObject
+): (modelName: string) => unknown {
+  const hasOptions = options && Object.keys(options).length > 0;
+  const createFactory = moduleRef[createExportName];
+  const defaultFactory = moduleRef[defaultExportName] ?? moduleRef.default;
+  if (typeof defaultFactory === 'function') {
+    return defaultFactory as (modelName: string) => unknown;
+  }
+  if (typeof createFactory === 'function') {
+    const factory = (createFactory as (opts: JsonObject) => unknown)(hasOptions ? options : {});
+    if (typeof factory === 'function') {
+      return factory as (modelName: string) => unknown;
+    }
+  }
+  throw new Error(`AI SDK provider 로딩 실패: ${defaultExportName}`);
 }
 
 function extractSystemPrompt(blocks: Block[]): string | undefined {

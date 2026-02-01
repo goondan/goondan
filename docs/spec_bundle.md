@@ -17,7 +17,7 @@
 ## 2. 용어
 
 - **Bundle Root**: `bundle.yaml`이 위치한 폴더
-- **Bundle Ref**: Bundle을 가리키는 식별자(예: `github.com/goondan/goondan/base`)
+- **Bundle Ref**: Bundle을 가리키는 식별자(예: `github.com/goondan/goondan/packages/base`)
 - **Include List**: 최종 Config로 **로딩할 YAML 파일 경로 목록**
 - **Dependency**: 다른 Bundle을 참조하는 Bundle Ref 목록
 
@@ -37,8 +37,8 @@
 
 예시:
 ```
-github.com/goondan/goondan/base
-github.com/goondan/goondan/base@v0.3.0
+github.com/goondan/goondan/packages/base
+github.com/goondan/goondan/packages/base@v0.3.0
 github.com/goondan/sample/foo/bar@a1b2c3d
 ```
 
@@ -73,8 +73,8 @@ spec:
     - github.com/goondan/foo-bar
     - github.com/goondan/sample/foo/bar@v1.2.0
   include:
-    - tools/fileRead/tool.yaml
-    - extensions/skills/extension.yaml
+    - dist/tools/fileRead/tool.yaml
+    - dist/extensions/skills/extension.yaml
 ```
 
 필수 규칙:
@@ -91,6 +91,7 @@ spec:
 2. `spec.include`에 포함되지 않은 파일도 **Bundle Root에 있는 한 다운로드**된다(MUST).
 3. `spec.include` 경로는 **Bundle Root 기준 상대 경로**로 해석한다(MUST).
 4. `spec.include`에 지정된 파일이 없으면 오류로 처리한다(MUST).
+5. Git-only 배포에서는 `dist/` 빌드 산출물을 **리포에 포함**하고, include가 dist를 가리키도록 구성한다(SHOULD).
 
 ---
 
@@ -107,7 +108,7 @@ metadata:
   name: fileRead
 spec:
   runtime: node
-  entry: "./tools/fileRead/index.js"
+  entry: "./dist/tools/fileRead/index.js"
   exports:
     - name: read
       description: "파일을 읽습니다"
@@ -127,7 +128,7 @@ metadata:
   name: skills
 spec:
   runtime: node
-  entry: "./extensions/skills/index.js"
+  entry: "./dist/extensions/skills/index.js"
 ```
 
 비-Node 런타임 예시:
@@ -173,7 +174,7 @@ Extension/skills
 ```yaml
 extensions:
   - extensionRef: Extension/skills
-  - bundle: github.com/goondan/goondan/base
+  - bundle: github.com/goondan/goondan/packages/base
     extensionRef: Extension/skills
 ```
 
@@ -229,21 +230,21 @@ spec:
   dependencies:
     - github.com/goondan/foo-bar@v0.2.0
   include:
-    - tools/fileRead/tool.yaml
-    - extensions/skills/extension.yaml
+    - dist/tools/fileRead/tool.yaml
+    - dist/extensions/skills/extension.yaml
     - tools_py/sum/tool.yaml
 ```
 
 ### 11.3 tool.yaml / extension.yaml
 ```yaml
-# tools/fileRead/tool.yaml
+# dist/tools/fileRead/tool.yaml
 apiVersion: agents.example.io/v1alpha1
 kind: Tool
 metadata:
   name: fileRead
 spec:
   runtime: node
-  entry: "./tools/fileRead/index.js"
+  entry: "./dist/tools/fileRead/index.js"
   exports:
     - name: read
       description: "파일을 읽습니다"
@@ -255,14 +256,14 @@ spec:
 ```
 
 ```yaml
-# extensions/skills/extension.yaml
+# dist/extensions/skills/extension.yaml
 apiVersion: agents.example.io/v1alpha1
 kind: Extension
 metadata:
   name: skills
 spec:
   runtime: node
-  entry: "./extensions/skills/index.js"
+  entry: "./dist/extensions/skills/index.js"
 ```
 
 ```yaml
@@ -294,7 +295,7 @@ metadata:
 spec:
   extensions:
     - extensionRef: Extension/skills
-    - bundle: github.com/goondan/goondan/base
+    - bundle: github.com/goondan/goondan/packages/base
       extensionRef: Extension/skills
   tools:
     - toolRef: Tool/fileRead
@@ -302,7 +303,7 @@ spec:
 ```
 
 ### 11.5 동작 요약
-1. `github.com/goondan/goondan/base`를 git으로 가져온다.
+1. `github.com/goondan/goondan/packages/base`를 git으로 가져온다.
 2. `/base` 폴더 전체를 다운로드한다.
 3. `bundle.yaml`을 읽고 `include` 목록에 있는 YAML만 Config에 병합한다.
 4. 스크립트(`index.js`, `sum.py`)는 Bundle Root 기준으로 `entry`를 resolve한다.
@@ -313,4 +314,3 @@ spec:
 
 - npm 패키지를 **개발 필수 요소로 강제하지 않는다**.
 - Bundle은 “빌드 결과물(dist)만 배포”하는 패키징 모델이 아니다.
-

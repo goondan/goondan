@@ -144,3 +144,10 @@ pnpm -C packages/sample export
 - dependency 로딩 타입 오류 수정: `packages/core/src/bundles/loader.ts`
 - core/base 빌드 완료: `pnpm -C packages/core build`, `pnpm -C packages/base build`
 - goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 14) 추가 작업 (Git-only dist 커밋 전환)
+- base 번들 include를 dist로 전환하고 dist를 Git에 커밋하도록 `.gitignore` 예외 추가
+- base 빌드 스크립트에 dist 정리 + YAML 복사 스크립트 추가
+- base 패키징 정리(불필요한 index 엔트리 제거, files 범위 축소)
+- 문서/스펙에서 base Git 경로 및 dist include 예시 갱신
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **goondan_spec.md 변경**, **docs/spec_config.md 변경 없음**

@@ -14,6 +14,7 @@ import type {
   AgentSpec,
   Block,
   DynamicToolDefinition,
+  ErrorInfo,
   EventBus,
   ExtensionApi,
   JsonObject,
@@ -29,6 +30,7 @@ import type {
   ToolCatalogItem,
   ToolContext,
   ToolResult,
+  ToolSpec,
   Turn,
   UnknownObject,
 } from '../sdk/types.js';
@@ -40,6 +42,7 @@ const PIPELINE_POINTS: PipelinePoint[] = [
   'step.tools',
   'step.blocks',
   'step.llmCall',
+  'step.llmError',
   'toolCall.pre',
   'toolCall.exec',
   'toolCall.post',
@@ -210,9 +213,7 @@ export class AgentInstance {
       stepCtx = await this.pipelines.runMutators('step.blocks', stepCtx);
       await this.applyHooks('step.blocks', stepCtx);
 
-      stepCtx.llmResult = await this.pipelines.runWrapped('step.llmCall', stepCtx, (ctx) =>
-        this.coreLlmCall(ctx)
-      );
+      stepCtx = await this.runLlmCall(stepCtx);
 
       step.llmResult = stepCtx.llmResult ?? null;
       const toolCalls = stepCtx.llmResult?.toolCalls || [];
@@ -424,6 +425,36 @@ export class AgentInstance {
     });
   }
 
+  async runLlmCall(stepCtx: PipelineContext): Promise<PipelineContext> {
+    const callOnce = async (ctx: PipelineContext) =>
+      this.pipelines.runWrapped('step.llmCall', ctx, (inner) => this.coreLlmCall(inner));
+
+    try {
+      stepCtx.llmResult = await callOnce(stepCtx);
+      stepCtx.llmError = null;
+      return stepCtx;
+    } catch (err) {
+      stepCtx.llmResult = null;
+      stepCtx.llmError = buildErrorInfo(err);
+      stepCtx = await this.pipelines.runMutators('step.llmError', stepCtx);
+      await this.applyHooks('step.llmError', stepCtx);
+
+      if (stepCtx.llmResult) {
+        return stepCtx;
+      }
+
+      try {
+        stepCtx.llmResult = await callOnce(stepCtx);
+        stepCtx.llmError = null;
+        return stepCtx;
+      } catch (retryErr) {
+        stepCtx.llmResult = null;
+        stepCtx.llmError = buildErrorInfo(retryErr);
+        throw retryErr;
+      }
+    }
+  }
+
   async executeToolCall(call: ToolCall, stepCtx: PipelineContext): Promise<ToolResult> {
     if (!stepCtx.step) {
       throw new Error('Tool 실행에는 step 정보가 필요합니다.');
@@ -454,17 +485,24 @@ export class AgentInstance {
     toolCtx = await this.pipelines.runMutators('toolCall.pre', toolCtx);
     await this.runtime.emitProgress(stepCtx.turn.origin, `도구 실행: ${call.name}`, stepCtx.turn.auth);
 
-    const result = await this.pipelines.runWrapped('toolCall.exec', toolCtx, async () => {
-      const tool = this.toolRegistry.getExport(call.name);
-      const input = (call.input || {}) as JsonObject;
-      if (tool) {
-        return tool.handler(ctx, input);
-      }
-      if (this.runtime.mcpManager?.hasTool(call.name)) {
-        return this.runtime.mcpManager.executeTool(call.name, input, ctx);
-      }
-      throw new Error(`Tool export를 찾을 수 없습니다: ${call.name}`);
-    });
+    const toolExport = this.toolRegistry.getExport(call.name);
+    const input = (call.input || {}) as JsonObject;
+    const errorMessageLimit = resolveToolErrorMessageLimit(toolExport?.tool ?? null);
+    let result: JsonValue;
+    try {
+      result = (await this.pipelines.runWrapped('toolCall.exec', toolCtx, async () => {
+        if (toolExport) {
+          return toolExport.handler(ctx, input);
+        }
+        if (this.runtime.mcpManager?.hasTool(call.name)) {
+          return this.runtime.mcpManager.executeTool(call.name, input, ctx);
+        }
+        throw new Error(`Tool export를 찾을 수 없습니다: ${call.name}`);
+      })) as JsonValue;
+    } catch (err) {
+      const errorInfo = buildErrorInfo(err, errorMessageLimit);
+      result = { status: 'error', error: errorInfo } as JsonValue;
+    }
 
     toolCtx.toolResult = result as JsonValue;
     this.captureAuthPending(toolCtx);
@@ -553,7 +591,73 @@ export class AgentInstance {
   }
 }
 
+const DEFAULT_TOOL_ERROR_MESSAGE_LIMIT = 1000;
+
 function arrayEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((value, index) => value === b[index]);
+}
+
+function resolveToolErrorMessageLimit(tool: Resource<ToolSpec> | null): number {
+  const raw = tool?.spec?.errorMessageLimit;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return DEFAULT_TOOL_ERROR_MESSAGE_LIMIT;
+  }
+  const limit = Math.floor(raw);
+  if (limit < 0) return DEFAULT_TOOL_ERROR_MESSAGE_LIMIT;
+  return limit;
+}
+
+function buildErrorInfo(error: unknown, limit?: number): ErrorInfo {
+  const message = truncateMessage(resolveErrorMessage(error), limit);
+  const info: ErrorInfo = { message };
+  const name = resolveErrorName(error);
+  if (name) info.name = name;
+  const code = resolveErrorCode(error);
+  if (code) info.code = code;
+  return info;
+}
+
+function resolveErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    if (typeof error.message === 'string' && error.message.length > 0) return error.message;
+    if (typeof error.name === 'string' && error.name.length > 0) return error.name;
+  }
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) return message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+function resolveErrorName(error: unknown): string | undefined {
+  if (error instanceof Error && error.name) return error.name;
+  if (error && typeof error === 'object') {
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === 'string' && name.length > 0) return name;
+  }
+  return undefined;
+}
+
+function resolveErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object') {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' || typeof code === 'number') return String(code);
+  }
+  return undefined;
+}
+
+function truncateMessage(message: string, limit?: number): string {
+  if (limit == null || !Number.isFinite(limit)) return message;
+  const max = Math.floor(limit);
+  if (max < 0) return message;
+  if (message.length <= max) return message;
+  if (max <= 3) return message.slice(0, Math.max(0, max));
+  return `${message.slice(0, max - 3)}...`;
 }

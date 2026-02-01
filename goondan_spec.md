@@ -373,6 +373,7 @@ metadata:
 spec:
   runtime: node
   entry: "./tools/slack/index.js"
+  errorMessageLimit: 1200
 
   # 이 Tool이 기본적으로 사용하는 OAuthApp(선택)
   auth:
@@ -395,6 +396,7 @@ spec:
 1. `spec.auth.oauthAppRef`가 존재하면, Runtime은 Tool 실행 컨텍스트에 OAuth 토큰 조회 인터페이스(`ctx.oauth`)를 제공해야 한다(SHOULD).
 2. Tool 또는 export가 `auth.scopes`를 선언하는 경우, Runtime은 그 값이 `OAuthApp.spec.scopes`의 부분집합인지 구성 로드/검증 단계에서 검사해야 하며, 부분집합이 아니면 구성을 거부해야 한다(MUST).
 3. Tool/export의 `auth.scopes`는 “추가 권한 요청(증분)”을 의미하지 않으며, 선언된 OAuthApp 스코프 중에서 “더 좁은 범위로 제한”하는 의미로만 사용되어야 한다(MUST).
+4. `spec.errorMessageLimit`는 Tool 오류 메시지의 최대 길이(문자 수)이며, 미설정 시 기본값은 1000이다(MUST).
 
 ### 7.3 Extension
 
@@ -911,13 +913,14 @@ shared/state/system/
 Runtime은 최소 다음 포인트를 제공해야 한다(MUST).
 
 * Turn: `turn.pre`, `turn.post`
-* Step: `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.llmCall`, `step.post`
+* Step: `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.llmCall`, `step.llmError`, `step.post`
 * ToolCall: `toolCall.pre`, `toolCall.exec`, `toolCall.post`
 * Workspace: `workspace.repoAvailable`, `workspace.worktreeMounted`
 
 규칙:
 
 * `step.config`는 `step.tools`보다 먼저 실행되어야 한다(MUST).
+* `step.llmError`는 LLM 호출 실패 시 실행되며, Runtime은 후속 처리 이후 LLM 재시도를 수행할 수 있다(MAY).
 
 ### 11.3 실행 순서와 확장 순서
 
@@ -977,6 +980,20 @@ Runtime은 tool call 처리 시 허용 정책을 가질 수 있다(MAY).
 
 * 동기 완료: `output` 포함
 * 비동기 제출: `handle` 포함(완료 이벤트 또는 polling)
+
+#### 12.3.1 Tool 오류 결과 및 메시지 제한 (MUST)
+
+Runtime은 Tool 실행 중 오류가 발생하면 예외를 외부로 전파하지 않고, ToolResult.output에 오류 정보를 포함하여 LLM에 전달해야 한다(MUST).
+
+```json
+{
+  "status": "error",
+  "error": { "message": "요청 실패", "name": "Error", "code": "E_TOOL" }
+}
+```
+
+* `error.message`는 Tool.spec.errorMessageLimit 길이 제한을 적용한다(MUST).
+* errorMessageLimit이 없으면 기본값은 1000자이다(MUST).
 
 ### 12.4 Live Config 변경의 표준 패턴 (MUST)
 

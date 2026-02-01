@@ -80,6 +80,7 @@ kind: Tool
 spec:
   runtime: node
   entry: "./tools/slack/index.ts"
+  errorMessageLimit: 1200
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
     scopes: ["chat:write"]
@@ -97,6 +98,7 @@ spec:
 - `spec.entry`는 필수.
 - `exports`는 최소 1개.
 - `auth.scopes`는 OAuthApp.spec.scopes의 부분집합이어야 한다.
+- `errorMessageLimit`는 Tool 에러 메시지 최대 길이(문자 수)이며 기본값은 1000.
 
 ### 5.3 Extension
 
@@ -139,6 +141,9 @@ spec:
             threadTs: { expr: "$.turn.origin.threadTs" }
             text: { expr: "$.turn.summary" }
 ```
+
+참고
+- `hooks.point`에는 `step.llmError`를 포함해 Runtime 파이프라인 포인트를 사용할 수 있다.
 
 ### 5.5 Swarm
 

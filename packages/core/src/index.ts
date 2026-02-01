@@ -1,6 +1,10 @@
 export { Runtime } from './runtime/runtime.js';
 export { LiveConfigManager } from './live-config/manager.js';
-export { loadConfigFiles } from './config/loader.js';
+export { loadConfigFiles, loadConfigResources } from './config/loader.js';
 export { ConfigRegistry } from './config/registry.js';
+export type { ConnectorAdapter, ConnectorFactory } from './connectors/registry.js';
 export { createAiSdkAdapter } from './runtime/llm/ai-sdk.js';
 export { validateConfig } from './config/validator.js';
+export { loadBundleResources, readBundleManifests } from './bundles/loader.js';
+export { BundleRegistry } from './bundles/registry.js';
+export * from './sdk/types.js';

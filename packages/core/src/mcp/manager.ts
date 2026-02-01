@@ -1,15 +1,24 @@
+import { normalizeObjectRef } from '../config/ref.js';
 import type { Resource } from '../config/registry.js';
+import type {
+  AgentSpec,
+  JsonObject,
+  MCPServerSpec,
+  ObjectRefLike,
+  ToolCatalogItem,
+  UnknownObject,
+} from '../sdk/types.js';
 
 export interface McpToolDefinition {
   name: string;
   description?: string;
-  parameters?: Record<string, unknown>;
+  parameters?: JsonObject;
   serverName: string;
 }
 
 export interface McpAdapter {
   listTools?: () => Promise<McpToolDefinition[]>;
-  callTool?: (name: string, input: Record<string, unknown>, ctx: Record<string, unknown>) => Promise<unknown>;
+  callTool?: (name: string, input: JsonObject, ctx: UnknownObject) => Promise<unknown>;
   close?: () => void;
 }
 
@@ -85,12 +94,13 @@ export class McpManager {
     this.toolIndex.clear();
   }
 
-  getToolsForAgent(instanceId: string, agentName: string, agentConfig: Resource): Array<Record<string, unknown>> {
-    const mcpRefs = (agentConfig.spec as { mcpServers?: Array<Record<string, unknown>> } | undefined)?.mcpServers || [];
-    const result: Array<Record<string, unknown>> = [];
+  getToolsForAgent(instanceId: string, agentName: string, agentConfig: Resource): ToolCatalogItem[] {
+    const mcpRefs = (agentConfig.spec as AgentSpec | undefined)?.mcpServers || [];
+    const result: ToolCatalogItem[] = [];
 
     for (const ref of mcpRefs) {
-      const serverName = (ref as { name?: string }).name || (ref as { metadata?: { name?: string } }).metadata?.name;
+      if (typeof ref === 'object' && ref && 'selector' in ref) continue;
+      const serverName = normalizeObjectRef(ref as ObjectRefLike, 'MCPServer')?.name;
       if (!serverName) continue;
       const server = this.registry.get(serverName);
       if (!server) continue;
@@ -119,7 +129,7 @@ export class McpManager {
     return result;
   }
 
-  async executeTool(name: string, input: Record<string, unknown>, ctx: Record<string, unknown>): Promise<unknown> {
+  async executeTool(name: string, input: JsonObject, ctx: UnknownObject): Promise<unknown> {
     const entry = findToolEntry(this.toolIndex, name);
     if (!entry) return null;
     const server = this.servers.get(entry.serverKey);
@@ -201,14 +211,14 @@ export class McpManager {
 }
 
 function parseServerConfig(server: Resource): { type?: string; stateful: boolean; hash: string; scope: 'instance' | 'agent' } {
-  const spec = server.spec as Record<string, unknown> | undefined;
-  const transport = (spec?.transport as Record<string, unknown> | undefined) || {};
-  const type = transport.type as string | undefined;
-  const attach = (spec?.attach as Record<string, unknown> | undefined) || {};
-  const stateful = (attach.mode as string | undefined) === 'stateful';
-  const scope = (attach.scope as string | undefined) === 'agent' ? 'agent' : 'instance';
-  const expose = spec?.expose as Record<string, unknown> | undefined;
-  const hash = JSON.stringify({ transport, attach, expose });
+  const spec = server.spec as MCPServerSpec | undefined;
+  const transport = spec?.transport;
+  const type = transport?.type;
+  const attach = spec?.attach;
+  const stateful = attach?.mode === 'stateful';
+  const scope = attach?.scope === 'agent' ? 'agent' : 'instance';
+  const expose = spec?.expose;
+  const hash = JSON.stringify({ transport: transport || {}, attach: attach || {}, expose });
   return { type, stateful, hash, scope };
 }
 

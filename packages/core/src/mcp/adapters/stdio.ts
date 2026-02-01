@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { McpAdapter, McpToolDefinition } from '../manager.js';
 import type { Resource } from '../../config/registry.js';
+import type { JsonObject, UnknownObject } from '../../sdk/types.js';
 
 interface StdioClient {
   listTools: () => Promise<McpToolDefinition[]>;
-  callTool: (name: string, input: Record<string, unknown>) => Promise<unknown>;
+  callTool: (name: string, input: JsonObject) => Promise<unknown>;
   close: () => void;
 }
 
@@ -20,7 +21,7 @@ export function createStdioAdapter(options: { server: Resource; logger?: Console
 
   return {
     listTools: client.listTools,
-    callTool: (name, input) => client.callTool(name, input),
+    callTool: (name, input, _ctx?: UnknownObject) => client.callTool(name, input),
     close: client.close,
   };
 }
@@ -69,7 +70,7 @@ function createClient(command: string[], logger: Console): StdioClient {
     }
   }
 
-  function request(method: string, params: Record<string, unknown> = {}) {
+  function request(method: string, params: JsonObject = {}) {
     return new Promise((resolve, reject) => {
       const id = counter++;
       pending.set(id, { resolve, reject: reject as (err: Error) => void });
@@ -79,7 +80,7 @@ function createClient(command: string[], logger: Console): StdioClient {
   }
 
   async function listTools(): Promise<McpToolDefinition[]> {
-    const result = (await request('tools/list')) as { tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }> };
+    const result = (await request('tools/list')) as { tools?: Array<{ name: string; description?: string; inputSchema?: JsonObject }> };
     const tools = result?.tools || [];
     return tools.map((tool) => ({
       name: tool.name,
@@ -89,7 +90,7 @@ function createClient(command: string[], logger: Console): StdioClient {
     }));
   }
 
-  async function callTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async function callTool(name: string, input: JsonObject): Promise<unknown> {
     const result = await request('tools/call', { name, arguments: input });
     return result;
   }

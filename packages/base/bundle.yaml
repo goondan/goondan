@@ -1,0 +1,81 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Bundle
+metadata:
+  name: base
+  labels:
+    tier: base
+spec:
+  version: "0.1.0"
+  resources:
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Extension
+      metadata:
+        name: skills
+        labels:
+          tier: base
+      spec:
+        runtime: node
+        entry: "./dist/extensions/skill/index.js"
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Extension
+      metadata:
+        name: compaction
+        labels:
+          tier: base
+      spec:
+        runtime: node
+        entry: "./dist/extensions/compaction/index.js"
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Tool
+      metadata:
+        name: toolSearch
+        labels:
+          tier: base
+      spec:
+        runtime: node
+        entry: "./dist/tools/tool-search/index.js"
+        exports:
+          - name: toolSearch.find
+            description: "Tool catalog 검색"
+            parameters:
+              type: object
+              additionalProperties: true
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Tool
+      metadata:
+        name: fileRead
+        labels:
+          tier: base
+      spec:
+        runtime: node
+        entry: "./dist/tools/file-read/index.js"
+        exports:
+          - name: file.read
+            description: "로컬 파일 읽기"
+            parameters:
+              type: object
+              additionalProperties: true
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Tool
+      metadata:
+        name: slackToolkit
+        labels:
+          tier: base
+      spec:
+        runtime: node
+        entry: "./dist/tools/slack/index.js"
+        exports:
+          - name: slack.postMessage
+            description: "Slack 메시지 전송"
+            parameters:
+              type: object
+              additionalProperties: true
+    - apiVersion: agents.example.io/v1alpha1
+      kind: Connector
+      metadata:
+        name: slack
+        labels:
+          tier: base
+      spec:
+        type: slack
+        ingress: []

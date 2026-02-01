@@ -1,5 +1,6 @@
 import { generateText, jsonSchema, tool as aiTool, type ModelMessage } from 'ai';
 import type { LlmAdapter, LlmCallInput, LlmCallResult } from '../runtime.js';
+import type { Block, JsonObject, ToolCatalogItem, UnknownObject } from '../../sdk/types.js';
 
 interface AiSdkAdapterOptions {
   providerTag?: string;
@@ -15,7 +16,7 @@ interface AiSdkTrace {
   };
   response: {
     text: string;
-    toolCalls: Array<{ toolCallId?: string; toolName: string; input?: Record<string, unknown> }>;
+    toolCalls: Array<{ toolCallId?: string; toolName: string; input?: JsonObject }>;
   };
 }
 
@@ -38,17 +39,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
     const tools = buildAiTools(input.tools);
     const messages = buildMessages(system, prompt);
 
-    const result = await (generateText as unknown as (args: Record<string, unknown>) => Promise<any>)({
+    const result = await (generateText as unknown as (args: UnknownObject) => Promise<any>)({
       model: modelId,
       messages,
-      tools: tools as unknown as Record<string, unknown>,
+      tools: tools as unknown as UnknownObject,
       ...(input.params || {}),
     });
 
     const toolCalls = (result.toolCalls || []).map((call: any) => ({
       id: call.toolCallId,
       name: call.toolName,
-      input: (call as { input?: Record<string, unknown> }).input,
+      input: (call as { input?: JsonObject }).input,
     }));
 
     const trace: AiSdkTrace = {
@@ -61,7 +62,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
       },
       response: {
         text: result.text,
-        toolCalls: (result.toolCalls || []) as Array<{ toolCallId?: string; toolName: string; input?: Record<string, unknown> }>,
+        toolCalls: (result.toolCalls || []) as Array<{ toolCallId?: string; toolName: string; input?: JsonObject }>,
       },
     };
 
@@ -73,13 +74,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
   };
 }
 
-function extractSystemPrompt(blocks: Array<Record<string, unknown>>): string | undefined {
+function extractSystemPrompt(blocks: Block[]): string | undefined {
   const block = blocks.find((item) => item.type === 'system');
   if (!block) return undefined;
   return typeof block.content === 'string' ? block.content : undefined;
 }
 
-function extractUserPrompt(blocks: Array<Record<string, unknown>>): string | undefined {
+function extractUserPrompt(blocks: Block[]): string | undefined {
   const block = blocks.find((item) => item.type === 'input');
   if (!block) return undefined;
   return typeof block.content === 'string' ? block.content : undefined;
@@ -96,14 +97,14 @@ function buildMessages(system?: string, prompt?: string): ModelMessage[] {
   return messages;
 }
 
-function buildAiTools(toolCatalog: Array<Record<string, unknown>>) {
-  const tools: Record<string, ReturnType<typeof aiTool>> = {};
+function buildAiTools(toolCatalog: ToolCatalogItem[]) {
+  const tools: { [key: string]: ReturnType<typeof aiTool> } = {};
 
   for (const item of toolCatalog) {
     const name = String(item.name || '');
     if (!name) continue;
     const description = typeof item.description === 'string' ? item.description : '';
-    const parameters = (item.parameters || { type: 'object', additionalProperties: true }) as Record<string, unknown>;
+    const parameters = (item.parameters || { type: 'object', additionalProperties: true }) as JsonObject;
 
     tools[name] = aiTool({
       description,

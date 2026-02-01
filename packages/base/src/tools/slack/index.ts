@@ -1,12 +1,10 @@
+import type { JsonObject, ToolContext } from '@goondan/core';
+
 interface SlackPostMessageInput {
   channel: string;
   text: string;
   threadTs?: string;
   scopes?: string[];
-}
-
-interface ToolContext {
-  oauth?: { getAccessToken?: (request: { oauthAppRef: { kind: string; name: string }; scopes?: string[] }) => Promise<Record<string, unknown>> };
 }
 
 export const handlers = {
@@ -15,10 +13,10 @@ export const handlers = {
       throw new Error('channel과 text가 필요합니다.');
     }
 
-    const tokenResult = await ctx.oauth?.getAccessToken?.({
+    const tokenResult = (await ctx.oauth?.getAccessToken?.({
       oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
       scopes: input.scopes,
-    });
+    })) as JsonObject | undefined;
 
     if (!tokenResult || (tokenResult as { status?: string }).status !== 'ready') {
       return tokenResult;

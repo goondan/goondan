@@ -1,17 +1,19 @@
+import type { JsonObject, ObjectRefLike } from '@goondan/core';
+
 interface SlackConnectorOptions {
   runtime: {
     handleEvent: (event: {
-      swarmRef: Record<string, unknown>;
+      swarmRef: ObjectRefLike;
       instanceKey: string;
       agentName?: string;
       input: string;
-      origin?: Record<string, unknown>;
-      auth?: Record<string, unknown>;
-      metadata?: Record<string, unknown>;
+      origin?: JsonObject;
+      auth?: JsonObject;
+      metadata?: JsonObject;
     }) => Promise<void>;
-    oauth?: { withContext?: (context: { auth?: Record<string, unknown> }) => { getAccessToken: (request: { oauthAppRef: { kind: string; name: string }; scopes?: string[] }) => Promise<Record<string, unknown>> } };
+    oauth?: { withContext?: (context: { auth?: JsonObject }) => { getAccessToken: (request: { oauthAppRef: ObjectRefLike; scopes?: string[] }) => Promise<JsonObject> } };
   };
-  connectorConfig: Record<string, unknown>;
+  connectorConfig: JsonObject;
   logger?: Console;
 }
 
@@ -20,12 +22,12 @@ export function createSlackConnector(options: SlackConnectorOptions) {
   const config = options.connectorConfig as {
     metadata?: { name?: string };
     spec?: {
-      ingress?: Array<Record<string, unknown>>;
+      ingress?: Array<JsonObject>;
       auth?: { staticToken?: { value?: string; valueFrom?: { env?: string } } };
     };
   };
 
-  async function handleEvent(payload: Record<string, unknown>): Promise<void> {
+  async function handleEvent(payload: JsonObject): Promise<void> {
     const ingressRules = config.spec?.ingress || [];
     const text = String(readPath(payload, '$.event.text') || payload.text || '');
 
@@ -36,7 +38,7 @@ export function createSlackConnector(options: SlackConnectorOptions) {
       }
 
       const route = rule.route as {
-        swarmRef?: Record<string, unknown>;
+        swarmRef?: ObjectRefLike;
         instanceKeyFrom?: string;
         inputFrom?: string;
         agentName?: string;
@@ -63,15 +65,15 @@ export function createSlackConnector(options: SlackConnectorOptions) {
     }
   }
 
-  async function postMessage(input: { channel: string; text: string; threadTs?: string; auth?: Record<string, unknown> }): Promise<Record<string, unknown>> {
+  async function postMessage(input: { channel: string; text: string; threadTs?: string; auth?: JsonObject }): Promise<JsonObject> {
     let token = resolveStaticToken(config);
     if (!token) {
-      const oauthAppRef = (config.spec?.auth as { oauthAppRef?: { kind: string; name: string } } | undefined)?.oauthAppRef;
+      const oauthAppRef = (config.spec?.auth as { oauthAppRef?: ObjectRefLike } | undefined)?.oauthAppRef;
       if (oauthAppRef && options.runtime.oauth?.withContext) {
-        const result = await options.runtime.oauth.withContext({ auth: input.auth as { subjects?: { global?: string; user?: string } } }).getAccessToken({ oauthAppRef });
-        if (result.status !== 'ready') return result as Record<string, unknown>;
+        const result = await options.runtime.oauth.withContext({ auth: input.auth }).getAccessToken({ oauthAppRef });
+        if (result.status !== 'ready') return result as JsonObject;
         const accessToken = (result as { accessToken?: string }).accessToken;
-        if (!accessToken) return result as Record<string, unknown>;
+        if (!accessToken) return result as JsonObject;
         token = accessToken;
       }
     }
@@ -91,7 +93,7 @@ export function createSlackConnector(options: SlackConnectorOptions) {
       }),
     });
 
-    return response.json();
+    return (await response.json()) as JsonObject;
   }
 
   return { handleEvent, postMessage };
@@ -105,35 +107,39 @@ function resolveStaticToken(config: { spec?: { auth?: { staticToken?: { value?: 
   return undefined;
 }
 
-function buildOrigin(connectorName: string, payload: Record<string, unknown>): Record<string, unknown> {
+function buildOrigin(connectorName: string, payload: JsonObject): JsonObject {
+  const channel = readPath(payload, '$.event.channel') || readPath(payload, '$.channel');
+  const threadTs = readPath(payload, '$.event.thread_ts') || readPath(payload, '$.thread_ts');
   return {
     connector: connectorName,
-    channel: readPath(payload, '$.event.channel') || readPath(payload, '$.channel') || undefined,
-    threadTs: readPath(payload, '$.event.thread_ts') || readPath(payload, '$.thread_ts') || undefined,
+    channel: typeof channel === 'string' ? channel : undefined,
+    threadTs: typeof threadTs === 'string' ? threadTs : undefined,
   };
 }
 
-function buildAuth(payload: Record<string, unknown>): Record<string, unknown> {
-  const teamId = readPath(payload, '$.team_id') || readPath(payload, '$.event.team') || readPath(payload, '$.team') || undefined;
-  const userId = readPath(payload, '$.event.user') || readPath(payload, '$.user') || undefined;
+function buildAuth(payload: JsonObject): JsonObject {
+  const teamId = readPath(payload, '$.team_id') || readPath(payload, '$.event.team') || readPath(payload, '$.team');
+  const userId = readPath(payload, '$.event.user') || readPath(payload, '$.user');
+  const team = typeof teamId === 'string' ? teamId : undefined;
+  const user = typeof userId === 'string' ? userId : undefined;
 
   return {
-    actor: userId ? { type: 'user', id: `slack:${userId}` } : undefined,
+    actor: user ? { type: 'user', id: `slack:${user}` } : undefined,
     subjects: {
-      global: teamId ? `slack:team:${teamId}` : undefined,
-      user: teamId && userId ? `slack:user:${teamId}:${userId}` : undefined,
+      global: team ? `slack:team:${team}` : undefined,
+      user: team && user ? `slack:user:${team}:${user}` : undefined,
     },
   };
 }
 
-function readPath(payload: Record<string, unknown>, expr?: string): unknown {
+function readPath(payload: JsonObject, expr?: string): unknown {
   if (!expr) return undefined;
   if (!expr.startsWith('$.')) return undefined;
   const path = expr.slice(2).split('.');
   let current: unknown = payload;
   for (const key of path) {
     if (current == null) return undefined;
-    current = (current as Record<string, unknown>)[key];
+    current = (current as JsonObject)[key];
   }
   return current;
 }

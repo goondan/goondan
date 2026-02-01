@@ -1,4 +1,4 @@
-type PlainObject = Record<string, unknown>;
+type PlainObject = { [key: string]: unknown };
 
 export function deepMerge<T>(base: T, overlay: T): T {
   if (overlay === undefined) return base;

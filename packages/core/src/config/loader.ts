@@ -7,7 +7,7 @@ interface LoaderOptions {
   baseDir?: string;
 }
 
-export async function loadConfigFiles(paths: string[] | string, options: LoaderOptions = {}) {
+export async function loadConfigResources(paths: string[] | string, options: LoaderOptions = {}): Promise<Resource[]> {
   const files = Array.isArray(paths) ? paths : [paths];
   const baseDir = options.baseDir || process.cwd();
   const resources: Resource[] = [];
@@ -27,5 +27,11 @@ export async function loadConfigFiles(paths: string[] | string, options: LoaderO
     }
   }
 
+  return resources;
+}
+
+export async function loadConfigFiles(paths: string[] | string, options: LoaderOptions = {}) {
+  const baseDir = options.baseDir || process.cwd();
+  const resources = await loadConfigResources(paths, { baseDir });
   return new ConfigRegistry(resources, { baseDir });
 }

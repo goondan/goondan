@@ -1,34 +1,20 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { resolveRef } from '../config/ref.js';
-import type { ConfigRegistry, Resource } from '../config/registry.js';
+import type { ConfigRegistry } from '../config/registry.js';
+import type {
+  JsonObject,
+  ObjectRefLike,
+  Resource,
+  ToolCatalogItem,
+  ToolHandler,
+  ToolSpec,
+  ToolExportSpec as SdkToolExportSpec,
+} from '../sdk/types.js';
 
-export interface ToolExportDef {
-  name: string;
-  description?: string;
-  parameters?: Record<string, unknown>;
-  handler?: string;
-}
+export interface ToolExportDef extends SdkToolExportSpec {}
 
-export interface ToolResource extends Resource {
-  spec?: {
-    runtime?: string;
-    entry?: string;
-    exports?: ToolExportDef[];
-    [key: string]: unknown;
-  };
-}
-
-export interface ToolCatalogItem {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  tool: ToolResource | null;
-  export: ToolExportDef | null;
-  source?: Record<string, unknown>;
-}
-
-export type ToolHandler = (ctx: unknown, input: Record<string, unknown>) => Promise<unknown> | unknown;
+export interface ToolResource extends Resource<ToolSpec> {}
 
 interface ToolRegistryOptions {
   registry: ConfigRegistry;
@@ -52,7 +38,7 @@ export class ToolRegistry {
   async loadAllTools(): Promise<void> {
     const tools = this.registry.list('Tool');
     for (const tool of tools) {
-      await this.registerToolResource(tool as ToolResource);
+      await this.registerToolResource(tool as unknown as ToolResource);
     }
   }
 
@@ -69,7 +55,7 @@ export class ToolRegistry {
       : path.join(this.baseDir, toolResource.spec.entry);
 
     const moduleUrl = pathToFileURL(entryPath).href;
-    const mod = (await import(moduleUrl)) as Record<string, unknown>;
+    const mod = (await import(moduleUrl)) as { [key: string]: unknown };
     const handlers = mod.handlers || mod.default || mod;
 
     const exportsList = toolResource.spec.exports || [];
@@ -80,8 +66,8 @@ export class ToolRegistry {
     for (const exportDef of exportsList) {
       const name = exportDef.name;
       const handler =
-        (handlers as Record<string, unknown>)[name] ||
-        (handlers as Record<string, unknown>)[exportDef.handler || ''] ||
+        (handlers as { [key: string]: unknown })[name] ||
+        (handlers as { [key: string]: unknown })[exportDef.handler || ''] ||
         handlers;
       if (typeof handler !== 'function') {
         throw new Error(`Tool export ${name}에 대한 핸들러를 찾을 수 없습니다.`);
@@ -106,20 +92,20 @@ export class ToolRegistry {
     }
   }
 
-  buildCatalog(toolRefs: Array<Record<string, unknown>>): ToolCatalogItem[] {
+  buildCatalog(toolRefs: Array<ObjectRefLike>): ToolCatalogItem[] {
     const catalog: ToolCatalogItem[] = [];
     for (const ref of toolRefs) {
-      const toolResource = resolveRef(this.registry, ref as Record<string, unknown>, 'Tool') as ToolResource | null;
+      const toolResource = resolveRef(this.registry, ref as ObjectRefLike, 'Tool') as ToolResource | null;
       if (!toolResource) continue;
       const exportsList = toolResource.spec?.exports || [];
       for (const exportDef of exportsList) {
         catalog.push({
           name: exportDef.name,
           description: exportDef.description || '',
-          parameters: (exportDef.parameters || { type: 'object', additionalProperties: true }) as Record<string, unknown>,
+          parameters: (exportDef.parameters || { type: 'object', additionalProperties: true }) as JsonObject,
           tool: toolResource as ToolResource,
           export: exportDef,
-          source: { type: 'tool', name: toolResource.metadata?.name },
+          source: { type: 'tool', name: toolResource.metadata?.name } as JsonObject,
         });
       }
     }

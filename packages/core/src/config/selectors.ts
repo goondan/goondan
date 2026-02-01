@@ -1,29 +1,19 @@
 import { deepMerge } from '../utils/merge.js';
 import type { ConfigRegistry, Resource } from './registry.js';
-
-interface Selector {
-  kind?: string;
-  name?: string;
-  matchLabels?: Record<string, string>;
-}
-
-interface SelectorBlock {
-  selector: Selector;
-  overrides?: Record<string, unknown>;
-}
+import type { ObjectRefLike, SelectorBlock } from '../sdk/types.js';
 
 export function resolveSelectorList(
-  list: Array<Resource | SelectorBlock | Record<string, unknown>> = [],
+  list: Array<Resource | SelectorBlock | ObjectRefLike> = [],
   registry: ConfigRegistry
-): Array<Resource | SelectorBlock | Record<string, unknown>> {
-  const resolved: Array<Resource | SelectorBlock | Record<string, unknown>> = [];
+): Array<Resource | SelectorBlock | ObjectRefLike> {
+  const resolved: Array<Resource | SelectorBlock | ObjectRefLike> = [];
 
   for (const item of list) {
     if (item && typeof item === 'object' && 'selector' in item) {
-      const selected = resolveSelector(item.selector as Selector, registry);
+      const selected = resolveSelector((item as SelectorBlock).selector, registry);
       const overrides = (item as SelectorBlock).overrides || {};
       for (const resource of selected) {
-        const merged = overrides ? deepMerge(resource, overrides as Resource) : resource;
+        const merged = overrides ? deepMerge(resource, overrides as unknown as Resource) : resource;
         resolved.push(merged as Resource);
       }
       continue;
@@ -34,7 +24,7 @@ export function resolveSelectorList(
   return resolved;
 }
 
-function resolveSelector(selector: Selector, registry: ConfigRegistry): Resource[] {
+function resolveSelector(selector: SelectorBlock['selector'], registry: ConfigRegistry): Resource[] {
   if (selector.kind && selector.name) {
     const resource = registry.get(selector.kind, selector.name);
     return resource ? [resource] : [];

@@ -1,5 +1,6 @@
 import type { McpAdapter, McpToolDefinition } from '../manager.js';
 import type { Resource } from '../../config/registry.js';
+import type { JsonObject, UnknownObject } from '../../sdk/types.js';
 
 export function createHttpAdapter(options: { server: Resource; logger?: Console }): McpAdapter {
   const logger = options.logger || console;
@@ -11,7 +12,7 @@ export function createHttpAdapter(options: { server: Resource; logger?: Console 
 
   let counter = 1;
 
-  async function request(method: string, params: Record<string, unknown> = {}) {
+  async function request(method: string, params: JsonObject = {}) {
     const id = counter++;
     const response = await fetch(url, {
       method: 'POST',
@@ -27,7 +28,7 @@ export function createHttpAdapter(options: { server: Resource; logger?: Console 
   }
 
   async function listTools(): Promise<McpToolDefinition[]> {
-    const result = (await request('tools/list')) as { tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }> };
+    const result = (await request('tools/list')) as { tools?: Array<{ name: string; description?: string; inputSchema?: JsonObject }> };
     const tools = result?.tools || [];
     return tools.map((tool) => ({
       name: tool.name,
@@ -37,7 +38,7 @@ export function createHttpAdapter(options: { server: Resource; logger?: Console 
     }));
   }
 
-  async function callTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async function callTool(name: string, input: JsonObject, _ctx?: UnknownObject): Promise<unknown> {
     return request('tools/call', { name, arguments: input });
   }
 

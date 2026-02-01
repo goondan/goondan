@@ -1,0 +1,103 @@
+# 작업 보고서 (2026-02-01)
+
+## 1) 개요
+Goondan 생태계를 “k8s for agent swarm” 관점에서 확장/운영 가능하도록 정리했습니다. 핵심은 **확장 묶음(Bundle) 등록/검증/무결성 관리**, **CLI 기반 운영**, **SDK 타입 정비**, **샘플/문서 보강**입니다.
+
+## 2) 수행 내역
+### 2.1 분류 정리 및 구조 정돈
+- compaction은 Extension, tool-search는 Tool로 정정
+- 빈 디렉터리 제거 및 관련 AGENTS/TODO/goondan_spec 반영
+
+### 2.2 SDK 타입 강화 및 core 타입 정리
+- `Record<string, unknown>` 제거, `sdk/types.ts` 중심 타입 체계로 통합
+- Tool/Extension/LiveConfig/Runtime API 타입 안정화
+
+### 2.3 Bundle 시스템 구축
+- Bundle 로더/레지스트리 구현 및 CLI 연동
+- 번들 등록/활성화/비활성화/정보조회/검증/무결성/lockfile 생성 흐름 추가
+
+### 2.4 CLI 고도화
+- run/validate/export/bundle 서브커맨드 추가
+- `validate --strict`로 entry 존재 및 중복 리소스 검사 지원
+- `export`로 bundle+config 병합 리소스 YAML/JSON 출력
+- `bundle verify/refresh/lock/verify-lock`으로 무결성/재현성 강화
+
+### 2.5 샘플 패키지 추가
+- `packages/sample`에 최소 실행 구성 및 CLI 스크립트 제공
+- bundle 등록/검증/무결성/실행 플로우 예시 제공
+
+### 2.6 문서/스펙 업데이트
+- `docs/spec_api.md` 신설 및 CLI/Bundle API 문서화
+- `goondan_spec.md`에 Bundle 개념 추가
+- AGENTS 최신화 (root/docs/core/base/sample)
+
+## 3) CTO 관점에서의 생각과 판단
+- **확장 생태계의 핵심은 배포/등록/검증/무결성**이라고 판단했습니다. 그래서 번들 시스템에 lock/verify/refresh를 붙여 “패키지 매니저 없이도 신뢰할 수 있는 확장 등록”을 목표로 했습니다.
+- **운영 UX는 CLI에서 시작**한다고 보고, run/validate/export/bundle 서브커맨드를 강화했습니다. 특히 `export`는 인프라/CI/CD 파이프라인에 바로 붙일 수 있는 포맷으로 설계했습니다.
+- **SDK 타입 정돈은 확장 생태계 확산의 기반**이므로, core/base 전체에서 느슨한 Record 타입을 제거하고 명시적 타입을 제공했습니다.
+- **샘플은 생태계 확장의 첫 번째 온보딩 포인트**이므로, 가장 적은 구성으로도 번들 등록/실행이 되도록 구조화했습니다.
+
+## 4) 주요 변경 파일
+- 번들/CLI
+  - `packages/core/src/bundles/loader.ts`
+  - `packages/core/src/bundles/registry.ts`
+  - `packages/core/src/cli/index.ts`
+  - `packages/core/src/cli/AGENTS.md`
+- SDK 타입
+  - `packages/core/src/sdk/types.ts`
+- 문서/스펙
+  - `docs/spec_api.md`
+  - `goondan_spec.md`
+- 샘플
+  - `packages/sample/goondan.yaml`
+  - `packages/sample/package.json`
+  - `packages/sample/README.md`
+  - `packages/sample/AGENTS.md`
+- base 번들
+  - `packages/base/bundle.yaml`
+- 분류 정리
+  - `packages/base/src/extensions/compaction/index.ts`
+  - `packages/base/src/tools/tool-search/index.ts`
+  - `packages/base/src/index.ts`
+  - `packages/base/tests/compaction.test.ts`
+
+## 5) 검증 방법
+### 5.1 타입 체크
+```
+pnpm -C /Users/channy/workspace/goondan exec tsc -p packages/core/tsconfig.json --noEmit
+pnpm -C /Users/channy/workspace/goondan exec tsc -p packages/base/tsconfig.json --noEmit
+```
+
+### 5.2 빌드
+```
+pnpm -C /Users/channy/workspace/goondan/packages/core build
+pnpm -C /Users/channy/workspace/goondan/packages/base build
+```
+
+### 5.3 샘플 실행/검증
+```
+# bundle 등록
+pnpm -C packages/sample bundle:add
+
+# bundle 검증/무결성
+pnpm -C packages/sample bundle:validate
+pnpm -C packages/sample bundle:verify
+pnpm -C packages/sample bundle:lock
+pnpm -C packages/sample bundle:verify-lock
+
+# config strict 검증
+pnpm -C packages/sample validate:strict
+
+# 실행
+pnpm -C packages/sample run
+pnpm -C packages/sample run:registered
+
+# export
+pnpm -C packages/sample export
+```
+
+## 6) 남은 개선 아이디어 (제안)
+- Bundle manifest에 `resources[].spec.entry`의 runtime/플랫폼 별 매핑 규칙 확장
+- CI에서 `bundle lock` 생성 → `bundle verify-lock` 강제 정책 추가
+- sample을 2개 이상(예: MCP 연동, OAuth 흐름)로 확장
+

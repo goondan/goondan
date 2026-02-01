@@ -1,12 +1,7 @@
 import type { ConfigRegistry, Resource } from './registry.js';
+import type { ObjectRef, ObjectRefLike } from '../sdk/types.js';
 
-export interface ObjectRef {
-  apiVersion?: string;
-  kind?: string;
-  name?: string;
-}
-
-export function normalizeObjectRef(ref: string | ObjectRef | null, defaultKind?: string): ObjectRef | null {
+export function normalizeObjectRef(ref: ObjectRefLike | null, defaultKind?: string): ObjectRef | null {
   if (!ref) return null;
   if (typeof ref === 'string') {
     const [kind, name] = ref.split('/');
@@ -27,7 +22,7 @@ export function normalizeObjectRef(ref: string | ObjectRef | null, defaultKind?:
 
 export function resolveRef(
   registry: ConfigRegistry,
-  ref: string | ObjectRef | null,
+  ref: ObjectRefLike | null,
   defaultKind?: string
 ): Resource | null {
   const normalized = normalizeObjectRef(ref, defaultKind);

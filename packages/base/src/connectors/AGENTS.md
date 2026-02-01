@@ -4,3 +4,4 @@
 
 ## 포함 커넥터
 - slack: Slack ingress/egress 처리
+- cli: CLI 입력/출력 처리

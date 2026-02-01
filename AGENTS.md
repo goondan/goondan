@@ -18,7 +18,10 @@
 ## 주요 파일 목록
 - @goondan_spec.md : 스펙 문서
 - @TODO.md : 작업 체크리스트 (수행 후 체크 표시)
+- @REPORT.md : 작업 보고서
 - @docs/spec_config.md : Config 스펙 구체화 문서
+- @docs/spec_api.md : Runtime/SDK API 스펙 문서
+- @docs/scenario_example1.md : CLI 기반 스웜 실행 시나리오
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
 - packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig

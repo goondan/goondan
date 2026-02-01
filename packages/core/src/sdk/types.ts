@@ -51,6 +51,7 @@ export interface ToolExportSpec {
 export interface ToolSpec {
   runtime?: string;
   entry: string;
+  errorMessageLimit?: number;
   auth?: { oauthAppRef: ObjectRefLike; scopes?: string[] };
   exports: ToolExportSpec[];
 }
@@ -138,6 +139,7 @@ export type PipelinePoint =
   | 'step.tools'
   | 'step.blocks'
   | 'step.llmCall'
+  | 'step.llmError'
   | 'step.post'
   | 'toolCall.pre'
   | 'toolCall.exec'
@@ -176,6 +178,12 @@ export interface LlmResult {
   meta?: { usage?: LlmUsage } & UnknownObject;
 }
 
+export interface ErrorInfo extends JsonObject {
+  message: string;
+  name?: string;
+  code?: string;
+}
+
 export interface Turn {
   id: string;
   input: string;
@@ -204,6 +212,7 @@ export interface StepContext {
   toolCatalog?: ToolCatalogItem[];
   blocks?: Block[];
   llmResult?: LlmResult | null;
+  llmError?: ErrorInfo | null;
   toolCall?: ToolCall;
   toolResult?: JsonValue;
 }

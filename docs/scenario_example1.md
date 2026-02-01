@@ -14,7 +14,7 @@ goondan init
 
 ### 결과
 현재 디렉터리에 `goondan.yaml`이 생성된다. 기본 구성은 다음을 포함한다.
-또한 `goondan init`는 npm 레지스트리의 `@goondan/base` 번들을 자동 등록한다.
+또한 `goondan init`는 Git 번들 `github.com/goondan/goondan/packages/base`를 자동 등록한다.
 네트워크 접근이 불가능하면 등록이 실패할 수 있다.
 
 - **Model**: anthropic `claude-sonnect-4-5`
@@ -34,7 +34,7 @@ goondan init
 
 ## 2) base 번들 등록
 ```bash
-goondan bundle add github.com/goondan/goondan/base
+goondan bundle add github.com/goondan/goondan/packages/base
 ```
 
 > `goondan init`에서 기본 등록이 수행되므로, 필요 시 재등록/갱신 용도로 사용한다.

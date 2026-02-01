@@ -210,7 +210,7 @@ async function runCommand(options: RunOptions): Promise<void> {
   await startInteractiveSession(dispatchInput);
 }
 
-const DEFAULT_BASE_SPEC = 'github.com/goondan/goondan/base';
+const DEFAULT_BASE_SPEC = 'github.com/goondan/goondan/packages/base';
 
 async function initCommand(options: { force: boolean }): Promise<void> {
   const force = options.force;

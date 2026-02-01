@@ -1282,6 +1282,8 @@ Bundle은 Tool/Extension/Connector 등 **확장을 묶어서 등록**하기 위�
 
 Bundle은 **Git 기반으로 식별/다운로드**되는 것을 기본으로 한다. 번들 참조는 `github.com/<org>/<repo>/<path>@<ref?>` 형태를 권장하며, `@ref`가 없으면 기본 브랜치를 사용한다(MAY). 번들 다운로드 시 `bundle.yaml`이 있는 폴더는 **전체를 내려받아야** 하며, `spec.include`는 **최종 Config에 포함할 YAML 목록**을 정의할 뿐 다운로드 범위를 제한하지 않는다(MUST).
 
+Git-only 배포에서는 `dist/` 빌드 산출물을 리포에 포함하고, `spec.include`가 dist 하위 YAML을 참조하도록 구성한다(SHOULD).
+
 각 리소스의 `spec.entry` 경로는 **Bundle Root 기준 상대 경로**로 해석한다(MUST). 런타임은 등록된 Bundle의 리소스를 ConfigRegistry에 합쳐 사용하며, 충돌 시 정책에 따라 덮어쓰기/에러 처리한다(MAY).
 
 npm은 **선택적 호스팅 채널**로만 활용할 수 있으며, 번들 배포/해석의 필수 요건은 아니다. 번들 스펙 및 상세 예시는 `docs/spec_bundle.md`를 참조한다.
@@ -1297,8 +1299,8 @@ spec:
   dependencies:
     - github.com/goondan/foo-bar@v0.2.0
   include:
-    - tools/fileRead/tool.yaml
-    - extensions/skills/extension.yaml
+    - dist/tools/fileRead/tool.yaml
+    - dist/extensions/skills/extension.yaml
 ```
 
 ---

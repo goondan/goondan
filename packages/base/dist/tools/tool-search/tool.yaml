@@ -1,0 +1,15 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: toolSearch
+  labels:
+    tier: base
+spec:
+  runtime: node
+  entry: "./dist/tools/tool-search/index.js"
+  exports:
+    - name: toolSearch.find
+      description: "Tool catalog 검색"
+      parameters:
+        type: object
+        additionalProperties: true

@@ -1,0 +1,1 @@
+{"version":3,"file":"index.d.ts","sourceRoot":"","sources":["../../../src/tools/slack/index.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAc,WAAW,EAAE,MAAM,eAAe,CAAC;AAE7D,UAAU,qBAAqB;IAC7B,OAAO,EAAE,MAAM,CAAC;IAChB,IAAI,EAAE,MAAM,CAAC;IACb,QAAQ,CAAC,EAAE,MAAM,CAAC;IAClB,MAAM,CAAC,EAAE,MAAM,EAAE,CAAC;CACnB;AAED,eAAO,MAAM,QAAQ;+BACc,WAAW,SAAS,qBAAqB;CAkC3E,CAAC"}

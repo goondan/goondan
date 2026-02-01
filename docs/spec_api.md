@@ -200,7 +200,7 @@ spec:
 
  # 번들 등록
  goondan bundle add <bundle.yaml>
- goondan bundle add github.com/goondan/goondan/base
+ goondan bundle add github.com/goondan/goondan/packages/base
  goondan bundle enable <name>
  goondan bundle disable <name>
  goondan bundle info <name|path>

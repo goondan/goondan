@@ -7,10 +7,10 @@ metadata:
 spec:
   version: "0.1.1"
   include:
-    - src/extensions/skill/extension.yaml
-    - src/extensions/compaction/extension.yaml
-    - src/tools/tool-search/tool.yaml
-    - src/tools/file-read/tool.yaml
-    - src/tools/slack/tool.yaml
-    - src/connectors/cli/connector.yaml
-    - src/connectors/slack/connector.yaml
+    - dist/extensions/skill/extension.yaml
+    - dist/extensions/compaction/extension.yaml
+    - dist/tools/tool-search/tool.yaml
+    - dist/tools/file-read/tool.yaml
+    - dist/tools/slack/tool.yaml
+    - dist/connectors/cli/connector.yaml
+    - dist/connectors/slack/connector.yaml

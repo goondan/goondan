@@ -1,6 +1,17 @@
-import { generateText, jsonSchema, tool as aiTool, type ModelMessage } from 'ai';
+import {
+  generateText,
+  jsonSchema,
+  tool as aiTool,
+  type ModelMessage,
+  type LanguageModel,
+  type ToolSet,
+  type ToolCallPart,
+  type ToolResultPart,
+  type TextPart,
+} from 'ai';
 import type { LlmAdapter, LlmCallInput, LlmCallResult } from '../runtime.js';
-import type { Block, JsonObject, ModelSpec, ToolCatalogItem, UnknownObject } from '../../sdk/types.js';
+import { makeId } from '../../utils/ids.js';
+import type { Block, JsonObject, JsonValue, LlmMessage, ModelSpec, ToolCall, ToolCatalogItem, ToolResult } from '../../sdk/types.js';
 
 interface AiSdkAdapterOptions {
   providerTag?: string;
@@ -30,7 +41,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
       throw new Error('modelRef가 필요합니다.');
     }
 
-    const modelSpec = (modelResource.spec || {}) as unknown as Partial<ModelSpec>;
+    const modelSpec = extractModelSpec(modelResource.spec);
     const provider = modelSpec.provider || 'unknown';
     const modelName = modelSpec.name || modelResource.metadata?.name || '';
     const modelId = `${provider}/${modelName}`;
@@ -41,30 +52,34 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
       options: modelSpec.options,
     });
 
-    const system = extractSystemPrompt(input.blocks);
-    const prompt = extractUserPrompt(input.blocks);
-
     const { tools, toolNameMap } = buildAiTools(input.tools);
-    const messages = buildMessages(system, prompt);
+    const { system, messages, prompt } = buildPromptMessages(input.blocks);
 
     const timeout = resolveTimeout(input.params, modelSpec.options);
     try {
-      const result = await (generateText as unknown as (args: UnknownObject) => Promise<any>)({
+      const result = await generateText({
         model,
         messages,
-        tools: tools as unknown as UnknownObject,
+        ...(system ? { system } : {}),
+        tools,
         ...(timeout ? { timeout } : {}),
         ...(input.params || {}),
       });
 
-      const toolCalls = (result.toolCalls || []).map((call: any) => {
-        const rawName = call.toolName as string;
+      const toolCalls = (result.toolCalls || []).map((call) => {
+        const rawName = call.toolName;
         return {
-          id: call.toolCallId,
+          id: call.toolCallId || makeId('tool-call'),
           name: toolNameMap[rawName] || rawName,
-          input: (call as { input?: JsonObject }).input,
+          input: isJsonObject(call.input) ? call.input : {},
         };
       });
+
+      const responseToolCalls = (result.toolCalls || []).map((call) => ({
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        ...(isJsonObject(call.input) ? { input: call.input } : {}),
+      }));
 
       const trace: AiSdkTrace = {
         provider: providerTag,
@@ -77,7 +92,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions = {}): LlmAdapte
         },
         response: {
           text: result.text,
-          toolCalls: (result.toolCalls || []) as Array<{ toolCallId?: string; toolName: string; input?: JsonObject }>,
+          toolCalls: responseToolCalls,
         },
       };
 
@@ -99,7 +114,7 @@ async function resolveProviderModel(input: {
   modelName: string;
   endpoint?: string;
   options?: JsonObject;
-}): Promise<unknown> {
+}): Promise<LanguageModel> {
   const provider = input.provider?.trim();
   const modelName = input.modelName?.trim();
   if (!provider) {
@@ -137,9 +152,13 @@ function buildProviderModel(
   createExportName: string,
   modelName: string,
   options: JsonObject
-): unknown {
+): LanguageModel {
   const factory = resolveProviderFactory(moduleRef, defaultExportName, createExportName, options);
-  return factory(modelName);
+  const model = factory(modelName);
+  if (!isLanguageModel(model)) {
+    throw new Error(`AI SDK provider 로딩 실패: ${defaultExportName}`);
+  }
+  return model;
 }
 
 function resolveProviderFactory(
@@ -152,15 +171,24 @@ function resolveProviderFactory(
   const createFactory = moduleRef[createExportName];
   const defaultFactory = moduleRef[defaultExportName] ?? moduleRef.default;
   if (typeof defaultFactory === 'function') {
-    return defaultFactory as (modelName: string) => unknown;
+    return (modelName: string) => defaultFactory(modelName);
   }
   if (typeof createFactory === 'function') {
-    const factory = (createFactory as (opts: JsonObject) => unknown)(hasOptions ? options : {});
+    const factory = createFactory(hasOptions ? options : {});
     if (typeof factory === 'function') {
-      return factory as (modelName: string) => unknown;
+      return (modelName: string) => factory(modelName);
     }
   }
   throw new Error(`AI SDK provider 로딩 실패: ${defaultExportName}`);
+}
+
+function extractModelSpec(spec: unknown): Partial<ModelSpec> {
+  if (!isRecord(spec)) return {};
+  const provider = typeof spec.provider === 'string' ? spec.provider : undefined;
+  const name = typeof spec.name === 'string' ? spec.name : undefined;
+  const endpoint = typeof spec.endpoint === 'string' ? spec.endpoint : undefined;
+  const options = isJsonObject(spec.options) ? spec.options : undefined;
+  return { provider, name, endpoint, options };
 }
 
 function extractSystemPrompt(blocks: Block[]): string | undefined {
@@ -175,19 +203,146 @@ function extractUserPrompt(blocks: Block[]): string | undefined {
   return typeof block.content === 'string' ? block.content : undefined;
 }
 
-function buildMessages(system?: string, prompt?: string): ModelMessage[] {
-  const messages: ModelMessage[] = [];
-  if (system) {
-    messages.push({ role: 'system', content: system });
+function buildPromptMessages(blocks: Block[]): { system?: string; messages: ModelMessage[]; prompt?: string } {
+  const system = extractSystemPrompt(blocks);
+  const prompt = extractUserPrompt(blocks);
+  const llmMessages = extractLlmMessages(blocks);
+  if (llmMessages.length > 0) {
+    const messages = convertLlmMessagesToModel(llmMessages, { includeSystem: !system });
+    return { system, messages, prompt };
   }
+
+  const messages: ModelMessage[] = [];
   if (prompt) {
     messages.push({ role: 'user', content: prompt });
   }
-  return messages;
+  const toolResults = extractToolResults(blocks);
+  if (toolResults.length > 0) {
+    messages.push(buildToolResultsMessage(toolResults));
+  }
+  return { system, messages, prompt };
 }
 
-function buildAiTools(toolCatalog: ToolCatalogItem[]) {
-  const tools: { [key: string]: ReturnType<typeof aiTool> } = {};
+function extractLlmMessages(blocks: Block[]): LlmMessage[] {
+  const block = blocks.find((item) => item.type === 'messages');
+  if (!block || !Array.isArray(block.items)) return [];
+  return block.items.filter(isLlmMessage);
+}
+
+function extractToolResults(blocks: Block[]): ToolResult[] {
+  const block = blocks.find((item) => item.type === 'tool.results');
+  if (!block || !Array.isArray(block.items)) return [];
+  return block.items.filter(isToolResult);
+}
+
+function convertLlmMessagesToModel(
+  messages: LlmMessage[],
+  options: { includeSystem: boolean }
+): ModelMessage[] {
+  const converted: ModelMessage[] = [];
+  for (const message of messages) {
+    if (message.role === 'system' && !options.includeSystem) {
+      continue;
+    }
+    if (message.role === 'system') {
+      converted.push({ role: 'system', content: message.content });
+      continue;
+    }
+    if (message.role === 'user') {
+      converted.push({ role: 'user', content: message.content });
+      continue;
+    }
+    if (message.role === 'assistant') {
+      const content = toAssistantContent(message);
+      if (content) {
+        converted.push({ role: 'assistant', content });
+      }
+      continue;
+    }
+    if (message.role === 'tool') {
+      converted.push({ role: 'tool', content: [toToolResultPart(message.toolCallId, message.toolName, message.output)] });
+    }
+  }
+  return converted;
+}
+
+function buildToolResultsMessage(results: ToolResult[]): ModelMessage {
+  const content = results.map((result) => toToolResultPart(result.id, result.name, result.output));
+  return { role: 'tool', content };
+}
+
+function toAssistantContent(
+  message: Extract<LlmMessage, { role: 'assistant' }>
+): string | Array<TextPart | ToolCallPart> | null {
+  const parts: Array<TextPart | ToolCallPart> = [];
+  if (message.content) {
+    parts.push({ type: 'text', text: message.content });
+  }
+  const toolCalls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
+  for (const call of toolCalls) {
+    const toolCallId = call.id || makeId('tool-call');
+    const input = isJsonObject(call.input) ? call.input : {};
+    parts.push({
+      type: 'tool-call',
+      toolCallId,
+      toolName: call.name,
+      input,
+    });
+  }
+  if (parts.length === 0) return null;
+  if (parts.length === 1 && toolCalls.length === 0) {
+    const first = parts[0];
+    if (first && first.type === 'text') {
+      return first.text;
+    }
+  }
+  return parts;
+}
+
+type AiJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: AiJsonValue }
+  | AiJsonValue[];
+
+function toToolResultPart(toolCallId: string, toolName: string, output: JsonValue): ToolResultPart {
+  return {
+    type: 'tool-result',
+    toolCallId,
+    toolName,
+    output: toToolResultOutput(output),
+  };
+}
+
+function toToolResultOutput(value: JsonValue): ToolResultPart['output'] {
+  if (typeof value === 'string') {
+    return { type: 'text', value };
+  }
+  return { type: 'json', value: toAiJsonValue(value) };
+}
+
+function toAiJsonValue(value: JsonValue): AiJsonValue {
+  if (value === undefined) return null;
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => toAiJsonValue(entry));
+  }
+  if (isJsonObject(value)) {
+    const out: { [key: string]: AiJsonValue } = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = toAiJsonValue(entry);
+    }
+    return out;
+  }
+  return String(value);
+}
+
+function buildAiTools(toolCatalog: ToolCatalogItem[]): { tools: ToolSet; toolNameMap: Record<string, string> } {
+  const tools: ToolSet = {};
   const toolNameMap: Record<string, string> = {};
   const usedNames = new Set<string>();
   let index = 0;
@@ -199,7 +354,9 @@ function buildAiTools(toolCatalog: ToolCatalogItem[]) {
     index += 1;
     toolNameMap[name] = originalName;
     const description = describeTool(originalName, name, item.description);
-    const parameters = (item.parameters || { type: 'object', additionalProperties: true }) as JsonObject;
+    const parameters = isJsonObject(item.parameters)
+      ? item.parameters
+      : { type: 'object', additionalProperties: true };
 
     tools[name] = aiTool({
       description,
@@ -250,4 +407,42 @@ function resolveTimeout(params?: JsonObject, options?: JsonObject): number | und
     if (Number.isFinite(parsed)) return parsed;
   }
   return 60000;
+}
+
+function isLanguageModel(value: unknown): value is LanguageModel {
+  return typeof value === 'string' || (typeof value === 'object' && value !== null);
+}
+
+function isLlmMessage(value: unknown): value is LlmMessage {
+  if (!isRecord(value)) return false;
+  const role = value.role;
+  if (role === 'system' || role === 'user') {
+    return typeof value.content === 'string';
+  }
+  if (role === 'assistant') {
+    const contentOk = value.content === undefined || typeof value.content === 'string';
+    const toolCallsOk =
+      value.toolCalls === undefined || (Array.isArray(value.toolCalls) && value.toolCalls.every(isToolCall));
+    return contentOk && toolCallsOk;
+  }
+  if (role === 'tool') {
+    return typeof value.toolCallId === 'string' && typeof value.toolName === 'string';
+  }
+  return false;
+}
+
+function isToolResult(value: unknown): value is ToolResult {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
+}
+
+function isToolCall(value: unknown): value is ToolCall {
+  return isRecord(value) && typeof value.name === 'string';
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return isRecord(value) && !Array.isArray(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

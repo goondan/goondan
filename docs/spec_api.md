@@ -7,6 +7,16 @@
 - `JsonObject`: JSON 호환 객체
 - `ObjectRefLike`: `Kind/name` 문자열 또는 `{ kind, name }` 객체
 - `Resource<TSpec>`: Config Plane 리소스 공통 형태
+- `Turn.messages`: Turn 내 누적 LLM 메시지 배열
+- `LlmMessage`: LLM 메시지 단위 (`role`, `content`, `toolCalls`, `tool` 결과 포함)
+
+```ts
+type LlmMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content?: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; toolCallId: string; toolName: string; output: JsonValue };
+```
 
 ## 2. Extension API
 

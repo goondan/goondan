@@ -18,13 +18,18 @@ export async function loadExtensions<TApi>(
 ): Promise<Array<{ resource: ExtensionResource; api: TApi }>> {
   const baseDir = options.baseDir || registry?.baseDir || process.cwd();
   const apiFactory = options.apiFactory;
-  const extensionRefs = (agentConfig?.spec as { extensions?: unknown[] })?.extensions || [];
+  const extensionRefs = extractExtensions(agentConfig?.spec);
   const loaded: Array<{ resource: ExtensionResource; api: TApi }> = [];
 
   for (const ref of extensionRefs) {
-    const extensionResource = resolveRef(registry, ref as ObjectRefLike, 'Extension') as unknown as ExtensionResource;
-    const spec = extensionResource?.spec as ExtensionSpec<JsonObject> | undefined;
-    const entry = spec?.entry;
+    const refLike = toObjectRefLike(ref);
+    if (!refLike) continue;
+    const extensionResource = resolveRef(registry, refLike, 'Extension');
+    if (!extensionResource || !isExtensionResource(extensionResource)) {
+      throw new Error(`Extension ${String(refLike)}에 spec.entry가 필요합니다.`);
+    }
+    const spec = extensionResource.spec;
+    const entry = spec.entry;
     if (!entry) {
       throw new Error(`Extension ${extensionResource?.metadata?.name}에 spec.entry가 필요합니다.`);
     }
@@ -33,14 +38,51 @@ export async function loadExtensions<TApi>(
     }
     const entryPath = path.isAbsolute(entry) ? entry : path.join(baseDir, entry);
     const moduleUrl = pathToFileURL(entryPath).href;
-    const mod = (await import(moduleUrl)) as { register?: (api: TApi) => Promise<void> | void };
-    if (typeof mod.register !== 'function') {
+    const mod = await import(moduleUrl);
+    const register = extractRegister<TApi>(mod);
+    if (!register) {
       throw new Error(`Extension ${extensionResource.metadata?.name}에 register(api) 함수가 필요합니다.`);
     }
     const api = apiFactory(extensionResource);
-    await mod.register(api);
+    await register(api);
     loaded.push({ resource: extensionResource, api });
   }
 
   return loaded;
+}
+
+function extractExtensions(spec: unknown): unknown[] {
+  if (!isRecord(spec)) return [];
+  const extensions = spec.extensions;
+  return Array.isArray(extensions) ? extensions : [];
+}
+
+function isExtensionResource(resource: Resource): resource is ExtensionResource & { spec: ExtensionSpec<JsonObject> } {
+  const spec = resource.spec;
+  return isRecord(spec) && typeof spec.entry === 'string';
+}
+
+function extractRegister<TApi>(mod: unknown): ((api: TApi) => Promise<void> | void) | null {
+  if (!isRecord(mod)) return null;
+  const register = mod.register;
+  if (typeof register !== 'function') return null;
+  return (api: TApi) => register(api);
+}
+
+function toObjectRefLike(value: unknown): ObjectRefLike | null {
+  if (typeof value === 'string') return value;
+  if (!isRecord(value)) return null;
+  const kind = typeof value.kind === 'string' ? value.kind : undefined;
+  const name = typeof value.name === 'string' ? value.name : undefined;
+  if (!kind && !name) return null;
+  const apiVersion = typeof value.apiVersion === 'string' ? value.apiVersion : undefined;
+  return {
+    ...(apiVersion ? { apiVersion } : {}),
+    ...(kind ? { kind } : {}),
+    ...(name ? { name } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

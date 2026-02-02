@@ -11,3 +11,4 @@
 
 ## 참고 사항
 - merge.js는 배열을 덮어쓰는 병합 규칙을 따릅니다.
+- deepMerge는 JsonValue 기반으로 동작하며 selector overrides 병합에 사용됩니다.

@@ -13,7 +13,7 @@ export interface ObjectRef extends JsonObject {
 
 export type ObjectRefLike = ObjectRef | string;
 
-export interface ValueSource {
+export interface ValueSource extends JsonObject {
   value?: string;
   valueFrom?: {
     env?: string;
@@ -21,26 +21,26 @@ export interface ValueSource {
   };
 }
 
-export interface ResourceMeta {
+export interface ResourceMeta extends JsonObject {
   name: string;
   labels?: JsonObject;
 }
 
-export interface Resource<TSpec = JsonObject> {
+export interface Resource<TSpec extends JsonValue = JsonObject> extends JsonObject {
   apiVersion?: string;
   kind: string;
   metadata: ResourceMeta;
   spec?: TSpec;
 }
 
-export interface ModelSpec {
+export interface ModelSpec extends JsonObject {
   provider: string;
   name: string;
   endpoint?: string;
   options?: JsonObject;
 }
 
-export interface ToolExportSpec {
+export interface ToolExportSpec extends JsonObject {
   name: string;
   description?: string;
   parameters?: JsonObject;
@@ -48,7 +48,7 @@ export interface ToolExportSpec {
   auth?: { scopes?: string[] };
 }
 
-export interface ToolSpec {
+export interface ToolSpec extends JsonObject {
   runtime?: string;
   entry: string;
   errorMessageLimit?: number;
@@ -65,19 +65,19 @@ export interface ToolCatalogItem {
   source?: JsonObject;
 }
 
-export interface ExtensionSpec<TConfig = JsonObject> {
+export interface ExtensionSpec<TConfig extends JsonValue = JsonObject> extends JsonObject {
   runtime?: string;
   entry: string;
   config?: TConfig;
 }
 
-export interface HookSpec {
+export interface HookSpec extends JsonObject {
   point: PipelinePoint;
   priority?: number;
   action: { toolCall: { tool: string; input?: JsonObject } };
 }
 
-export interface AgentSpec {
+export interface AgentSpec extends JsonObject {
   modelConfig?: { modelRef: ObjectRefLike; params?: JsonObject };
   prompts?: { systemRef?: string; system?: string };
   tools?: Array<ObjectRefLike | SelectorBlock>;
@@ -87,7 +87,7 @@ export interface AgentSpec {
   liveConfig?: { allowedPaths?: { agentRelative?: string[] } };
 }
 
-export interface SwarmSpec {
+export interface SwarmSpec extends JsonObject {
   entrypoint: ObjectRefLike;
   agents: ObjectRefLike[];
   policy?: {
@@ -102,14 +102,14 @@ export interface SwarmSpec {
   };
 }
 
-export interface ConnectorSpec {
+export interface ConnectorSpec extends JsonObject {
   type: string;
   auth?: { oauthAppRef?: ObjectRefLike; staticToken?: ValueSource };
   ingress?: Array<JsonObject>;
   egress?: { updatePolicy?: { mode?: string; debounceMs?: number } };
 }
 
-export interface OAuthAppSpec {
+export interface OAuthAppSpec extends JsonObject {
   provider: string;
   flow: 'authorizationCode' | 'deviceCode';
   subjectMode: 'global' | 'user';
@@ -120,13 +120,13 @@ export interface OAuthAppSpec {
   options?: JsonObject;
 }
 
-export interface MCPServerSpec {
+export interface MCPServerSpec extends JsonObject {
   transport: { type: 'stdio' | 'http'; command?: string[]; url?: string };
   attach?: { mode?: 'stateful' | 'stateless'; scope?: 'instance' | 'agent' };
   expose?: { tools?: boolean; resources?: boolean; prompts?: boolean };
 }
 
-export interface SelectorBlock {
+export interface SelectorBlock extends JsonObject {
   selector: { kind?: string; name?: string; matchLabels?: JsonObject };
   overrides?: JsonObject;
 }
@@ -178,6 +178,33 @@ export interface LlmResult {
   meta?: { usage?: LlmUsage } & UnknownObject;
 }
 
+export type LlmMessageRole = 'system' | 'user' | 'assistant' | 'tool';
+
+export interface LlmSystemMessage extends JsonObject {
+  role: 'system';
+  content: string;
+}
+
+export interface LlmUserMessage extends JsonObject {
+  role: 'user';
+  content: string;
+}
+
+export interface LlmAssistantMessage extends JsonObject {
+  role: 'assistant';
+  content?: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface LlmToolMessage extends JsonObject {
+  role: 'tool';
+  toolCallId: string;
+  toolName: string;
+  output: JsonValue;
+}
+
+export type LlmMessage = LlmSystemMessage | LlmUserMessage | LlmAssistantMessage | LlmToolMessage;
+
 export interface ErrorInfo extends JsonObject {
   message: string;
   name?: string;
@@ -190,6 +217,7 @@ export interface Turn {
   origin: JsonObject;
   auth: JsonObject;
   summary: string | null;
+  messages: LlmMessage[];
   toolResults: ToolResult[];
   metadata: JsonObject;
 }
@@ -219,8 +247,12 @@ export interface StepContext {
 
 export interface PipelineApi<Ctx> {
   mutate: (point: PipelinePoint, fn: (ctx: Ctx) => Promise<Ctx | void> | Ctx | void) => void;
-  wrap: <R = Ctx>(point: PipelinePoint, fn: (next: (ctx: Ctx) => Promise<R>) => (ctx: Ctx) => Promise<R>) => void;
+  wrap: (point: PipelinePoint, fn: PipelineWrapper<Ctx>) => void;
 }
+
+export type PipelineWrapper<Ctx> = <R>(
+  next: (ctx: Ctx) => Promise<R>
+) => (ctx: Ctx) => Promise<R>;
 
 export interface LiveConfigApi {
   proposePatch: (proposal: LiveConfigPatchProposal) => Promise<LivePatch> | LivePatch;
@@ -241,7 +273,7 @@ export interface ToolContext {
 
 export type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> | JsonValue;
 
-export interface ExtensionApi<State = UnknownObject, Config = JsonObject> {
+export interface ExtensionApi<State = UnknownObject, Config extends JsonValue = JsonObject> {
   extension: Resource<ExtensionSpec<Config>>;
   pipelines: PipelineApi<StepContext>;
   tools: { register: (toolDef: DynamicToolDefinition) => void };
@@ -258,9 +290,9 @@ export interface DynamicToolDefinition {
 }
 
 export interface EventBus {
-  emit: (event: string, payload: UnknownObject) => void;
-  on?: (event: string, handler: (payload: UnknownObject) => void) => void;
-  off?: (event: string, handler: (payload: UnknownObject) => void) => void;
+  emit: (event: string, payload: unknown) => void;
+  on?: (event: string, handler: (payload: unknown) => void) => void;
+  off?: (event: string, handler: (payload: unknown) => void) => void;
 }
 
 export interface EffectiveConfig {

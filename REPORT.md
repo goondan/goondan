@@ -199,3 +199,15 @@ OAuth 암호화 키 env를 `GOONDAN_DATA_SECRET_KEY`로 통일하고, 구 키/�
 - Runtime egress는 origin 기반으로 전송하며, progress/final 구분을 kind로 전달
 - docs/spec_api.md 및 base/core 커넥터 구현 반영
 - goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**
+
+## 26) 추가 작업 (Agent loop 메시지 누적 + LLM 로그)
+- Turn.messages 도입 및 Step 출력/도구 결과를 다음 Step 입력으로 누적
+- LLM 메시지 JSONL 로그 기록 추가: `state/instances/<instanceId>/agents/<agent>/messages/llm.jsonl`
+- ai-sdk 어댑터 메시지 블록 처리/타입 정리, type assertion 제거
+- selector/extension/tool/merge 로직을 타입 가드 기반으로 정리
+- 문서 업데이트: goondan_spec.md, docs/spec_api.md
+- 테스트 추가: `packages/core/tests/runtime-messages.test.ts`
+- goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **goondan_spec.md 변경**, **docs/spec_config.md 변경 없음**
+- 실행한 빌드/테스트:
+  - `pnpm -C /Users/channy/workspace/goondan/packages/core test`
+  - `pnpm -C /Users/channy/workspace/goondan/packages/core build`

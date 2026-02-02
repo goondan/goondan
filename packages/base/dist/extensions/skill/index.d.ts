@@ -8,7 +8,7 @@ interface SkillExtensionState {
     catalog: SkillEntry[];
     rootDir: string;
 }
-interface SkillExtensionConfig {
+interface SkillExtensionConfig extends JsonObject {
     rootDir?: string;
 }
 export declare function register(api: ExtensionApi<SkillExtensionState, SkillExtensionConfig>): Promise<void>;

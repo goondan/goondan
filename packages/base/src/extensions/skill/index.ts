@@ -14,7 +14,7 @@ interface SkillExtensionState {
   rootDir: string;
 }
 
-interface SkillExtensionConfig {
+interface SkillExtensionConfig extends JsonObject {
   rootDir?: string;
 }
 
@@ -68,14 +68,23 @@ export async function register(api: ExtensionApi<SkillExtensionState, SkillExten
   });
 
   api.events.on?.('workspace.repoAvailable', async (payload) => {
-    const payloadObj = payload as JsonObject;
-    const repoPath = typeof payloadObj?.path === 'string' ? payloadObj.path : extState.rootDir;
+    const repoPath = extractRepoPath(payload) || extState.rootDir;
     extState.catalog = await scanSkills(repoPath);
   });
 }
 
 function resolveRootDir(api: ExtensionApi<SkillExtensionState, SkillExtensionConfig>): string {
   return api.extension?.spec?.config?.rootDir || process.cwd();
+}
+
+function extractRepoPath(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const pathValue = payload.path;
+  return typeof pathValue === 'string' ? pathValue : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 async function scanSkills(rootDir: string): Promise<SkillEntry[]> {

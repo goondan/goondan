@@ -12,3 +12,4 @@ Config Plane 로딩 및 리소스 레지스트리를 담당합니다.
 ## 참고 사항
 - Config 스키마 검증은 최소한의 필수 필드만 확인합니다.
 - selector 확장은 registry와 merge 규칙을 사용합니다.
+- resolveSelectorList는 selector를 Resource/ObjectRefLike로 해석하며 overrides는 deepMerge(JsonValue)로 병합합니다.

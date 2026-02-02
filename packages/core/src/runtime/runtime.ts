@@ -225,6 +225,10 @@ export class Runtime {
     await connector.handleEvent(payload);
   }
 
+  getConnectorAdapter(connectorName: string): ConnectorAdapter | null {
+    return this.connectors.get(connectorName) || null;
+  }
+
   async emitProgress(origin: JsonObject, text: string, auth?: JsonObject): Promise<void> {
     const connectorName = origin.connector as string | undefined;
     if (!connectorName) return;
@@ -279,10 +283,47 @@ export class Runtime {
   private async loadConnectors(): Promise<void> {
     if (!this.registry) return;
     const connectors = this.registry.list('Connector');
+
+    // 1단계: 모든 connector를 순회하며 entry가 있는 것들로 어댑터 팩토리 등록
+    // type 기준으로 먼저 entry가 있는 connector를 찾아서 등록
+    const typeToEntry = new Map<string, string>();
     for (const connector of connectors) {
-      const spec = connector.spec as { type?: string; ingress?: Array<unknown>; egress?: unknown } | undefined;
+      const spec = connector.spec as { type?: string; entry?: string; runtime?: string; ingress?: Array<unknown>; egress?: unknown } | undefined;
+      const type = spec?.type;
+      if (!type || !spec?.entry) continue;
+      // 같은 type에 대해 첫 번째로 발견된 entry를 사용 (번들 → config 순서이므로 번들 우선)
+      if (!typeToEntry.has(type)) {
+        typeToEntry.set(type, spec.entry);
+      }
+    }
+
+    // entry를 가진 type에 대해 어댑터 팩토리 등록
+    for (const [type, entryPath] of typeToEntry) {
+      if (this.connectorRegistry.hasAdapter(type)) continue;
+
+      try {
+        const mod = await import(entryPath);
+        // 여러 export 이름 시도: createXxxConnectorAdapter, createConnectorAdapter, default
+        const factory =
+          mod[`create${type.charAt(0).toUpperCase() + type.slice(1)}ConnectorAdapter`] ||
+          mod.createConnectorAdapter ||
+          mod.default;
+        if (typeof factory === 'function') {
+          this.connectorRegistry.registerAdapter(type, factory);
+        } else {
+          this.logger.warn(`Connector type(${type}) entry에서 팩토리 함수를 찾을 수 없습니다: ${entryPath}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Connector type(${type}) entry 로드 실패:`, (err as Error).message);
+      }
+    }
+
+    // 2단계: 모든 connector에 대해 어댑터 인스턴스 생성
+    for (const connector of connectors) {
+      const spec = connector.spec as { type?: string; entry?: string; runtime?: string; ingress?: Array<unknown>; egress?: unknown } | undefined;
       const type = spec?.type;
       if (!type) continue;
+
       const adapter = this.connectorRegistry.createConnector(type, { runtime: this, connectorConfig: connector, logger: this.logger });
       if (!adapter) {
         const ingress = Array.isArray(spec?.ingress) ? spec?.ingress : [];

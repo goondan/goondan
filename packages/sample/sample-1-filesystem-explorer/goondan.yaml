@@ -1,0 +1,89 @@
+# =============================================================================
+# Sample 1: CLI 파일시스템 탐색 에이전트
+# =============================================================================
+#
+# 이 설정은 터미널에서 파일시스템을 탐색하는 CLI 에이전트를 구성합니다.
+#
+# 실행 방법:
+#   1. cd packages/sample/sample-1-filesystem-explorer
+#   2. pnpm build
+#   3. ANTHROPIC_API_KEY=... goondan run
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Model 정의: 사용할 LLM 모델
+# -----------------------------------------------------------------------------
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-20250514
+
+---
+# -----------------------------------------------------------------------------
+# Agent 정의: 파일시스템 탐색 에이전트
+# -----------------------------------------------------------------------------
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: explorer
+spec:
+  # 모델 설정
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.3       # 일관된 응답을 위해 낮은 온도
+      maxTokens: 4096
+
+  # 시스템 프롬프트
+  prompts:
+    systemRef: "./prompts/explorer.system.md"
+
+  # 사용할 도구들
+  tools:
+    # 샘플에서 제공하는 파일시스템 도구
+    - { kind: Tool, name: filesystem }
+
+  # 확장
+  extensions:
+    # 긴 대화 시 컨텍스트 압축
+    - { kind: Extension, name: compaction }
+
+---
+# -----------------------------------------------------------------------------
+# Swarm 정의: 에이전트 스웜
+# -----------------------------------------------------------------------------
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  # 진입점 에이전트
+  entrypoint: { kind: Agent, name: explorer }
+
+  # 포함된 에이전트 목록
+  agents:
+    - { kind: Agent, name: explorer }
+
+  # 실행 정책
+  policy:
+    maxStepsPerTurn: 10        # 한 번의 입력에 최대 10번의 도구 호출
+
+---
+# -----------------------------------------------------------------------------
+# Connector 정의: CLI 입출력
+# -----------------------------------------------------------------------------
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

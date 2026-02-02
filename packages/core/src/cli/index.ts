@@ -14,6 +14,7 @@ import { loadConfigResources } from '../config/loader.js';
 import { normalizeObjectRef } from '../config/ref.js';
 import { validateConfig } from '../config/validator.js';
 import { Runtime, type LlmAdapter } from '../runtime/runtime.js';
+import type { ConnectorAdapter } from '../connectors/registry.js';
 import { BundleRegistry } from '../bundles/registry.js';
 import { loadBundleResources, readBundleManifests } from '../bundles/loader.js';
 import { installGitBundle, isGitBundleRef } from '../bundles/git.js';
@@ -151,6 +152,17 @@ async function runCommand(options: RunOptions): Promise<void> {
   runtime.registerConnectorAdapter('cli', createCliConnectorAdapter);
   await runtime.init();
 
+  // Long-running 커넥터 시작 (telegram polling 등)
+  const connectorAdapters: ConnectorAdapter[] = [];
+  const connectorResources = registry.list().filter((r) => r.kind === 'Connector');
+  for (const connector of connectorResources) {
+    const adapter = runtime.getConnectorAdapter(connector.metadata.name);
+    if (adapter?.start) {
+      connectorAdapters.push(adapter);
+      await adapter.start();
+    }
+  }
+
   const swarmResource = resolveSwarmResource(registry, options.swarmName);
   const swarmRef = { kind: 'Swarm', name: swarmResource.metadata.name };
   const instanceKey = options.instanceKey || (options.newInstance ? `cli-${Date.now()}` : 'cli');
@@ -188,9 +200,27 @@ async function runCommand(options: RunOptions): Promise<void> {
     printTurnResult(turn);
   };
 
+  // Long-running 커넥터가 있으면 종료 핸들러 등록
+  const hasLongRunningConnector = connectorAdapters.length > 0;
+  if (hasLongRunningConnector) {
+    const shutdown = async () => {
+      console.log('\n종료 중...');
+      for (const adapter of connectorAdapters) {
+        if (adapter.stop) {
+          await adapter.stop();
+        }
+      }
+      process.exit(0);
+    };
+    process.on('SIGINT', () => void shutdown());
+    process.on('SIGTERM', () => void shutdown());
+  }
+
   if (options.input) {
     await dispatchInput(options.input);
-    return;
+    if (!hasLongRunningConnector) return;
+    // Long-running 커넥터가 있으면 프로세스 유지
+    return new Promise(() => {});
   }
 
   if (!process.stdin.isTTY) {
@@ -199,10 +229,11 @@ async function runCommand(options: RunOptions): Promise<void> {
       throw new Error('입력 텍스트가 비어 있습니다. --input 또는 stdin을 사용하세요.');
     }
     await dispatchInput(stdinInput);
-    return;
+    if (!hasLongRunningConnector) return;
+    return new Promise(() => {});
   }
 
-  await startInteractiveSession(dispatchInput);
+  await startInteractiveSession(dispatchInput, hasLongRunningConnector ? connectorAdapters : undefined);
 }
 
 const DEFAULT_BASE_SPEC = 'github.com/goondan/goondan/packages/base';
@@ -962,19 +993,38 @@ function buildCliParser() {
   return or(initParser, runParser, validateParser, exportParser, bundleParser);
 }
 
-async function startInteractiveSession(dispatch: (input: string) => Promise<void>): Promise<void> {
+async function startInteractiveSession(
+  dispatch: (input: string) => Promise<void>,
+  longRunningAdapters?: ConnectorAdapter[]
+): Promise<void> {
   while (true) {
     let line = '';
     try {
       line = await promptInput({ message: '> ' }, { clearPromptOnDone: false });
     } catch (err) {
       const name = (err as { name?: string }).name;
-      if (name === 'AbortPromptError') return;
+      if (name === 'AbortPromptError') {
+        // 종료 시 long-running 커넥터 정리
+        if (longRunningAdapters) {
+          for (const adapter of longRunningAdapters) {
+            if (adapter.stop) await adapter.stop();
+          }
+        }
+        return;
+      }
       throw err;
     }
     const trimmed = String(line || '').trim();
     if (!trimmed) continue;
-    if (trimmed === ':exit' || trimmed === ':quit') return;
+    if (trimmed === ':exit' || trimmed === ':quit') {
+      // 종료 시 long-running 커넥터 정리
+      if (longRunningAdapters) {
+        for (const adapter of longRunningAdapters) {
+          if (adapter.stop) await adapter.stop();
+        }
+      }
+      return;
+    }
     try {
       await dispatch(trimmed);
     } catch (err) {

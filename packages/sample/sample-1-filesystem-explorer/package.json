@@ -1,0 +1,26 @@
+{
+  "name": "@goondan/sample-filesystem-explorer",
+  "version": "1.0.0",
+  "description": "Goondan 샘플 1: CLI 파일시스템 탐색 에이전트",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc && pnpm build:yaml",
+    "build:yaml": "mkdir -p dist/tools/filesystem && cp src/tools/filesystem/tool.yaml dist/tools/filesystem/",
+    "clean": "rm -rf dist",
+    "run": "goondan run -c goondan.yaml",
+    "validate": "goondan validate -c goondan.yaml --strict"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "files": [
+    "dist",
+    "bundle.yaml",
+    "goondan.yaml",
+    "prompts"
+  ]
+}

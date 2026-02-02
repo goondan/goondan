@@ -1,0 +1,61 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: delegate
+  labels:
+    tier: sample
+spec:
+  runtime: node
+  entry: "./dist/tools/delegate/index.js"
+  errorMessageLimit: 2000
+
+  exports:
+    - name: agent.list
+      description: |
+        사용 가능한 전문 에이전트 목록을 조회합니다.
+        각 에이전트의 이름, 설명, 역량을 확인할 수 있습니다.
+      parameters:
+        type: object
+        properties: {}
+
+    - name: agent.delegate
+      description: |
+        전문 에이전트에게 작업을 위임합니다.
+        작업 내용과 필요한 컨텍스트를 전달하면 해당 에이전트가 처리합니다.
+
+        사용 가능한 에이전트:
+        - coder: 코드 작성, 수정, 버그 수정
+        - reviewer: 코드 리뷰, 보안 검사, 품질 분석
+        - docs: 문서화, README 작성, 주석 추가
+      parameters:
+        type: object
+        properties:
+          agent:
+            type: string
+            enum: [coder, reviewer, docs]
+            description: "위임할 에이전트 이름"
+          task:
+            type: string
+            description: "수행할 작업 설명"
+          context:
+            type: string
+            description: "작업에 필요한 추가 컨텍스트 (선택)"
+        required: [agent, task]
+
+    - name: agent.complete
+      description: |
+        위임받은 작업의 완료를 보고합니다.
+        결과와 요약을 포함하여 위임자에게 전달합니다.
+      parameters:
+        type: object
+        properties:
+          delegationId:
+            type: string
+            description: "위임 ID"
+          result:
+            type: object
+            description: "작업 결과 데이터"
+          summary:
+            type: string
+            description: "작업 결과 요약"
+        required: [delegationId]

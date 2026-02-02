@@ -1,0 +1,30 @@
+{
+  "name": "@goondan/sample-3-multi-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Goondan Sample 3: 멀티 에이전트 Telegram 봇",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && pnpm build:yaml",
+    "build:yaml": "mkdir -p dist/tools/delegate dist/tools/code dist/tools/git dist/connectors/telegram && cp src/tools/delegate/tool.yaml dist/tools/delegate/ && cp src/tools/code/tool.yaml dist/tools/code/ && cp src/tools/git/tool.yaml dist/tools/git/ && cp src/connectors/telegram/connector.yaml dist/connectors/telegram/",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "run": "goondan run -c goondan.yaml",
+    "run:new": "goondan run -c goondan.yaml --new",
+    "telegram": "node --import tsx src/run.ts",
+    "start": "node --import tsx src/run.ts"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3"
+  },
+  "files": [
+    "dist",
+    "bundle.yaml",
+    "goondan.yaml",
+    "prompts"
+  ]
+}

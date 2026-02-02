@@ -5,6 +5,10 @@ import type { JsonObject } from '../sdk/types.js';
 export interface ConnectorAdapter {
   handleEvent: (payload: JsonObject) => Promise<void>;
   send?: (input: ConnectorEgressInput) => Promise<unknown>;
+  /** Long-running 커넥터 시작 (polling, webhook 등) */
+  start?: () => Promise<void>;
+  /** 커넥터 종료 */
+  stop?: () => Promise<void>;
 }
 
 export interface ConnectorEgressInput {
@@ -26,6 +30,10 @@ export class ConnectorRegistry {
 
   registerAdapter(type: string, factory: ConnectorFactory): void {
     this.adapters.set(type, factory);
+  }
+
+  hasAdapter(type: string): boolean {
+    return this.adapters.has(type);
   }
 
   createConnector(type: string, options: Parameters<ConnectorFactory>[0]): ConnectorAdapter | null {

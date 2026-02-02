@@ -16,6 +16,7 @@
 > "Kubernetes for Agent Swarm"
 
 ## 주요 파일 목록
+- @GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
 - @goondan_spec.md : 스펙 문서
 - @TODO.md : 작업 체크리스트 (수행 후 체크 표시)
 - @REPORT.md : 작업 보고서
@@ -29,9 +30,14 @@
 - pnpm-workspace.yaml : 워크스페이스 설정
 - packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
+- packages/sample/* : 에이전트 샘플 모음
+  - sample-1-filesystem-explorer: CLI 기반 파일시스템 탐색 에이전트
+  - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
+  - sample-3-multi-agent: 멀티 에이전트 Telegram 봇 (라우터 + 전문 에이전트)
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것
 - 모든 요구사항은 goondan_spec.md 수정 필요 여부와 docs/spec_config.md 수정 필요 여부를 반드시 검토하고 기록할 것
+- 스펙 문서(goondan_spec.md, docs/spec_*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것

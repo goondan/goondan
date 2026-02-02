@@ -1,0 +1,27 @@
+{
+  "name": "@goondan/sample-2-telegram-coder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Goondan Sample 2: Telegram 기반 코딩 에이전트",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && pnpm build:yaml",
+    "build:yaml": "mkdir -p dist/tools/code dist/tools/git dist/connectors/telegram && cp src/tools/code/tool.yaml dist/tools/code/ && cp src/tools/git/tool.yaml dist/tools/git/ && cp src/connectors/telegram/connector.yaml dist/connectors/telegram/",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "run": "goondan run -c goondan.yaml",
+    "run:new": "goondan run -c goondan.yaml --new"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "files": [
+    "dist",
+    "bundle.yaml",
+    "goondan.yaml",
+    "prompts"
+  ]
+}

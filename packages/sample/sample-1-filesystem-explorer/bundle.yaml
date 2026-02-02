@@ -1,0 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Bundle
+metadata:
+  name: sample-filesystem-explorer
+  labels:
+    tier: sample
+spec:
+  version: "1.0.0"
+
+  # base 번들 의존성 (file.read, toolSearch, compaction 등 제공)
+  dependencies:
+    - github.com/goondan/goondan/packages/base
+
+  # 이 샘플에서 제공하는 리소스
+  include:
+    - dist/tools/filesystem/tool.yaml

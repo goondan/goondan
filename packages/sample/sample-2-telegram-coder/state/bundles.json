@@ -1,0 +1,26 @@
+[
+  {
+    "name": "sample-2-telegram-coder",
+    "path": "/Users/channy/workspace/goondan/packages/sample/sample-2-telegram-coder/bundle.yaml",
+    "enabled": true,
+    "fingerprint": "bf6576b932d4cb3615eb487681c1376f9f626208b58b8ef236358ae52ee84bc5",
+    "updatedAt": "2026-02-02T16:58:09.064Z"
+  },
+  {
+    "name": "base",
+    "path": "/Users/channy/workspace/goondan/packages/sample/sample-2-telegram-coder/state/bundles/git/github.com/goondan/goondan/HEAD/packages/base/bundle.yaml",
+    "enabled": true,
+    "fingerprint": "c16a511cf76a9c891be36d37524b1359595fb291feccbce7659726c8de815bbb",
+    "updatedAt": "2026-02-02T16:58:11.072Z",
+    "source": {
+      "type": "git",
+      "host": "github.com",
+      "org": "goondan",
+      "repo": "goondan",
+      "path": "packages/base",
+      "url": "https://github.com/goondan/goondan.git",
+      "commit": "30695532014bfddd95d1b736c1f0ebb08200fc7b",
+      "spec": "github.com/goondan/goondan/packages/base"
+    }
+  }
+]

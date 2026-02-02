@@ -14,3 +14,4 @@ spec:
     - dist/tools/slack/tool.yaml
     - dist/connectors/cli/connector.yaml
     - dist/connectors/slack/connector.yaml
+    - dist/connectors/telegram/connector.yaml

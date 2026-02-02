@@ -1,0 +1,26 @@
+[
+  {
+    "name": "sample-filesystem-explorer",
+    "path": "/Users/channy/workspace/goondan/packages/sample/sample-1-filesystem-explorer/bundle.yaml",
+    "enabled": true,
+    "fingerprint": "0d4211722d59fe84f42efaee651cef5c34a917ba93b3e55368f8565d4c4bbf1c",
+    "updatedAt": "2026-02-02T16:57:09.740Z"
+  },
+  {
+    "name": "base",
+    "path": "/Users/channy/workspace/goondan/packages/sample/sample-1-filesystem-explorer/state/bundles/git/github.com/goondan/goondan/HEAD/packages/base/bundle.yaml",
+    "enabled": true,
+    "fingerprint": "c16a511cf76a9c891be36d37524b1359595fb291feccbce7659726c8de815bbb",
+    "updatedAt": "2026-02-02T16:57:17.528Z",
+    "source": {
+      "type": "git",
+      "host": "github.com",
+      "org": "goondan",
+      "repo": "goondan",
+      "path": "packages/base",
+      "url": "https://github.com/goondan/goondan.git",
+      "commit": "30695532014bfddd95d1b736c1f0ebb08200fc7b",
+      "spec": "github.com/goondan/goondan/packages/base"
+    }
+  }
+]

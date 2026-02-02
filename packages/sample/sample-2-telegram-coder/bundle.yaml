@@ -1,0 +1,14 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Bundle
+metadata:
+  name: sample-2-telegram-coder
+spec:
+  # 의존성: base 번들 (compaction extension 사용)
+  dependencies:
+    - github.com/goondan/goondan/packages/base
+
+  # 포함할 리소스 YAML
+  include:
+    - dist/tools/code/tool.yaml
+    - dist/tools/git/tool.yaml
+    - dist/connectors/telegram/connector.yaml

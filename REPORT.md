@@ -211,3 +211,51 @@ OAuth 암호화 키 env를 `GOONDAN_DATA_SECRET_KEY`로 통일하고, 구 키/�
 - 실행한 빌드/테스트:
   - `pnpm -C /Users/channy/workspace/goondan/packages/core test`
   - `pnpm -C /Users/channy/workspace/goondan/packages/core build`
+
+## 27) 추가 작업 (에이전트 샘플 3종 추가)
+세 가지 에이전트 샘플을 개발하여 Goondan 시스템의 실제 사용 사례를 보여줌
+
+### Sample 1: CLI 파일시스템 탐색 에이전트
+- `packages/sample/sample-1-filesystem-explorer/`
+- **Tool**: filesystem (fs.list, fs.stat, fs.tree, fs.search)
+- **특징**: 가장 기본적인 CLI 에이전트, 파일 탐색/검색 기능
+- **Connector**: CLI
+
+### Sample 2: Telegram 코딩 에이전트
+- `packages/sample/sample-2-telegram-coder/`
+- **Tool**: code (read, write, execute, search, analyze), git (status, diff, log, commit, branch)
+- **Connector**: Telegram (Long Polling + Webhook 지원) + CLI (테스트용)
+- **특징**: 실제 코딩 작업 수행 가능한 에이전트
+
+### Sample 3: 멀티 에이전트 Telegram 봇
+- `packages/sample/sample-3-multi-agent/`
+- **Agent**: router (라우터), coder (개발자), reviewer (리뷰어), docs (문서화)
+- **Tool**: delegate (agent.list, agent.delegate, agent.complete)
+- **특징**: 라우터가 요청을 분석하고 전문 에이전트에게 위임하는 멀티 에이전트 아키텍처
+
+### 주요 구현 내용
+- 모든 샘플에 goondan.yaml, bundle.yaml, package.json, tsconfig.json 구성
+- 각 샘플에 README.md, AGENTS.md 문서 작성
+- pnpm-workspace.yaml에 `packages/sample/*` 추가
+- 각 Tool/Connector에 YAML 정의와 TypeScript 구현 분리
+- goondan run까지 정상 동작 확인
+
+### 실행 방법
+```bash
+# 빌드
+pnpm -C packages/sample/sample-1-filesystem-explorer build
+
+# 번들 등록
+goondan bundle add ./bundle.yaml
+goondan bundle add github.com/goondan/goondan/packages/base
+
+# 실행
+GOONDAN_DATA_SECRET_KEY=$(openssl rand -hex 32) goondan run -c goondan.yaml --input "요청"
+```
+
+### 검증 결과
+- Sample 1: 파일 목록/구조 조회 정상 동작
+- Sample 2: Git 상태 확인 정상 동작
+- Sample 3: 에이전트 목록 조회 및 위임 구조 정상 동작
+
+goondan_spec.md / docs/spec_config.md 변경 필요 여부 재검토: **변경 없음**

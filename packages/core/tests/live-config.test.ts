@@ -56,6 +56,17 @@ describe('LiveConfigManager', () => {
     const effective = await manager.applyAtSafePoint({ agentName: 'planner', stepId: 'step-1' });
 
     expect(effective?.revision).toBe(1);
-    expect((effective?.agent as { spec?: { tools?: unknown[] } })?.spec?.tools?.length).toBe(1);
+    const tools = extractTools(effective?.agent?.spec);
+    expect(tools.length).toBe(1);
   });
 });
+
+function extractTools(spec: unknown): unknown[] {
+  if (!isRecord(spec)) return [];
+  const tools = spec.tools;
+  return Array.isArray(tools) ? tools : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}

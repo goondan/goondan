@@ -88,6 +88,7 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 * Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config는 고정**되어야 한다(MUST).
 * Live Config 변경은 **다음 Step부터** 반영된다(MUST).
+* Runtime은 각 Step의 LLM 응답 및 Tool 결과를 `Turn.messages`에 append하고, 다음 Step의 입력(컨텍스트)으로 반드시 사용해야 한다(MUST).
 
 ### 5.2 Tool
 
@@ -866,11 +867,37 @@ shared/state/instances/<instanceId>/
         overlay.state.yaml             # MAY
         effective/
           effective-<rev>.yaml         # SHOULD
+      messages/
+        llm.jsonl                       # MUST: LLM message log (append-only)
   events/
     events.jsonl                       # SHOULD
 ```
 
 정본 파일(patches/patch-status/cursor)은 읽기 전용으로 노출되는 것이 SHOULD이며, LiveConfigManager 외의 주체가 기록하지 못해야 한다.
+
+### 10.1.1 LLM Message Log (MUST)
+
+Runtime은 AgentInstance별로 LLM 메시지 로그를 append-only JSONL로 기록해야 한다(MUST). 각 레코드는 최소한 다음 필드를 포함해야 한다(MUST).
+
+- `type`: `"llm.message"`
+- `recordedAt`: ISO8601 timestamp
+- `instanceId`, `agentName`, `turnId`
+- `stepId` (선택)
+- `message`: `Turn.messages`의 단일 항목
+
+예시:
+
+```json
+{
+  "type": "llm.message",
+  "recordedAt": "2026-02-01T12:34:56.789Z",
+  "instanceId": "default-cli",
+  "agentName": "planner",
+  "turnId": "turn-abc",
+  "stepId": "step-xyz",
+  "message": { "role": "assistant", "content": "..." }
+}
+```
 
 ### 10.2 System State 디렉터리 레이아웃 (MUST)
 

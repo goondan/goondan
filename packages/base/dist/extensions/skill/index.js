@@ -45,13 +45,21 @@ export async function register(api) {
         },
     });
     api.events.on?.('workspace.repoAvailable', async (payload) => {
-        const payloadObj = payload;
-        const repoPath = typeof payloadObj?.path === 'string' ? payloadObj.path : extState.rootDir;
+        const repoPath = extractRepoPath(payload) || extState.rootDir;
         extState.catalog = await scanSkills(repoPath);
     });
 }
 function resolveRootDir(api) {
     return api.extension?.spec?.config?.rootDir || process.cwd();
+}
+function extractRepoPath(payload) {
+    if (!isRecord(payload))
+        return null;
+    const pathValue = payload.path;
+    return typeof pathValue === 'string' ? pathValue : null;
+}
+function isRecord(value) {
+    return typeof value === 'object' && value !== null;
 }
 async function scanSkills(rootDir) {
     const results = [];

@@ -17,14 +17,18 @@ type ToolExportFixture = {
   toolResource?: Resource<ToolSpec>;
 };
 
-function createRuntimeStub(llmAdapter?: (input: unknown) => Promise<unknown>) {
+function createRuntimeStub(
+  llmAdapter?: AgentInstance['runtime']['llm'],
+  stateDir: string = process.cwd()
+): AgentInstance['runtime'] {
   return {
     llm: llmAdapter || (async () => ({ content: '', toolCalls: [] })),
     emitProgress: async () => {},
     emitFinal: async () => {},
+    stateDir,
     oauth: {
       withContext: () => ({
-        getAccessToken: async () => ({ status: 'error', error: { message: 'auth not configured' } }),
+        getAccessToken: async () => ({ status: 'error', error: { code: 'authUnavailable', message: 'auth not configured' } }),
       }),
     },
     mcpManager: {
@@ -74,7 +78,9 @@ async function createAgentInstance({
     spec: { provider: 'openai', name: 'gpt-5' },
   };
 
-  const toolResources = toolExports.map((tool) => tool.toolResource).filter(Boolean) as Resource<ToolSpec>[];
+  const toolResources = toolExports
+    .map((tool) => tool.toolResource)
+    .filter((resource): resource is Resource<ToolSpec> => Boolean(resource));
   const registry = new ConfigRegistry([swarm, agent, model, ...toolResources]);
   const toolRegistry = new ToolRegistry({ registry, baseDir: process.cwd(), logger: console });
 
@@ -97,7 +103,7 @@ async function createAgentInstance({
 
   await liveConfigManager.initAgent('agent', agent);
 
-  const runtime = createRuntimeStub(llmAdapter);
+  const runtime = createRuntimeStub(llmAdapter, tempDir);
   const instance = new AgentInstance({
     name: 'agent',
     instanceId: 'test-instance',
@@ -107,7 +113,7 @@ async function createAgentInstance({
     registry,
     toolRegistry,
     liveConfigManager,
-    runtime: runtime as unknown as AgentInstance['runtime'],
+    runtime,
     logger: console,
   });
 
@@ -117,7 +123,7 @@ async function createAgentInstance({
 }
 
 function createStepContext(instance: AgentInstance, agent: JsonObject, swarm: JsonObject): StepContext {
-  return {
+  const ctx: StepContext = {
     instance,
     swarm,
     agent,
@@ -127,6 +133,7 @@ function createStepContext(instance: AgentInstance, agent: JsonObject, swarm: Js
       origin: {},
       auth: {},
       summary: null,
+      messages: [],
       toolResults: [],
       metadata: {},
     },
@@ -139,7 +146,8 @@ function createStepContext(instance: AgentInstance, agent: JsonObject, swarm: Js
     },
     toolCatalog: [],
     blocks: [],
-  } as StepContext;
+  };
+  return ctx;
 }
 
 describe('runtime error handling', () => {
@@ -170,10 +178,10 @@ describe('runtime error handling', () => {
 
     const ctx = createStepContext(instance, agent, swarm);
     const result = await instance.executeToolCall({ name: 'tool.failDefault', input: {} }, ctx);
-    const output = result.output as { status?: string; error?: { message?: string } };
+    const output = parseToolErrorOutput(result.output);
 
-    expect(output.status).toBe('error');
-    expect(output.error?.message?.length).toBe(1000);
+    expect(output?.status).toBe('error');
+    expect(output?.error?.message?.length).toBe(1000);
   });
 
   it('uses per-tool errorMessageLimit override', async () => {
@@ -203,10 +211,10 @@ describe('runtime error handling', () => {
 
     const ctx = createStepContext(instance, agent, swarm);
     const result = await instance.executeToolCall({ name: 'tool.failCustom', input: {} }, ctx);
-    const output = result.output as { status?: string; error?: { message?: string } };
+    const output = parseToolErrorOutput(result.output);
 
-    expect(output.status).toBe('error');
-    expect(output.error?.message?.length).toBe(5);
+    expect(output?.status).toBe('error');
+    expect(output?.error?.message?.length).toBe(5);
   });
 
   it('runs step.llmError hook on LLM failure and retries', async () => {
@@ -266,3 +274,19 @@ describe('runtime error handling', () => {
     expect(llmCalls).toBe(2);
   });
 });
+
+function parseToolErrorOutput(value: unknown): { status?: string; error?: { message?: string } } | null {
+  if (!isRecord(value)) return null;
+  const status = typeof value.status === 'string' ? value.status : undefined;
+  if (!status) return null;
+  const errorValue = value.error;
+  if (isRecord(errorValue)) {
+    const message = typeof errorValue.message === 'string' ? errorValue.message : undefined;
+    return { status, error: message ? { message } : undefined };
+  }
+  return { status };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}

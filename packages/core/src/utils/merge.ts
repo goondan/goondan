@@ -1,19 +1,23 @@
-type PlainObject = { [key: string]: unknown };
+import type { JsonValue } from '../sdk/types.js';
 
-export function deepMerge<T>(base: T, overlay: T): T {
+type PlainObject = Record<string, JsonValue>;
+
+export function deepMerge(base: JsonValue, overlay: JsonValue): JsonValue {
   if (overlay === undefined) return base;
   if (base === undefined) return overlay;
 
   if (Array.isArray(base) || Array.isArray(overlay)) {
-    return (Array.isArray(overlay) ? overlay.slice() : (base as unknown[]).slice()) as T;
+    if (Array.isArray(overlay)) return overlay.slice();
+    if (Array.isArray(base)) return base.slice();
+    return overlay;
   }
 
   if (isPlainObject(base) && isPlainObject(overlay)) {
-    const out: PlainObject = { ...(base as PlainObject) };
+    const out: PlainObject = { ...base };
     for (const [key, value] of Object.entries(overlay)) {
-      out[key] = deepMerge((base as PlainObject)[key], value as PlainObject);
+      out[key] = deepMerge(base[key], value);
     }
-    return out as T;
+    return out;
   }
 
   return overlay;
@@ -21,5 +25,6 @@ export function deepMerge<T>(base: T, overlay: T): T {
 
 function isPlainObject(value: unknown): value is PlainObject {
   if (value === null || typeof value !== 'object') return false;
-  return (value as { constructor?: unknown }).constructor === Object;
+  if (Array.isArray(value)) return false;
+  return true;
 }

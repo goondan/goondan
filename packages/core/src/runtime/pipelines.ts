@@ -1,5 +1,7 @@
+import type { PipelineWrapper } from '../sdk/types.js';
+
 type Mutator<T> = (ctx: T) => Promise<T | void> | T | void;
-type Wrapper<T> = <R>(next: (ctx: T) => Promise<R>) => (ctx: T) => Promise<R>;
+type Wrapper<T> = PipelineWrapper<T>;
 
 export class PipelineManager<T = unknown> {
   private mutators: Map<string, Mutator<T>[]>;

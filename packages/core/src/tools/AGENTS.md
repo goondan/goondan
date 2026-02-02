@@ -7,3 +7,4 @@ Tool 레지스트리 및 Tool export 등록을 담당합니다.
 
 ## 참고 사항
 - Tool.spec.exports의 name은 LLM tool call의 함수 이름과 일치해야 합니다.
+- ToolRegistry는 타입 가드로 리소스/핸들러를 판별하며 타입 단언을 사용하지 않습니다.

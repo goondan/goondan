@@ -1,5 +1,5 @@
-import type { ExtensionApi, StepContext } from '@goondan/core';
-interface CompactionConfig {
+import type { ExtensionApi, JsonObject, StepContext } from '@goondan/core';
+interface CompactionConfig extends JsonObject {
     maxTokens?: number;
     minTokens?: number;
     maxChars?: number;

@@ -1,6 +1,6 @@
 import type { Block, ExtensionApi, JsonObject, StepContext } from '@goondan/core';
 
-interface CompactionConfig {
+interface CompactionConfig extends JsonObject {
   maxTokens?: number;
   minTokens?: number;
   maxChars?: number;
@@ -38,15 +38,15 @@ export async function register(api: ExtensionApi<CompactionState, CompactionConf
   });
 
   api.pipelines.mutate('step.blocks', async (ctx) => {
-    const compaction = (ctx.turn.metadata as { compaction?: { summary?: string } } | undefined)?.compaction;
-    if (!compaction?.summary) return ctx;
+    const summary = readCompactionSummary(ctx.turn.metadata);
+    if (!summary) return ctx;
 
     const blocks: Block[] = [];
     const sourceBlocks = ctx.blocks || [];
     const system = sourceBlocks.find((block) => block.type === 'system');
     if (system) blocks.push(system);
 
-    blocks.push({ type: 'compacted', content: compaction.summary });
+    blocks.push({ type: 'compacted', content: summary });
 
     const input = sourceBlocks.find((block) => block.type === 'input');
     if (input) blocks.push(input);
@@ -56,9 +56,24 @@ export async function register(api: ExtensionApi<CompactionState, CompactionConf
 }
 
 function readUsage(meta?: unknown): { totalTokens: number } | null {
-  const usage = (meta as { usage?: { totalTokens?: number } } | undefined)?.usage;
-  if (!usage?.totalTokens) return null;
-  return { totalTokens: usage.totalTokens };
+  if (!isRecord(meta)) return null;
+  const usage = meta.usage;
+  if (!isRecord(usage)) return null;
+  const totalTokens = usage.totalTokens;
+  if (typeof totalTokens !== 'number' || !Number.isFinite(totalTokens)) return null;
+  return { totalTokens };
+}
+
+function readCompactionSummary(metadata?: JsonObject): string | null {
+  if (!isRecord(metadata)) return null;
+  const compaction = metadata.compaction;
+  if (!isRecord(compaction)) return null;
+  const summary = compaction.summary;
+  return typeof summary === 'string' && summary.length > 0 ? summary : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 export function compactBlocks(blocks: StepContext['blocks'], maxChars: number): string {

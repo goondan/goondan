@@ -25,15 +25,15 @@ export async function register(api) {
         return ctx;
     });
     api.pipelines.mutate('step.blocks', async (ctx) => {
-        const compaction = ctx.turn.metadata?.compaction;
-        if (!compaction?.summary)
+        const summary = readCompactionSummary(ctx.turn.metadata);
+        if (!summary)
             return ctx;
         const blocks = [];
         const sourceBlocks = ctx.blocks || [];
         const system = sourceBlocks.find((block) => block.type === 'system');
         if (system)
             blocks.push(system);
-        blocks.push({ type: 'compacted', content: compaction.summary });
+        blocks.push({ type: 'compacted', content: summary });
         const input = sourceBlocks.find((block) => block.type === 'input');
         if (input)
             blocks.push(input);
@@ -41,10 +41,27 @@ export async function register(api) {
     });
 }
 function readUsage(meta) {
-    const usage = meta?.usage;
-    if (!usage?.totalTokens)
+    if (!isRecord(meta))
         return null;
-    return { totalTokens: usage.totalTokens };
+    const usage = meta.usage;
+    if (!isRecord(usage))
+        return null;
+    const totalTokens = usage.totalTokens;
+    if (typeof totalTokens !== 'number' || !Number.isFinite(totalTokens))
+        return null;
+    return { totalTokens };
+}
+function readCompactionSummary(metadata) {
+    if (!isRecord(metadata))
+        return null;
+    const compaction = metadata.compaction;
+    if (!isRecord(compaction))
+        return null;
+    const summary = compaction.summary;
+    return typeof summary === 'string' && summary.length > 0 ? summary : null;
+}
+function isRecord(value) {
+    return typeof value === 'object' && value !== null;
 }
 export function compactBlocks(blocks, maxChars) {
     const sourceBlocks = blocks || [];

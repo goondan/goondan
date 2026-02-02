@@ -5,7 +5,7 @@ import { PipelineManager } from './pipelines.js';
 import { resolveSelectorList } from '../config/selectors.js';
 import { resolveRef } from '../config/ref.js';
 import { makeId } from '../utils/ids.js';
-import { appendJsonl, ensureDir } from '../utils/fs.js';
+import { appendJsonl, ensureDir, readJsonl } from '../utils/fs.js';
 import { resolveTemplate } from './hooks.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -205,13 +205,15 @@ export class AgentInstance {
   }
 
   async runTurn(event: TurnEvent): Promise<Turn> {
+    const previousMessages = await this.loadPreviousMessages();
+
     const turn: Turn = {
       id: makeId('turn'),
       input: event.input,
       origin: event.origin || {},
       auth: event.auth || {},
       summary: null,
-      messages: [],
+      messages: previousMessages,
       toolResults: [],
       metadata: event.metadata || {},
     };
@@ -649,6 +651,12 @@ export class AgentInstance {
     this.messageLogReady = true;
     this.messageLogPath = logPath;
     return logPath;
+  }
+
+  private async loadPreviousMessages(): Promise<LlmMessage[]> {
+    const logPath = path.join(this.resolveAgentStateDir(), 'messages', 'llm.jsonl');
+    const records = await readJsonl<LlmMessageRecord>(logPath);
+    return records.map((record) => record.message);
   }
 
   private resolveAgentStateDir(): string {

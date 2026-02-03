@@ -1,6 +1,6 @@
-# Goondan: Agent Swarm Orchestrator 스펙 v0.8
+# Goondan: Agent Swarm Orchestrator 스펙 v0.9
 
-본 문서는 “멀티 에이전트 오케스트레이션과 컨텍스트 최적화를 중심으로 한 에이전트 스웜”을 **선언형 Config Plane(Base Config)** 과 **stateful long‑running Runtime Plane**, 그리고 런타임 내부 **LiveConfigManager**가 관리하는 **Live Config(동적 오버레이)** 로 구현하기 위한 통합 규격을 정의한다.
+본 문서는 “멀티 에이전트 오케스트레이션과 컨텍스트 최적화를 중심으로 한 에이전트 스웜”을 **선언형 Config Plane(= SwarmBundle)** 과 **stateful long‑running Runtime Plane**, 그리고 런타임 내부 **SwarmBundleManager**가 관리하는 **Changeset → SwarmRevision** 메커니즘(구성+코드 변경 반영)으로 구현하기 위한 통합 규격을 정의한다.
 
 ---
 
@@ -47,14 +47,15 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 본 솔루션은 다음 세 요소로 구성된다.
 
-1. **Config Plane(Base Config)**
-   멀티 에이전트 스웜을 구성하기 위한 선언형 리소스 집합을 정의한다. 에이전트의 모델/프롬프트/도구/확장/훅/인터페이스 등을 기술한다.
+1. **Config Plane(= SwarmBundle)**
+   SwarmBundle은 Swarm을 정의하는 YAML 리소스들과, 그것이 참조하는 프롬프트/도구/확장/커넥터 구현 소스코드를 함께 포함하는 “번들(폴더 트리)”이다. SwarmBundle은 GitOps 등으로 배포/버전관리될 수 있다.
 
 2. **Runtime Plane**
    stateful long‑running 인스턴스를 유지하며 입력 이벤트를 처리하는 실행 모델(Instance/Turn/Step)과 라이프사이클 파이프라인(훅)을 제공한다. Extension은 파이프라인의 특정 지점에 개입하여 도구 카탈로그, 컨텍스트 블록, 워크스페이스 이벤트 처리, 실행 래핑을 변형할 수 있다.
 
-3. **Live Config(동적 오버레이)**
-   Runtime이 long‑running 인스턴스를 운영하는 동안 Base Config 위에 얹히는 동적 구성 레이어이다. Live Config는 “파일로 관측 가능”하지만, 정본(Patch Log/Status/Cursor)은 오직 런타임 내부 **LiveConfigManager**가 기록한다(MUST). Tool/Extension/Sidecar는 patch를 “제안(propose)”할 수 있으며, LiveConfigManager가 이를 수용/기록/적용하여 **다음 Step부터** 반영한다.
+3. **Changeset → SwarmRevision(구성+코드 변경 반영)**
+   Runtime은 SwarmBundle을 런타임 중 수정할 수 있게 하되, 수정은 **Changeset** 단위로 수집되어 **SwarmRevision**(스냅샷 식별자)으로 커밋된다.  
+   각 Step은 시작 시점에 특정 SwarmRevision으로 **핀(pin)** 되어 동작하며, Changeset으로 생성된 새 SwarmRevision은 **Safe Point(기본: step.config)** 에서만 다음 Step부터 반영된다.
 
 ---
 
@@ -63,11 +64,11 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 ### 4.1 목표
 
 1. 시스템은 멀티 에이전트 스웜을 선언형으로 정의할 수 있어야 하며, Runtime은 이 정의를 기반으로 stateful 인스턴스를 생성·운영할 수 있어야 한다.
-2. 시스템은 실행의 라이프사이클을 Turn/Step 단위로 추상화하고 표준 지점에 훅/파이프라인을 제공해야 한다.
+2. 시스템은 실행의 라이프사이클을 Turn/Step 단위로 추상화하고 표준 지점에 훅/파이프사이클 포인트를 제공해야 한다.
 3. 시스템은 확장을 통해 도구 카탈로그, 컨텍스트 구성, 워크스페이스 이벤트 처리, 실행 래핑을 구현할 수 있어야 한다.
 4. 시스템은 다양한 클라이언트/채널에서의 호출과 맥락 유지(진행 업데이트/완료 보고)를 지원할 수 있어야 한다.
 5. 시스템은 구성의 재사용과 조합을 지원할 수 있어야 하며, “직접 설정”과 “선택 후 덮어쓰기”를 일관된 문법으로 표현할 수 있어야 한다.
-6. 시스템은 런타임 중 구성 변경을 지원하되, 변경의 정본은 LiveConfigManager 단일 작성자 모델로 운영되어야 하고, 적용은 Safe Point에서만 수행되어 다음 Step부터 실행에 반영되어야 한다.
+6. 시스템은 런타임 중 SwarmBundle을 변경할 수 있어야 하며, 변경은 Changeset으로 수집되어 SwarmBundleManager가 검증/커밋하고 Safe Point에서만 SwarmRevision으로 활성화되어 다음 Step부터 반영되어야 한다(MUST).
 
 ### 4.2 비목표
 
@@ -86,8 +87,8 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 규칙:
 
-* Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config는 고정**되어야 한다(MUST).
-* Live Config 변경은 **다음 Step부터** 반영된다(MUST).
+* Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config와 SwarmRevision은 고정**되어야 한다(MUST).
+* SwarmBundle 변경(Changeset 커밋으로 생성된 SwarmRevision)은 **Safe Point에서만 활성화**되며, **다음 Step부터** 반영된다(MUST).
 * Runtime은 각 Step의 LLM 응답 및 Tool 결과를 `Turn.messages`에 append하고, 다음 Step의 입력(컨텍스트)으로 반드시 사용해야 한다(MUST).
 
 ### 5.2 Tool
@@ -110,41 +111,51 @@ Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance
 
 MCPServer는 MCP 프로토콜 기반 도구/리소스/프롬프트 제공자를 연결하기 위한 구성 단위이다. MCPServer는 stateful/stateless 방식과 스코프(인스턴스/에이전트 등)를 포함할 수 있다.
 
-### 5.7 Live Config (Base + Live Overlay + Effective)
+### 5.7 SwarmBundle / Changeset / SwarmRevision
 
-#### 5.7.1 Base Config
+#### 5.7.1 Bundle
 
-Config Plane에서 로드된 선언형 리소스 집합이다.
+Bundle은 **YAML 리소스 + 소스코드(도구/확장/커넥터/프롬프트/기타 파일)** 를 함께 포함하는 **폴더 트리**이다.
 
-#### 5.7.2 Live Overlay(정본 단일 작성자)
+#### 5.7.2 SwarmBundle
 
-Live Overlay는 Runtime이 long‑running 인스턴스를 운영하는 동안 유지하는 동적 구성 오버레이이다. Live Overlay의 정본(Patch Log/Status/Cursor)은 Runtime 내부의 **LiveConfigManager만이 기록할 수 있다(MUST)**.
+SwarmBundle은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle이다.  
+SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작과 통합)이 수정**된다.
 
-Runtime은 다음을 만족해야 한다(MUST).
+#### 5.7.3 SwarmRevision
 
-* Patch Log/Status/Cursor는 LiveConfigManager 단일 작성자(single-writer) 모델로 운영되어야 한다.
-* Patch Log/Status/Cursor 파일의 직접 편집은 허용되지 않아야 한다(MUST NOT).
-* Runtime은 파일 권한/격리 또는 접근 제어로 직접 수정이 발생하지 않도록 방지해야 한다(SHOULD).
+SwarmRevision은 특정 SwarmBundle 스냅샷을 식별하는 **불변 식별자**이다(opaque string).  
+구현은 SwarmRevision을 content hash, 순번, 또는 VCS commit id 등으로 표현할 수 있으나, 다음을 만족해야 한다(MUST).
 
-Tool/Extension/Sidecar는 patch를 **제안(propose)** 할 수 있으나, LiveConfigManager가 정본으로 기록하기 전까지는 실행에 영향을 주지 않는다(MUST).
+* 동일 SwarmRevision은 동일한 Bundle 콘텐츠를 재현 가능해야 한다(MUST).
+* Step은 시작 시점에 특정 SwarmRevision으로 핀되어야 한다(MUST).
 
-#### 5.7.3 Effective Config
+#### 5.7.4 Changeset
 
-특정 Step에서 실제로 사용되는 실행 구성이다.
+Changeset은 SwarmBundle에 적용되는 변경 집합이다. Changeset은 **커밋되기 전에는 실행에 영향을 주지 않으며**, 커밋되면 **새 SwarmRevision을 생성**한다.
 
-* `Effective Config = Base Config + Live Overlay`
+Changeset의 대표적인 구현 패턴은 다음 중 하나이다(구현 선택, MAY).
 
-#### 5.7.4 Safe Point(적용 시점) 규칙 (MUST)
+1. **Staging Workdir 기반**
+   * SwarmBundleManager가 changesetId와 staging 디렉터리를 발급(open)
+   * 에이전트(또는 도구/확장)가 그 디렉터리에서 파일을 수정
+   * SwarmBundleManager가 diff를 계산하고 commit하여 SwarmRevision 생성
 
-적용(apply)은 Safe Point에서만 수행되어야 한다.
+2. **구조화된 FileOps 기반**
+   * changeset이 file write/delete/rename 등의 ops를 포함
+   * SwarmBundleManager가 ops를 적용해 SwarmRevision 생성
+
+본 문서는 v0.9에서 (1) 패턴을 표준으로 간주한다(SHOULD).
+
+#### 5.7.5 Canonical Writer(정본 단일 작성자) 규칙 (MUST)
+
+SwarmBundle의 변경 이력(Changeset Log/Status/Cursor 등 정본 기록)은 Runtime 내부 **SwarmBundleManager**만이 기록할 수 있어야 한다(MUST).  
+정본 파일은 관측 가능(파일로 노출)하되, SwarmBundleManager 외의 주체가 정본을 직접 기록하는 모델은 허용하지 않는다(MUST).
+
+#### 5.7.6 Safe Point(적용 시점) 규칙 (MUST)
 
 * Runtime은 최소 `step.config` Safe Point를 MUST 제공한다.
-* Step이 시작된 이후에는 Step 종료 전까지 Effective Config가 변경되어서는 안 된다(MUST).
-
-#### 5.7.5 스코프(scope)
-
-* AgentInstance 스코프(필수, MUST)
-* SwarmInstance 스코프(선택, MAY)
+* Step이 시작된 이후에는 Step 종료 전까지 SwarmRevision과 Effective Config가 변경되어서는 안 된다(MUST).
 
 ---
 
@@ -176,149 +187,148 @@ Tool/Extension/Sidecar는 patch를 **제안(propose)** 할 수 있으나, LiveCo
 
 ---
 
-### 6.4 Live Config 상태 문서(런타임 산출물) 규격
+### 6.4 Changeset/SwarmRevision 상태 문서(런타임 산출물) 규격
 
-#### 6.4.1 저장소 구조(에이전트 하위 분리) (MUST)
+#### 6.4.1 저장소 구조(인스턴스 단일) (MUST)
 
-Runtime은 SwarmInstance마다 상태 루트를 제공해야 하며, 각 AgentInstance의 Live Config는 반드시 해당 AgentInstance 하위 디렉터리에 저장되어야 한다(MUST).
-
-* SwarmInstance-level(선택): swarm 스코프 patch 저장소(MAY)
-* AgentInstance-level(필수): agent 스코프 patch 저장소(MUST)
+Runtime은 SwarmInstance마다 상태 루트를 제공해야 하며, Changeset/SwarmRevision 관련 상태는 **인스턴스 단일 저장소**로 관리되어야 한다(MUST).
 
 #### 6.4.2 정본 파일 및 단일 작성자 (MUST)
 
-다음 파일은 LiveConfigManager가 append-only로 기록하는 정본이어야 하며, 다른 주체가 기록해서는 안 된다(MUST).
+다음 파일은 SwarmBundleManager가 append-only 또는 원자적 교체 방식으로 기록하는 정본이어야 하며, 다른 주체가 기록해서는 안 된다(MUST).
 
-* Patch Log (`patches.jsonl`)
-* Patch Status Log (`patch-status.jsonl`)
-* Apply Cursor (`cursor.yaml`)
+* Changeset Log (`changesets.jsonl`) — append-only
+* Changeset Status Log (`changeset-status.jsonl`) — append-only
+* Cursor (`cursor.yaml`) — 원자적 교체(atomic replace) 권장
+* Head Reference (`head.ref`) — 원자적 교체(atomic replace) 권장
+* Base Reference (`base.ref`) — 원자적 교체(atomic replace) 권장(초기화 이후 변경은 구현 선택)
 
-#### 6.4.3 Patch Proposal(제안) 규격 (MUST)
+#### 6.4.3 Changeset Open(스테이징 디렉터리) (MUST)
 
-Tool/Extension/Sidecar가 제출하는 “제안”은 Patch Log가 아니라 **Proposal API**를 통해 전달되어야 한다(MUST). 제안의 최소 스키마는 다음을 포함해야 한다(MUST).
+Runtime은 LLM이 사용할 수 있는 도구로 `swarmBundle.openChangeset`을 제공해야 한다(MUST).  
+Open은 changesetId와 staging workdir 경로를 발급하고, 그 workdir은 **쓰기 가능**해야 한다(MUST).
 
-```json
-{
-  "scope": "agent",
-  "target": { "kind": "AgentInstance", "name": "planner" },
-  "applyAt": "step.config",
-  "patch": {
-    "type": "json6902",
-    "ops": [
-      { "op": "add", "path": "/spec/tools/-", "value": { "kind": "Tool", "name": "slackToolkit" } }
-    ]
-  },
-  "source": { "type": "tool", "name": "toolSearch" },
-  "reason": "다음 Step부터 Slack 진행 업데이트 사용"
-}
-```
-
-규칙:
-
-* `patch.type`은 `json6902` MUST
-* `source.type`은 `"tool" | "extension" | "sidecar" | "system"` 중 하나 MUST
-* agent 스코프 제안에서 `target`이 생략되면 “현재 AgentInstance”로 해석하는 것을 MAY로 둔다(구현 선택).
-
-#### 6.4.4 Patch Log(정본) 규격 (MUST)
-
-LiveConfigManager는 수용된 제안을 Patch Log에 기록한다(MUST). Patch Log는 append-only JSON Lines를 권장한다.
-
-각 레코드는 LivePatch 문서 형태를 따른다(정본 기록은 “이미 결정된 patch id를 가진” 형태로 기록됨).
+`swarmBundle.openChangeset` 반환 예시:
 
 ```json
 {
-  "apiVersion": "agents.example.io/v1alpha1",
-  "kind": "LivePatch",
-  "metadata": { "name": "p-000123" },
-  "spec": {
-    "scope": "agent",
-    "target": { "kind": "AgentInstance", "name": "planner" },
-    "applyAt": "step.config",
-    "patch": {
-      "type": "json6902",
-      "ops": [
-        { "op": "add", "path": "/spec/tools/-", "value": { "kind": "Tool", "name": "slackToolkit" } }
-      ]
-    },
-    "source": { "type": "tool", "name": "toolSearch" },
-    "reason": "다음 Step부터 Slack 진행 업데이트 사용",
-    "recordedAt": "2026-01-31T09:10:00Z"
+  "changesetId": "cs-000123",
+  "baseSwarmRevision": "rev-000100",
+  "workdir": "/workspace/shared/state/instances/inst-1/swarm-bundle/changesets/cs-000123/workdir",
+  "hint": {
+    "bundleRootInWorkdir": ".",
+    "recommendedFiles": ["resources/*.yaml", "prompts/*.md", "tools/**", "extensions/**"]
   }
 }
-```
+````
 
 규칙:
 
-* `metadata.name`은 Patch Log 내에서 유일해야 한다(MUST).
-* `recordedAt`는 LiveConfigManager가 Patch Log에 기록한 시각이며, 기록 시각의 관측 가능성을 위해 SHOULD 포함한다.
+* Open된 changeset의 workdir은 SwarmBundleManager가 선택한 “기준 SwarmRevision”의 콘텐츠로 초기화되어야 한다(MUST).
+* Open된 changeset은 commit되기 전까지 실행에 영향을 주지 않는다(MUST).
 
-#### 6.4.5 LiveConfigManager 및 Proposal API (MUST)
+#### 6.4.4 Changeset Log(정본) 규격 (MUST)
 
-Runtime은 LiveConfigManager 컴포넌트를 MUST 제공한다.
+SwarmBundleManager는 커밋된 Changeset을 changesets.jsonl에 append해야 한다(MUST).
+각 레코드는 최소 다음 필드를 포함해야 한다(MUST).
 
-* LiveConfigManager는 Patch Log/Status/Cursor의 유일한 작성자이다(MUST).
-* Runtime은 patch 제안을 위한 표준 인터페이스를 MUST 제공한다. 최소 하나를 제공해야 한다(MUST).
-
-  * 이벤트 기반: `api.events.emit("liveConfig.patchProposed", proposal)`
-  * RPC/함수 기반: `api.liveConfig.proposePatch(proposal)`
-
-LiveConfigManager는 제안 수신 후 다음을 수행해야 한다(MUST).
-
-1. 스키마 검증
-2. allowList/정책 검사
-3. 정렬/중복/정규화(필요 시)
-4. Patch Log에 정본 기록
-5. Patch Status Log에 평가 결과 기록
-
-> “정본 기록 전까지 실행에 영향 없음”을 보장하기 위해, LiveConfigManager는 Patch Log 기록이 완료되기 전 patch를 적용 대상으로 취급해서는 안 된다(MUST).
-
-#### 6.4.6 Patch Status Log(적용/평가 로그) 규격 (MUST)
-
-Runtime은 AgentInstance별로 `patch-status.jsonl`을 MUST 제공해야 한다. 이 로그는 각 LivePatch에 대한 평가/적용 정보를 append-only로 기록한다(MUST).
-
-Status 레코드는 최소 다음 필드를 포함해야 한다(MUST).
-
-* `patchName`: LivePatch.metadata.name
-* `agentName`: AgentInstance 식별자
-* `result`: `"applied" | "pending" | "rejected" | "failed"`
-* `evaluatedAt`: 평가 시각
-* `appliedAt`: `result="applied"`인 경우 적용 시각(MUST)
-* `effectiveRevision`: `result="applied"`인 경우 적용 이후 revision(MUST)
-* `appliedInStepId`: 적용이 반영된 Step 식별자(가능하면 SHOULD)
-* `reason`: 짧은 사유 문자열(가능하면 SHOULD)
+* `changesetId` (또는 `metadata.name`)
+* `baseSwarmRevision`
+* `newSwarmRevision`
+* `message`
+* `source` (type/name)
+* `recordedAt`
+* `summary` (변경 파일 목록/카운트 등, 구현 선택)
 
 예시:
 
 ```json
-{"patchName":"p-000123","agentName":"planner","result":"applied","evaluatedAt":"2026-01-31T09:10:01Z","appliedAt":"2026-01-31T09:10:01Z","effectiveRevision":127,"appliedInStepId":"step-9f3a","reason":"ok"}
-{"patchName":"p-000124","agentName":"planner","result":"pending","evaluatedAt":"2026-01-31T09:10:01Z","reason":"targetNotFound"}
-{"patchName":"p-000125","agentName":"planner","result":"rejected","evaluatedAt":"2026-01-31T09:10:01Z","reason":"pathNotAllowed"}
+{
+  "apiVersion":"agents.example.io/v1alpha1",
+  "kind":"SwarmChangesetRecord",
+  "metadata":{"name":"cs-000123"},
+  "spec":{
+    "baseSwarmRevision":"rev-000100",
+    "newSwarmRevision":"rev-000101",
+    "message":"planner 프롬프트 업데이트 + slack tool 추가",
+    "source":{"type":"agent","name":"planner"},
+    "recordedAt":"2026-02-03T01:02:03Z",
+    "summary":{
+      "filesChanged":["prompts/planner.system.md","resources/agents.yaml","tools/slack/index.js"],
+      "filesAdded":["tools/slack/README.md"]
+    }
+  }
+}
 ```
 
-#### 6.4.7 Apply Cursor 파일 규격 (MUST)
+#### 6.4.5 SwarmBundleManager 및 Changeset API (MUST)
 
-Runtime은 AgentInstance별로 `cursor.yaml`을 MUST 제공해야 한다. cursor는 “어디까지 평가/적용했는지”를 재시작 복구 가능하게 저장한다.
+Runtime은 SwarmBundleManager 컴포넌트를 MUST 제공해야 한다.
 
-권장 필드 예시:
+* SwarmBundleManager는 changesets/status/cursor/head/base의 유일한 작성자이다(MUST).
+* Runtime은 Changeset commit을 위한 표준 인터페이스를 MUST 제공한다.
+
+  * LLM Tool 기반: `swarmBundle.commitChangeset`
+  * (선택) 런타임 API 기반: `api.swarmBundle.commitChangeset(changesetId, opts)`
+
+SwarmBundleManager는 commit 시 최소 다음을 수행해야 한다(MUST).
+
+1. 정책(allowlist) 검사
+2. (선택) 구성 로드/검증(예: YAML 파싱, entry 파일 존재, exports 스키마 유효성)
+3. diff 계산 및 기록(요약 또는 아티팩트 파일)
+4. SwarmRevision 생성(새 스냅샷 저장)
+5. Head를 새 SwarmRevision으로 이동
+6. Changeset Log + Status Log 기록
+
+#### 6.4.6 Changeset Status Log(평가/적용 로그) 규격 (MUST)
+
+Runtime은 인스턴스별로 `changeset-status.jsonl`을 MUST 제공해야 한다. 이 로그는 Changeset의 커밋/활성화 결과를 append-only로 기록한다(MUST).
+
+Status 레코드는 최소 다음 필드를 포함해야 한다(MUST).
+
+* `changesetId`
+* `phase`: `"commit" | "activate"`
+* `result`: `"ok" | "rejected" | "failed" | "skipped"`
+* `evaluatedAt`
+* `baseSwarmRevision` (commit phase에서는 SHOULD)
+* `newSwarmRevision` (commit phase에서 ok면 MUST)
+* `appliedAt` (activate phase에서 ok면 MUST)
+* `appliedInStepId` (가능하면 SHOULD)
+* `reason` (가능하면 SHOULD)
+
+예시:
+
+```json
+{"changesetId":"cs-000123","phase":"commit","result":"ok","evaluatedAt":"2026-02-03T01:02:03Z","baseSwarmRevision":"rev-000100","newSwarmRevision":"rev-000101","reason":"ok"}
+{"changesetId":"cs-000123","phase":"activate","result":"ok","evaluatedAt":"2026-02-03T01:02:10Z","appliedAt":"2026-02-03T01:02:10Z","appliedInStepId":"step-9f3a","reason":"activated"}
+```
+
+#### 6.4.7 Cursor 파일 규격 (MUST)
+
+Runtime은 인스턴스별로 `cursor.yaml`을 MUST 제공해야 한다. cursor는 재시작 복구를 위해 “현재 활성 SwarmRevision”과 “처리 커서”를 저장한다.
+
+권장 예시:
 
 ```yaml
 version: 1
-patchLog:
-  format: jsonl
-  lastReadOffsetBytes: 12345          # 구현 선택(MAY)
-  lastEvaluatedPatchName: p-000125    # SHOULD
-  lastAppliedPatchName: p-000123      # SHOULD
-effective:
-  revision: 127                       # MUST
-  lastAppliedAt: "2026-01-31T09:10:01Z"  # SHOULD
+swarmBundle:
+  baseSwarmRevision: "rev-000100"      # MUST
+  headSwarmRevision: "rev-000101"      # MUST
+  activeSwarmRevision: "rev-000101"    # MUST (현재 Step들이 사용할 기준)
+  lastActivatedAt: "2026-02-03T01:02:10Z"  # SHOULD
+changesets:
+  lastCommittedChangesetId: "cs-000123"    # SHOULD
+  lastActivatedChangesetId: "cs-000123"    # SHOULD
 ```
 
 #### 6.4.8 Materialized View / Effective Snapshot (선택)
 
-* `overlay.state.yaml`: 사람이 읽기 쉬운 현재 오버레이 뷰 (MAY)
-* `effective/effective-<rev>.yaml`: Effective Config 스냅샷 (SHOULD)
+* `effective/effective-<rev>.yaml`: Effective Config 스냅샷(SHOULD)
+* `diffs/<changesetId>.patch`: changeset diff 아티팩트(MAY)
 
-#### 6.5 ValueSource / SecretRef(간단 타입) (OAuthApp/Connector에서 사용)
+---
+
+### 6.5 ValueSource / SecretRef(간단 타입) (OAuthApp/Connector에서 사용)
 
 OAuthApp의 clientId/clientSecret, Connector의 고정 토큰 등은 환경/비밀 저장소에서 주입되는 경우가 일반적이므로, 본 문서는 간단한 ValueSource 패턴을 정의한다.
 
@@ -478,9 +488,9 @@ spec:
             text: { expr: "$.turn.summary" }
 ```
 
-#### 7.5.1 Agent 단위 LiveConfigPolicy (MAY)
+#### 7.5.1 Agent 단위 ChangesetPolicy (MAY)
 
-Agent는 Swarm의 liveConfig 정책을 **추가 제약(더 좁게)** 하는 allowList를 제공할 수 있다(MAY).
+Agent는 Swarm의 changesets 정책을 **추가 제약(더 좁게)** 하는 allowlist를 제공할 수 있다(MAY).
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -488,17 +498,17 @@ kind: Agent
 metadata:
   name: planner
 spec:
-  liveConfig:
-    allowedPaths:
-      agentRelative:
-        - "/spec/tools"
-        - "/spec/hooks"
+  changesets:
+    allowed:
+      files:
+        - "prompts/**"
+        - "resources/**"
 ```
 
 규칙:
 
-* Swarm.allowedPaths가 “최대 허용 범위”라면, Agent.allowedPaths는 “해당 Agent의 추가 제약”으로 해석한다(MUST).
-* 따라서 agent 스코프 patch는 **Swarm.allowedPaths + Agent.allowedPaths 모두를 만족**해야 허용된다(MUST).
+* Swarm.allowed.files가 “최대 허용 범위”라면, Agent.allowed.files는 “해당 Agent의 추가 제약”으로 해석한다(MUST).
+* 따라서 해당 Agent가 생성/커밋하는 changeset은 **Swarm.allowed + Agent.allowed 모두를 만족**해야 허용된다(MUST).
 
 ### 7.6 Swarm
 
@@ -515,7 +525,7 @@ spec:
     maxStepsPerTurn: 32
 ```
 
-#### 7.6.1 Swarm LiveConfigPolicy (MAY, 강력 권장)
+#### 7.6.1 Swarm ChangesetPolicy (MAY, 강력 권장)
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -528,30 +538,23 @@ spec:
     - { kind: Agent, name: planner }
   policy:
     maxStepsPerTurn: 32
-    liveConfig:
+    changesets:
       enabled: true
-      store:
-        instanceStateDir: "shared/state/instances/{{instanceId}}"
       applyAt:
         - step.config
-      allowedPaths:
-        agentRelative:
-          - "/spec/tools"
-          - "/spec/extensions"
-          - "/spec/mcpServers"
-          - "/spec/hooks"
-        swarmAbsolute:
-          - "/spec/policy"
-      emitConfigChangedEvent: true
+      allowed:
+        files:
+          - "resources/**"
+          - "prompts/**"
+          - "tools/**"
+          - "extensions/**"
+      emitRevisionChangedEvent: true
 ```
 
-##### allowedPaths 해석 규칙 (MUST)
+규칙:
 
-* `scope="agent"` patch의 json6902 path는 AgentInstance 루트를 기준으로 해석한다(MUST).
-  `allowedPaths.agentRelative`에 대해 prefix 매칭으로 평가한다(MUST).
-* `scope="swarm"` patch의 json6902 path는 SwarmInstance 루트를 기준으로 해석한다(MUST).
-  `allowedPaths.swarmAbsolute`에 대해 prefix 매칭으로 평가한다(MUST).
-* 허용되지 않은 path를 변경하려는 제안은 `result="rejected"`로 기록되어야 한다(MUST).
+* SwarmBundleManager는 changeset commit 시 변경된 파일 경로가 `allowed.files`에 포함되는지 검사해야 한다(MUST).
+* 허용되지 않은 파일을 변경하려는 changeset commit은 `changeset-status`에 `result="rejected"`로 기록되어야 한다(MUST).
 
 ### 7.7 Connector
 
@@ -667,7 +670,7 @@ Trigger handler 호출 시 Runtime은 다음 정보를 주입해야 한다(MUST)
 
 Trigger handler는 외부 시스템 이벤트를 직접 AgentInstance로 전달하지 않고, 반드시 canonical event를 생성하여 `ctx.emit(...)`을 통해 Runtime으로 전달해야 한다(MUST).
 
-### 7.8 ResourceType / ExtensionHandler (복구: v0.4의 원문 포함)
+### 7.8 ResourceType / ExtensionHandler
 
 ResourceType과 ExtensionHandler는 사용자 정의 kind의 등록, 검증, 기본값, 런타임 변환을 지원하기 위한 구성 단위로 사용될 수 있다. 이 메커니즘은 특정 용도(프리셋 제공 등)에 한정되지 않으며, 다양한 도메인 리소스(예: Retrieval, Memory, Evaluator 등)를 정의하는 데 활용될 수 있다.
 
@@ -713,8 +716,6 @@ spec:
   flow: authorizationCode
 
   # global | user
-  # - global: turn.auth.subjects.global 을 subject로 사용한다.
-  # - user:   turn.auth.subjects.user   를 subject로 사용한다.
   subjectMode: global
 
   client:
@@ -726,17 +727,15 @@ spec:
         secretRef: { ref: "Secret/slack-oauth", key: "client_secret" }
 
   endpoints:
-    authorizationUrl: "https://slack.com/oauth/v2/authorize"   # authorizationCode에서 필요
-    tokenUrl: "https://slack.com/api/oauth.v2.access"          # authorizationCode에서 필요
-    # deviceAuthorizationUrl: "https://..."                    # deviceCode에서 필요(지원 시)
+    authorizationUrl: "https://slack.com/oauth/v2/authorize"
+    tokenUrl: "https://slack.com/api/oauth.v2.access"
 
-  # 스코프는 사전 고정이며 런타임 중 증분 확장을 하지 않는다(MUST).
   scopes:
     - "chat:write"
     - "channels:read"
 
   redirect:
-    callbackPath: "/oauth/callback/slack-bot"                  # authorizationCode에서 필요
+    callbackPath: "/oauth/callback/slack-bot"
 
   options:
     slack:
@@ -745,10 +744,10 @@ spec:
 
 규칙:
 
-1. Runtime은 `flow=authorizationCode`에 대해 **Authorization Code + PKCE(S256)**를 MUST 지원해야 한다. PKCE는 “구성으로 켜고 끄는 옵션”이 아니라, 지원되는 Authorization Code 플로우의 필수 동작으로 간주한다(MUST).
-2. Runtime은 `flow=deviceCode`를 MAY 지원할 수 있다. Runtime이 deviceCode를 지원하지 않는 경우, `flow=deviceCode`인 OAuthApp 구성은 로드/검증 단계에서 거부되어야 한다(MUST).
-3. `spec.subjectMode`는 Turn의 `turn.auth.subjects`에서 어떤 키를 subject로 사용할지 결정한다(MUST). Runtime은 해당 키가 Turn에 없으면 토큰 발급/조회 절차를 시작하지 말고 오류로 처리해야 한다(MUST).
-4. 전역 토큰과 사용자별 토큰이 의미적으로 다른 경우, 이를 하나의 OAuthApp으로 합치지 말고 서로 다른 OAuthApp으로 분리 등록하는 것을 권장한다(SHOULD). 이 방식은 “토큰 소유 단위가 다르면 OAuthApp도 다르다”는 운영 원칙을 구성 수준에서 명확히 만든다.
+1. Runtime은 `flow=authorizationCode`에 대해 **Authorization Code + PKCE(S256)**를 MUST 지원해야 한다.
+2. Runtime은 `flow=deviceCode`를 MAY 지원할 수 있다. 미지원 시 `flow=deviceCode` 구성은 로드/검증 단계에서 거부되어야 한다(MUST).
+3. `spec.subjectMode`는 Turn의 `turn.auth.subjects`에서 어떤 키를 subject로 사용할지 결정한다(MUST). 해당 키가 Turn에 없으면 오류로 처리해야 한다(MUST).
+4. 전역 토큰과 사용자별 토큰이 의미적으로 다른 경우, 이를 하나의 OAuthApp으로 합치지 말고 서로 다른 OAuthApp으로 분리 등록하는 것을 권장한다(SHOULD).
 
 ---
 
@@ -775,15 +774,7 @@ Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙
 
 #### 9.1.1 Turn Origin 컨텍스트와 인증 컨텍스트
 
-Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙에 따라 SwarmInstance를 조회/생성한다. OAuth 기반 통합을 위해 Runtime은 Turn 컨텍스트에 호출 맥락(origin)과 인증 컨텍스트(auth)를 유지해야 한다(SHOULD).
-
-Connector는 ingress 이벤트로부터 최소한 다음 정보를 Turn에 포함시키는 것을 권장한다.
-
-1. `turn.origin`에는 채널/스레드 등 맥락을 식별하는 정보가 포함되어야 한다(SHOULD).
-2. `turn.auth.actor`에는 이 Turn을 트리거한 호출자(사람 또는 시스템 계정)의 식별자가 포함되어야 한다(SHOULD).
-3. `turn.auth.subjects`에는 OAuthGrant 조회에 사용할 subject 후보들이 포함되어야 한다(SHOULD). Runtime은 OAuthApp의 `subjectMode`에 따라 `subjects.global` 또는 `subjects.user`를 사용한다.
-
-권장 형태 예시는 다음과 같다.
+OAuth 기반 통합을 위해 Runtime은 Turn 컨텍스트에 호출 맥락(origin)과 인증 컨텍스트(auth)를 유지해야 한다(SHOULD).
 
 ```yaml
 turn:
@@ -796,7 +787,7 @@ turn:
     actor:
       type: "user"
       id: "slack:U234567"
-      display: "alice"   # 선택
+      display: "alice"
     subjects:
       global: "slack:team:T111"
       user:   "slack:user:T111:U234567"
@@ -834,50 +825,44 @@ Canonical event는 다음 처리 흐름을 따른다.
 
 Step은 다음 순서로 진행된다.
 
-1. **step.config**: LiveConfigManager가 Live Config를 평가/적용하여 이번 Step의 Effective Config를 확정
+1. **step.config**: SwarmBundleManager가 이번 Step의 `activeSwarmRevision`을 확정하고 Effective Config(리소스 로드/조립)를 준비
 2. `step.tools`: Tool Catalog 구성
 3. `step.blocks`: Context Blocks 구성
 4. `step.llmCall`: LLM 호출
 5. tool call 처리(동기 실행 또는 비동기 큐잉)
 6. `step.post`: 결과 반영 후 Step 종료
 
-### 9.4 Live Config 적용 의미론 (MUST)
+### 9.4 Changeset/SwarmRevision 적용 의미론 (MUST)
 
-##### 9.4.1 적용 단위
+#### 9.4.1 적용 단위
 
-* Runtime은 각 Step 시작 시 `step.config`에서 Live Config를 적용해야 한다(MUST).
-* Step 실행 중에는 Effective Config를 변경해서는 안 된다(MUST).
+* Runtime은 각 Step 시작 시 `step.config`에서 현재 `activeSwarmRevision`을 결정해야 한다(MUST).
+* Step 실행 중에는 SwarmRevision과 Effective Config를 변경해서는 안 된다(MUST).
 
-##### 9.4.2 적용 절차(권장 표준)
+#### 9.4.2 커밋과 활성화(권장 표준)
 
-AgentInstance의 `step.config`에서 LiveConfigManager는 최소 다음을 수행하는 것을 SHOULD 한다.
+* `swarmBundle.commitChangeset`은 새 SwarmRevision을 생성하고 head를 이동시킨다.
+* 새 SwarmRevision은 `step.config` Safe Point에서 `activeSwarmRevision`으로 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다(MUST).
 
-1. proposal 입력(이벤트/RPC)을 drain하여 평가
-2. allowList/정책/정규화 후 Patch Log에 기록
-3. 적용 가능한 patch를 순서대로 apply
-4. Patch Status Log에 `result` 및 (applied이면) `appliedAt/stepId/revision` 기록
-5. Cursor 업데이트
-6. (선택) Effective Snapshot 기록
+#### 9.4.3 반영 시점
 
-##### 9.4.3 반영 시점
+Step N 중 commit된 changeset으로 생성된 SwarmRevision은, Step N+1의 `step.config`에서 활성화되는 것이 기본 규칙이다(MUST).
+(단, Step N 시작 전에 이미 head가 이동된 경우 Step N에서 그 head를 활성화하는 것은 자연스럽게 허용된다.)
 
-Step N에서 제안된 patch는 Step N+1의 `step.config`에서 반영되는 것이 기본 규칙이다(MUST).
-(단, 구현이 “Step N 시작 전 이미 기록된 patch”를 Step N에서 적용하는 것은 자연스럽게 허용된다.)
+#### 9.4.4 변경 가시성(권장)
 
-##### 9.4.4 변경 가시성(권장)
-
-`emitConfigChangedEvent=true`인 경우, Runtime은 변경 요약을 다음 Step 입력 또는 블록에 포함시키는 것을 SHOULD 한다.
+`emitRevisionChangedEvent=true`인 경우, Runtime은 revision 변경 요약을 다음 Step 입력 또는 블록에 포함시키는 것을 SHOULD 한다.
 
 #### 9.4.7 Effective Config 배열 정규화 규칙 (SHOULD)
 
-Runtime은 LivePatch 적용 후 다음 배열을 **identity key 기반으로 정규화**하는 것을 SHOULD 한다.
+Runtime은 Effective Config 생성 후 다음 배열을 **identity key 기반으로 정규화**하는 것을 SHOULD 한다.
 
 * `/spec/tools`, `/spec/extensions`, `/spec/mcpServers`
 
 정규화 규칙(SHOULD):
 
 * identity key가 동일한 항목이 중복될 경우, 마지막에 나타난 항목이 내용을 대표(last-wins)한다.
-* 배열의 순서는 patch 적용 결과로 만들어진 순서를 유지한다.
+* 배열의 순서는 bundle 파일 변경(커밋 결과)에 의해 만들어진 순서를 유지한다.
 * 실행 상태 유지(reconcile)는 순서가 아니라 identity key 기준으로 수행한다(§11.6).
 
 ---
@@ -894,34 +879,33 @@ Runtime은 인스턴스와 에이전트 실행을 위한 파일시스템 워크�
 * `shared/artifacts/`
 * `shared/state/instances/<instanceId>/`
 
-### 10.1 Live Config 상태 디렉터리 레이아웃 (MUST)
+### 10.1 SwarmBundle 상태 디렉터리 레이아웃 (MUST)
 
 ```
 shared/state/instances/<instanceId>/
-  base/
-    base-config.ref                    # MUST: Base Config 식별자(커밋/번들 등)
-  swarm/                               # MAY: swarm scope live config
-    live-config/
-      patches.jsonl                    # MAY: canonical
-      cursor.yaml                      # MAY
-      patch-status.jsonl               # MAY
-      overlay.state.yaml               # MAY
-  agents/                              # MUST: agent scope live config
-    <agentInstanceNameOrId>/           # AgentInstance 식별자(인스턴스 내 유일)
-      live-config/
-        patches.jsonl                  # MUST: canonical
-        cursor.yaml                    # MUST
-        patch-status.jsonl             # MUST
-        overlay.state.yaml             # MAY
-        effective/
-          effective-<rev>.yaml         # SHOULD
+  swarm-bundle/                         # MUST
+    base.ref                            # MUST: base SwarmRevision(또는 source ref)
+    head.ref                            # MUST: head SwarmRevision
+    cursor.yaml                         # MUST
+    logs/
+      changesets.jsonl                  # MUST
+      changeset-status.jsonl            # MUST
+    changesets/
+      <changesetId>/
+        workdir/                        # MUST: staging workdir
+        diff.patch                      # MAY
+    effective/
+      effective-<rev>.yaml              # SHOULD
+    store/                              # MUST: SwarmBundleStore(opaque)
+  agents/
+    <agentInstanceNameOrId>/
       messages/
         llm.jsonl                       # MUST: LLM message log (append-only)
   events/
-    events.jsonl                       # SHOULD
+    events.jsonl                        # SHOULD
 ```
 
-정본 파일(patches/patch-status/cursor)은 읽기 전용으로 노출되는 것이 SHOULD이며, LiveConfigManager 외의 주체가 기록하지 못해야 한다.
+정본 파일(changesets/status/cursor/head/base)은 읽기 전용으로 노출되는 것이 SHOULD이며, SwarmBundleManager 외의 주체가 기록하지 못해야 한다.
 
 ### 10.1.1 LLM Message Log (MUST)
 
@@ -1007,9 +991,9 @@ hooks 합성:
 * 동일 포인트 내 실행 순서는 결정론적으로 재현 가능해야 한다(MUST).
 * priority가 있으면 priority 정렬 후 안정 정렬(SHOULD).
 
-### 11.4 patch 적용 실패 처리 (SHOULD)
+### 11.4 changeset 커밋/활성화 실패 처리 (SHOULD)
 
-patch 적용 실패는 patch-status에 `result="failed"`로 기록하고, Step 자체는 계속 진행하는 정책을 SHOULD 한다. (fail-fast는 구현 선택)
+Changeset commit 또는 활성화 실패는 changeset-status에 `result="failed"`로 기록하고, Step 자체는 계속 진행하는 정책을 SHOULD 한다. (fail-fast는 구현 선택)
 
 ### 11.6 Reconcile Identity 규칙 (MUST)
 
@@ -1070,10 +1054,12 @@ Runtime은 Tool 실행 중 오류가 발생하면 예외를 외부로 전파하�
 * `error.message`는 Tool.spec.errorMessageLimit 길이 제한을 적용한다(MUST).
 * errorMessageLimit이 없으면 기본값은 1000자이다(MUST).
 
-### 12.4 Live Config 변경의 표준 패턴 (MUST)
+### 12.4 SwarmBundle 변경의 표준 패턴 (MUST)
 
-Tool/Extension/Sidecar는 Live Config 정본 파일을 직접 수정하지 않는다(MUST).
-대신 §6.4.5의 Proposal API를 통해 patch를 제안하고, LiveConfigManager가 정본 기록 및 적용을 수행한다(MUST).
+SwarmBundle 변경은 Changeset을 통해 수행되어야 한다(MUST).
+LLM은 `swarmBundle.openChangeset`으로 staging workdir을 열고, bash로 파일을 수정한 뒤, `swarmBundle.commitChangeset`으로 커밋한다.
+
+SwarmBundleManager는 정본 로그를 기록하고, 활성화는 Safe Point에서만 수행한다(§9.4, §11.2).
 
 ### 12.5 OAuth 토큰 접근 인터페이스
 
@@ -1278,6 +1264,7 @@ Runtime은 확장에 다음 기능을 제공할 수 있어야 한다(MAY/SHOULD)
 * 도구 등록: `api.tools.register(toolDef)`
 * 이벤트 발행: `api.events.emit(type, payload)`
 * 워크스페이스 접근: repo 확보, worktree 마운트, 파일 IO 등
+* (선택) SwarmBundle 접근: `api.swarmBundle.openChangeset()`, `api.swarmBundle.commitChangeset(...)` (구현 선택)
 
 ### 13.3 실행 컨텍스트(ctx)
 
@@ -1314,7 +1301,7 @@ Skill은 SKILL.md 중심 번들로서 다음 기능을 통해 활용된다.
 ## 15. 대표 도구 패턴: ToolSearch
 
 ToolSearch는 LLM이 tool catalog를 탐색/요약할 수 있도록 제공되는 **Tool**이다.
-ToolSearch는 검색 결과에 따라 다음 Step부터 필요한 도구를 활성화하기 위해 LiveConfigManager에 patch를 제안할 수 있다(§12.4).
+ToolSearch는 “다음 Step부터 사용할 도구/확장/프롬프트 변경”이 필요할 때, 도구 카탈로그를 로드 하는 시점에 도구 목록을 조작하여 검색된 도구를 추가한다.
 
 ---
 
@@ -1336,14 +1323,15 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 
 조직 내 공통 정책을 리소스로 정의해두면 Agent는 selector+overrides 문법으로 이를 선택하고 일부만 덮어써 구성할 수 있다.
 
-### 16.5 (Live Config) 도구 호출이 다음 Step의 toolset을 변경하는 흐름
+### 16.5 Changeset으로 “도구/프롬프트/코드”가 다음 Step부터 바뀌는 흐름
 
-1. Step N에서 LLM이 toolSearch 도구를 호출
-2. toolSearch는 patch proposal을 제출
-3. LiveConfigManager는 policy/allowList 검사 후 Patch Log 기록
-4. Step N 종료
-5. Step N+1의 `step.config`에서 patch 적용 → patch-status에 appliedAt/revision/stepId 기록
-6. Step N+1부터 새 도구가 Catalog에 포함되어 LLM이 사용 가능
+1. Step N에서 LLM이 `swarmBundle.openChangeset` 호출 → staging workdir 수신
+2. LLM이 bash로 workdir 안의 YAML/프롬프트/코드 파일을 수정
+3. LLM이 `swarmBundle.commitChangeset` 호출
+4. SwarmBundleManager가 정책 검사/검증 후 새 SwarmRevision 생성, head 이동, changesets/status 기록
+5. Step N 종료
+6. Step N+1의 `step.config`에서 head를 활성화(activeSwarmRevision으로 반영), status에 appliedAt/stepId 기록
+7. Step N+1부터 새 SwarmRevision 기반으로 실행
 
 ### 16.6 Slack OAuth 설치/토큰 사용 흐름(개념)
 
@@ -1362,38 +1350,18 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 2. stateful long‑running 에이전트 경험을 Turn/Step 모델과 이벤트 큐로 일관되게 구현할 수 있다.
 3. 확장을 통해 도구 카탈로그, 컨텍스트 조립, 메모리 축적/주입, 클라이언트 업데이트 전략을 모듈화할 수 있다.
 4. 구성 파일 기반 정의로 재사용과 자동화가 쉬워지고 AI가 구성을 생성·수정·검토하는 흐름이 자연스럽다.
-5. Live Config는 “파일로 관측 가능”하지만 정본 기록은 LiveConfigManager 단일 작성자 모델로 안정적으로 운영된다.
+5. Changeset → SwarmRevision 모델로 “구성뿐 아니라 코드까지” 런타임 중 변경·반영할 수 있다.
 6. reconcile이 identity 기반으로 수행되고 stateful MCP 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
 7. OAuthApp 도입으로 Tool/Connector의 인증/토큰 취득 방식이 표준화되어, 통합 난이도와 운영 복잡성이 감소한다.
 
 ---
 
-## 18. Bundle(확장 묶음)
+## 18. Bundle(구성+코드 번들) 및 Bundle 리소스(선택)
 
-Bundle은 Tool/Extension/Connector 등 **확장을 묶어서 등록**하기 위한 패키징 단위이다. Bundle의 실체는 `bundle.yaml`이 위치한 **폴더 전체**이며, 이 폴더 안에는 스크립트(예: Node/Python), YAML 정의, 기타 실행 리소스가 함께 포함될 수 있다.
+Bundle은 YAML + 소스코드(프롬프트/툴/확장/커넥터 구현)를 함께 담는 폴더 트리이며, SwarmBundle은 Swarm을 정의하는 Bundle이다.
 
-Bundle은 **Git 기반으로 식별/다운로드**되는 것을 기본으로 한다. 번들 참조는 `github.com/<org>/<repo>/<path>@<ref?>` 형태를 권장하며, `@ref`가 없으면 기본 브랜치를 사용한다(MAY). 번들 다운로드 시 `bundle.yaml`이 있는 폴더는 **전체를 내려받아야** 하며, `spec.include`는 **최종 Config에 포함할 YAML 목록**을 정의할 뿐 다운로드 범위를 제한하지 않는다(MUST).
-
-Git-only 배포에서는 `dist/` 빌드 산출물을 리포에 포함하고, `spec.include`가 dist 하위 YAML을 참조하도록 구성한다(SHOULD).
-
-각 리소스의 `spec.entry` 경로는 **Bundle Root 기준 상대 경로**로 해석한다(MUST). 런타임은 등록된 Bundle의 리소스를 ConfigRegistry에 합쳐 사용하며, 충돌 시 정책에 따라 덮어쓰기/에러 처리한다(MAY).
-
-npm은 **선택적 호스팅 채널**로만 활용할 수 있으며, 번들 배포/해석의 필수 요건은 아니다. 번들 스펙 및 상세 예시는 `docs/spec_bundle.md`를 참조한다.
-
-예시:
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Bundle
-metadata:
-  name: base
-spec:
-  dependencies:
-    - github.com/goondan/foo-bar@v0.2.0
-  include:
-    - dist/tools/fileRead/tool.yaml
-    - dist/extensions/skills/extension.yaml
-```
+(기존 v0.8의 Bundle(확장 묶음) 설명은 “Bundle을 Git 기반으로 받아 include로 리소스 YAML을 합치는 방식”으로 그대로 유지할 수 있다.
+필요하면 여기서 `kind: Bundle` 리소스를 사용해 의존 번들을 조립하는 메커니즘을 제공한다.)
 
 ---
 
@@ -1424,8 +1392,8 @@ spec:
           │ step.pre        (Mutator)
           ▼
    ┌───────────────────────────────────────┐
-   │ step.config     (Mutator)  [NEW]      │
-   │  - apply Live Overlay → EffectiveCfg  │
+   │ step.config     (Mutator)             │
+   │  - activate SwarmRevision + load cfg  │
    └───────────────────────────────────────┘
           │
           │ step.tools      (Mutator)

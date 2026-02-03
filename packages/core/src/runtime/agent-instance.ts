@@ -116,6 +116,13 @@ type RuntimeLike = {
   unregisterDynamicTools: Runtime['unregisterDynamicTools'];
 };
 
+type SwarmInstanceLike = {
+  enqueueToAgent: (
+    targetAgentName: string,
+    event: { input: string; origin?: JsonObject; auth?: JsonObject; metadata?: JsonObject }
+  ) => { queued: boolean; error?: string };
+};
+
 interface AgentInstanceOptions {
   name: string;
   instanceId: string;
@@ -126,6 +133,7 @@ interface AgentInstanceOptions {
   toolRegistry: ToolRegistry;
   liveConfigManager: LiveConfigManager;
   runtime: RuntimeLike;
+  swarmInstance?: SwarmInstanceLike;
   logger?: Console;
   baseDir?: string;
 }
@@ -140,6 +148,7 @@ export class AgentInstance {
   toolRegistry: ToolRegistry;
   liveConfigManager: LiveConfigManager;
   runtime: RuntimeLike;
+  swarmInstance: SwarmInstanceLike | null;
   logger: Console;
   baseDir: string;
   queue: TurnEvent[];
@@ -163,6 +172,7 @@ export class AgentInstance {
     this.toolRegistry = options.toolRegistry;
     this.liveConfigManager = options.liveConfigManager;
     this.runtime = options.runtime;
+    this.swarmInstance = options.swarmInstance || null;
     this.logger = options.logger || console;
     this.baseDir = options.baseDir || this.registry?.baseDir || process.cwd();
 
@@ -321,7 +331,26 @@ export class AgentInstance {
       break;
     }
 
-    if (turn.summary) {
+    // 위임된 작업인 경우 결과를 원래 에이전트에게 반환
+    const isDelegation = Boolean(turn.metadata?.isDelegation);
+    const returnTo = turn.metadata?.returnTo as string | undefined;
+    const delegationId = turn.metadata?.delegationId as string | undefined;
+
+    if (isDelegation && returnTo && delegationId) {
+      // 위임 결과 이벤트 발행 - Runtime이 원래 에이전트에게 전달
+      this.runtime.events.emit('agent.delegationResult', {
+        delegationId,
+        fromAgent: this.name,
+        toAgent: returnTo,
+        result: turn.summary,
+        toolResults: turn.toolResults,
+        // 스펙 §9.1.1: handoff 시 turn.auth는 변경 없이 전달 (MUST)
+        origin: turn.origin,
+        auth: turn.auth,
+        timestamp: new Date().toISOString(),
+      });
+    } else if (turn.summary) {
+      // 일반 Turn의 경우 외부로 결과 전송
       await this.runtime.emitFinal(turn.origin, turn.summary, turn.auth);
     }
 

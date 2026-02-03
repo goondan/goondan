@@ -81,6 +81,7 @@ export class SwarmInstance {
       toolRegistry: this.toolRegistry,
       liveConfigManager: this.liveConfigManager,
       runtime: this.runtime,
+      swarmInstance: this,
       logger: this.logger,
     });
     await agentInstance.init();
@@ -89,6 +90,32 @@ export class SwarmInstance {
 
   getAgent(name: string): AgentInstance | null {
     return this.agents.get(name) || null;
+  }
+
+  /**
+   * 다른 에이전트의 이벤트 큐에 작업을 enqueue합니다.
+   * 비동기로 작동하며 결과를 기다리지 않습니다.
+   *
+   * @returns 큐잉 성공 여부 (에이전트 존재 여부만 검사)
+   */
+  enqueueToAgent(
+    targetAgentName: string,
+    event: {
+      input: string;
+      origin?: JsonObject;
+      auth?: JsonObject;
+      metadata?: JsonObject;
+    }
+  ): { queued: boolean; error?: string } {
+    const targetAgent = this.getAgent(targetAgentName);
+    if (!targetAgent) {
+      return { queued: false, error: `에이전트를 찾을 수 없습니다: ${targetAgentName}` };
+    }
+
+    // 대상 에이전트의 이벤트 큐에 작업 추가
+    targetAgent.enqueueEvent(event);
+
+    return { queued: true };
   }
 
   enqueueEvent(event: SwarmEvent): void {

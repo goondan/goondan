@@ -1,8 +1,20 @@
 /**
  * 에이전트 위임 도구
  *
- * agent.delegate - 다른 에이전트에게 작업 위임
+ * agent.delegate - 다른 에이전트에게 작업 위임 (비동기 이벤트 큐 방식)
  * agent.list - 사용 가능한 에이전트 목록 조회
+ *
+ * 스펙 기반 동작 (goondan_spec.md §5.1, §9.2):
+ * - AgentInstance는 이벤트 큐를 가진다 (MUST)
+ * - 큐의 이벤트 하나가 Turn의 입력이 된다 (MUST)
+ * - Turn은 "하나의 입력 이벤트"를 처리하는 단위 (MUST)
+ * - 위임 흐름:
+ *   1. agent.delegate 호출 → 대상 에이전트 큐에 작업 enqueue
+ *   2. 대상 에이전트 Turn 완료 → 결과가 원래 에이전트 큐에 enqueue
+ *   3. 원래 에이전트의 새 Turn에서 결과 처리
+ *
+ * §9.1.1: "Runtime이 에이전트 간 handoff를 위해 내부 이벤트를 생성하거나
+ * 라우팅할 때, turn.auth는 변경 없이 전달되어야 한다(MUST)"
  */
 import type { JsonObject, JsonValue, ToolHandler, ToolContext } from '@goondan/core';
 
@@ -10,7 +22,6 @@ interface DelegateInput {
   agent: string;
   task: string;
   context?: string;
-  waitForResult?: boolean;
 }
 
 interface AgentInfo {
@@ -51,10 +62,11 @@ export const handlers: Record<string, ToolHandler> = {
   },
 
   /**
-   * 에이전트에게 작업 위임
+   * 에이전트에게 작업 위임 (비동기)
    *
-   * 이 도구는 런타임의 이벤트 시스템을 사용하여
-   * 다른 AgentInstance에 작업을 전달합니다.
+   * 대상 에이전트의 이벤트 큐에 작업을 enqueue하고 바로 반환합니다.
+   * 위임된 에이전트는 자신의 Turn에서 작업을 처리하고,
+   * Turn 완료 시 결과가 원래 에이전트에게 전달됩니다.
    */
   'agent.delegate': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
     const payload = input as Partial<DelegateInput>;
@@ -69,6 +81,7 @@ export const handlers: Record<string, ToolHandler> = {
     const agentName = payload.agent;
     const task = payload.task;
     const context = payload.context || '';
+    const fromAgent = ctx.agent.metadata?.name || 'unknown';
 
     // 에이전트 존재 여부 확인
     const agentInfo = AVAILABLE_AGENTS.find((a) => a.name === agentName);
@@ -77,60 +90,39 @@ export const handlers: Record<string, ToolHandler> = {
       throw new Error(`'${agentName}' 에이전트를 찾을 수 없습니다. 사용 가능: ${availableNames}`);
     }
 
-    // 위임 이벤트 발행
-    // 런타임이 이 이벤트를 받아 해당 AgentInstance의 이벤트 큐에 추가합니다
+    // 위임 ID 생성
     const delegationId = `del-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const fullTask = context ? `${task}\n\n컨텍스트:\n${context}` : task;
 
-    ctx.events.emit('agent.delegated', {
+    // 이벤트 버스를 통해 위임 이벤트 발행
+    // Runtime이 이 이벤트를 수신하여 대상 에이전트의 이벤트 큐에 enqueue
+    ctx.events.emit('agent.delegate', {
       delegationId,
-      fromAgent: ctx.agent.metadata?.name || 'router',
+      fromAgent,
       toAgent: agentName,
-      task,
-      context,
-      turnId: ctx.turn?.id,
+      task: fullTask,
+      // 스펙 §9.1.1: handoff 시 turn.auth는 변경 없이 전달 (MUST)
+      origin: ctx.turn.origin,
+      auth: ctx.turn.auth,
+      metadata: {
+        isDelegation: true,
+        delegationId,
+        delegatedFrom: fromAgent,
+        // 결과를 반환받을 에이전트 정보
+        returnTo: fromAgent,
+      },
       timestamp: new Date().toISOString(),
     });
 
-    // 위임 결과 구조체
-    // 실제 런타임에서는 이 이벤트를 처리하여 에이전트 간 통신을 수행합니다
+    // 비동기 위임이므로 바로 반환
+    // 위임받은 에이전트의 Turn이 끝나면 결과가 이 에이전트의 큐에 enqueue됨
     return {
       delegationId,
-      status: 'delegated',
+      status: 'queued',
       toAgent: agentName,
       agentDescription: agentInfo.description,
       task,
-      message: `작업이 ${agentName} 에이전트에게 위임되었습니다. 결과는 해당 에이전트가 완료 후 반환합니다.`,
-      note: '현재 샘플에서는 동기적 위임만 지원합니다. 실제 프로덕션에서는 비동기 완료 이벤트를 처리합니다.',
-    };
-  },
-
-  /**
-   * 작업 완료 보고
-   *
-   * 위임받은 에이전트가 작업을 완료했을 때 호출합니다.
-   */
-  'agent.complete': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
-    const delegationId = input.delegationId as string | undefined;
-    const result = input.result as JsonValue | undefined;
-    const summary = input.summary as string | undefined;
-
-    if (!delegationId) {
-      throw new Error('delegationId가 필요합니다.');
-    }
-
-    // 완료 이벤트 발행
-    ctx.events.emit('agent.completed', {
-      delegationId,
-      agent: ctx.agent.metadata?.name || 'unknown',
-      result,
-      summary,
-      timestamp: new Date().toISOString(),
-    });
-
-    return {
-      status: 'completed',
-      delegationId,
-      message: '작업 완료가 보고되었습니다.',
+      message: `작업이 ${agentName} 에이전트에게 위임되었습니다. 작업이 완료되면 결과가 전달될 것입니다.`,
     };
   },
 };

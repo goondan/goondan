@@ -1,10 +1,12 @@
 # goondan 구현 정확성 검증 보고서
 
+재검증 반영: 2026-02-03 (rebase로 추가된 커밋 2개 반영)
+
 ## 1. Runtime 실행 모델 (Instance/Turn/Step)
 - **스펙 요구사항**: Connector 이벤트를 instanceKey로 SwarmInstance에 라우팅하고, AgentInstance 큐에서 Turn/Step 루프를 수행하며 Step 시작 시 Effective Config 고정, Turn.messages에 LLM/Tool 결과를 누적해 다음 Step에 사용해야 함.
 - **구현 위치**: `packages/core/src/runtime/runtime.ts`, `packages/core/src/runtime/swarm-instance.ts`, `packages/core/src/runtime/agent-instance.ts`
 - **검증 결과**: ✅ 올바름
-- **상세 내용**: `Runtime.handleEvent` → `SwarmInstance` 생성/조회 → `AgentInstance` 큐 처리 흐름이 구현되어 있고, `runTurn`에서 Step 루프와 tool call 처리 후 다음 Step로 진행한다. Step 시작 시 `liveConfigManager.applyAtSafePoint`로 Effective Config를 적용하고, `Turn.messages`/`Turn.toolResults`를 `step.blocks`에 포함해 다음 Step 컨텍스트로 사용한다. LLM 메시지는 `state/instances/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록된다.
+- **상세 내용**: `Runtime.handleEvent` → `SwarmInstance` 생성/조회 → `AgentInstance` 큐 처리 흐름이 구현되어 있고, `runTurn`에서 Step 루프와 tool call 처리 후 다음 Step로 진행한다. Step 시작 시 `liveConfigManager.applyAtSafePoint`로 Effective Config를 적용하고, `Turn.messages`/`Turn.toolResults`를 `step.blocks`에 포함해 다음 Step 컨텍스트로 사용한다. LLM 메시지는 `state/instances/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록된다. 추가로 `agent.delegate`/`agent.delegationResult` 이벤트로 에이전트 간 위임을 큐 기반으로 전달하는 확장 동작이 추가되었으며, 기존 실행 모델과 충돌하지 않는다.
 
 ## 2. Live Config (동적 구성 오버레이)
 - **스펙 요구사항**: LiveConfigManager 단일 작성자 모델, patch proposal/평가/적용, Safe Point(step.config)에서만 적용, patch/status/cursor 파일 관리.

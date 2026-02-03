@@ -107,6 +107,72 @@ export class Runtime {
       });
     });
 
+    // agent.delegate 이벤트 수신: 대상 에이전트의 이벤트 큐에 작업 enqueue
+    this.events.on('agent.delegate', (payload) => {
+      const event = payload as {
+        delegationId?: string;
+        fromAgent?: string;
+        toAgent?: string;
+        task?: string;
+        origin?: JsonObject;
+        auth?: JsonObject;
+        metadata?: JsonObject;
+      };
+      if (!event.toAgent || !event.task) return;
+
+      // 모든 SwarmInstance에서 대상 에이전트를 찾아 이벤트 enqueue
+      for (const swarmInstance of this.swarmInstances.values()) {
+        const result = swarmInstance.enqueueToAgent(event.toAgent, {
+          input: event.task,
+          origin: event.origin,
+          auth: event.auth,
+          metadata: event.metadata,
+        });
+        if (result.queued) {
+          this.logger.info?.(`[agent.delegate] ${event.fromAgent} → ${event.toAgent} (${event.delegationId})`);
+          return;
+        }
+      }
+      this.logger.warn?.(`[agent.delegate] 대상 에이전트를 찾을 수 없습니다: ${event.toAgent}`);
+    });
+
+    // agent.delegationResult 이벤트 수신: 위임 결과를 원래 에이전트에게 전달
+    this.events.on('agent.delegationResult', (payload) => {
+      const event = payload as {
+        delegationId?: string;
+        fromAgent?: string;
+        toAgent?: string;
+        result?: string | null;
+        toolResults?: unknown[];
+        origin?: JsonObject;
+        auth?: JsonObject;
+      };
+      if (!event.toAgent) return;
+
+      // 위임 결과를 입력 메시지로 구성
+      const resultSummary = event.result || '작업이 완료되었습니다.';
+      const input = `[위임 결과 - ${event.fromAgent}]\n위임 ID: ${event.delegationId}\n\n${resultSummary}`;
+
+      // 모든 SwarmInstance에서 원래 에이전트를 찾아 결과 이벤트 enqueue
+      for (const swarmInstance of this.swarmInstances.values()) {
+        const result = swarmInstance.enqueueToAgent(event.toAgent, {
+          input,
+          origin: event.origin,
+          auth: event.auth,
+          metadata: {
+            type: 'delegation.result',
+            delegationId: event.delegationId,
+            fromAgent: event.fromAgent,
+          },
+        });
+        if (result.queued) {
+          this.logger.info?.(`[delegation.result] ${event.fromAgent} → ${event.toAgent} (${event.delegationId})`);
+          return;
+        }
+      }
+      this.logger.warn?.(`[delegation.result] 대상 에이전트를 찾을 수 없습니다: ${event.toAgent}`);
+    });
+
     this.registerMcpAdapter('stdio', createStdioAdapter);
     this.registerMcpAdapter('http', createHttpAdapter);
   }

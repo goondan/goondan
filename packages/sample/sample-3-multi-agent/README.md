@@ -1,186 +1,173 @@
-# Sample 3: Multi-Agent Telegram Bot
+# Python Hello World 프로젝트 👋
 
-라우터 에이전트가 전문 에이전트들에게 작업을 위임하는 멀티 에이전트 시스템입니다.
+Python 프로그래밍의 첫 걸음을 위한 간단한 Hello World 프로젝트입니다.
 
-## 개요
+## 📝 프로젝트 소개
 
-이 샘플은 다음을 보여줍니다:
+이 프로젝트는 Python의 기본 문법을 배우고 첫 번째 프로그램을 실행해보는 것을 목표로 합니다. "Hello, World!"를 출력하는 간단한 프로그램으로, Python 프로그래밍의 시작점이 됩니다.
 
-- **멀티 에이전트 아키텍처**: 역할별 전문화된 에이전트 구성
-- **에이전트 위임 패턴**: 라우터가 작업을 분석하고 적절한 에이전트에게 위임
-- **이벤트 기반 통신**: `agent.delegate` 이벤트를 통한 에이전트 간 협업
-- **Swarm 구성**: 여러 에이전트를 하나의 Swarm으로 조직
+## ✨ 기능
 
-## 에이전트 구성
+- 콘솔에 "Hello, World!" 메시지 출력
+- Python 기본 문법 학습
+- 프로그램 실행 방법 이해
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                       Swarm                             │
-│                                                         │
-│  ┌─────────────┐                                       │
-│  │   Router    │  ← 진입점: 요청 분석 및 위임         │
-│  └──────┬──────┘                                       │
-│         │                                               │
-│    ┌────┴────┬──────────┐                              │
-│    ▼         ▼          ▼                              │
-│ ┌──────┐ ┌────────┐ ┌──────┐                          │
-│ │Coder │ │Reviewer│ │ Docs │                          │
-│ └──────┘ └────────┘ └──────┘                          │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
+## 🔧 요구사항
 
-### Router (라우터)
-- 사용자 요청을 분석
-- 적절한 전문 에이전트 선택
-- 작업 위임 및 결과 종합
+프로젝트를 실행하기 위해 다음이 필요합니다:
 
-### Coder (개발자)
-- 코드 작성 및 수정
-- 버그 수정, 리팩토링
-- 코드 실행 및 테스트
+- **Python 3.6 이상** (권장: Python 3.8 이상)
+- 텍스트 에디터 또는 IDE (예: VS Code, PyCharm, IDLE)
 
-### Reviewer (리뷰어)
-- 코드 품질 검토
-- 보안 취약점 분석
-- 성능 개선 제안
+### Python 설치 확인
 
-### Docs (문서화)
-- README 작성
-- API 문서화
-- 코드 주석 추가
-
-## 사전 요구사항
-
-1. **Telegram Bot Token**
-   ```bash
-   export TELEGRAM_BOT_TOKEN="your-token"
-   ```
-
-2. **LLM API Key**
-   ```bash
-   export ANTHROPIC_API_KEY="your-key"
-   ```
-
-## 설치 및 실행
+터미널 또는 명령 프롬프트에서 다음 명령어를 실행하여 Python이 설치되어 있는지 확인하세요:
 
 ```bash
-# 의존성 설치 (루트에서)
-pnpm install
-
-# 빌드
-pnpm build
-
-# 번들 등록 (처음 한 번만)
-goondan bundle add ./bundle.yaml
-goondan bundle add github.com/goondan/goondan/packages/base
-
-# CLI로 테스트 (Telegram 없이)
-export GOONDAN_DATA_SECRET_KEY=$(openssl rand -hex 32)
-goondan run -c goondan.yaml --input "사용 가능한 에이전트 목록 보여줘"
-
-# Telegram 봇으로 실행
-export TELEGRAM_BOT_TOKEN="your-bot-token"
-export ANTHROPIC_API_KEY="your-api-key"
-export GOONDAN_DATA_SECRET_KEY=$(openssl rand -hex 32)
-pnpm telegram
+python --version
 ```
 
-## 프로젝트 구조
+또는
 
-```
-sample-3-multi-agent/
-├── src/
-│   ├── connectors/
-│   │   └── telegram/          # Telegram 커넥터
-│   └── tools/
-│       ├── delegate/          # 에이전트 위임 도구
-│       ├── code/              # 코딩 도구
-│       └── git/               # Git 도구
-├── prompts/
-│   ├── router.system.md       # 라우터 프롬프트
-│   ├── coder.system.md        # 코더 프롬프트
-│   ├── reviewer.system.md     # 리뷰어 프롬프트
-│   └── docs.system.md         # 문서화 프롬프트
-├── goondan.yaml               # 메인 구성
-├── bundle.yaml                # 번들 매니페스트
-└── package.json
+```bash
+python3 --version
 ```
 
-## 위임 도구
+Python 버전이 표시되면 정상적으로 설치된 것입니다.
 
-### agent.list
-사용 가능한 에이전트 목록을 조회합니다.
+## 📦 설치
 
-### agent.delegate
-전문 에이전트에게 작업을 위임합니다.
+1. **저장소 클론** (Git을 사용하는 경우):
+   ```bash
+   git clone <repository-url>
+   cd python-hello-world
+   ```
 
-```yaml
-agent.delegate:
-  agent: "coder"           # coder | reviewer | docs
-  task: "유틸리티 함수 작성"
-  context: "문자열 처리 관련"
+2. **파일 다운로드** (Git을 사용하지 않는 경우):
+   - 프로젝트 파일을 다운로드하여 원하는 폴더에 저장하세요.
+
+## 🚀 실행 방법
+
+### 방법 1: 터미널/명령 프롬프트 사용
+
+1. 프로젝트 폴더로 이동합니다:
+   ```bash
+   cd python-hello-world
+   ```
+
+2. Python 파일을 실행합니다:
+   ```bash
+   python hello.py
+   ```
+   
+   또는
+   
+   ```bash
+   python3 hello.py
+   ```
+
+3. 결과 확인:
+   ```
+   Hello, World!
+   ```
+
+### 방법 2: IDE 사용
+
+1. IDE(예: VS Code, PyCharm)에서 `hello.py` 파일을 엽니다.
+2. 실행 버튼을 클릭하거나 단축키(보통 F5)를 누릅니다.
+3. 출력 창에서 결과를 확인합니다.
+
+### 방법 3: Python 대화형 모드
+
+1. 터미널에서 Python을 실행합니다:
+   ```bash
+   python
+   ```
+
+2. 다음 코드를 입력합니다:
+   ```python
+   print("Hello, World!")
+   ```
+
+3. Enter를 누르면 즉시 결과가 표시됩니다.
+
+## 📚 코드 설명
+
+```python
+# hello.py
+print("Hello, World!")
 ```
 
-### agent.complete
-위임받은 작업의 완료를 보고합니다.
+- `print()`: Python의 내장 함수로, 괄호 안의 내용을 화면에 출력합니다.
+- `"Hello, World!"`: 출력할 문자열(텍스트)입니다. 큰따옴표(`"`) 또는 작은따옴표(`'`)로 감싸서 표현합니다.
 
-## 작업 흐름 예시
+## 🎓 학습 포인트
 
-### 단일 위임
-```
-사용자: "README.md를 작성해줘"
-  ↓
-Router: 문서화 작업 식별, docs에게 위임
-  ↓
-Docs: README.md 작성 및 완료 보고
-  ↓
-Router: 결과 종합 후 사용자에게 전달
-```
+이 프로젝트를 통해 다음을 배울 수 있습니다:
 
-### 복합 위임
-```
-사용자: "새 기능을 구현하고 리뷰해줘"
-  ↓
-Router: 개발 + 리뷰 작업 식별
-  ↓
-Router: coder에게 기능 구현 위임
-  ↓
-Coder: 코드 작성 및 완료
-  ↓
-Router: reviewer에게 코드 리뷰 위임
-  ↓
-Reviewer: 리뷰 수행 및 피드백
-  ↓
-Router: 모든 결과 종합 후 사용자에게 전달
-```
+1. **Python 파일 실행**: `.py` 확장자를 가진 Python 파일을 실행하는 방법
+2. **print() 함수**: 화면에 텍스트를 출력하는 기본 함수
+3. **문자열**: 텍스트 데이터를 다루는 방법
+4. **개발 환경**: Python 개발 환경 설정 및 사용법
 
-## 확장 포인트
+## 🔄 다음 단계
 
-### 새 에이전트 추가
+Hello World를 성공적으로 실행했다면, 다음 단계로 나아가보세요:
 
-1. `src/tools/delegate/index.ts`의 `AVAILABLE_AGENTS`에 추가
-2. `prompts/` 디렉터리에 시스템 프롬프트 작성
-3. `goondan.yaml`에 Agent 정의 추가
-4. Swarm의 `agents` 목록에 포함
+1. **변수 사용하기**:
+   ```python
+   message = "Hello, World!"
+   print(message)
+   ```
 
-### 위임 로직 커스터마이징
+2. **사용자 입력 받기**:
+   ```python
+   name = input("이름을 입력하세요: ")
+   print(f"Hello, {name}!")
+   ```
 
-`src/tools/delegate/index.ts`의 `agent.delegate` 핸들러를 수정하여:
-- 위임 조건 추가
-- 비동기 완료 처리
-- 결과 집계 로직
+3. **함수 만들기**:
+   ```python
+   def greet(name):
+       return f"Hello, {name}!"
+   
+   print(greet("World"))
+   ```
 
-## 현재 제한사항
+## ❓ 문제 해결
 
-1. **동기적 위임**: 현재 샘플에서는 위임이 동기적으로 처리됩니다
-2. **단방향 통신**: 위임된 에이전트의 결과는 이벤트로 전달되지만, 완전한 콜백 메커니즘은 구현되지 않았습니다
-3. **상태 공유**: 에이전트 간 상태 공유는 이벤트를 통해 수동으로 관리해야 합니다
+### Python을 찾을 수 없다는 오류가 발생하는 경우
 
-## 프로덕션 고려사항
+- Python이 설치되어 있는지 확인하세요: [python.org](https://www.python.org/downloads/)
+- 환경 변수(PATH)에 Python이 추가되어 있는지 확인하세요.
+- `python3` 명령어를 대신 사용해보세요.
 
-- 비동기 작업 큐 도입
-- 에이전트 간 컨텍스트 공유 메커니즘
-- 작업 진행 상황 추적
-- 타임아웃 및 재시도 정책
-- 로깅 및 모니터링
+### 파일을 찾을 수 없다는 오류가 발생하는 경우
+
+- 현재 디렉토리에 `hello.py` 파일이 있는지 확인하세요.
+- `ls` (Mac/Linux) 또는 `dir` (Windows) 명령어로 파일 목록을 확인하세요.
+
+### 한글이 깨져서 보이는 경우
+
+- 파일을 UTF-8 인코딩으로 저장했는지 확인하세요.
+- 터미널/명령 프롬프트의 인코딩 설정을 확인하세요.
+
+## 📖 참고 자료
+
+- [Python 공식 문서](https://docs.python.org/ko/3/)
+- [Python 튜토리얼](https://docs.python.org/ko/3/tutorial/)
+- [점프 투 파이썬](https://wikidocs.net/book/1)
+
+## 📄 라이선스
+
+이 프로젝트는 교육 목적으로 자유롭게 사용할 수 있습니다.
+
+## 🤝 기여
+
+개선 사항이나 제안이 있으시면 언제든지 이슈를 등록하거나 풀 리퀘스트를 보내주세요!
+
+---
+
+**Happy Coding! 🎉**
+
+Python 프로그래밍의 즐거운 여정을 시작하세요!

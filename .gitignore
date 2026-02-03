@@ -11,3 +11,4 @@ test/
 **/.vite/
 **/tmp-live-config-*/
 mise.local.toml
+**/state/

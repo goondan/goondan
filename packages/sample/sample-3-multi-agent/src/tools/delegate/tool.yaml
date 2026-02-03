@@ -20,8 +20,9 @@ spec:
 
     - name: agent.delegate
       description: |
-        전문 에이전트에게 작업을 위임합니다.
-        작업 내용과 필요한 컨텍스트를 전달하면 해당 에이전트가 처리합니다.
+        전문 에이전트에게 작업을 위임합니다 (비동기).
+        작업 내용과 필요한 컨텍스트를 전달하면 해당 에이전트가 별도 Turn에서 처리합니다.
+        작업이 완료되면 결과가 자동으로 이 에이전트에게 전달됩니다.
 
         사용 가능한 에이전트:
         - coder: 코드 작성, 수정, 버그 수정
@@ -41,21 +42,3 @@ spec:
             type: string
             description: "작업에 필요한 추가 컨텍스트 (선택)"
         required: [agent, task]
-
-    - name: agent.complete
-      description: |
-        위임받은 작업의 완료를 보고합니다.
-        결과와 요약을 포함하여 위임자에게 전달합니다.
-      parameters:
-        type: object
-        properties:
-          delegationId:
-            type: string
-            description: "위임 ID"
-          result:
-            type: object
-            description: "작업 결과 데이터"
-          summary:
-            type: string
-            description: "작업 결과 요약"
-        required: [delegationId]

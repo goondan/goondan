@@ -26,9 +26,16 @@ sample-3-multi-agent/
 
 ### src/tools/delegate/index.ts
 - `agent.list`: 사용 가능한 에이전트 목록 조회
-- `agent.delegate`: 전문 에이전트에게 작업 위임
-- `agent.complete`: 위임받은 작업 완료 보고
+- `agent.delegate`: 전문 에이전트에게 작업 위임 (비동기 이벤트 큐 방식)
 - `AVAILABLE_AGENTS`: 에이전트 정보 (name, description, capabilities)
+
+**스펙 기반 동작 (goondan_spec.md §5.1, §9.2):**
+- AgentInstance는 이벤트 큐를 가진다 (MUST)
+- 큐의 이벤트 하나가 Turn의 입력이 된다 (MUST)
+- 위임 흐름:
+  1. `agent.delegate` 호출 → 대상 에이전트 큐에 작업 enqueue
+  2. 대상 에이전트 Turn 완료 → 결과가 원래 에이전트 큐에 enqueue
+  3. 원래 에이전트의 새 Turn에서 결과 처리
 
 ### goondan.yaml
 멀티 에이전트 구성의 핵심:
@@ -58,44 +65,49 @@ sample-3-multi-agent/
    - Swarm의 agents 목록에 포함
 
 2. **위임 로직 수정 시**
-   - 이벤트 발행 형식 유지 (`agent.delegated`, `agent.completed`)
+   - 이벤트 발행 형식 유지 (`agent.delegate`, `agent.delegationResult`)
    - 에러 핸들링 및 사용자 피드백 제공
    - delegationId 생성 규칙 유지
+   - §9.1.1: turn.auth는 handoff 시 변경 없이 전달 (MUST)
 
 3. **프롬프트 수정 시**
    - 역할과 책임 범위 명확히 정의
    - 사용 가능한 도구 목록 정확히 기술
-   - 완료 보고 (`agent.complete`) 사용법 포함
+   - Turn 완료 시 자동으로 결과가 반환됨 (명시적 complete 불필요)
 
 4. **Swarm 구성 수정 시**
    - entrypoint는 항상 router로 유지
    - 모든 에이전트가 agents 목록에 포함되어야 함
    - maxStepsPerTurn이 충분히 커야 다단계 위임 가능
 
-## 멀티 에이전트 아키텍처
+## 멀티 에이전트 아키텍처 (비동기 이벤트 큐 방식)
 
 ```
 User Message
      │
      ▼
-┌─────────┐
-│ Router  │ ──── agent.list (에이전트 확인)
-└────┬────┘
-     │ agent.delegate
+┌─────────────────────────────────────────────────────────┐
+│ Router Turn 1                                           │
+│   └─ agent.delegate → coder 큐에 작업 enqueue           │
+│   └─ "작업 위임 완료" 응답                               │
+└────┬────────────────────────────────────────────────────┘
+     │ (비동기)
      ▼
-┌─────────┐     ┌──────────┐     ┌──────┐
-│ Coder   │     │ Reviewer │     │ Docs │
-└────┬────┘     └────┬─────┘     └──┬───┘
-     │               │              │
-     └───────────────┴──────────────┘
-                     │
-                     ▼ agent.complete
-               ┌─────────┐
-               │ Router  │
-               └────┬────┘
-                    │
-                    ▼
-              User Response
+┌─────────────────────────────────────────────────────────┐
+│ Coder Turn                                              │
+│   └─ code.write, code.execute                          │
+│   └─ Turn 완료 → delegationResult 이벤트 발행           │
+└────┬────────────────────────────────────────────────────┘
+     │ (비동기)
+     ▼
+┌─────────────────────────────────────────────────────────┐
+│ Router Turn 2                                           │
+│   └─ [위임 결과 - coder] 입력 수신                       │
+│   └─ 최종 응답 생성                                     │
+└────┬────────────────────────────────────────────────────┘
+     │
+     ▼
+User Response
 ```
 
 ## 빌드 및 테스트
@@ -113,8 +125,8 @@ pnpm run
 
 ## 확장 아이디어
 
-- 비동기 작업 처리 (작업 큐)
-- 에이전트 간 직접 통신
+- 복합 작업의 병렬 위임 (여러 에이전트 동시 실행)
+- 에이전트 간 직접 통신 (라우터 거치지 않음)
 - 작업 결과 캐싱
-- 복합 작업의 병렬 처리
 - 작업 진행 상황 실시간 알림
+- 위임 체인 추적 (delegation DAG)

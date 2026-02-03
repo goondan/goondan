@@ -20,6 +20,7 @@
 - @goondan_spec.md : 스펙 문서
 - @TODO.md : 작업 체크리스트 (수행 후 체크 표시)
 - @REPORT.md : 작업 보고서
+- @IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
 - @docs/spec_config.md : Config 스펙 구체화 문서
 - @docs/spec_api.md : Runtime/SDK API 스펙 문서
 - @docs/spec_bundle.md : Bundle(Git 기반) 요구사항 문서

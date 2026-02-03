@@ -628,12 +628,44 @@ spec:
         inputFrom: "$.text"
 ```
 
+Connector의 trigger handler는 런타임 엔트리 모듈에서 export된 함수로 지정한다. 예를 들어, 트리거 핸들러로 `fooBarBaz`를 지정하면, 해당 함수가 엔트리 모듈에서 export되어야 한다.  
+`triggers[].handler` MUST be the name of an exported function from `spec.runtime.entry`, and MUST NOT include module qualifiers such as `exports.` or file paths.
+
 규칙:
 
 1. `spec.auth.oauthAppRef`와 `spec.auth.staticToken`은 동시에 존재할 수 없다(MUST).
 2. Connector는 ingress 이벤트를 Turn으로 변환할 때, Turn의 인증 컨텍스트(`turn.auth`)를 가능한 한 채워야 한다(SHOULD).
 3. Slack Connector의 경우, `turn.auth.subjects.global`은 워크스페이스 단위 토큰 조회를 위해 `slack:team:<team_id>` 형태로 채우는 것을 권장하며, `turn.auth.subjects.user`는 사용자 단위 토큰 조회를 위해 `slack:user:<team_id>:<user_id>` 형태로 채우는 것을 권장한다(SHOULD).
 4. Static Token 모드에서는 OAuth 승인 플로우를 수행하지 않으며, OAuthStore를 참조하지 않는다(MUST).
+5. Connector trigger handler는 여러 개의 canonical event를 emit할 수 있으나, 각 event는 독립적인 Turn으로 처리되어야 한다(MUST).
+
+---
+
+#### 7.7.1 Trigger Handler Resolution and Loading
+
+Connector는 `spec.runtime.entry`로 지정된 런타임 모듈을 로드한 뒤, `triggers[].handler`에 명시된 이름과 동일한 export를 조회하여 핸들러로 바인딩한다.
+
+규칙:
+
+1. Runtime은 Connector 초기화 시점에 entry 모듈을 단 한 번 로드해야 한다(MUST).
+2. 하나의 Connector가 여러 trigger를 노출하더라도, 런타임 모듈은 공유 인스턴스로 유지되어야 한다(MUST).
+3. 각 trigger는 자신의 `handler`에 해당하는 함수 레퍼런스를 통해 호출되며, 트리거 간 상태 공유 여부는 Connector 구현자가 결정한다(MAY).
+4. 지정된 handler export가 존재하지 않으면 구성 로드 단계에서 오류로 처리해야 한다(MUST).
+
+---
+
+#### 7.7.2 Trigger Execution Model
+
+Runtime은 ingress(예: webhook, cron, queue 등)에서 발생한 외부 이벤트를 Connector trigger로 변환하여 실행한다.
+이때 모든 trigger handler는 동일한 실행 인터페이스를 가지며, 입력 이벤트의 종류는 공통 envelope로 추상화된다.
+
+Trigger handler 호출 시 Runtime은 다음 정보를 주입해야 한다(MUST).
+
+1. event: trigger 종류에 따른 입력 이벤트(Webhook, Cron 등)
+2. connection: Connection 리소스에 정의된 파라미터(비밀값은 resolve된 상태)
+3. ctx: 이벤트 발행, 로깅, OAuth, LiveConfig 제안 등을 포함한 실행 컨텍스트
+
+Trigger handler는 외부 시스템 이벤트를 직접 AgentInstance로 전달하지 않고, 반드시 canonical event를 생성하여 `ctx.emit(...)`을 통해 Runtime으로 전달해야 한다(MUST).
 
 ### 7.8 ResourceType / ExtensionHandler (복구: v0.4의 원문 포함)
 
@@ -741,7 +773,7 @@ Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙
 * `instanceKey`를 사용하여 동일 맥락을 같은 인스턴스로 라우팅할 수 있어야 한다(MUST).
 * SwarmInstance 내부에 AgentInstance를 생성하고 유지해야 한다(MUST).
 
-### 9.1.1 Turn Origin 컨텍스트와 인증 컨텍스트
+#### 9.1.1 Turn Origin 컨텍스트와 인증 컨텍스트
 
 Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙에 따라 SwarmInstance를 조회/생성한다. OAuth 기반 통합을 위해 Runtime은 Turn 컨텍스트에 호출 맥락(origin)과 인증 컨텍스트(auth)를 유지해야 한다(SHOULD).
 
@@ -774,6 +806,22 @@ turn:
 
 1. Runtime이 에이전트 간 handoff를 위해 내부 이벤트를 생성하거나 라우팅할 때, `turn.auth`는 변경 없이 전달되어야 한다(MUST). 이 규칙은 “Turn을 트리거한 사용자 컨텍스트가 handoff 이후에도 유지된다”는 요구를 보장하기 위한 것이다.
 2. Runtime은 `turn.auth`가 누락된 Turn에 대해 사용자 토큰이 필요한 OAuthApp(`subjectMode=user`)을 사용해 토큰을 조회하거나 승인 플로우를 시작해서는 안 된다(MUST). 이 경우에는 오류로 처리하고, 에이전트가 사용자에게 필요한 컨텍스트(예: 다시 호출, 계정 연결 필요)를 안내하도록 하는 것이 바람직하다(SHOULD).
+
+---
+
+#### 9.1.2 Canonical Event Flow
+
+Connector trigger handler가 `ctx.emit(canonicalEvent)`를 호출하면, Runtime은 이를 내부 이벤트 큐에 enqueue한다.
+
+Canonical event는 다음 처리 흐름을 따른다.
+
+1. Runtime은 canonical event의 `type`과 Connector ingress 설정을 기준으로 대상 Swarm을 결정한다.
+2. `instanceKey` 계산 규칙에 따라 SwarmInstance를 조회하거나 생성한다.
+3. Canonical event는 Turn 입력 이벤트로 변환되어 AgentInstance 이벤트 큐에 enqueue된다.
+4. AgentInstance는 해당 이벤트를 하나의 Turn으로 소비한다.
+
+이 과정에서 Connector는 에이전트 실행 모델(Instance/Turn/Step)을 직접 제어하지 않으며,
+오직 canonical event 생성 책임만을 가진다(MUST).
 
 ### 9.2 이벤트 큐와 Turn 실행
 

@@ -16,29 +16,32 @@
 > "Kubernetes for Agent Swarm"
 
 ## 주요 파일 목록
-- @GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
-- @TODO.md : 작업 체크리스트 (수행 후 체크 표시)
-- @REPORT.md : 작업 보고서
-- @IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
-- @docs/spec_api.md : Runtime/SDK API 스펙 문서
-- @docs/spec_bundle.md : Bundle Package(Git 기반) 요구사항 문서
-- @docs/spec_package.md : Bundle Package 스펙(패키징/참조) 문서
-- @docs/requirements/index.md : 요구사항 문서(요약 인덱스, 예시/시나리오/기대효과 통합)
-- @docs/requirements/*.md : 요구사항 분할 본문
+- GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
+- IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
+- docs/requirements/index.md : 요구사항 문서(요약 인덱스, 예시/시나리오/기대효과 통합)
+- docs/requirements/*.md : 요구사항 분할 본문
+
+### 구현 스펙 문서 (docs/specs/)
+- docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, OAuth API)
+- docs/specs/resources.md : Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
+- docs/specs/bundle.md : Bundle YAML 스펙 (리소스 정의, 검증 규칙)
+- docs/specs/bundle_package.md : Bundle Package 스펙 (Git 기반 패키징/참조)
+- docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존)
+- docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
+- docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합)
+- docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴)
+- docs/specs/connector.md : Connector 시스템 스펙 (인증, Ingress/Egress, Trigger Handler)
+- docs/specs/oauth.md : OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
+- docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point)
+- docs/specs/workspace.md : Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
-- packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
-- packages/base/src/* : 기본 Extension/Connector/Tool 묶음
-- packages/sample/* : 에이전트 샘플 모음
-  - sample-1-filesystem-explorer: CLI 기반 파일시스템 탐색 에이전트
-  - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
-  - sample-3-multi-agent: 멀티 에이전트 Telegram 봇 (라우터 + 전문 에이전트)
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것
-- 모든 요구사항은 docs/requirements/index.md(및 관련 docs/requirements/*.md), docs/spec_bundle.md 수정 필요 여부를 반드시 검토하고 기록할 것
-- 스펙 문서(docs/spec_*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
+- 모든 요구사항은 docs/requirements/index.md(및 관련 docs/requirements/*.md), docs/specs/*.md 수정 필요 여부를 반드시 검토하고 기록할 것
+- 스펙 문서(docs/specs/*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것

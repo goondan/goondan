@@ -22,8 +22,8 @@
 - @IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
 - @docs/spec_config.md : Config 스펙 구체화 문서
 - @docs/spec_api.md : Runtime/SDK API 스펙 문서
-- @docs/spec_bundle.md : Bundle(Git 기반) 요구사항 문서
-- @docs/spec_main.md : 메인 스펙(요약 인덱스)
+- @docs/spec_bundle.md : Bundle Package(Git 기반) 요구사항 문서
+- @docs/spec_main.md : 메인 스펙(요약 인덱스, 예시/시나리오/기대효과 통합)
 - @docs/spec_main_*.md : spec_main 분할 본문
 - @docs/scenario_example1.md : CLI 기반 스웜 실행 시나리오
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
@@ -43,4 +43,3 @@
 - 스펙 문서(goondan_spec.md, docs/spec_*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
-

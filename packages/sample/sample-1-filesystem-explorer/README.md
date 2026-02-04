@@ -161,6 +161,6 @@ spec:
 
 ## 관련 문서
 
-- [Goondan Guide](../../../GUIDE.md) - 전체 가이드
-- [Tool 개발](../../../GUIDE.md#5-tool-개발) - 도구 개발 상세
-- [Config 작성법](../../../GUIDE.md#4-config-작성법) - 설정 파일 작성
+- @../../../GUIDE.md - 전체 가이드
+- @../../../GUIDE.md#5-tool-개발 - 도구 개발 상세
+- @../../../GUIDE.md#4-config-작성법 - 설정 파일 작성

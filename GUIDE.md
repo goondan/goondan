@@ -15,7 +15,7 @@
 5. [Tool 개발](#5-tool-개발)
 6. [Extension 개발](#6-extension-개발)
 7. [Connector 개발](#7-connector-개발)
-8. [Bundle 패키징](#8-bundle-패키징)
+8. [Bundle Package 패키징](#8-bundle-package-패키징)
 9. [CLI 활용](#9-cli-활용)
 10. [고급 주제](#10-고급-주제)
 
@@ -35,7 +35,7 @@ AI 에이전트 개발에서 겪는 문제들:
 | 라이프사이클 관리 | **Turn/Step 추상화**와 파이프라인 훅 |
 | 상태 유지 (Long-running) | **SwarmInstance/AgentInstance** 모델 |
 | 다양한 입력 채널 | **Connector** 추상화 (Slack, CLI, GitHub 등) |
-| 구성 재사용 | **Bundle** 시스템으로 확장 패키징 |
+| 구성 재사용 | **Bundle Package** 시스템으로 확장 패키징 |
 
 ### 1.2 핵심 철학
 
@@ -78,7 +78,13 @@ AI 에이전트 개발에서 겪는 문제들:
 | **Swarm** | Agent들의 집합과 실행 정책 |
 | **Connector** | 외부 입력을 받아 Swarm으로 라우팅 |
 
-### 2.2 실행 모델: Instance → Turn → Step
+### 2.2 Bundle / SwarmBundle / Bundle Package
+
+- **Bundle**: YAML 리소스 + 코드(프롬프트/툴/확장/커넥터)를 함께 담는 폴더 트리(구성+코드).
+- **SwarmBundle**: Swarm 정의를 담는 Bundle. 런타임에서는 Changeset → SwarmRevision으로 변경이 안전하게 반영됨.
+- **Bundle Package**: Bundle을 Git 기반으로 배포/의존성 해석하는 패키징 단위(기존 “Bundle”). `bundle.yaml`의 `kind: Bundle` 표기는 하위 호환을 위해 유지됨.
+
+### 2.3 실행 모델: Instance → Turn → Step
 
 ```
 [외부 이벤트 (Slack, CLI, ...)]
@@ -107,7 +113,7 @@ AI 에이전트 개발에서 겪는 문제들:
 - **Step**: LLM 호출 1회 + tool call 처리
 - **messages**: Turn 내에서 누적되는 대화 기록
 
-### 2.3 파이프라인 포인트
+### 2.4 파이프라인 포인트
 
 Extension이 개입할 수 있는 지점:
 
@@ -409,7 +415,7 @@ metadata:
     tier: base
 spec:
   runtime: node
-  entry: "./index.js"           # Bundle Root 기준 경로
+  entry: "./index.js"           # Bundle Package Root 기준 경로
   errorMessageLimit: 1000       # 에러 메시지 최대 길이
 
   exports:
@@ -1238,15 +1244,16 @@ export function createCliConnector(options: CliConnectorOptions) {
 
 ---
 
-## 8. Bundle 패키징
+## 8. Bundle Package 패키징
 
-Bundle은 Tool, Extension, Connector를 묶어서 배포하는 단위입니다.
+Bundle은 **YAML+코드로 구성된 폴더 트리(구성+코드)**이고, Bundle Package는 **Bundle을 Git 기반으로 배포/의존성 해석하는 패키징 단위(기존 Bundle)**입니다.  
+CLI `goondan bundle` 명령은 Bundle Package를 관리합니다.
 
-### 8.1 Bundle 구조
+### 8.1 Bundle Package 구조
 
 ```
 my-bundle/
-├── bundle.yaml           # Bundle 매니페스트
+├── bundle.yaml           # Bundle Package 매니페스트
 ├── dist/                 # 빌드 산출물 (Git에 커밋)
 │   ├── tools/
 │   │   └── myTool/
@@ -1261,7 +1268,7 @@ my-bundle/
     └── extensions/
 ```
 
-### 8.2 Bundle 매니페스트 (bundle.yaml)
+### 8.2 Bundle Package 매니페스트 (bundle.yaml)
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -1271,7 +1278,7 @@ metadata:
 spec:
   version: "1.0.0"
 
-  # 의존하는 다른 번들
+  # 의존하는 다른 Bundle Package
   dependencies:
     - github.com/goondan/goondan/packages/base@v0.3.0
 
@@ -1283,7 +1290,7 @@ spec:
 
 ### 8.3 Git 기반 배포
 
-Bundle은 Git 경로로 식별됩니다:
+Bundle Package는 Git 경로로 식별됩니다:
 
 ```
 github.com/<org>/<repo>/<path>@<ref?>
@@ -1313,17 +1320,17 @@ github.com/myorg/my-bundles/tools/calculator@main
 # 빌드 후 dist를 Git에 커밋
 pnpm build
 git add dist/
-git commit -m "Build bundle"
+git commit -m "Build bundle package"
 git push
 ```
 
-### 8.5 Bundle 사용
+### 8.5 Bundle Package 사용
 
 ```bash
-# Bundle 설치
+# Bundle Package 설치
 goondan bundle add github.com/myorg/my-bundles/tools/calculator
 
-# 설치된 번들 확인
+# 설치된 Bundle Package 확인
 goondan bundle list
 
 # Config에서 참조
@@ -1334,7 +1341,7 @@ goondan bundle list
 kind: Agent
 spec:
   tools:
-    - { kind: Tool, name: calculator }  # my-bundle에서 제공
+    - { kind: Tool, name: calculator }  # my-bundle 패키지에서 제공
 ```
 
 ---
@@ -1349,7 +1356,7 @@ spec:
 | `goondan run` | 스웜 실행 |
 | `goondan validate` | Config 검증 |
 | `goondan export` | 리소스 내보내기 |
-| `goondan bundle` | 번들 관리 |
+| `goondan bundle` | Bundle Package 관리 |
 
 ### 9.2 실행 옵션
 
@@ -1366,7 +1373,7 @@ goondan run --input "안녕하세요"
 # 새 인스턴스 생성
 goondan run --new
 
-# Bundle 지정
+# Bundle Package 지정
 goondan run -c goondan.yaml -b ./bundles/my-bundle/bundle.yaml
 
 # Mock LLM (테스트용)
@@ -1675,14 +1682,14 @@ type PipelinePoint =
 ## 다음 단계
 
 1. **시작하기**: `goondan init`으로 프로젝트 생성
-2. **도구 추가**: 필요한 Tool 개발 또는 base 번들 활용
+2. **도구 추가**: 필요한 Tool 개발 또는 base Bundle Package 활용
 3. **확장 개발**: 라이프사이클 훅으로 커스텀 로직 추가
-4. **번들 배포**: Git 기반으로 확장 패키징
+4. **Bundle Package 배포**: Git 기반으로 확장 패키징
 5. **프로덕션**: Connector로 Slack, GitHub 등 연동
 
 더 자세한 정보는 다음 문서를 참고하세요:
 
-- [goondan_spec.md](./goondan_spec.md) - 전체 스펙
-- [docs/spec_config.md](./docs/spec_config.md) - Config YAML 스펙
-- [docs/spec_api.md](./docs/spec_api.md) - Runtime/SDK API
-- [docs/spec_bundle.md](./docs/spec_bundle.md) - Bundle 요구사항
+- @./goondan_spec.md - 전체 스펙
+- @./docs/spec_config.md - Config YAML 스펙
+- @./docs/spec_api.md - Runtime/SDK API
+- @./docs/spec_bundle.md - Bundle Package 요구사항

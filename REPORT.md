@@ -6,6 +6,8 @@
 - 작업: 전 마크다운 파일의 파일 링크를 멘션(@파일명) 형식으로 변경
 - 작업: Bundle 개념을 YAML+코드로 명확화하고, 기존 Bundle을 Bundle Package로 재명명 (GUIDE/spec 반영)
 - 작업: GUIDE 핵심 개념에 Bundle/SwarmBundle/Bundle Package 상위 개념 추가
+- 작업: MCPServer를 Extension 패턴으로 전환하고 관련 문서를 Extension 예시로 정리(spec_main/spec_bundle/GUIDE 반영)
 - goondan_spec.md: 파일 없음(검토 불가)
-- docs/spec_config.md: 수정 필요 없음
+- docs/spec_config.md: 파일 없음(검토 불가)
 - GUIDE.md: Bundle Package 용어 반영
+- GUIDE.md: MCP 연동 Extension 예시 반영

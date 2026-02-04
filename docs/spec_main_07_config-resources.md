@@ -68,27 +68,30 @@ spec:
       repoSkillDirs: [".claude/skills", ".agent/skills"]
 ```
 
-### 7.4 MCPServer
+예시: MCP 연동 Extension
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
-kind: MCPServer
+kind: Extension
 metadata:
-  name: github-mcp
+  name: mcp-github
 spec:
-  transport:
-    type: stdio
-    command: ["npx", "-y", "@acme/github-mcp"]
-  attach:
-    mode: stateful
-    scope: instance
-  expose:
-    tools: true
-    resources: true
-    prompts: true
+  runtime: node
+  entry: "./extensions/mcp/index.js"
+  config:
+    transport:
+      type: stdio
+      command: ["npx", "-y", "@acme/github-mcp"]
+    attach:
+      mode: stateful
+      scope: instance
+    expose:
+      tools: true
+      resources: true
+      prompts: true
 ```
 
-### 7.5 Agent
+### 7.4 Agent
 
 Agent는 에이전트 실행을 구성하는 중심 리소스이다.
 
@@ -116,9 +119,7 @@ spec:
   extensions:
     - { kind: Extension, name: skills }
     - { kind: Extension, name: toolSearch }
-
-  mcpServers:
-    - { kind: MCPServer, name: github-mcp }
+    - { kind: Extension, name: mcp-github }
 
   hooks:
     - point: turn.post
@@ -132,7 +133,7 @@ spec:
             text: { expr: "$.turn.summary" }
 ```
 
-#### 7.5.1 Agent 단위 ChangesetPolicy (MAY)
+#### 7.4.1 Agent 단위 ChangesetPolicy (MAY)
 
 Agent는 Swarm의 changesets 정책을 **추가 제약(더 좁게)** 하는 allowlist를 제공할 수 있다(MAY).
 
@@ -154,7 +155,7 @@ spec:
 * Swarm.allowed.files가 “최대 허용 범위”라면, Agent.allowed.files는 “해당 Agent의 추가 제약”으로 해석한다(MUST).
 * 따라서 해당 Agent가 생성/커밋하는 changeset은 **Swarm.allowed + Agent.allowed 모두를 만족**해야 허용된다(MUST).
 
-### 7.6 Swarm
+### 7.5 Swarm
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -169,7 +170,7 @@ spec:
     maxStepsPerTurn: 32
 ```
 
-#### 7.6.1 Swarm ChangesetPolicy (MAY, 강력 권장)
+#### 7.5.1 Swarm ChangesetPolicy (MAY, 강력 권장)
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -200,7 +201,7 @@ spec:
 * SwarmBundleManager는 changeset commit 시 변경된 파일 경로가 `allowed.files`에 포함되는지 검사해야 한다(MUST).
 * 허용되지 않은 파일을 변경하려는 changeset commit은 `changeset-status`에 `result="rejected"`로 기록되어야 한다(MUST).
 
-### 7.7 Connector
+### 7.6 Connector
 
 Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance로 라우팅하고, 진행상황 업데이트와 완료 보고를 같은 맥락으로 송신한다.
 
@@ -288,7 +289,7 @@ Connector의 trigger handler는 런타임 엔트리 모듈에서 export된 함�
 
 ---
 
-#### 7.7.1 Trigger Handler Resolution and Loading
+#### 7.6.1 Trigger Handler Resolution and Loading
 
 Connector는 `spec.runtime.entry`로 지정된 런타임 모듈을 로드한 뒤, `triggers[].handler`에 명시된 이름과 동일한 export를 조회하여 핸들러로 바인딩한다.
 
@@ -301,7 +302,7 @@ Connector는 `spec.runtime.entry`로 지정된 런타임 모듈을 로드한 뒤
 
 ---
 
-#### 7.7.2 Trigger Execution Model
+#### 7.6.2 Trigger Execution Model
 
 Runtime은 ingress(예: webhook, cron, queue 등)에서 발생한 외부 이벤트를 Connector trigger로 변환하여 실행한다.
 이때 모든 trigger handler는 동일한 실행 인터페이스를 가지며, 입력 이벤트의 종류는 공통 envelope로 추상화된다.

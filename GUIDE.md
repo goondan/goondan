@@ -276,10 +276,7 @@ spec:
   extensions:
     - { kind: Extension, name: compaction }
     - { kind: Extension, name: skills }
-
-  # MCP 서버 (선택)
-  mcpServers:
-    - { kind: MCPServer, name: github-mcp }
+    - { kind: Extension, name: mcp-github } # MCP 연동 (선택)
 
   # 훅 (선택)
   hooks:
@@ -1509,29 +1506,32 @@ spec:
     scopes: ["chat:write"]
 ```
 
-### 10.3 MCP 서버 연동
+### 10.3 MCP 연동 Extension
 
 ```yaml
-kind: MCPServer
+kind: Extension
 metadata:
-  name: github-mcp
+  name: mcp-github
 spec:
-  transport:
-    type: stdio
-    command: ["npx", "-y", "@modelcontextprotocol/server-github"]
-  attach:
-    mode: stateful
-    scope: instance
-  expose:
-    tools: true
-    resources: true
-    prompts: true
+  runtime: node
+  entry: "./extensions/mcp/index.ts"
+  config:
+    transport:
+      type: stdio
+      command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+    attach:
+      mode: stateful
+      scope: instance
+    expose:
+      tools: true
+      resources: true
+      prompts: true
 
 ---
 kind: Agent
 spec:
-  mcpServers:
-    - { kind: MCPServer, name: github-mcp }
+  extensions:
+    - { kind: Extension, name: mcp-github }
 ```
 
 ### 10.4 멀티 에이전트 구성

@@ -41,7 +41,6 @@ Runtime은 step.config 이후 reconcile 단계에서 배열(list)을 인덱스 �
 
 * ToolRef identity: `"{kind}/{name}"`
 * ExtensionRef identity: `"{kind}/{name}"`
-* MCPServerRef identity: `"{kind}/{name}"`
 * Hook identity: `hook.id`(권장) 또는 `(point, priority, actionFingerprint)` 조합(SHOULD)
 
 #### 11.6.2 Reconcile 알고리즘 요구사항 (MUST)
@@ -49,10 +48,10 @@ Runtime은 step.config 이후 reconcile 단계에서 배열(list)을 인덱스 �
 * 동일 identity key가 Effective Config에 계속 존재하는 한, Runtime은 해당 항목의 실행 상태를 유지해야 한다(MUST).
 * 배열의 순서 변경은 연결/상태 재생성의 원인이 되어서는 안 된다(MUST).
 
-#### 11.6.3 Stateful MCPServer 연결 유지 규칙 (MUST)
+#### 11.6.3 Stateful MCP 연동 Extension 연결 유지 규칙 (MUST)
 
-* `attach.mode=stateful`인 MCPServer는 동일 identity key로 Effective Config에 유지되는 동안 연결(프로세스/세션)을 유지해야 한다(MUST).
+* `config.attach.mode=stateful`인 MCP 연동 Extension은 동일 identity key로 Effective Config에 유지되는 동안 연결(프로세스/세션)을 유지해야 한다(MUST).
 * Runtime이 stateful MCP 연결을 재연결할 수 있는 경우는 최소 다음에 한정되어야 한다(MUST).
 
-  * MCPServer가 Effective Config에서 제거된 경우
-  * MCPServer의 연결 구성(transport/attach/expose 등)이 변경되어 연결 호환성이 깨진 경우
+  * 해당 MCP 연동 Extension이 Effective Config에서 제거된 경우
+  * 해당 Extension의 연결 구성(transport/attach/expose 등)이 변경되어 연결 호환성이 깨진 경우

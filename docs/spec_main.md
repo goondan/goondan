@@ -86,7 +86,7 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 Goondan 런타임은 SwarmInstance/AgentInstance(장기 실행체) 위에서 Turn(입력 이벤트 1개 처리 단위)과 Step(LLM 호출 1회 중심 단위)을 반복하는 모델을 갖는다. Step이 시작되면 종료까지 Effective Config와 SwarmRevision이 고정되어야 하며, LLM/Tool 결과는 Turn.messages에 누적되어 다음 Step 입력으로 사용된다.
 
-Tool은 LLM이 tool call로 호출하는 1급 실행 단위이고, Extension은 라이프사이클 포인트에 개입해 도구 카탈로그/컨텍스트 블록/LLM 호출/도구 실행/워크스페이스 이벤트 등에 영향을 주는 실행 로직 묶음이다. Skill은 SKILL.md 중심 번들로서 필요 시 로드/실행되며, Connector는 외부 이벤트를 수신해 동일 맥락으로 라우팅/응답하고, MCPServer는 MCP 기반 도구/리소스/프롬프트 제공자를 연결한다.
+Tool은 LLM이 tool call로 호출하는 1급 실행 단위이고, Extension은 라이프사이클 포인트에 개입해 도구 카탈로그/컨텍스트 블록/LLM 호출/도구 실행/워크스페이스 이벤트 등에 영향을 주는 실행 로직 묶음이다. Skill은 SKILL.md 중심 번들로서 필요 시 로드/실행되며, Connector는 외부 이벤트를 수신해 동일 맥락으로 라우팅/응답한다. MCP 연동은 Extension 패턴으로 제공되어 MCP 기반 도구/리소스/프롬프트 제공자를 연결한다.
 
 SwarmBundle은 구성(YAML)+코드(프롬프트/툴/확장/커넥터)를 담는 번들이며, Changeset 커밋으로 새 SwarmRevision(불변 스냅샷)이 생성된다. 정본 기록은 SwarmBundleManager 단일 작성자 규칙을 따르고, 활성화는 Safe Point(최소 step.config)에서만 이뤄지며 기본 규칙은 “다음 Step부터 반영”이다.
 
@@ -112,7 +112,7 @@ Config Plane 리소스는 YAML 기반의 apiVersion/kind/metadata/spec 구조를
 
 ## 7. Config 리소스 정의
 
-본 섹션은 Model/Tool/Extension/MCPServer/Agent/Swarm 등 핵심 리소스 타입의 스키마와 예시를 정의한다. 특히 Agent는 modelConfig, prompt, tools/extensions/mcpServers, hooks(파이프라인 포인트 실행)를 통해 실행 구성을 조립한다.
+본 섹션은 Model/Tool/Extension/Agent/Swarm 등 핵심 리소스 타입의 스키마와 예시를 정의한다. 특히 Agent는 modelConfig, prompt, tools/extensions, hooks(파이프라인 포인트 실행)를 통해 실행 구성을 조립한다.
 
 ChangesetPolicy는 Swarm(최대 허용 범위)과 Agent(추가 제약)로 중첩되는 allowlist로 정의될 수 있으며, SwarmBundleManager는 commit 시 허용 경로 검사 및 rejected/failed status 기록을 수행한다. Connector는 ingress/egress 라우팅과 OAuthApp 기반/Static Token 기반 인증 모드를 정의하고, trigger handler는 runtime entry 모듈의 export 함수로 해석되며 ctx.emit(canonical event) 기반 실행 모델을 따른다.
 
@@ -140,7 +140,7 @@ Runtime은 Connector로부터 입력 이벤트를 받아 instanceKey 규칙으�
 
 Turn은 Step 루프를 수행하며, 표준 순서는 step.config → step.tools → step.blocks → step.llmCall → tool call 처리 → step.post이다. 정책적으로 maxStepsPerTurn을 적용할 수 있고, connector는 canonical event 생성(ctx.emit) 책임만 가지며 실행 모델 자체를 직접 제어하지 않는다.
 
-Changeset 커밋으로 head SwarmRevision이 이동하고, 활성화는 Safe Point(기본 step.config)에서만 일어나며 통상 다음 Step부터 반영된다. 또한 Effective Config의 tools/extensions/mcpServers 배열은 identity 기반 정규화 및 reconcile이 권장된다.
+Changeset 커밋으로 head SwarmRevision이 이동하고, 활성화는 Safe Point(기본 step.config)에서만 일어나며 통상 다음 Step부터 반영된다. 또한 Effective Config의 tools/extensions 배열은 identity 기반 정규화 및 reconcile이 권장된다.
 
 자세한 본문: @spec_main_09_runtime-model.md
 
@@ -164,7 +164,7 @@ SwarmBundle 관련 상태는 인스턴스별 `shared/state/instances/<instanceId
 
 확장 등록 순서에 따른 실행/래핑(onion) 규칙과 hooks 합성(priority 정렬) 원칙을 정의하며, changeset 커밋/활성화 실패는 status 로그에 기록하고 Step 진행은 계속하는 정책을 권장한다.
 
-또한 reconcile은 배열 인덱스가 아니라 identity key 기반으로 수행되어야 하며, 순서 변경만으로 상태 재생성이 발생하면 안 된다. stateful MCPServer 연결은 동일 identity로 유지되는 동안 계속 유지되어야 한다.
+또한 reconcile은 배열 인덱스가 아니라 identity key 기반으로 수행되어야 하며, 순서 변경만으로 상태 재생성이 발생하면 안 된다. stateful MCP 연동 Extension 연결은 동일 identity로 유지되는 동안 계속 유지되어야 한다.
 
 자세한 본문: @spec_main_11_lifecycle-pipelines.md
 
@@ -262,7 +262,7 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 3. 확장을 통해 도구 카탈로그, 컨텍스트 조립, 메모리 축적/주입, 클라이언트 업데이트 전략을 모듈화할 수 있다.
 4. 구성 파일 기반 정의로 재사용과 자동화가 쉬워지고 AI가 구성을 생성·수정·검토하는 흐름이 자연스럽다.
 5. Changeset → SwarmRevision 모델로 “구성뿐 아니라 코드까지” 런타임 중 변경·반영할 수 있다.
-6. reconcile이 identity 기반으로 수행되고 stateful MCP 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
+6. reconcile이 identity 기반으로 수행되고 stateful MCP 연동 Extension 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
 7. OAuthApp 도입으로 Tool/Connector의 인증/토큰 취득 방식이 표준화되어, 통합 난이도와 운영 복잡성이 감소한다.
 
 ---

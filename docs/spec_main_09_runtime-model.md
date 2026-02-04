@@ -92,7 +92,7 @@ Step N 중 commit된 changeset으로 생성된 SwarmRevision은, Step N+1의 `st
 
 Runtime은 Effective Config 생성 후 다음 배열을 **identity key 기반으로 정규화**하는 것을 SHOULD 한다.
 
-* `/spec/tools`, `/spec/extensions`, `/spec/mcpServers`
+* `/spec/tools`, `/spec/extensions`
 
 정규화 규칙(SHOULD):
 

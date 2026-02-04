@@ -6,8 +6,13 @@
 
 ## 0. 규범적 표현
 
-이 문서에서 MUST, SHOULD, MAY는 RFC 2119 스타일의 규범적 의미로 사용한다.
-이 문서의 예시는 설명을 위한 것이며, 예시의 값과 파일 경로, 그룹 이름은 구현에 따라 달라질 수 있다.
+본 문서에서 MUST/SHOULD/MAY는 RFC 2119 스타일의 규범적 의미로 사용된다.
+
+즉, 문장에 사용된 조동사는 “필수/권장/선택”의 구현 요구 수준을 나타내며, 구현체는 이를 기준으로 호환성과 기대 동작을 맞춰야 한다.
+
+또한 예시는 이해를 돕기 위한 것으로, 실제 값/경로/그룹 이름 등은 구현에 따라 달라질 수 있다.
+
+자세한 본문: [spec_main_00_normative-language.md](spec_main_00_normative-language.md)
 
 ---
 
@@ -51,11 +56,10 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
    SwarmBundle은 Swarm을 정의하는 YAML 리소스들과, 그것이 참조하는 프롬프트/도구/확장/커넥터 구현 소스코드를 함께 포함하는 “번들(폴더 트리)”이다. SwarmBundle은 GitOps 등으로 배포/버전관리될 수 있다.
 
 2. **Runtime Plane**
-   stateful long‑running 인스턴스를 유지하며 입력 이벤트를 처리하는 실행 모델(Instance/Turn/Step)과 라이프사이클 파이프라인(훅)을 제공한다. Extension은 파이프라인의 특정 지점에 개입하여 도구 카탈로그, 컨텍스트 블록, 워크스페이스 이벤트 처리, 실행 래핑을 변형할 수 있다.
+   stateful long‑running 인스턴스를 유지하며 입력 이벤트를 처리하는 실행 모델(Instance/Turn/Step)과 라이프사이클 파이프라인(훅)을 제공한다. Extension은 파이프라인의 특정 지점에 개입하여 도구 카탈로그, 컨텍스트 블록, LLM 호출, 도구 실행, 워크스페이스 이벤트 등에 영향을 준다.
 
-3. **Changeset → SwarmRevision(구성+코드 변경 반영)**
-   Runtime은 SwarmBundle을 런타임 중 수정할 수 있게 하되, 수정은 **Changeset** 단위로 수집되어 **SwarmRevision**(스냅샷 식별자)으로 커밋된다.  
-   각 Step은 시작 시점에 특정 SwarmRevision으로 **핀(pin)** 되어 동작하며, Changeset으로 생성된 새 SwarmRevision은 **Safe Point(기본: step.config)** 에서만 다음 Step부터 반영된다.
+3. **SwarmBundleManager(Changeset → SwarmRevision)**
+   Runtime 내부에 SwarmBundle 변경을 안전하게 반영하기 위한 SwarmBundleManager를 둔다. LLM은 Changeset으로 staging workdir을 열고 파일을 수정한 뒤 커밋하여 새 SwarmRevision을 생성한다. 새 SwarmRevision은 Safe Point에서만 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다.
 
 ---
 
@@ -63,1387 +67,198 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 ### 4.1 목표
 
-1. 시스템은 멀티 에이전트 스웜을 선언형으로 정의할 수 있어야 하며, Runtime은 이 정의를 기반으로 stateful 인스턴스를 생성·운영할 수 있어야 한다.
-2. 시스템은 실행의 라이프사이클을 Turn/Step 단위로 추상화하고 표준 지점에 훅/파이프사이클 포인트를 제공해야 한다.
-3. 시스템은 확장을 통해 도구 카탈로그, 컨텍스트 구성, 워크스페이스 이벤트 처리, 실행 래핑을 구현할 수 있어야 한다.
-4. 시스템은 다양한 클라이언트/채널에서의 호출과 맥락 유지(진행 업데이트/완료 보고)를 지원할 수 있어야 한다.
-5. 시스템은 구성의 재사용과 조합을 지원할 수 있어야 하며, “직접 설정”과 “선택 후 덮어쓰기”를 일관된 문법으로 표현할 수 있어야 한다.
-6. 시스템은 런타임 중 SwarmBundle을 변경할 수 있어야 하며, 변경은 Changeset으로 수집되어 SwarmBundleManager가 검증/커밋하고 Safe Point에서만 SwarmRevision으로 활성화되어 다음 Step부터 반영되어야 한다(MUST).
+1. 멀티 에이전트 구성과 오케스트레이션을 선언형 구성으로 정의할 수 있어야 한다.
+2. stateful long‑running 실행 모델을 제공하여, 사용자에게 대화형 지속 경험을 제공해야 한다.
+3. 실행 라이프사이클 파이프라인을 제공하여 컨텍스트 최적화, 메모리 축적/주입, 도구 노출 최적화 등을 모듈화해야 한다.
+4. 다양한 클라이언트 채널(Connector)에서의 호출과 진행상황 업데이트를 표준화해야 한다.
+5. SwarmBundle의 구성/코드 변경을 런타임 중 안전하게 반영할 수 있어야 한다(Changeset → SwarmRevision).
 
 ### 4.2 비목표
 
-본 문서는 실행 하네스와 확장 구조를 중심으로 한다. 인증·권한·감사·승인 정책 등은 구현과 운영 요구에 따라 추가 규격으로 확장될 수 있다.
+* 특정 LLM Provider/SDK에 종속된 구현을 정의하지 않는다.
+* UI/UX(예: 웹 프론트엔드) 구현 스펙은 포함하지 않는다.
+* 메모리/리트리벌/평가 시스템의 구체 구현(예: vector DB 선택, 알고리즘)은 본 문서 범위를 벗어난다(확장으로 다룸).
+* 분산 클러스터/멀티 노드 스케줄링은 v0.9 범위에서 정의하지 않는다(향후 확장).
 
 ---
 
 ## 5. 핵심 개념
 
-### 5.1 Instance, Turn, Step
+Goondan 런타임은 SwarmInstance/AgentInstance(장기 실행체) 위에서 Turn(입력 이벤트 1개 처리 단위)과 Step(LLM 호출 1회 중심 단위)을 반복하는 모델을 갖는다. Step이 시작되면 종료까지 Effective Config와 SwarmRevision이 고정되어야 하며, LLM/Tool 결과는 Turn.messages에 누적되어 다음 Step 입력으로 사용된다.
 
-* **SwarmInstance**: Swarm 정의를 바탕으로 만들어지는 long‑running 실행체. 하나 이상의 AgentInstance 포함.
-* **AgentInstance**: Agent 정의를 바탕으로 만들어지는 long‑running 실행체. 이벤트 큐 보유.
-* **Turn**: AgentInstance가 “하나의 입력 이벤트”를 처리하는 단위. 작업이 소진될 때까지 Step 반복 후 제어 반납.
-* **Step**: “LLM 호출 1회”를 중심으로 한 단위. LLM 응답의 tool call을 모두 처리(또는 비동기 큐잉 제출까지)한 시점에 종료.
+Tool은 LLM이 tool call로 호출하는 1급 실행 단위이고, Extension은 라이프사이클 포인트에 개입해 도구 카탈로그/컨텍스트 블록/LLM 호출/도구 실행/워크스페이스 이벤트 등에 영향을 주는 실행 로직 묶음이다. Skill은 SKILL.md 중심 번들로서 필요 시 로드/실행되며, Connector는 외부 이벤트를 수신해 동일 맥락으로 라우팅/응답하고, MCPServer는 MCP 기반 도구/리소스/프롬프트 제공자를 연결한다.
 
-규칙:
+SwarmBundle은 구성(YAML)+코드(프롬프트/툴/확장/커넥터)를 담는 번들이며, Changeset 커밋으로 새 SwarmRevision(불변 스냅샷)이 생성된다. 정본 기록은 SwarmBundleManager 단일 작성자 규칙을 따르고, 활성화는 Safe Point(최소 step.config)에서만 이뤄지며 기본 규칙은 “다음 Step부터 반영”이다.
 
-* Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config와 SwarmRevision은 고정**되어야 한다(MUST).
-* SwarmBundle 변경(Changeset 커밋으로 생성된 SwarmRevision)은 **Safe Point에서만 활성화**되며, **다음 Step부터** 반영된다(MUST).
-* Runtime은 각 Step의 LLM 응답 및 Tool 결과를 `Turn.messages`에 append하고, 다음 Step의 입력(컨텍스트)으로 반드시 사용해야 한다(MUST).
-
-### 5.2 Tool
-
-Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이다. Tool은 단순 HTTP 요청 템플릿에 한정되지 않으며 런타임 컨텍스트 및 이벤트 시스템에 접근할 수 있다.
-
-### 5.3 Extension
-
-Extension은 런타임 라이프사이클의 특정 지점에 개입하기 위해 등록되는 실행 로직 묶음이다. Extension은 파이프라인 포인트에 핸들러를 등록하여 도구 카탈로그, 컨텍스트 블록, LLM 호출, 도구 실행, 워크스페이스 이벤트 처리 등에 영향을 줄 수 있다.
-
-### 5.4 Skill
-
-Skill은 SKILL.md를 중심으로 한 파일 번들이며, LLM이 필요 시 SKILL.md를 로드하고 bash를 통해 동봉된 스크립트를 실행하는 형태로 사용된다. Skill의 발견/카탈로그화/주입/열기(open)는 Extension으로 구현될 수 있다.
-
-### 5.5 Connector
-
-Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance로 라우팅하고, 진행상황 업데이트와 완료 보고를 같은 맥락으로 송신한다.
-
-### 5.6 MCPServer
-
-MCPServer는 MCP 프로토콜 기반 도구/리소스/프롬프트 제공자를 연결하기 위한 구성 단위이다. MCPServer는 stateful/stateless 방식과 스코프(인스턴스/에이전트 등)를 포함할 수 있다.
-
-### 5.7 SwarmBundle / Changeset / SwarmRevision
-
-#### 5.7.1 Bundle
-
-Bundle은 **YAML 리소스 + 소스코드(도구/확장/커넥터/프롬프트/기타 파일)** 를 함께 포함하는 **폴더 트리**이다.
-
-#### 5.7.2 SwarmBundle
-
-SwarmBundle은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle이다.  
-SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작과 통합)이 수정**된다.
-
-#### 5.7.3 SwarmRevision
-
-SwarmRevision은 특정 SwarmBundle 스냅샷을 식별하는 **불변 식별자**이다(opaque string).  
-구현은 SwarmRevision을 content hash, 순번, 또는 VCS commit id 등으로 표현할 수 있으나, 다음을 만족해야 한다(MUST).
-
-* 동일 SwarmRevision은 동일한 Bundle 콘텐츠를 재현 가능해야 한다(MUST).
-* Step은 시작 시점에 특정 SwarmRevision으로 핀되어야 한다(MUST).
-
-#### 5.7.4 Changeset
-
-Changeset은 SwarmBundle에 적용되는 변경 집합이다. Changeset은 **커밋되기 전에는 실행에 영향을 주지 않으며**, 커밋되면 **새 SwarmRevision을 생성**한다.
-
-Changeset의 대표적인 구현 패턴은 다음 중 하나이다(구현 선택, MAY).
-
-1. **Staging Workdir 기반**
-   * SwarmBundleManager가 changesetId와 staging 디렉터리를 발급(open)
-   * 에이전트(또는 도구/확장)가 그 디렉터리에서 파일을 수정
-   * SwarmBundleManager가 diff를 계산하고 commit하여 SwarmRevision 생성
-
-2. **구조화된 FileOps 기반**
-   * changeset이 file write/delete/rename 등의 ops를 포함
-   * SwarmBundleManager가 ops를 적용해 SwarmRevision 생성
-
-본 문서는 v0.9에서 (1) 패턴을 표준으로 간주한다(SHOULD).
-
-#### 5.7.5 Canonical Writer(정본 단일 작성자) 규칙 (MUST)
-
-SwarmBundle의 변경 이력(Changeset Log/Status/Cursor 등 정본 기록)은 Runtime 내부 **SwarmBundleManager**만이 기록할 수 있어야 한다(MUST).  
-정본 파일은 관측 가능(파일로 노출)하되, SwarmBundleManager 외의 주체가 정본을 직접 기록하는 모델은 허용하지 않는다(MUST).
-
-#### 5.7.6 Safe Point(적용 시점) 규칙 (MUST)
-
-* Runtime은 최소 `step.config` Safe Point를 MUST 제공한다.
-* Step이 시작된 이후에는 Step 종료 전까지 SwarmRevision과 Effective Config가 변경되어서는 안 된다(MUST).
+자세한 본문: [spec_main_05_core-concepts.md](spec_main_05_core-concepts.md)
 
 ---
 
 ## 6. Config 스펙
 
-### 6.1 리소스 공통 형식
+Config Plane 리소스는 YAML 기반의 apiVersion/kind/metadata/spec 구조를 기본으로 하며, name 고유성 및 다중 문서(---) 구성을 지원한다.
 
-* 모든 리소스는 `apiVersion`, `kind`, `metadata`, `spec`를 MUST 포함한다.
-* `metadata.name`은 동일 네임스페이스 내에서 고유해야 한다.
-* 단일 YAML 파일에 여러 문서(`---`) 포함 가능.
+리소스 간 참조는 ObjectRef(문자열 축약 또는 객체형)로 표현하고, selector+overrides로 선택/덮어쓰기를 조립한다. 병합 규칙은 객체 재귀 병합, 스칼라 덮어쓰기, 배열 교체를 기본으로 한다.
 
-### 6.2 참조 문법
+또한 런타임 산출물로서 Changeset/SwarmRevision 상태(정본 로그, cursor/head/base, openChangeset/commitChangeset 인터페이스, status 기록)를 정의하며, OAuth/Connector 등에서 사용하는 ValueSource/SecretRef 주입 패턴과 비밀값 직접 포함 금지 권장을 포함한다.
 
-#### 6.2.1 ObjectRef
-
-* `Kind/name` 축약 문자열 MAY
-* `{ apiVersion?, kind, name }` 객체형 참조 MUST
-
-#### 6.2.2 Selector
-
-* `{ kind, name }` 단일 선택 MUST
-* `{ matchLabels: {...}, kind? }` 라벨 기반 선택 MAY
-
-### 6.3 Selector + Overrides 조립 문법
-
-* 블록에 `selector`가 있으면 선택형으로 해석(MUST)
-* 선택형 블록에서 `overrides` 적용 가능(MUST)
-* 기본 병합 규칙: 객체 재귀 병합, 스칼라 덮어쓰기, 배열 교체(SHOULD)
-
----
-
-### 6.4 Changeset/SwarmRevision 상태 문서(런타임 산출물) 규격
-
-#### 6.4.1 저장소 구조(인스턴스 단일) (MUST)
-
-Runtime은 SwarmInstance마다 상태 루트를 제공해야 하며, Changeset/SwarmRevision 관련 상태는 **인스턴스 단일 저장소**로 관리되어야 한다(MUST).
-
-#### 6.4.2 정본 파일 및 단일 작성자 (MUST)
-
-다음 파일은 SwarmBundleManager가 append-only 또는 원자적 교체 방식으로 기록하는 정본이어야 하며, 다른 주체가 기록해서는 안 된다(MUST).
-
-* Changeset Log (`changesets.jsonl`) — append-only
-* Changeset Status Log (`changeset-status.jsonl`) — append-only
-* Cursor (`cursor.yaml`) — 원자적 교체(atomic replace) 권장
-* Head Reference (`head.ref`) — 원자적 교체(atomic replace) 권장
-* Base Reference (`base.ref`) — 원자적 교체(atomic replace) 권장(초기화 이후 변경은 구현 선택)
-
-#### 6.4.3 Changeset Open(스테이징 디렉터리) (MUST)
-
-Runtime은 LLM이 사용할 수 있는 도구로 `swarmBundle.openChangeset`을 제공해야 한다(MUST).  
-Open은 changesetId와 staging workdir 경로를 발급하고, 그 workdir은 **쓰기 가능**해야 한다(MUST).
-
-`swarmBundle.openChangeset` 반환 예시:
-
-```json
-{
-  "changesetId": "cs-000123",
-  "baseSwarmRevision": "rev-000100",
-  "workdir": "/workspace/shared/state/instances/inst-1/swarm-bundle/changesets/cs-000123/workdir",
-  "hint": {
-    "bundleRootInWorkdir": ".",
-    "recommendedFiles": ["resources/*.yaml", "prompts/*.md", "tools/**", "extensions/**"]
-  }
-}
-````
-
-규칙:
-
-* Open된 changeset의 workdir은 SwarmBundleManager가 선택한 “기준 SwarmRevision”의 콘텐츠로 초기화되어야 한다(MUST).
-* Open된 changeset은 commit되기 전까지 실행에 영향을 주지 않는다(MUST).
-
-#### 6.4.4 Changeset Log(정본) 규격 (MUST)
-
-SwarmBundleManager는 커밋된 Changeset을 changesets.jsonl에 append해야 한다(MUST).
-각 레코드는 최소 다음 필드를 포함해야 한다(MUST).
-
-* `changesetId` (또는 `metadata.name`)
-* `baseSwarmRevision`
-* `newSwarmRevision`
-* `message`
-* `source` (type/name)
-* `recordedAt`
-* `summary` (변경 파일 목록/카운트 등, 구현 선택)
-
-예시:
-
-```json
-{
-  "apiVersion":"agents.example.io/v1alpha1",
-  "kind":"SwarmChangesetRecord",
-  "metadata":{"name":"cs-000123"},
-  "spec":{
-    "baseSwarmRevision":"rev-000100",
-    "newSwarmRevision":"rev-000101",
-    "message":"planner 프롬프트 업데이트 + slack tool 추가",
-    "source":{"type":"agent","name":"planner"},
-    "recordedAt":"2026-02-03T01:02:03Z",
-    "summary":{
-      "filesChanged":["prompts/planner.system.md","resources/agents.yaml","tools/slack/index.js"],
-      "filesAdded":["tools/slack/README.md"]
-    }
-  }
-}
-```
-
-#### 6.4.5 SwarmBundleManager 및 Changeset API (MUST)
-
-Runtime은 SwarmBundleManager 컴포넌트를 MUST 제공해야 한다.
-
-* SwarmBundleManager는 changesets/status/cursor/head/base의 유일한 작성자이다(MUST).
-* Runtime은 Changeset commit을 위한 표준 인터페이스를 MUST 제공한다.
-
-  * LLM Tool 기반: `swarmBundle.commitChangeset`
-  * (선택) 런타임 API 기반: `api.swarmBundle.commitChangeset(changesetId, opts)`
-
-SwarmBundleManager는 commit 시 최소 다음을 수행해야 한다(MUST).
-
-1. 정책(allowlist) 검사
-2. (선택) 구성 로드/검증(예: YAML 파싱, entry 파일 존재, exports 스키마 유효성)
-3. diff 계산 및 기록(요약 또는 아티팩트 파일)
-4. SwarmRevision 생성(새 스냅샷 저장)
-5. Head를 새 SwarmRevision으로 이동
-6. Changeset Log + Status Log 기록
-
-#### 6.4.6 Changeset Status Log(평가/적용 로그) 규격 (MUST)
-
-Runtime은 인스턴스별로 `changeset-status.jsonl`을 MUST 제공해야 한다. 이 로그는 Changeset의 커밋/활성화 결과를 append-only로 기록한다(MUST).
-
-Status 레코드는 최소 다음 필드를 포함해야 한다(MUST).
-
-* `changesetId`
-* `phase`: `"commit" | "activate"`
-* `result`: `"ok" | "rejected" | "failed" | "skipped"`
-* `evaluatedAt`
-* `baseSwarmRevision` (commit phase에서는 SHOULD)
-* `newSwarmRevision` (commit phase에서 ok면 MUST)
-* `appliedAt` (activate phase에서 ok면 MUST)
-* `appliedInStepId` (가능하면 SHOULD)
-* `reason` (가능하면 SHOULD)
-
-예시:
-
-```json
-{"changesetId":"cs-000123","phase":"commit","result":"ok","evaluatedAt":"2026-02-03T01:02:03Z","baseSwarmRevision":"rev-000100","newSwarmRevision":"rev-000101","reason":"ok"}
-{"changesetId":"cs-000123","phase":"activate","result":"ok","evaluatedAt":"2026-02-03T01:02:10Z","appliedAt":"2026-02-03T01:02:10Z","appliedInStepId":"step-9f3a","reason":"activated"}
-```
-
-#### 6.4.7 Cursor 파일 규격 (MUST)
-
-Runtime은 인스턴스별로 `cursor.yaml`을 MUST 제공해야 한다. cursor는 재시작 복구를 위해 “현재 활성 SwarmRevision”과 “처리 커서”를 저장한다.
-
-권장 예시:
-
-```yaml
-version: 1
-swarmBundle:
-  baseSwarmRevision: "rev-000100"      # MUST
-  headSwarmRevision: "rev-000101"      # MUST
-  activeSwarmRevision: "rev-000101"    # MUST (현재 Step들이 사용할 기준)
-  lastActivatedAt: "2026-02-03T01:02:10Z"  # SHOULD
-changesets:
-  lastCommittedChangesetId: "cs-000123"    # SHOULD
-  lastActivatedChangesetId: "cs-000123"    # SHOULD
-```
-
-#### 6.4.8 Materialized View / Effective Snapshot (선택)
-
-* `effective/effective-<rev>.yaml`: Effective Config 스냅샷(SHOULD)
-* `diffs/<changesetId>.patch`: changeset diff 아티팩트(MAY)
-
----
-
-### 6.5 ValueSource / SecretRef(간단 타입) (OAuthApp/Connector에서 사용)
-
-OAuthApp의 clientId/clientSecret, Connector의 고정 토큰 등은 환경/비밀 저장소에서 주입되는 경우가 일반적이므로, 본 문서는 간단한 ValueSource 패턴을 정의한다.
-
-```yaml
-# ValueSource
-value: "plain-string"           # 또는
-
-valueFrom:
-  env: "ENV_VAR_NAME"           # 또는
-
-valueFrom:
-  secretRef:
-    ref: "Secret/slack-oauth"   # Kind/name 축약 ObjectRef
-    key: "client_secret"
-```
-
-규칙:
-
-1. `value`와 `valueFrom`은 동시에 존재해서는 안 되며, 둘 중 하나만 존재해야 한다(MUST).
-2. `valueFrom` 안에서는 `env`와 `secretRef`가 동시에 존재해서는 안 되며, 둘 중 하나만 존재해야 한다(MUST).
-3. `secretRef.ref`는 `"Secret/<name>"` 형태의 참조 문자열이며, 여기서 `Secret`은 런타임이 제공하는 비밀 저장소 엔트리를 가리키는 예약된 kind로 취급한다(MUST).
-4. Base Config에 비밀값(access token, refresh token, client secret 등)을 직접 포함하지 않도록 구성하는 것을 SHOULD 한다.
+자세한 본문: [spec_main_06_config-spec.md](spec_main_06_config-spec.md)
 
 ---
 
 ## 7. Config 리소스 정의
 
-예시는 `agents.example.io/v1alpha1`을 사용한다.
+본 섹션은 Model/Tool/Extension/MCPServer/Agent/Swarm 등 핵심 리소스 타입의 스키마와 예시를 정의한다. 특히 Agent는 modelConfig, prompt, tools/extensions/mcpServers, hooks(파이프라인 포인트 실행)를 통해 실행 구성을 조립한다.
 
-### 7.1 Model
+ChangesetPolicy는 Swarm(최대 허용 범위)과 Agent(추가 제약)로 중첩되는 allowlist로 정의될 수 있으며, SwarmBundleManager는 commit 시 허용 경로 검사 및 rejected/failed status 기록을 수행한다. Connector는 ingress/egress 라우팅과 OAuthApp 기반/Static Token 기반 인증 모드를 정의하고, trigger handler는 runtime entry 모듈의 export 함수로 해석되며 ctx.emit(canonical event) 기반 실행 모델을 따른다.
 
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Model
-metadata:
-  name: openai-gpt-5
-spec:
-  provider: openai
-  name: gpt-5
-  endpoint: "https://..."     # 선택
-  options: {...}              # 선택
-```
+확장성 측면에서 ResourceType/ExtensionHandler로 사용자 정의 kind의 등록/검증/변환을 지원할 수 있고, OAuthApp은 flow(authorizationCode/deviceCode), subjectMode(global/user), endpoints, scopes, redirect 등을 정의하며 Authorization Code + PKCE(S256) 지원 및 검증 규칙을 포함한다.
 
-### 7.2 Tool
-
-Tool은 LLM에 노출되는 함수 엔드포인트를 포함한다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: slackToolkit
-spec:
-  runtime: node
-  entry: "./tools/slack/index.js"
-  errorMessageLimit: 1200
-
-  # 이 Tool이 기본적으로 사용하는 OAuthApp(선택)
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-    scopes: ["chat:write"]  # 선택: OAuthApp.spec.scopes의 부분집합만 허용
-
-  exports:
-    - name: slack.postMessage
-      description: "메시지 전송"
-      parameters:
-        type: object
-        additionalProperties: true
-      # export-level auth는 tool-level보다 좁게(부분집합으로)만 선언할 수 있다(선택).
-      auth:
-        scopes: ["chat:write"]
-```
-
-규칙:
-
-1. `spec.auth.oauthAppRef`가 존재하면, Runtime은 Tool 실행 컨텍스트에 OAuth 토큰 조회 인터페이스(`ctx.oauth`)를 제공해야 한다(SHOULD).
-2. Tool 또는 export가 `auth.scopes`를 선언하는 경우, Runtime은 그 값이 `OAuthApp.spec.scopes`의 부분집합인지 구성 로드/검증 단계에서 검사해야 하며, 부분집합이 아니면 구성을 거부해야 한다(MUST).
-3. Tool/export의 `auth.scopes`는 “추가 권한 요청(증분)”을 의미하지 않으며, 선언된 OAuthApp 스코프 중에서 “더 좁은 범위로 제한”하는 의미로만 사용되어야 한다(MUST).
-4. `spec.errorMessageLimit`는 Tool 오류 메시지의 최대 길이(문자 수)이며, 미설정 시 기본값은 1000이다(MUST).
-
-### 7.3 Extension
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: skills
-spec:
-  runtime: node
-  entry: "./extensions/skills/index.js"
-  config:
-    discovery:
-      repoSkillDirs: [".claude/skills", ".agent/skills"]
-```
-
-### 7.4 MCPServer
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: github-mcp
-spec:
-  transport:
-    type: stdio
-    command: ["npx", "-y", "@acme/github-mcp"]
-  attach:
-    mode: stateful
-    scope: instance
-  expose:
-    tools: true
-    resources: true
-    prompts: true
-```
-
-### 7.5 Agent
-
-Agent는 에이전트 실행을 구성하는 중심 리소스이다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: planner
-spec:
-  modelConfig:
-    modelRef: { kind: Model, name: openai-gpt-5 }
-    params:
-      temperature: 0.5
-
-  prompts:
-    # 파일 참조
-    systemRef: "./prompts/planner.system.md"
-    # 또는 인라인 시스템 프롬프트
-    # system: |
-    #   너는 planner 에이전트다.
-
-  tools:
-    - { kind: Tool, name: slackToolkit }
-
-  extensions:
-    - { kind: Extension, name: skills }
-    - { kind: Extension, name: toolSearch }
-
-  mcpServers:
-    - { kind: MCPServer, name: github-mcp }
-
-  hooks:
-    - point: turn.post
-      priority: 0
-      action:
-        toolCall:
-          tool: slack.postMessage
-          input:
-            channel: { expr: "$.turn.origin.channel" }
-            threadTs: { expr: "$.turn.origin.threadTs" }
-            text: { expr: "$.turn.summary" }
-```
-
-#### 7.5.1 Agent 단위 ChangesetPolicy (MAY)
-
-Agent는 Swarm의 changesets 정책을 **추가 제약(더 좁게)** 하는 allowlist를 제공할 수 있다(MAY).
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: planner
-spec:
-  changesets:
-    allowed:
-      files:
-        - "prompts/**"
-        - "resources/**"
-```
-
-규칙:
-
-* Swarm.allowed.files가 “최대 허용 범위”라면, Agent.allowed.files는 “해당 Agent의 추가 제약”으로 해석한다(MUST).
-* 따라서 해당 Agent가 생성/커밋하는 changeset은 **Swarm.allowed + Agent.allowed 모두를 만족**해야 허용된다(MUST).
-
-### 7.6 Swarm
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: default
-spec:
-  entrypoint: { kind: Agent, name: planner }
-  agents:
-    - { kind: Agent, name: planner }
-  policy:
-    maxStepsPerTurn: 32
-```
-
-#### 7.6.1 Swarm ChangesetPolicy (MAY, 강력 권장)
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: default
-spec:
-  entrypoint: { kind: Agent, name: planner }
-  agents:
-    - { kind: Agent, name: planner }
-  policy:
-    maxStepsPerTurn: 32
-    changesets:
-      enabled: true
-      applyAt:
-        - step.config
-      allowed:
-        files:
-          - "resources/**"
-          - "prompts/**"
-          - "tools/**"
-          - "extensions/**"
-      emitRevisionChangedEvent: true
-```
-
-규칙:
-
-* SwarmBundleManager는 changeset commit 시 변경된 파일 경로가 `allowed.files`에 포함되는지 검사해야 한다(MUST).
-* 허용되지 않은 파일을 변경하려는 changeset commit은 `changeset-status`에 `result="rejected"`로 기록되어야 한다(MUST).
-
-### 7.7 Connector
-
-Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance로 라우팅하고, 진행상황 업데이트와 완료 보고를 같은 맥락으로 송신한다.
-
-Connector 인증은 두 가지 모드 중 하나로 구성할 수 있다.
-
-1. OAuthApp 기반 모드(설치/승인 플로우를 통해 토큰을 획득)
-2. Static Token 기반 모드(운영자가 발급한 토큰을 Secret으로 주입)
-
-두 모드는 동시에 활성화될 수 없다(MUST).
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: slack-main
-spec:
-  type: slack
-
-  # (선택) OAuthApp 기반 인증
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-
-  ingress:
-    - match:
-        command: "/swarm"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
-```
-
-Static Token 기반 모드 예시는 다음과 같다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: slack-main
-spec:
-  type: slack
-  auth:
-    staticToken:
-      valueFrom:
-        secretRef: { ref: "Secret/slack-bot-token", key: "bot_token" }
-  ingress:
-    - match:
-        command: "/swarm"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-```
-
-CLI Connector 예시는 다음과 같다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-spec:
-  type: cli
-  ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
-```
-
-Connector의 trigger handler는 런타임 엔트리 모듈에서 export된 함수로 지정한다. 예를 들어, 트리거 핸들러로 `fooBarBaz`를 지정하면, 해당 함수가 엔트리 모듈에서 export되어야 한다.  
-`triggers[].handler` MUST be the name of an exported function from `spec.runtime.entry`, and MUST NOT include module qualifiers such as `exports.` or file paths.
-
-규칙:
-
-1. `spec.auth.oauthAppRef`와 `spec.auth.staticToken`은 동시에 존재할 수 없다(MUST).
-2. Connector는 ingress 이벤트를 Turn으로 변환할 때, Turn의 인증 컨텍스트(`turn.auth`)를 가능한 한 채워야 한다(SHOULD).
-3. Slack Connector의 경우, `turn.auth.subjects.global`은 워크스페이스 단위 토큰 조회를 위해 `slack:team:<team_id>` 형태로 채우는 것을 권장하며, `turn.auth.subjects.user`는 사용자 단위 토큰 조회를 위해 `slack:user:<team_id>:<user_id>` 형태로 채우는 것을 권장한다(SHOULD).
-4. Static Token 모드에서는 OAuth 승인 플로우를 수행하지 않으며, OAuthStore를 참조하지 않는다(MUST).
-5. Connector trigger handler는 여러 개의 canonical event를 emit할 수 있으나, 각 event는 독립적인 Turn으로 처리되어야 한다(MUST).
-
----
-
-#### 7.7.1 Trigger Handler Resolution and Loading
-
-Connector는 `spec.runtime.entry`로 지정된 런타임 모듈을 로드한 뒤, `triggers[].handler`에 명시된 이름과 동일한 export를 조회하여 핸들러로 바인딩한다.
-
-규칙:
-
-1. Runtime은 Connector 초기화 시점에 entry 모듈을 단 한 번 로드해야 한다(MUST).
-2. 하나의 Connector가 여러 trigger를 노출하더라도, 런타임 모듈은 공유 인스턴스로 유지되어야 한다(MUST).
-3. 각 trigger는 자신의 `handler`에 해당하는 함수 레퍼런스를 통해 호출되며, 트리거 간 상태 공유 여부는 Connector 구현자가 결정한다(MAY).
-4. 지정된 handler export가 존재하지 않으면 구성 로드 단계에서 오류로 처리해야 한다(MUST).
-
----
-
-#### 7.7.2 Trigger Execution Model
-
-Runtime은 ingress(예: webhook, cron, queue 등)에서 발생한 외부 이벤트를 Connector trigger로 변환하여 실행한다.
-이때 모든 trigger handler는 동일한 실행 인터페이스를 가지며, 입력 이벤트의 종류는 공통 envelope로 추상화된다.
-
-Trigger handler 호출 시 Runtime은 다음 정보를 주입해야 한다(MUST).
-
-1. event: trigger 종류에 따른 입력 이벤트(Webhook, Cron 등)
-2. connection: Connection 리소스에 정의된 파라미터(비밀값은 resolve된 상태)
-3. ctx: 이벤트 발행, 로깅, OAuth, LiveConfig 제안 등을 포함한 실행 컨텍스트
-
-Trigger handler는 외부 시스템 이벤트를 직접 AgentInstance로 전달하지 않고, 반드시 canonical event를 생성하여 `ctx.emit(...)`을 통해 Runtime으로 전달해야 한다(MUST).
-
-### 7.8 ResourceType / ExtensionHandler
-
-ResourceType과 ExtensionHandler는 사용자 정의 kind의 등록, 검증, 기본값, 런타임 변환을 지원하기 위한 구성 단위로 사용될 수 있다. 이 메커니즘은 특정 용도(프리셋 제공 등)에 한정되지 않으며, 다양한 도메인 리소스(예: Retrieval, Memory, Evaluator 등)를 정의하는 데 활용될 수 있다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: ResourceType
-metadata:
-  name: rag.acme.io/Retrieval
-spec:
-  group: rag.acme.io
-  names:
-    kind: Retrieval
-    plural: retrievals
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-  handlerRef: { kind: ExtensionHandler, name: retrieval-handler }
----
-apiVersion: agents.example.io/v1alpha1
-kind: ExtensionHandler
-metadata:
-  name: retrieval-handler
-spec:
-  runtime: node
-  entry: "./extensions/retrieval/handler.js"
-  exports: ["validate", "default", "materialize"]
-```
-
-### 7.9 OAuthApp
-
-OAuthApp은 외부 시스템 OAuth 인증을 위한 클라이언트 및 엔드포인트를 정의한다. OAuthApp은 설정 리소스이며, 실제 토큰/그랜트 저장은 런타임의 시스템 전역 OAuthStore(§10.2, §12.5)에 속한다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: OAuthApp
-metadata:
-  name: slack-bot
-spec:
-  provider: slack
-
-  # authorizationCode | deviceCode
-  flow: authorizationCode
-
-  # global | user
-  subjectMode: global
-
-  client:
-    clientId:
-      valueFrom:
-        env: "SLACK_CLIENT_ID"
-    clientSecret:
-      valueFrom:
-        secretRef: { ref: "Secret/slack-oauth", key: "client_secret" }
-
-  endpoints:
-    authorizationUrl: "https://slack.com/oauth/v2/authorize"
-    tokenUrl: "https://slack.com/api/oauth.v2.access"
-
-  scopes:
-    - "chat:write"
-    - "channels:read"
-
-  redirect:
-    callbackPath: "/oauth/callback/slack-bot"
-
-  options:
-    slack:
-      tokenMode: "bot"
-```
-
-규칙:
-
-1. Runtime은 `flow=authorizationCode`에 대해 **Authorization Code + PKCE(S256)**를 MUST 지원해야 한다.
-2. Runtime은 `flow=deviceCode`를 MAY 지원할 수 있다. 미지원 시 `flow=deviceCode` 구성은 로드/검증 단계에서 거부되어야 한다(MUST).
-3. `spec.subjectMode`는 Turn의 `turn.auth.subjects`에서 어떤 키를 subject로 사용할지 결정한다(MUST). 해당 키가 Turn에 없으면 오류로 처리해야 한다(MUST).
-4. 전역 토큰과 사용자별 토큰이 의미적으로 다른 경우, 이를 하나의 OAuthApp으로 합치지 말고 서로 다른 OAuthApp으로 분리 등록하는 것을 권장한다(SHOULD).
+자세한 본문: [spec_main_07_config-resources.md](spec_main_07_config-resources.md)
 
 ---
 
 ## 8. Config 구성 단위와 패키징
 
-### 8.1 구성 파일 분할과 로딩
+구현은 구성 파일을 여러 폴더/파일로 분할해 관리할 수 있어야 하며, 디렉터리 단위 로딩/다중 YAML 문서 로딩/파일 참조 기반 로딩을 지원하는 것을 권장한다.
 
-구현은 구성 파일을 여러 폴더/파일로 분할하여 관리할 수 있어야 한다. 구현은 디렉터리 단위 로딩, 다중 YAML 문서 로딩, 파일 참조 기반 로딩을 SHOULD 지원한다.
+또한 리소스 YAML, 프롬프트, 확장/도구 스크립트, 스킬 번들을 재사용 가능한 패키지(차트/번들) 형태로 제공할 수 있다.
 
-### 8.2 패키지(차트/번들) 개념
+패키지 간 의존성/values 주입과 같은 세부 메커니즘은 구현 선택이지만, 재사용과 배포 단위를 명확히 하는 방향을 전제로 한다.
 
-구현은 재사용 가능한 구성 묶음을 패키지 형태로 제공할 수 있다. 패키지는 리소스 YAML, 프롬프트 파일, 확장/도구 스크립트, 스킬 파일 번들을 포함할 수 있다. 패키지 간 의존성과 값 주입(values)은 구현에 따라 달라질 수 있다.
+자세한 본문: [spec_main_08_packaging.md](spec_main_08_packaging.md)
 
 ---
 
 ## 9. Runtime 실행 모델
 
-### 9.1 인스턴스 생성과 라우팅
+Runtime은 Connector로부터 입력 이벤트를 받아 instanceKey 규칙으로 SwarmInstance를 조회/생성하고, 그 내부에서 AgentInstance 이벤트 큐를 통해 Turn을 실행한다. Turn에는 호출 맥락(origin)과 인증 컨텍스트(auth)가 유지되며, 에이전트 간 handoff에서도 auth는 보존되어야 한다.
 
-Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙에 따라 SwarmInstance를 조회/생성한다.
+Turn은 Step 루프를 수행하며, 표준 순서는 step.config → step.tools → step.blocks → step.llmCall → tool call 처리 → step.post이다. 정책적으로 maxStepsPerTurn을 적용할 수 있고, connector는 canonical event 생성(ctx.emit) 책임만 가지며 실행 모델 자체를 직접 제어하지 않는다.
 
-* `instanceKey`를 사용하여 동일 맥락을 같은 인스턴스로 라우팅할 수 있어야 한다(MUST).
-* SwarmInstance 내부에 AgentInstance를 생성하고 유지해야 한다(MUST).
+Changeset 커밋으로 head SwarmRevision이 이동하고, 활성화는 Safe Point(기본 step.config)에서만 일어나며 통상 다음 Step부터 반영된다. 또한 Effective Config의 tools/extensions/mcpServers 배열은 identity 기반 정규화 및 reconcile이 권장된다.
 
-#### 9.1.1 Turn Origin 컨텍스트와 인증 컨텍스트
-
-OAuth 기반 통합을 위해 Runtime은 Turn 컨텍스트에 호출 맥락(origin)과 인증 컨텍스트(auth)를 유지해야 한다(SHOULD).
-
-```yaml
-turn:
-  origin:
-    connector: slack-main
-    channel: "C123"
-    threadTs: "1700000000.000100"
-
-  auth:
-    actor:
-      type: "user"
-      id: "slack:U234567"
-      display: "alice"
-    subjects:
-      global: "slack:team:T111"
-      user:   "slack:user:T111:U234567"
-```
-
-규칙:
-
-1. Runtime이 에이전트 간 handoff를 위해 내부 이벤트를 생성하거나 라우팅할 때, `turn.auth`는 변경 없이 전달되어야 한다(MUST). 이 규칙은 “Turn을 트리거한 사용자 컨텍스트가 handoff 이후에도 유지된다”는 요구를 보장하기 위한 것이다.
-2. Runtime은 `turn.auth`가 누락된 Turn에 대해 사용자 토큰이 필요한 OAuthApp(`subjectMode=user`)을 사용해 토큰을 조회하거나 승인 플로우를 시작해서는 안 된다(MUST). 이 경우에는 오류로 처리하고, 에이전트가 사용자에게 필요한 컨텍스트(예: 다시 호출, 계정 연결 필요)를 안내하도록 하는 것이 바람직하다(SHOULD).
-
----
-
-#### 9.1.2 Canonical Event Flow
-
-Connector trigger handler가 `ctx.emit(canonicalEvent)`를 호출하면, Runtime은 이를 내부 이벤트 큐에 enqueue한다.
-
-Canonical event는 다음 처리 흐름을 따른다.
-
-1. Runtime은 canonical event의 `type`과 Connector ingress 설정을 기준으로 대상 Swarm을 결정한다.
-2. `instanceKey` 계산 규칙에 따라 SwarmInstance를 조회하거나 생성한다.
-3. Canonical event는 Turn 입력 이벤트로 변환되어 AgentInstance 이벤트 큐에 enqueue된다.
-4. AgentInstance는 해당 이벤트를 하나의 Turn으로 소비한다.
-
-이 과정에서 Connector는 에이전트 실행 모델(Instance/Turn/Step)을 직접 제어하지 않으며,
-오직 canonical event 생성 책임만을 가진다(MUST).
-
-### 9.2 이벤트 큐와 Turn 실행
-
-* AgentInstance는 이벤트 큐를 가진다(MUST).
-* 큐의 이벤트 하나가 Turn의 입력이 된다(MUST).
-* Runtime은 Turn 내에서 Step을 반복 실행할 수 있어야 한다(MUST).
-* `Swarm.policy.maxStepsPerTurn` 정책을 적용할 수 있어야 한다(MAY).
-
-### 9.3 Step 실행과 도구 호출 처리
-
-Step은 다음 순서로 진행된다.
-
-1. **step.config**: SwarmBundleManager가 이번 Step의 `activeSwarmRevision`을 확정하고 Effective Config(리소스 로드/조립)를 준비
-2. `step.tools`: Tool Catalog 구성
-3. `step.blocks`: Context Blocks 구성
-4. `step.llmCall`: LLM 호출
-5. tool call 처리(동기 실행 또는 비동기 큐잉)
-6. `step.post`: 결과 반영 후 Step 종료
-
-### 9.4 Changeset/SwarmRevision 적용 의미론 (MUST)
-
-#### 9.4.1 적용 단위
-
-* Runtime은 각 Step 시작 시 `step.config`에서 현재 `activeSwarmRevision`을 결정해야 한다(MUST).
-* Step 실행 중에는 SwarmRevision과 Effective Config를 변경해서는 안 된다(MUST).
-
-#### 9.4.2 커밋과 활성화(권장 표준)
-
-* `swarmBundle.commitChangeset`은 새 SwarmRevision을 생성하고 head를 이동시킨다.
-* 새 SwarmRevision은 `step.config` Safe Point에서 `activeSwarmRevision`으로 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다(MUST).
-
-#### 9.4.3 반영 시점
-
-Step N 중 commit된 changeset으로 생성된 SwarmRevision은, Step N+1의 `step.config`에서 활성화되는 것이 기본 규칙이다(MUST).
-(단, Step N 시작 전에 이미 head가 이동된 경우 Step N에서 그 head를 활성화하는 것은 자연스럽게 허용된다.)
-
-#### 9.4.4 변경 가시성(권장)
-
-`emitRevisionChangedEvent=true`인 경우, Runtime은 revision 변경 요약을 다음 Step 입력 또는 블록에 포함시키는 것을 SHOULD 한다.
-
-#### 9.4.7 Effective Config 배열 정규화 규칙 (SHOULD)
-
-Runtime은 Effective Config 생성 후 다음 배열을 **identity key 기반으로 정규화**하는 것을 SHOULD 한다.
-
-* `/spec/tools`, `/spec/extensions`, `/spec/mcpServers`
-
-정규화 규칙(SHOULD):
-
-* identity key가 동일한 항목이 중복될 경우, 마지막에 나타난 항목이 내용을 대표(last-wins)한다.
-* 배열의 순서는 bundle 파일 변경(커밋 결과)에 의해 만들어진 순서를 유지한다.
-* 실행 상태 유지(reconcile)는 순서가 아니라 identity key 기준으로 수행한다(§11.6).
+자세한 본문: [spec_main_09_runtime-model.md](spec_main_09_runtime-model.md)
 
 ---
 
 ## 10. 워크스페이스 모델
 
-Runtime은 인스턴스와 에이전트 실행을 위한 파일시스템 워크스페이스를 관리한다. 워크스페이스에는 repo 캐시, 작업트리, 임시 디렉터리, 공유 산출물 영역 등이 포함될 수 있다.
+Runtime은 repo 캐시, 에이전트 worktree, turn 단위 scratch, 공유 artifacts, 인스턴스 상태 루트 등 파일시스템 워크스페이스를 관리한다.
 
-권장 레이아웃 예시는 다음과 같다.
+SwarmBundle 관련 상태는 인스턴스별 `shared/state/instances/<instanceId>/swarm-bundle/` 아래에 base/head/cursor, changeset 로그, staging workdir, effective 스냅샷 등을 포함하는 레이아웃을 MUST로 정의한다. 또한 AgentInstance별 LLM 메시지 로그를 append-only JSONL로 기록한다.
 
-* `shared/repo-cache/`
-* `agents/<agentId>/worktrees/`
-* `agents/<agentId>/scratch/<turnId>/`
-* `shared/artifacts/`
-* `shared/state/instances/<instanceId>/`
+인스턴스 생명주기와 독립적인 시스템 전역 상태 루트(`shared/state/system/`)를 제공해 OAuth grants/sessions를 보존해야 하며, 저장되는 비밀값은 반드시 at-rest encryption을 적용해야 한다.
 
-### 10.1 SwarmBundle 상태 디렉터리 레이아웃 (MUST)
-
-```
-shared/state/instances/<instanceId>/
-  swarm-bundle/                         # MUST
-    base.ref                            # MUST: base SwarmRevision(또는 source ref)
-    head.ref                            # MUST: head SwarmRevision
-    cursor.yaml                         # MUST
-    logs/
-      changesets.jsonl                  # MUST
-      changeset-status.jsonl            # MUST
-    changesets/
-      <changesetId>/
-        workdir/                        # MUST: staging workdir
-        diff.patch                      # MAY
-    effective/
-      effective-<rev>.yaml              # SHOULD
-    store/                              # MUST: SwarmBundleStore(opaque)
-  agents/
-    <agentInstanceNameOrId>/
-      messages/
-        llm.jsonl                       # MUST: LLM message log (append-only)
-  events/
-    events.jsonl                        # SHOULD
-```
-
-정본 파일(changesets/status/cursor/head/base)은 읽기 전용으로 노출되는 것이 SHOULD이며, SwarmBundleManager 외의 주체가 기록하지 못해야 한다.
-
-### 10.1.1 LLM Message Log (MUST)
-
-Runtime은 AgentInstance별로 LLM 메시지 로그를 append-only JSONL로 기록해야 한다(MUST). 각 레코드는 최소한 다음 필드를 포함해야 한다(MUST).
-
-- `type`: `"llm.message"`
-- `recordedAt`: ISO8601 timestamp
-- `instanceId`, `agentName`, `turnId`
-- `stepId` (선택)
-- `message`: `Turn.messages`의 단일 항목
-
-예시:
-
-```json
-{
-  "type": "llm.message",
-  "recordedAt": "2026-02-01T12:34:56.789Z",
-  "instanceId": "default-cli",
-  "agentName": "planner",
-  "turnId": "turn-abc",
-  "stepId": "step-xyz",
-  "message": { "role": "assistant", "content": "..." }
-}
-```
-
-### 10.2 System State 디렉터리 레이아웃 (MUST)
-
-Runtime은 인스턴스 상태(`shared/state/instances/<instanceId>/...`)와 별개로, 인스턴스 생명주기와 독립적으로 유지되는 시스템 전역 상태 루트(System State)를 제공해야 한다(MUST). 시스템 전역 상태는 Runtime 재시작 또는 개별 SwarmInstance/AgentInstance의 삭제와 무관하게 유지되어야 하며, 특히 OAuth 토큰/그랜트는 이 영역에 저장되어야 한다(MUST).
-
-권장 레이아웃 예시는 다음과 같다.
-
-```text
-shared/state/system/
-  oauth/
-    grants/
-      <oauthAppName>/
-        <subjectHash>.sops.yaml
-    sessions/
-      <oauthAppName>/
-        <authSessionId>.sops.yaml
-    locks/
-      <oauthAppName>/
-        <subjectHash>.lock
-```
-
-규칙:
-
-1. `shared/state/system/oauth/grants`는 OAuthGrantRecord(§12.5.4)의 저장소이며, 인스턴스가 사라져도 유지되어야 한다(MUST).
-2. `shared/state/system/oauth/sessions`는 승인 진행 중(AuthSession) 상태(AuthSessionRecord, §12.5.5)의 저장소이며, 승인 완료 또는 만료 후에는 정리될 수 있다(SHOULD).
-3. OAuthStore에 저장되는 문서는 디스크에 평문으로 남지 않도록 반드시 at-rest encryption을 적용해야 한다(MUST). 구현은 SOPS 호환 포맷 또는 동등한 envelope encryption 포맷을 사용하는 것을 권장한다(SHOULD).
-4. DB 기반 저장소는 향후 확장으로 고려할 수 있으나, v0.7 범위에서는 정의하지 않으며(스펙 아웃), 표준 저장소는 파일시스템 기반 OAuthStore로 간주한다.
+자세한 본문: [spec_main_10_workspace-model.md](spec_main_10_workspace-model.md)
 
 ---
 
 ## 11. 라이프사이클 파이프라인(훅) 스펙
 
-### 11.1 파이프라인 타입
+파이프라인은 Mutator(순차 상태 변형)와 Middleware(next() 래핑) 두 타입으로 정의되며, Runtime은 turn/step/toolCall/workspace 표준 포인트를 MUST 제공한다. 특히 step.config는 step.tools보다 앞서 실행되어야 한다.
 
-* Mutator: 순차 실행을 통해 상태를 변형
-* Middleware: `next()` 기반 래핑(온니언 구조)
+확장 등록 순서에 따른 실행/래핑(onion) 규칙과 hooks 합성(priority 정렬) 원칙을 정의하며, changeset 커밋/활성화 실패는 status 로그에 기록하고 Step 진행은 계속하는 정책을 권장한다.
 
-### 11.2 표준 파이프라인 포인트
+또한 reconcile은 배열 인덱스가 아니라 identity key 기반으로 수행되어야 하며, 순서 변경만으로 상태 재생성이 발생하면 안 된다. stateful MCPServer 연결은 동일 identity로 유지되는 동안 계속 유지되어야 한다.
 
-Runtime은 최소 다음 포인트를 제공해야 한다(MUST).
-
-* Turn: `turn.pre`, `turn.post`
-* Step: `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.llmCall`, `step.llmError`, `step.post`
-* ToolCall: `toolCall.pre`, `toolCall.exec`, `toolCall.post`
-* Workspace: `workspace.repoAvailable`, `workspace.worktreeMounted`
-
-규칙:
-
-* `step.config`는 `step.tools`보다 먼저 실행되어야 한다(MUST).
-* `step.llmError`는 LLM 호출 실패 시 실행되며, Runtime은 후속 처리 이후 LLM 재시도를 수행할 수 있다(MAY).
-
-### 11.3 실행 순서와 확장 순서
-
-* Mutator 포인트: extensions 등록 순서대로 선형 실행
-* Middleware 포인트: 먼저 등록된 확장이 더 바깥 레이어
-
-hooks 합성:
-
-* 동일 포인트 내 실행 순서는 결정론적으로 재현 가능해야 한다(MUST).
-* priority가 있으면 priority 정렬 후 안정 정렬(SHOULD).
-
-### 11.4 changeset 커밋/활성화 실패 처리 (SHOULD)
-
-Changeset commit 또는 활성화 실패는 changeset-status에 `result="failed"`로 기록하고, Step 자체는 계속 진행하는 정책을 SHOULD 한다. (fail-fast는 구현 선택)
-
-### 11.6 Reconcile Identity 규칙 (MUST)
-
-Runtime은 step.config 이후 reconcile 단계에서 배열(list)을 인덱스 기반이 아니라 identity 기반으로 비교해야 한다(MUST).
-
-#### 11.6.1 Identity Key 정의 (MUST)
-
-* ToolRef identity: `"{kind}/{name}"`
-* ExtensionRef identity: `"{kind}/{name}"`
-* MCPServerRef identity: `"{kind}/{name}"`
-* Hook identity: `hook.id`(권장) 또는 `(point, priority, actionFingerprint)` 조합(SHOULD)
-
-#### 11.6.2 Reconcile 알고리즘 요구사항 (MUST)
-
-* 동일 identity key가 Effective Config에 계속 존재하는 한, Runtime은 해당 항목의 실행 상태를 유지해야 한다(MUST).
-* 배열의 순서 변경은 연결/상태 재생성의 원인이 되어서는 안 된다(MUST).
-
-#### 11.6.3 Stateful MCPServer 연결 유지 규칙 (MUST)
-
-* `attach.mode=stateful`인 MCPServer는 동일 identity key로 Effective Config에 유지되는 동안 연결(프로세스/세션)을 유지해야 한다(MUST).
-* Runtime이 stateful MCP 연결을 재연결할 수 있는 경우는 최소 다음에 한정되어야 한다(MUST).
-
-  * MCPServer가 Effective Config에서 제거된 경우
-  * MCPServer의 연결 구성(transport/attach/expose 등)이 변경되어 연결 호환성이 깨진 경우
+자세한 본문: [spec_main_11_lifecycle-pipelines.md](spec_main_11_lifecycle-pipelines.md)
 
 ---
 
 ## 12. Tool 스펙(런타임 관점)
 
-### 12.1 도구 레지스트리와 도구 카탈로그
+Tool Registry(전체 실행 가능 도구)와 Tool Catalog(특정 Step에서 LLM에 노출되는 목록)를 구분하며, Runtime은 step.tools에서 Catalog를 구성한다. ToolResult는 동기 완료(output) 또는 비동기 제출(handle) 모델을 가질 수 있다.
 
-* Tool Registry: 실행 가능한 전체 도구 엔드포인트(핸들러 포함) 집합
-* Tool Catalog: 특정 Step에서 LLM에 노출되는 도구 목록
-  Runtime은 Step마다 `step.tools`를 통해 Tool Catalog를 구성한다.
+Tool 실행 실패는 예외 전파 대신 ToolResult.output에 오류 정보를 담아 LLM에 전달해야 하며, error.message 길이는 Tool.spec.errorMessageLimit(기본 1000자)로 제한된다. SwarmBundle 변경은 openChangeset→파일 수정→commitChangeset 흐름으로 수행되고, 활성화는 Safe Point에서만 이뤄진다.
 
-### 12.2 tool call의 허용 범위
+OAuth 통합은 ctx.oauth.getAccessToken 의미론(Subject 결정, scopes 부분집합 검증, grant 조회, authorization_required 반환, refresh 권장)을 정의한다. OAuthStore의 단일 작성자/암호화 규칙, OAuthGrantRecord/AuthSessionRecord 스키마, Authorization Code + PKCE(S256) 필수 플로우, (선택) device code, 승인 안내용 블록 주입 권장을 포함한다.
 
-Runtime은 tool call 처리 시 허용 정책을 가질 수 있다(MAY).
-
-* Catalog 기반 허용 / Registry 기반 허용은 구현 선택
-
-### 12.3 동기/비동기 결과
-
-* 동기 완료: `output` 포함
-* 비동기 제출: `handle` 포함(완료 이벤트 또는 polling)
-
-#### 12.3.1 Tool 오류 결과 및 메시지 제한 (MUST)
-
-Runtime은 Tool 실행 중 오류가 발생하면 예외를 외부로 전파하지 않고, ToolResult.output에 오류 정보를 포함하여 LLM에 전달해야 한다(MUST).
-
-```json
-{
-  "status": "error",
-  "error": { "message": "요청 실패", "name": "Error", "code": "E_TOOL" }
-}
-```
-
-* `error.message`는 Tool.spec.errorMessageLimit 길이 제한을 적용한다(MUST).
-* errorMessageLimit이 없으면 기본값은 1000자이다(MUST).
-
-### 12.4 SwarmBundle 변경의 표준 패턴 (MUST)
-
-SwarmBundle 변경은 Changeset을 통해 수행되어야 한다(MUST).
-LLM은 `swarmBundle.openChangeset`으로 staging workdir을 열고, bash로 파일을 수정한 뒤, `swarmBundle.commitChangeset`으로 커밋한다.
-
-SwarmBundleManager는 정본 로그를 기록하고, 활성화는 Safe Point에서만 수행한다(§9.4, §11.2).
-
-### 12.5 OAuth 토큰 접근 인터페이스
-
-Tool/Connector 구현은 외부 API 호출을 위해 OAuth 토큰이 필요할 수 있다. Runtime은 Tool/Connector 실행 컨텍스트에 OAuthManager 인터페이스(`ctx.oauth`)를 제공해야 하며(SHOULD), OAuthManager는 시스템 전역 OAuthStore(§10.2)의 유일한 작성자로 동작해야 한다(MUST).
-
-#### 12.5.1 ctx.oauth.getAccessToken (MUST)
-
-Tool 또는 Connector는 다음 형태로 토큰을 요청할 수 있어야 한다.
-
-```ts
-ctx.oauth.getAccessToken({
-  oauthAppRef: { kind: "OAuthApp"; name: string },
-  scopes?: string[],          // 선택: OAuthApp.spec.scopes의 부분집합만 허용
-  minTtlSeconds?: number      // 선택: 만료 임박 판단 기준
-}) -> OAuthTokenResult
-```
-
-Runtime은 `getAccessToken` 호출에 대해 다음 의미론을 제공해야 한다(MUST).
-
-1. Runtime은 `oauthAppRef`로 OAuthApp을 조회하고, OAuthApp의 `subjectMode`에 따라 Turn에서 subject를 결정한다(MUST).
-
-   * `subjectMode=global`이면 `turn.auth.subjects.global`을 사용한다.
-   * `subjectMode=user`이면 `turn.auth.subjects.user`를 사용한다.
-2. Runtime은 요청 스코프를 “사전 고정” 규칙에 따라 결정해야 하며, 런타임 중 증분 확장을 수행해서는 안 된다(MUST).
-
-   * `scopes`가 제공되면, Runtime은 `scopes ⊆ OAuthApp.spec.scopes`인지 검사해야 하며, 부분집합이 아니면 즉시 오류를 반환해야 한다(MUST).
-   * `scopes`가 제공되지 않으면, Runtime은 `OAuthApp.spec.scopes`를 요청 스코프로 사용한다(SHOULD).
-3. Runtime은 `(oauthAppRef, subject)` 키로 OAuthGrant를 조회한다(MUST).
-4. Grant가 존재하고 토큰이 유효하면 `status="ready"`를 반환한다(MUST).
-5. Grant가 없거나, 토큰이 무효/철회되었거나, 요청 스코프를 충족하지 못하면 Runtime은 AuthSession을 생성하고 `status="authorization_required"`를 반환해야 한다(MUST).
-6. access token이 만료되었거나 만료 임박이면 Runtime은 refresh를 시도하는 것을 SHOULD 하며, 성공 시 갱신 저장 후 `ready`를 반환해야 한다(SHOULD).
-
-#### 12.5.2 OAuthTokenResult (SHOULD)
-
-`OAuthTokenResult`는 최소 다음 중 하나 형태를 가진다.
-
-* `ready`는 실제 API 호출에 사용할 토큰을 제공한다.
-
-```json
-{
-  "status": "ready",
-  "accessToken": "*****",
-  "tokenType": "bearer",
-  "expiresAt": "2026-02-01T10:00:00Z",
-  "scopes": ["chat:write"]
-}
-```
-
-* `authorization_required`는 사용자 승인이 필요함을 나타내며, 에이전트가 사용자에게 안내할 수 있도록 메시지와 링크를 포함한다.
-
-```json
-{
-  "status": "authorization_required",
-  "authSessionId": "as-4f2c9a",
-  "authorizationUrl": "https://provider.example/authorize?...",
-  "expiresAt": "2026-01-31T09:20:01Z",
-  "message": "외부 서비스 연결이 필요합니다. 아래 링크에서 승인을 완료하면 작업을 이어갈 수 있습니다."
-}
-```
-
-* `error`는 비대화형 오류 또는 구성/컨텍스트 부족 등을 나타낸다.
-
-```json
-{
-  "status": "error",
-  "error": { "code": "subjectUnavailable", "message": "turn.auth.subjects.user 가 없어 사용자 토큰을 조회할 수 없습니다." }
-}
-```
-
-#### 12.5.3 OAuthStore 파일시스템 저장소 및 암호화 규칙 (MUST)
-
-Runtime은 OAuthGrant와 AuthSession을 시스템 전역 OAuthStore(§10.2)에 저장해야 한다(MUST). Runtime은 OAuthStore의 유일한 작성자이며, Tool/Extension/Sidecar는 OAuthStore 파일을 직접 읽거나 수정해서는 안 된다(MUST).
-
-Runtime은 다음 보안 규칙을 만족해야 한다(MUST).
-
-1. OAuthStore에 저장되는 모든 비밀값(accessToken, refreshToken, PKCE code_verifier, state 등)은 디스크에 평문으로 남지 않도록 반드시 at-rest encryption을 적용해야 한다(MUST).
-2. Runtime은 토큰 및 민감 필드를 로그, 이벤트 payload, patch log, Effective Config, LLM 컨텍스트 블록에 평문으로 노출해서는 안 된다(MUST).
-3. Runtime은 refresh 동시성 충돌을 방지하기 위해 `(oauthAppRef, subject)` 단위의 락 또는 단일 flight 메커니즘을 제공하는 것을 권장한다(SHOULD).
-
-#### 12.5.4 OAuthGrantRecord 상태 레코드 스키마 (MUST)
-
-OAuthGrantRecord는 “무엇을 저장하는지”를 정의하는 상태 레코드 스키마이며, 실제 저장 위치는 OAuthStore이다(MUST). OAuthGrantRecord의 예시는 다음과 같다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: OAuthGrantRecord
-metadata:
-  name: "sha256:<subjectHash>"
-spec:
-  provider: "slack"
-  oauthAppRef: { kind: OAuthApp, name: "slack-bot" }
-  subject: "slack:team:T111"
-  flow: "authorization_code"          # MUST: authorization_code (device_code는 MAY)
-  scopesGranted:
-    - "chat:write"
-    - "channels:read"
-  token:
-    tokenType: "bearer"
-    accessToken: "<secret>"          # MUST: at-rest encryption 대상
-    refreshToken: "<secret>"         # provider가 제공하는 경우에만
-    expiresAt: "2026-02-01T10:00:00Z"
-  createdAt: "2026-01-31T09:10:01Z"
-  updatedAt: "2026-01-31T09:10:01Z"
-  revoked: false
-  providerData: {}                   # 선택: 공급자별 원문/파생 메타
-```
-
-#### 12.5.5 AuthSessionRecord 상태 레코드 스키마 (MUST)
-
-AuthSessionRecord는 승인 진행 중 상태를 나타내며, Authorization Code + PKCE 플로우에서 callback 검증과 비동기 재개를 위해 사용된다(MUST). AuthSessionRecord는 승인 완료 또는 만료 후 정리될 수 있다(SHOULD).
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: AuthSessionRecord
-metadata:
-  name: "as-4f2c9a"
-spec:
-  provider: "slack"
-  oauthAppRef: { kind: OAuthApp, name: "slack-bot" }
-
-  subjectMode: "global"                     # OAuthApp.spec.subjectMode의 복사
-  subject: "slack:team:T111"                # callback에서 반드시 검증할 기대값
-
-  requestedScopes: ["chat:write","channels:read"]
-
-  flow:
-    type: "authorization_code"
-    pkce:
-      method: "S256"
-      codeVerifier: "<secret>"              # MUST: at-rest encryption 대상
-      codeChallenge: "<derived>"
-    state: "<secret-or-signed>"             # MUST: at-rest encryption 대상
-
-  status: "pending"                         # pending|completed|failed|expired
-  createdAt: "2026-01-31T09:10:01Z"
-  expiresAt: "2026-01-31T09:20:01Z"
-
-  # 승인 완료 후 런타임이 어디로 재개 이벤트를 넣을지 정의한다.
-  resume:
-    swarmRef: { kind: Swarm, name: "default" }
-    instanceKey: "1700000000.000100"        # 예: Slack thread_ts
-    agentName: "planner"
-    origin:
-      connector: "slack-main"
-      channel: "C123"
-      threadTs: "1700000000.000100"
-    auth:
-      actor:
-        type: "user"
-        id: "slack:U234567"
-      subjects:
-        global: "slack:team:T111"
-        user: "slack:user:T111:U234567"
-```
-
-#### 12.5.6 Authorization Code + PKCE(S256) 플로우 (MUST)
-
-Runtime이 `authorization_required`를 반환할 때는 반드시 다음을 수행해야 한다(MUST).
-
-1. Runtime은 `AuthSessionRecord`를 생성하고, PKCE `code_verifier`와 `state`를 포함한 세션 정보를 OAuthStore에 암호화 저장한다(MUST).
-2. Runtime은 OAuth provider의 authorization URL을 생성할 때 PKCE 파라미터(`code_challenge`, `code_challenge_method=S256`)와 `state`를 포함해야 한다(MUST).
-3. provider callback을 처리할 때 Runtime은 `state`로 AuthSession을 조회하고, 세션 만료/일회성/상태(`pending`)를 검증해야 하며, 검증에 실패하면 grant를 생성해서는 안 된다(MUST).
-4. callback에서 Runtime은 코드 교환(token exchange)을 수행할 때 세션에 저장된 PKCE `code_verifier`를 사용해야 한다(MUST).
-5. Runtime은 token exchange 결과가 세션의 기대 subject와 일치하는지 검증해야 한다(MUST). 특히 `subjectMode=user`인 경우, callback 결과의 리소스 소유자(예: provider의 user id)가 세션의 사용자 subject와 불일치하면 실패로 처리해야 하며, 다른 사용자에게 토큰이 귀속되는 것을 허용해서는 안 된다(MUST).
-6. token exchange에 성공하면 Runtime은 `OAuthGrantRecord`를 생성/갱신하여 OAuthStore의 grants에 암호화 저장하고, AuthSession을 `completed`로 전이시킨 뒤 재사용 불가로 만들어야 한다(MUST).
-7. Runtime은 승인 완료 후 `auth.granted` 이벤트를 `resume.agentName`의 이벤트 큐에 enqueue하여 비동기 재개를 트리거해야 한다(MUST). 이 이벤트는 `resume.origin`과 `resume.auth`를 Turn 컨텍스트로 사용해야 한다(SHOULD).
-
-#### 12.5.7 Device Code 플로우 (MAY)
-
-Runtime은 device code 플로우를 MAY 지원할 수 있다. Runtime이 이를 지원하지 않는다면, `flow=deviceCode`인 OAuthApp은 구성 로드/검증 단계에서 거부되어야 한다(MUST). device code 플로우를 지원하는 경우, Runtime은 사용자에게 제공할 `verificationUri`와 `userCode`를 `authorization_required`에 포함시키는 것을 SHOULD 하며, grant 저장과 비동기 재개는 authorization code 플로우와 동일한 원칙으로 동작해야 한다(SHOULD).
-
-#### 12.5.8 승인 안내를 위한 컨텍스트 블록 주입 (SHOULD)
-
-승인 흐름에서 “사용자에게 무엇을 어떻게 안내할지”는 에이전트가 결정할 수 있어야 하므로, Runtime은 `step.blocks`에서 승인 대기 정보를 컨텍스트 블록으로 주입하는 것을 권장한다(SHOULD). 이 블록에는 비밀값이 포함되어서는 안 되며(MUST), 에이전트가 사용자에게 안내할 최소 정보만 포함해야 한다.
-
-권장 블록 예시는 다음과 같다.
-
-```yaml
-type: auth.pending
-items:
-  - authSessionId: "as-4f2c9a"
-    oauthAppRef: { kind: OAuthApp, name: "slack-bot" }
-    subjectMode: "global"
-    authorizationUrl: "https://provider.example/authorize?..."
-    expiresAt: "2026-01-31T09:20:01Z"
-    message: "외부 서비스 연결이 필요합니다. 아래 링크에서 승인을 완료하면 작업을 이어갈 수 있습니다."
-```
+자세한 본문: [spec_main_12_tool-spec-runtime.md](spec_main_12_tool-spec-runtime.md)
 
 ---
 
 ## 13. Extension 실행 인터페이스
 
-### 13.1 엔트리포인트
+Extension은 `register(api)` 엔트리포인트를 제공하고, Runtime은 AgentInstance 초기화 시 확장 목록 순서대로 이를 호출해야 한다.
 
-Extension 구현은 `register(api)` 함수를 제공해야 하며, Runtime은 AgentInstance 초기화 시점에 확장 목록 순서대로 이를 호출해야 한다(MUST).
+등록 API는 파이프라인 mutate/wrap, tool 등록, 이벤트 emit, 워크스페이스 접근을 포함하며, 구현 선택으로 swarmBundle open/commitChangeset 같은 번들 접근 API를 제공할 수 있다.
 
-### 13.2 등록 API(개념 규격)
+또한 확장별 상태 저장(`ctx.extState()` 등)과 인스턴스 공유 상태, 그리고 내부 OAuthManager를 통해 토큰 취득 인터페이스를 표준화하는 방향을 제시한다.
 
-Runtime은 확장에 다음 기능을 제공할 수 있어야 한다(MAY/SHOULD).
-
-* 파이프라인 등록: `api.pipelines.mutate(point, fn)`, `api.pipelines.wrap(point, fn)`
-* 도구 등록: `api.tools.register(toolDef)`
-* 이벤트 발행: `api.events.emit(type, payload)`
-* 워크스페이스 접근: repo 확보, worktree 마운트, 파일 IO 등
-* (선택) SwarmBundle 접근: `api.swarmBundle.openChangeset()`, `api.swarmBundle.commitChangeset(...)` (구현 선택)
-
-### 13.3 실행 컨텍스트(ctx)
-
-* `ctx.extState()` 등 확장별 상태 저장소 제공 MAY
-* `ctx.instance.shared` 등 인스턴스 공유 상태 제공 MAY
-
-### 13.4 OAuthManager 인터페이스(Extension/Runtime 내부)
-
-Runtime은 OAuthApp을 해석하고 OAuthGrant를 관리하는 OAuthManager를 제공할 수 있다. Extension이 이를 활용할 수 있도록, 다음과 같은 인터페이스를 제공할 수 있다(MAY).
-
-* `api.oauth.getAccessToken(...)` (Tool의 `ctx.oauth`와 동일한 결과 형태 권장)
-* `api.oauth.getAuthorizationUrl(...)` 또는 `api.oauth.ensureGrant(...)` (구현 선택)
-
-OAuthManager의 저장소 구조/보존/마스킹 정책은 구현에 따라 달라질 수 있다. 단, Tool/Connector가 “토큰을 얻는 방법”은 `getAccessToken` 류 인터페이스로 표준화하는 것을 SHOULD 한다.
+자세한 본문: [spec_main_13_extension-interface.md](spec_main_13_extension-interface.md)
 
 ---
 
 ## 14. Skill 패턴(Extension 기반 구현)
 
-Skill은 SKILL.md 중심 번들로서 다음 기능을 통해 활용된다.
+Skill은 SKILL.md 중심의 번들로서 “카탈로그 제공 → 전문 열람 → bash로 스크립트 실행” 흐름으로 활용된다.
 
-1. 스킬 카탈로그(메타) 제공
-2. 선택 시 SKILL.md 전문과 경로 정보 제공
-3. bash로 스크립트 실행
+이 기능은 Extension으로 구현될 수 있으며, workspace.repoAvailable에서 스캔/인덱싱을 갱신하고 step.blocks로 카탈로그 및 열린 스킬 본문을 주입한다.
 
-이 기능은 Extension으로 구현될 수 있으며 다음 포인트를 활용한다.
+런타임 Tool로는 skills.list/skills.open을 제공해 LLM이 필요한 스킬을 탐색하고 안전하게 실행 흐름에 포함할 수 있다.
 
-* `workspace.repoAvailable`: 스킬 디렉터리 스캔/인덱스 갱신
-* `step.blocks`: 카탈로그/열린 스킬 본문 주입
-* `skills.list`, `skills.open`: 스킬 목록/전문 로딩 tool 제공
+자세한 본문: [spec_main_14_skill-pattern.md](spec_main_14_skill-pattern.md)
 
 ---
 
 ## 15. 대표 도구 패턴: ToolSearch
 
-ToolSearch는 LLM이 tool catalog를 탐색/요약할 수 있도록 제공되는 **Tool**이다.
-ToolSearch는 “다음 Step부터 사용할 도구/확장/프롬프트 변경”이 필요할 때, 도구 카탈로그를 로드 하는 시점에 도구 목록을 조작하여 검색된 도구를 추가한다.
+ToolSearch는 LLM이 현재 Tool Catalog를 탐색/요약하기 위해 제공되는 대표적인 Tool 패턴이다.
+
+다음 Step부터 사용할 도구/확장/프롬프트 구성이 필요할 때, 카탈로그 로딩 시점에 도구 목록을 조작하여 “검색된 도구를 점진적으로 노출”하는 데 사용된다.
+
+즉, 한 번에 모든 도구를 노출하는 대신 필요 기반 확장으로 컨텍스트/탐색 비용을 최적화하는 목적을 가진다.
+
+자세한 본문: [spec_main_15_toolsearch.md](spec_main_15_toolsearch.md)
 
 ---
 
 ## 16. 예상 사용 시나리오
 
-### 16.1 Slack thread 기반 장기 작업
+Slack thread를 instanceKey로 사용해 동일 스레드를 동일 SwarmInstance로 라우팅하고, 진행 업데이트/완료 보고를 같은 맥락으로 보내는 장기 작업 시나리오를 제시한다.
 
-사용자가 Slack thread에서 Swarm을 호출하면 Connector는 thread 식별자를 instanceKey로 사용하여 동일 스레드의 요청이 동일 SwarmInstance로 라우팅되도록 할 수 있다. AgentInstance는 같은 스레드에 진행 업데이트/완료 보고를 전송한다.
+repo 확보 이벤트로 Skill 카탈로그가 갱신되고 다음 Step 컨텍스트에 주입되는 흐름, ToolSearch로 도구 노출을 단계적으로 확장하는 흐름, selector+overrides로 프리셋을 선택 후 부분 덮어쓰는 흐름을 포함한다.
 
-### 16.2 repo가 추가되면서 스킬이 자연스럽게 활성화되는 흐름
+Changeset으로 도구/프롬프트/코드가 다음 Step부터 바뀌는 표준 패턴과, Slack OAuth 설치/토큰 사용(authorization_required → callback 검증 → auth.granted 재개) 개념 흐름을 함께 설명한다.
 
-AgentInstance가 작업 중 특정 repo를 확보하면 workspace 이벤트가 발생하고 Skill 확장은 해당 repo의 스킬을 스캔해 카탈로그를 갱신한다. 다음 Step에서 갱신된 스킬 카탈로그가 컨텍스트 블록에 포함될 수 있다.
-
-### 16.3 ToolSearch로 도구 노출을 최적화하는 흐름
-
-ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색 결과에 따라 다음 Step부터 도구를 단계적으로 확장한다.
-
-### 16.4 프리셋/번들 선택과 부분 덮어쓰기
-
-조직 내 공통 정책을 리소스로 정의해두면 Agent는 selector+overrides 문법으로 이를 선택하고 일부만 덮어써 구성할 수 있다.
-
-### 16.5 Changeset으로 “도구/프롬프트/코드”가 다음 Step부터 바뀌는 흐름
-
-1. Step N에서 LLM이 `swarmBundle.openChangeset` 호출 → staging workdir 수신
-2. LLM이 bash로 workdir 안의 YAML/프롬프트/코드 파일을 수정
-3. LLM이 `swarmBundle.commitChangeset` 호출
-4. SwarmBundleManager가 정책 검사/검증 후 새 SwarmRevision 생성, head 이동, changesets/status 기록
-5. Step N 종료
-6. Step N+1의 `step.config`에서 head를 활성화(activeSwarmRevision으로 반영), status에 appliedAt/stepId 기록
-7. Step N+1부터 새 SwarmRevision 기반으로 실행
-
-### 16.6 Slack OAuth 설치/토큰 사용 흐름(개념)
-
-1. Slack Connector는 ingress 이벤트로부터 `turn.auth.actor`와 `turn.auth.subjects`를 설정한다. 예를 들어 `turn.auth.subjects.global = slack:team:<team_id>`, `turn.auth.subjects.user = slack:user:<team_id>:<user_id>` 형태로 채우는 것을 권장한다.
-2. LLM이 `slack.postMessage`를 호출하면 Tool 구현은 `ctx.oauth.getAccessToken({ oauthAppRef: slack-bot })`로 토큰을 요청한다. 이때 `slack-bot` OAuthApp의 `subjectMode=global`이므로 Runtime은 `turn.auth.subjects.global`을 subject로 사용한다.
-3. 토큰이 준비되어 있으면 `status="ready"`가 반환되고 Tool은 Slack API 호출을 수행한다.
-4. 토큰이 없다면 `status="authorization_required"`가 반환되며, Runtime은 AuthSession을 생성해 `authorizationUrl`과 안내 메시지를 제공한다. 에이전트는 이 정보를 이용해 사용자에게 승인 링크를 안내한다.
-5. 사용자가 승인을 완료하면 Runtime은 callback에서 PKCE/state/subject를 검증한 뒤 OAuthGrant를 저장하고, `auth.granted` 이벤트를 해당 인스턴스/에이전트로 enqueue하여 비동기 재개를 수행한다.
-
+자세한 본문: [spec_main_16_scenarios.md](spec_main_16_scenarios.md)
 
 ---
 
 ## 17. 기대 효과
 
-1. 멀티 에이전트 구성과 컨텍스트 최적화 로직이 선언형 구성과 파이프라인으로 체계적으로 조직된다.
-2. stateful long‑running 에이전트 경험을 Turn/Step 모델과 이벤트 큐로 일관되게 구현할 수 있다.
-3. 확장을 통해 도구 카탈로그, 컨텍스트 조립, 메모리 축적/주입, 클라이언트 업데이트 전략을 모듈화할 수 있다.
-4. 구성 파일 기반 정의로 재사용과 자동화가 쉬워지고 AI가 구성을 생성·수정·검토하는 흐름이 자연스럽다.
-5. Changeset → SwarmRevision 모델로 “구성뿐 아니라 코드까지” 런타임 중 변경·반영할 수 있다.
-6. reconcile이 identity 기반으로 수행되고 stateful MCP 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
-7. OAuthApp 도입으로 Tool/Connector의 인증/토큰 취득 방식이 표준화되어, 통합 난이도와 운영 복잡성이 감소한다.
+멀티 에이전트 구성과 컨텍스트 최적화 로직이 선언형 구성과 파이프라인으로 체계화되며, Turn/Step 모델과 이벤트 큐로 stateful long-running 경험을 일관되게 구현할 수 있다.
+
+Extension을 통해 도구 카탈로그/컨텍스트 조립/메모리 축적·주입/클라이언트 업데이트 전략을 모듈화할 수 있고, 구성 파일 기반 정의로 재사용·자동화 및 AI 보조 작업 흐름이 자연스럽다.
+
+Changeset→SwarmRevision으로 런타임 중 구성+코드 변경 반영이 가능해지고, identity 기반 reconcile 및 OAuthApp 표준화로 운영 안정성과 통합 일관성이 향상된다.
+
+자세한 본문: [spec_main_17_expected-effects.md](spec_main_17_expected-effects.md)
 
 ---
 
 ## 18. Bundle(구성+코드 번들) 및 Bundle 리소스(선택)
 
-Bundle은 YAML + 소스코드(프롬프트/툴/확장/커넥터 구현)를 함께 담는 폴더 트리이며, SwarmBundle은 Swarm을 정의하는 Bundle이다.
+Bundle은 YAML 리소스와 프롬프트/툴/확장/커넥터 구현 소스코드를 함께 담는 폴더 트리이며, SwarmBundle은 Swarm을 정의하는 Bundle이다.
 
-(기존 v0.8의 Bundle(확장 묶음) 설명은 “Bundle을 Git 기반으로 받아 include로 리소스 YAML을 합치는 방식”으로 그대로 유지할 수 있다.
-필요하면 여기서 `kind: Bundle` 리소스를 사용해 의존 번들을 조립하는 메커니즘을 제공한다.)
+기존 v0.8의 “Git 기반 번들 + include로 리소스 YAML을 합치는 방식”은 그대로 유지 가능한 모델로 설명되며, 필요 시 `kind: Bundle` 리소스로 의존 번들을 조립하는 메커니즘을 제공할 수 있다.
+
+본 섹션은 선택 사항으로, 배포/재사용 단위로서의 번들 개념과 향후 확장 포인트를 정리한다.
+
+자세한 본문: [spec_main_18_bundle.md](spec_main_18_bundle.md)
 
 ---
 
 ## 부록 A. 실행 모델 및 훅 위치 다이어그램
 
-### A-1. Instance → Turn → Step 라이프사이클과 파이프라인 포인트(ASCII)
+Instance → Turn → Step 실행 흐름과 turn/step/toolCall 파이프라인 포인트의 위치를 ASCII 다이어그램으로 제시한다.
 
-```
-[External Event via Connector]
-          │
-          ▼
-   [SwarmInstance (instanceKey)]
-          │
-          ▼
-   [AgentInstance Event Queue]
-          │  (dequeue 1 event)
-          ▼
-     ┌───────────────┐
-     │   Turn Start   │
-     └───────────────┘
-          │
-          │ turn.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │            Step Loop (0..N)           │
-   └───────────────────────────────────────┘
-          │
-          │ step.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.config     (Mutator)             │
-   │  - activate SwarmRevision + load cfg  │
-   └───────────────────────────────────────┘
-          │
-          │ step.tools      (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.tools      (Mutator)             │
-   │  - build/transform Tool Catalog       │
-   └───────────────────────────────────────┘
-          │
-          │ step.blocks     (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.blocks     (Mutator)             │
-   │  - build/transform Context Blocks     │
-   └───────────────────────────────────────┘
-          │
-          │ step.llmCall    (Middleware)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.llmCall    (Middleware onion)    │
-   │  EXT.before → CORE LLM → EXT.after    │
-   └───────────────────────────────────────┘
-          │
-          ├──── tool calls exist? ────┐
-          │                           │
-          ▼                           ▼
- (for each tool call)            (no tool call)
-          │
-          │ toolCall.pre   (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ toolCall.exec   (Middleware onion)    │
-   │  EXT.before → CORE exec → EXT.after   │
-   └───────────────────────────────────────┘
-          │
-          │ toolCall.post  (Mutator)
-          ▼
-          │ step.post      (Mutator)
-          ▼
-     ┌───────────────────────┐
-     │ Continue Step loop?   │
-     └───────────────────────┘
-          │yes                      │no
-          └───────────┐             └─────────────┐
-                      ▼                           ▼
-                  (next Step)               turn.post (Mutator)
-                                                │
-                                                ▼
-                                             Turn End
-                                                │
-                                                ▼
-                                        wait next event…
-```
+특히 step.config에서 SwarmRevision 활성화와 config 로딩이 이뤄지고, step.llmCall/toolCall.exec가 middleware onion 구조로 확장에 의해 래핑될 수 있음을 한눈에 보여준다.
+
+구현/디버깅 시 “어느 시점에 무엇이 실행되어야 하는지”를 빠르게 확인하는 참고용 부록이다.
+
+자세한 본문: [spec_main_appendix_a_diagram.md](spec_main_appendix_a_diagram.md)
+
+---
+

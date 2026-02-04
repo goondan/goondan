@@ -31,7 +31,7 @@ hooks 합성:
 
 ### 11.4 changeset 커밋/활성화 실패 처리 (SHOULD)
 
-Changeset commit 또는 활성화 실패는 changeset-status에 `result="failed"`로 기록하고, Step 자체는 계속 진행하는 정책을 SHOULD 한다. (fail-fast는 구현 선택)
+Changeset commit 또는 활성화 실패는 tool 결과로 관측 가능해야 하며, Runtime은 이를 Instance event log에 기록하는 것을 SHOULD 한다. 또한 Step 자체는 계속 진행하는 정책을 SHOULD 한다. (fail-fast는 구현 선택)
 
 ### 11.6 Reconcile Identity 규칙 (MUST)
 

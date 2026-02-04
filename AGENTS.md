@@ -20,12 +20,11 @@
 - @TODO.md : 작업 체크리스트 (수행 후 체크 표시)
 - @REPORT.md : 작업 보고서
 - @IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
-- @docs/spec_config.md : Config 스펙 구체화 문서
 - @docs/spec_api.md : Runtime/SDK API 스펙 문서
 - @docs/spec_bundle.md : Bundle Package(Git 기반) 요구사항 문서
-- @docs/spec_main.md : 메인 스펙(요약 인덱스, 예시/시나리오/기대효과 통합)
-- @docs/spec_main_*.md : spec_main 분할 본문
-- @docs/scenario_example1.md : CLI 기반 스웜 실행 시나리오
+- @docs/spec_package.md : Bundle Package 스펙(패키징/참조) 문서
+- @docs/requirements/index.md : 요구사항 문서(요약 인덱스, 예시/시나리오/기대효과 통합)
+- @docs/requirements/*.md : 요구사항 분할 본문
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
@@ -39,7 +38,7 @@
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것
-- 모든 요구사항은 goondan_spec.md 수정 필요 여부와 docs/spec_config.md 수정 필요 여부를 반드시 검토하고 기록할 것
-- 스펙 문서(goondan_spec.md, docs/spec_*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
+- 모든 요구사항은 docs/requirements/index.md(및 관련 docs/requirements/*.md), docs/spec_bundle.md 수정 필요 여부를 반드시 검토하고 기록할 것
+- 스펙 문서(docs/spec_*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것

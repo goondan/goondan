@@ -1598,29 +1598,28 @@ spec:
 ### 10.6 상태 디렉터리 구조
 
 ```
-state/
-├── bundles.json              # 등록된 번들 목록
-├── bundles/                  # 번들 캐시
-│   └── git/
-│       └── github.com/
-│           └── goondan/
-│               └── goondan/
-│                   └── main/
-│                       └── packages/
-│                           └── base/
+~/.goondan/                   # 기본값 (또는 --state-root / GOONDAN_STATE_ROOT)
+├── bundles.json              # 등록된 Bundle Package 목록(레지스트리)
+├── bundles/                  # Bundle Package 캐시(다운로드/설치된 패키지)
+│   └── git/...
+├── worktrees/                # changeset workdir (Git worktree)
+│   └── <workspaceId>/
+│       └── changesets/
+│           └── <changesetId>/
+├── oauth/                    # OAuth grants/sessions (at-rest encrypted)
+├── secrets/                  # Secret/<name> 저장소 (구현 선택)
 └── instances/
-    └── <instanceId>/
-        ├── base/
-        │   └── base-config.ref
-        └── agents/
-            └── <agentName>/
-                ├── live-config/
-                │   ├── patches.jsonl
-                │   ├── patch-status.jsonl
-                │   ├── cursor.yaml
-                │   └── effective/
-                └── messages/
-                    └── llm.jsonl
+    └── <workspaceId>/        # 프로젝트(= SwarmBundleRoot) 스코프
+        └── <instanceId>/
+            ├── swarm/
+            │   └── events/
+            │       └── events.jsonl
+            └── agents/
+                └── <agentName>/
+                    ├── messages/
+                    │   └── llm.jsonl
+                    └── events/
+                        └── events.jsonl
 ```
 
 ---
@@ -1689,7 +1688,8 @@ type PipelinePoint =
 
 더 자세한 정보는 다음 문서를 참고하세요:
 
-- @./goondan_spec.md - 전체 스펙
-- @./docs/spec_config.md - Config YAML 스펙
+- @./docs/requirements/index.md - 요구사항 문서(메인)
+- @./docs/requirements/06_config-spec.md - Config/Changeset 스펙
 - @./docs/spec_api.md - Runtime/SDK API
-- @./docs/spec_bundle.md - Bundle Package 요구사항
+- @./docs/spec_bundle.md - Bundle YAML 스펙
+- @./docs/spec_package.md - Bundle Package 스펙

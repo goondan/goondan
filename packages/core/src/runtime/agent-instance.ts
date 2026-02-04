@@ -5,7 +5,7 @@ import { PipelineManager } from './pipelines.js';
 import { resolveSelectorList } from '../config/selectors.js';
 import { resolveRef } from '../config/ref.js';
 import { makeId } from '../utils/ids.js';
-import { appendJsonl, ensureDir, readJsonl } from '../utils/fs.js';
+import { JsonlSegmentWriter, readJsonlSegmentsNewestFirst } from '../utils/jsonl-segments.js';
 import { resolveTemplate } from './hooks.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -74,11 +74,25 @@ type LlmMessageRecord = {
   type: 'llm.message';
   recordedAt: string;
   instanceId: string;
+  instanceKey: string;
   agentName: string;
   turnId: string;
   stepId?: string;
   stepIndex?: number;
   message: LlmMessage;
+};
+
+type AgentEventRecord = {
+  type: 'agent.event';
+  recordedAt: string;
+  kind: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId?: string;
+  stepId?: string;
+  stepIndex?: number;
+  data?: JsonObject;
 };
 
 type RuntimeLike = {
@@ -159,8 +173,8 @@ export class AgentInstance {
   extensionIdentities: string[];
   mcpIdentities: string[];
   systemPrompt: string | null;
-  messageLogReady: boolean;
-  messageLogPath: string | null;
+  messageLogWriter: JsonlSegmentWriter | null;
+  eventLogWriter: JsonlSegmentWriter | null;
 
   constructor(options: AgentInstanceOptions) {
     this.name = options.name;
@@ -184,8 +198,8 @@ export class AgentInstance {
     this.extensionIdentities = [];
     this.mcpIdentities = [];
     this.systemPrompt = null;
-    this.messageLogReady = false;
-    this.messageLogPath = null;
+    this.messageLogWriter = null;
+    this.eventLogWriter = null;
   }
 
   async init(): Promise<void> {
@@ -233,6 +247,16 @@ export class AgentInstance {
       await this.appendTurnMessage(turn, { role: 'user', content: inputText });
     }
 
+    await this.appendAgentEvent({
+      kind: 'turn.start',
+      turn,
+      data: {
+        inputBytes: Buffer.byteLength(String(event.input || ''), 'utf8'),
+        previousMessages: previousMessages.length,
+        originConnector: typeof turn.origin?.connector === 'string' ? turn.origin.connector : undefined,
+      },
+    });
+
     let turnCtx: PipelineContext = {
       instance: this,
       swarm: this.swarmConfig,
@@ -241,124 +265,169 @@ export class AgentInstance {
       step: null,
     };
 
-    turnCtx = await this.pipelines.runMutators('turn.pre', turnCtx);
-    await this.applyHooks('turn.pre', turnCtx);
+    let thrown: unknown = null;
+    try {
+      turnCtx = await this.pipelines.runMutators('turn.pre', turnCtx);
+      await this.applyHooks('turn.pre', turnCtx);
 
-    const swarmSpec = extractSwarmSpec(this.swarmConfig);
-    const maxSteps = swarmSpec?.policy?.maxStepsPerTurn ?? 16;
-    for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
-      const step: Step = {
-        id: makeId('step'),
-        index: stepIndex,
-        toolCalls: [],
-        toolResults: [],
-        llmResult: null,
-      };
+      const swarmSpec = extractSwarmSpec(this.swarmConfig);
+      const maxSteps = swarmSpec?.policy?.maxStepsPerTurn ?? 16;
+      for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
+        const step: Step = {
+          id: makeId('step'),
+          index: stepIndex,
+          toolCalls: [],
+          toolResults: [],
+          llmResult: null,
+        };
 
-      let stepCtx: PipelineContext = {
-        ...turnCtx,
-        step,
-        effectiveConfig: null,
-        toolCatalog: [],
-        blocks: [],
-      };
+        await this.appendAgentEvent({ kind: 'step.start', turn, step });
 
-      stepCtx = await this.pipelines.runMutators('step.pre', stepCtx);
-      await this.applyHooks('step.pre', stepCtx);
+        let stepCtx: PipelineContext = {
+          ...turnCtx,
+          step,
+          effectiveConfig: null,
+          toolCatalog: [],
+          blocks: [],
+        };
 
-      stepCtx.effectiveConfig = await this.liveConfigManager.applyAtSafePoint({
-        agentName: this.name,
-        stepId: step.id,
-      });
-      if (stepCtx.effectiveConfig?.agent) {
-        stepCtx.agent = stepCtx.effectiveConfig.agent;
-      }
-      if (stepCtx.effectiveConfig?.swarm) {
-        stepCtx.swarm = stepCtx.effectiveConfig.swarm;
-      }
-      await this.reconcileExtensions(stepCtx.agent);
-      await this.reconcileMcpServers(stepCtx.agent);
+        stepCtx = await this.pipelines.runMutators('step.pre', stepCtx);
+        await this.applyHooks('step.pre', stepCtx);
 
-      stepCtx = await this.pipelines.runMutators('step.config', stepCtx);
-      await this.applyHooks('step.config', stepCtx);
-
-      stepCtx.toolCatalog = this.buildToolCatalog(stepCtx);
-      stepCtx = await this.pipelines.runMutators('step.tools', stepCtx);
-      await this.applyHooks('step.tools', stepCtx);
-
-      stepCtx.blocks = this.buildContextBlocks(stepCtx);
-      stepCtx = await this.pipelines.runMutators('step.blocks', stepCtx);
-      await this.applyHooks('step.blocks', stepCtx);
-
-      stepCtx = await this.runLlmCall(stepCtx);
-
-      if (stepCtx.llmResult) {
-        const normalizedToolCalls = normalizeToolCalls(stepCtx.llmResult.toolCalls || []);
-        if (stepCtx.llmResult.toolCalls !== normalizedToolCalls) {
-          stepCtx.llmResult = { ...stepCtx.llmResult, toolCalls: normalizedToolCalls };
+        stepCtx.effectiveConfig = await this.liveConfigManager.applyAtSafePoint({
+          agentName: this.name,
+          stepId: step.id,
+        });
+        if (stepCtx.effectiveConfig?.agent) {
+          stepCtx.agent = stepCtx.effectiveConfig.agent;
         }
-        step.llmResult = stepCtx.llmResult;
-        step.toolCalls = normalizedToolCalls;
-        const assistantMessage = buildAssistantMessage(stepCtx.llmResult);
-        if (assistantMessage) {
-          await this.appendTurnMessage(turn, assistantMessage, step);
+        if (stepCtx.effectiveConfig?.swarm) {
+          stepCtx.swarm = stepCtx.effectiveConfig.swarm;
         }
-      } else {
-        step.llmResult = null;
-        step.toolCalls = [];
-      }
+        await this.reconcileExtensions(stepCtx.agent);
+        await this.reconcileMcpServers(stepCtx.agent);
 
-      const toolCalls = step.toolCalls;
+        stepCtx = await this.pipelines.runMutators('step.config', stepCtx);
+        await this.applyHooks('step.config', stepCtx);
 
-      if (toolCalls.length > 0) {
-        for (const call of toolCalls) {
-          const toolResult = await this.executeToolCall(call, stepCtx);
-          step.toolResults.push(toolResult);
-          turn.toolResults.push(toolResult);
-          await this.appendTurnMessage(turn, buildToolMessage(call, toolResult), step);
+        stepCtx.toolCatalog = this.buildToolCatalog(stepCtx);
+        stepCtx = await this.pipelines.runMutators('step.tools', stepCtx);
+        await this.applyHooks('step.tools', stepCtx);
+
+        stepCtx.blocks = this.buildContextBlocks(stepCtx);
+        stepCtx = await this.pipelines.runMutators('step.blocks', stepCtx);
+        await this.applyHooks('step.blocks', stepCtx);
+
+        stepCtx = await this.runLlmCall(stepCtx);
+
+        if (stepCtx.llmResult) {
+          const normalizedToolCalls = normalizeToolCalls(stepCtx.llmResult.toolCalls || []);
+          if (stepCtx.llmResult.toolCalls !== normalizedToolCalls) {
+            stepCtx.llmResult = { ...stepCtx.llmResult, toolCalls: normalizedToolCalls };
+          }
+          step.llmResult = stepCtx.llmResult;
+          step.toolCalls = normalizedToolCalls;
+          const assistantMessage = buildAssistantMessage(stepCtx.llmResult);
+          if (assistantMessage) {
+            await this.appendTurnMessage(turn, assistantMessage, step);
+          }
+        } else {
+          step.llmResult = null;
+          step.toolCalls = [];
         }
+
+        const toolCalls = step.toolCalls;
+
+        if (toolCalls.length > 0) {
+          for (const call of toolCalls) {
+            const startedAt = Date.now();
+            await this.appendAgentEvent({ kind: 'toolCall.exec', turn, step, data: { name: call.name, id: call.id } });
+            const toolResult = await this.executeToolCall(call, stepCtx);
+            const durationMs = Date.now() - startedAt;
+            step.toolResults.push(toolResult);
+            turn.toolResults.push(toolResult);
+            await this.appendTurnMessage(turn, buildToolMessage(call, toolResult), step);
+
+            const status = extractStatus(toolResult.output);
+            await this.appendAgentEvent({
+              kind: 'toolCall.result',
+              turn,
+              step,
+              data: { name: call.name, id: call.id, status, durationMs },
+            });
+          }
+          stepCtx = await this.pipelines.runMutators('step.post', stepCtx);
+          await this.applyHooks('step.post', stepCtx);
+
+          await this.appendAgentEvent({
+            kind: 'step.end',
+            turn,
+            step,
+            data: { toolCalls: toolCalls.length, toolResults: step.toolResults.length, hasContent: Boolean(step.llmResult?.content) },
+          });
+          continue;
+        }
+
+        if (stepCtx.llmResult?.content) {
+          turn.summary = stepCtx.llmResult.content;
+        }
+
         stepCtx = await this.pipelines.runMutators('step.post', stepCtx);
         await this.applyHooks('step.post', stepCtx);
-        continue;
+
+        await this.appendAgentEvent({
+          kind: 'step.end',
+          turn,
+          step,
+          data: { toolCalls: 0, toolResults: 0, hasContent: Boolean(step.llmResult?.content) },
+        });
+        break;
       }
 
-      if (stepCtx.llmResult?.content) {
-        turn.summary = stepCtx.llmResult.content;
+      // 위임된 작업인 경우 결과를 원래 에이전트에게 반환
+      const isDelegation = Boolean(turn.metadata?.isDelegation);
+      const returnTo = turn.metadata?.returnTo as string | undefined;
+      const delegationId = turn.metadata?.delegationId as string | undefined;
+
+      if (isDelegation && returnTo && delegationId) {
+        // 위임 결과 이벤트 발행 - Runtime이 원래 에이전트에게 전달
+        this.runtime.events.emit('agent.delegationResult', {
+          delegationId,
+          fromAgent: this.name,
+          toAgent: returnTo,
+          result: turn.summary,
+          toolResults: turn.toolResults,
+          // 스펙 §9.1.1: handoff 시 turn.auth는 변경 없이 전달 (MUST)
+          origin: turn.origin,
+          auth: turn.auth,
+          timestamp: new Date().toISOString(),
+        });
+      } else if (turn.summary) {
+        // 일반 Turn의 경우 외부로 결과 전송
+        await this.runtime.emitFinal(turn.origin, turn.summary, turn.auth);
       }
 
-      stepCtx = await this.pipelines.runMutators('step.post', stepCtx);
-      await this.applyHooks('step.post', stepCtx);
-      break;
-    }
+      turnCtx = { ...turnCtx, step: null };
+      turnCtx = await this.pipelines.runMutators('turn.post', turnCtx);
+      await this.applyHooks('turn.post', turnCtx);
 
-    // 위임된 작업인 경우 결과를 원래 에이전트에게 반환
-    const isDelegation = Boolean(turn.metadata?.isDelegation);
-    const returnTo = turn.metadata?.returnTo as string | undefined;
-    const delegationId = turn.metadata?.delegationId as string | undefined;
-
-    if (isDelegation && returnTo && delegationId) {
-      // 위임 결과 이벤트 발행 - Runtime이 원래 에이전트에게 전달
-      this.runtime.events.emit('agent.delegationResult', {
-        delegationId,
-        fromAgent: this.name,
-        toAgent: returnTo,
-        result: turn.summary,
-        toolResults: turn.toolResults,
-        // 스펙 §9.1.1: handoff 시 turn.auth는 변경 없이 전달 (MUST)
-        origin: turn.origin,
-        auth: turn.auth,
-        timestamp: new Date().toISOString(),
+      return turn;
+    } catch (err) {
+      thrown = err;
+      throw err;
+    } finally {
+      const error = thrown ? buildErrorSummary(thrown) : null;
+      await this.appendAgentEvent({
+        kind: 'turn.end',
+        turn,
+        data: {
+          summaryBytes: Buffer.byteLength(String(turn.summary || ''), 'utf8'),
+          messages: turn.messages.length,
+          toolResults: turn.toolResults.length,
+          error,
+        },
       });
-    } else if (turn.summary) {
-      // 일반 Turn의 경우 외부로 결과 전송
-      await this.runtime.emitFinal(turn.origin, turn.summary, turn.auth);
     }
-
-    turnCtx = { ...turnCtx, step: null };
-    turnCtx = await this.pipelines.runMutators('turn.post', turnCtx);
-    await this.applyHooks('turn.post', turnCtx);
-
-    return turn;
   }
 
   async loadSystemPrompt(): Promise<void> {
@@ -651,6 +720,7 @@ export class AgentInstance {
       type: 'llm.message',
       recordedAt: new Date().toISOString(),
       instanceId: this.instanceId,
+      instanceKey: this.instanceKey,
       agentName: this.name,
       turnId: turn.id,
       stepId: step?.id,
@@ -665,31 +735,62 @@ export class AgentInstance {
   }
 
   private async appendMessageRecord(record: LlmMessageRecord): Promise<void> {
-    const logPath = await this.ensureMessageLogPath();
-    await appendJsonl(logPath, record);
-    await fs.chmod(logPath, 0o600);
+    const writer = this.getMessageLogWriter();
+    await writer.append(record);
   }
 
-  private async ensureMessageLogPath(): Promise<string> {
-    if (this.messageLogReady && this.messageLogPath) {
-      return this.messageLogPath;
+  private async appendAgentEvent(input: { kind: string; turn?: Turn; step?: Step | null; data?: JsonObject }): Promise<void> {
+    const record: AgentEventRecord = {
+      type: 'agent.event',
+      recordedAt: new Date().toISOString(),
+      kind: input.kind,
+      instanceId: this.instanceId,
+      instanceKey: this.instanceKey,
+      agentName: this.name,
+      turnId: input.turn?.id,
+      stepId: input.step?.id,
+      stepIndex: input.step?.index,
+      data: input.data,
+    };
+    try {
+      await this.appendAgentEventRecord(record);
+    } catch (err) {
+      this.logger.error('Agent event log write failed.', err);
     }
-    const logPath = path.join(this.resolveAgentStateDir(), 'messages', 'llm.jsonl');
-    await ensureDir(path.dirname(logPath));
-    await fs.chmod(path.dirname(logPath), 0o700);
-    this.messageLogReady = true;
-    this.messageLogPath = logPath;
-    return logPath;
+  }
+
+  private async appendAgentEventRecord(record: AgentEventRecord): Promise<void> {
+    const writer = this.getEventLogWriter();
+    await writer.append(record);
   }
 
   private async loadPreviousMessages(): Promise<LlmMessage[]> {
-    const logPath = path.join(this.resolveAgentStateDir(), 'messages', 'llm.jsonl');
-    const records = await readJsonl<LlmMessageRecord>(logPath);
-    return records.map((record) => record.message);
+    const dirPath = path.join(this.resolveAgentStateDir(), 'messages');
+    const recordsNewestFirst = await readJsonlSegmentsNewestFirst(dirPath);
+    const messagesNewestFirst: LlmMessage[] = [];
+    for (const record of recordsNewestFirst) {
+      if (!isLlmMessageRecord(record)) continue;
+      messagesNewestFirst.push(record.message);
+    }
+    return messagesNewestFirst.reverse();
+  }
+
+  private getMessageLogWriter(): JsonlSegmentWriter {
+    if (this.messageLogWriter) return this.messageLogWriter;
+    const dirPath = path.join(this.resolveAgentStateDir(), 'messages');
+    this.messageLogWriter = new JsonlSegmentWriter({ dirPath, maxLinesPerFile: 1000, logger: this.logger });
+    return this.messageLogWriter;
+  }
+
+  private getEventLogWriter(): JsonlSegmentWriter {
+    if (this.eventLogWriter) return this.eventLogWriter;
+    const dirPath = path.join(this.resolveAgentStateDir(), 'events');
+    this.eventLogWriter = new JsonlSegmentWriter({ dirPath, maxLinesPerFile: 1000, logger: this.logger });
+    return this.eventLogWriter;
   }
 
   private resolveAgentStateDir(): string {
-    return path.join(this.runtime.stateDir, this.instanceId, 'agents', this.name);
+    return path.join(this.liveConfigManager.resolveInstanceStateDir(), 'agents', this.name);
   }
 
   registerLiveConfigProposalListener(): void {
@@ -954,12 +1055,55 @@ function isHookSpec(value: unknown): value is HookSpec {
   return true;
 }
 
+function isLlmMessageRecord(value: unknown): value is LlmMessageRecord {
+  if (!isRecord(value)) return false;
+  if (value.type !== 'llm.message') return false;
+  if (typeof value.recordedAt !== 'string') return false;
+  if (typeof value.instanceId !== 'string') return false;
+  if (typeof value.instanceKey !== 'string') return false;
+  if (typeof value.agentName !== 'string') return false;
+  if (typeof value.turnId !== 'string') return false;
+  if (value.stepId !== undefined && typeof value.stepId !== 'string') return false;
+  if (value.stepIndex !== undefined && typeof value.stepIndex !== 'number') return false;
+  return isLlmMessage(value.message);
+}
+
+function isLlmMessage(value: unknown): value is LlmMessage {
+  if (!isRecord(value)) return false;
+  const role = value.role;
+  if (role === 'system' || role === 'user') {
+    return typeof value.content === 'string';
+  }
+  if (role === 'assistant') {
+    if (value.content !== undefined && typeof value.content !== 'string') return false;
+    if (value.toolCalls !== undefined && !Array.isArray(value.toolCalls)) return false;
+    return true;
+  }
+  if (role === 'tool') {
+    return typeof value.toolCallId === 'string' && typeof value.toolName === 'string';
+  }
+  return false;
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return isRecord(value) && !Array.isArray(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function extractStatus(value: unknown): string | undefined {
+  if (!isJsonObject(value)) return undefined;
+  const status = value.status;
+  return typeof status === 'string' ? status : undefined;
+}
+
+function buildErrorSummary(err: unknown): JsonObject {
+  if (err instanceof Error) {
+    return { name: err.name, message: err.message };
+  }
+  return { name: 'Error', message: String(err) };
 }
 
 function normalizeJsonValue(value: unknown): JsonValue {

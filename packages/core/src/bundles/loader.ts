@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { deepClone } from '../utils/json.js';
+import { resolveStateRootDir } from '../utils/state-paths.js';
 import type { BundleManifest, Resource } from '../sdk/types.js';
 import { installGitBundle, isGitBundleRef } from './git.js';
 
@@ -200,7 +201,7 @@ async function resolveBundleDependency(
     throw new Error(`지원하지 않는 Bundle dependency입니다: ${dependency}`);
   }
 
-  const stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
+  const stateRootDir = resolveStateRootDir({ stateRootDir: options.stateRootDir, baseDir: process.cwd() });
   const installed = await installGitBundle(dependency, { stateRootDir });
   return installed.manifestPath;
 }

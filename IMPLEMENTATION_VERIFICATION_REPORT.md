@@ -6,7 +6,7 @@
 - **스펙 요구사항**: Connector 이벤트를 instanceKey로 SwarmInstance에 라우팅하고, AgentInstance 큐에서 Turn/Step 루프를 수행하며 Step 시작 시 Effective Config 고정, Turn.messages에 LLM/Tool 결과를 누적해 다음 Step에 사용해야 함.
 - **구현 위치**: `packages/core/src/runtime/runtime.ts`, `packages/core/src/runtime/swarm-instance.ts`, `packages/core/src/runtime/agent-instance.ts`
 - **검증 결과**: ✅ 올바름
-- **상세 내용**: `Runtime.handleEvent` → `SwarmInstance` 생성/조회 → `AgentInstance` 큐 처리 흐름이 구현되어 있고, `runTurn`에서 Step 루프와 tool call 처리 후 다음 Step로 진행한다. Step 시작 시 `liveConfigManager.applyAtSafePoint`로 Effective Config를 적용하고, `Turn.messages`/`Turn.toolResults`를 `step.blocks`에 포함해 다음 Step 컨텍스트로 사용한다. LLM 메시지는 `state/instances/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록된다. 추가로 `agent.delegate`/`agent.delegationResult` 이벤트로 에이전트 간 위임을 큐 기반으로 전달하는 확장 동작이 추가되었으며, 기존 실행 모델과 충돌하지 않는다.
+- **상세 내용**: `Runtime.handleEvent` → `SwarmInstance` 생성/조회 → `AgentInstance` 큐 처리 흐름이 구현되어 있고, `runTurn`에서 Step 루프와 tool call 처리 후 다음 Step로 진행한다. Step 시작 시 `liveConfigManager.applyAtSafePoint`로 Effective Config를 적용하고, `Turn.messages`/`Turn.toolResults`를 `step.blocks`에 포함해 다음 Step 컨텍스트로 사용한다. LLM 메시지는 Instance State Root 아래 `instances/<workspaceId>/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록된다(기본: `~/.goondan/instances/...`, CLI `--state-root` 또는 `GOONDAN_STATE_ROOT`로 state root 변경 가능). 또한 Swarm/Agent 이벤트 로그를 `instances/<workspaceId>/<instanceId>/swarm/events/events.jsonl`, `instances/<workspaceId>/<instanceId>/agents/<agent>/events/events.jsonl`에 append-only로 기록한다. 추가로 `agent.delegate`/`agent.delegationResult` 이벤트로 에이전트 간 위임을 큐 기반으로 전달하는 확장 동작이 추가되었으며, 기존 실행 모델과 충돌하지 않는다.
 
 ## 2. Live Config (동적 구성 오버레이)
 - **스펙 요구사항**: LiveConfigManager 단일 작성자 모델, patch proposal/평가/적용, Safe Point(step.config)에서만 적용, patch/status/cursor 파일 관리.
@@ -24,7 +24,7 @@
 - **스펙 요구사항**: Authorization Code + PKCE(S256) 필수, at-rest encryption, refresh, ctx.oauth 제공.
 - **구현 위치**: `packages/core/src/runtime/oauth.ts`, `packages/core/src/runtime/oauth-store.ts`, `packages/core/src/utils/encryption.ts`
 - **검증 결과**: ⚠️ 부분적 문제
-- **상세 내용**: PKCE(S256) 생성/저장, authorization URL 구성, callback에서 state/만료/subject 검증 및 code_verifier로 토큰 교환, grant 저장과 `auth.granted` 이벤트 enqueue가 구현됨. 토큰/PKCE/state는 AES-256-GCM으로 암호화 저장된다. 다만 refresh single-flight/락은 미구현(스펙 SHOULD), OAuthStore 위치가 스펙의 “system state” 레이아웃과 완전히 일치하지는 않음(현재 `state/oauth`).
+- **상세 내용**: PKCE(S256) 생성/저장, authorization URL 구성, callback에서 state/만료/subject 검증 및 code_verifier로 토큰 교환, grant 저장과 `auth.granted` 이벤트 enqueue가 구현됨. 토큰/PKCE/state는 AES-256-GCM으로 암호화 저장된다. 다만 refresh single-flight/락은 미구현(스펙 SHOULD). OAuthStore는 `<stateRootDir>/oauth` 아래에 저장되며(기본 `~/.goondan/oauth`), 세부 레이아웃/확장(locks, SOPS 포맷 등)은 스펙과 완전히 일치하지는 않음.
 
 ## 5. Config Plane 리소스 정의
 - **스펙 요구사항**: Model/Tool/Extension/Agent/Swarm/Connector/OAuthApp/MCPServer/Bundle/ResourceType/ExtensionHandler 정의와 검증 규칙 준수.

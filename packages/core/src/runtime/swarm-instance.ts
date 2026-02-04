@@ -1,6 +1,9 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { AgentInstance } from './agent-instance.js';
 import { LiveConfigManager } from '../live-config/manager.js';
 import { resolveRef } from '../config/ref.js';
+import { appendJsonl, ensureDir } from '../utils/fs.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import type { JsonObject, ObjectRefLike, SwarmSpec } from '../sdk/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -25,6 +28,17 @@ interface SwarmEvent {
   metadata?: JsonObject;
 }
 
+type SwarmEventRecord = {
+  type: 'swarm.event';
+  recordedAt: string;
+  kind: string;
+  instanceId: string;
+  instanceKey: string;
+  swarmName: string;
+  agentName?: string;
+  data?: JsonObject;
+};
+
 export class SwarmInstance {
   instanceId: string;
   instanceKey: string;
@@ -36,6 +50,8 @@ export class SwarmInstance {
   stateDir: string;
   agents: Map<string, AgentInstance>;
   liveConfigManager: LiveConfigManager;
+  eventLogReady: boolean;
+  eventLogPath: string | null;
 
   constructor(options: SwarmInstanceOptions) {
     this.instanceId = options.instanceId;
@@ -56,6 +72,8 @@ export class SwarmInstance {
       logger: this.logger,
       events: this.runtime.events,
     });
+    this.eventLogReady = false;
+    this.eventLogPath = null;
   }
 
   async init(): Promise<void> {
@@ -115,6 +133,15 @@ export class SwarmInstance {
     // 대상 에이전트의 이벤트 큐에 작업 추가
     targetAgent.enqueueEvent(event);
 
+    void this.appendSwarmEvent({
+      kind: 'agent.enqueue',
+      agentName: targetAgentName,
+      data: {
+        inputBytes: Buffer.byteLength(String(event.input || ''), 'utf8'),
+        originConnector: typeof event.origin?.connector === 'string' ? event.origin.connector : undefined,
+      },
+    });
+
     return { queued: true };
   }
 
@@ -125,10 +152,58 @@ export class SwarmInstance {
     if (!agentName) {
       throw new Error('Swarm entrypoint 또는 agentName이 필요합니다.');
     }
+
+    void this.appendSwarmEvent({
+      kind: 'swarm.enqueue',
+      agentName,
+      data: {
+        inputBytes: Buffer.byteLength(String(event.input || ''), 'utf8'),
+        originConnector: typeof event.origin?.connector === 'string' ? event.origin.connector : undefined,
+        metadataType: typeof event.metadata?.type === 'string' ? event.metadata.type : undefined,
+      },
+    });
+
     const agent = this.getAgent(agentName);
     if (!agent) {
       throw new Error(`AgentInstance를 찾을 수 없습니다: ${agentName}`);
     }
     agent.enqueueEvent(event);
+  }
+
+  private async appendSwarmEvent(input: { kind: string; agentName?: string; data?: JsonObject }): Promise<void> {
+    const record: SwarmEventRecord = {
+      type: 'swarm.event',
+      recordedAt: new Date().toISOString(),
+      kind: input.kind,
+      instanceId: this.instanceId,
+      instanceKey: this.instanceKey,
+      swarmName: this.swarmConfig?.metadata?.name || 'swarm',
+      agentName: input.agentName,
+      data: input.data,
+    };
+    try {
+      await this.appendSwarmEventRecord(record);
+    } catch (err) {
+      this.logger.error?.('Swarm event log write failed.', err);
+    }
+  }
+
+  private async appendSwarmEventRecord(record: SwarmEventRecord): Promise<void> {
+    const logPath = await this.ensureEventLogPath();
+    await appendJsonl(logPath, record);
+    await fs.chmod(logPath, 0o600);
+  }
+
+  private async ensureEventLogPath(): Promise<string> {
+    if (this.eventLogReady && this.eventLogPath) {
+      return this.eventLogPath;
+    }
+    const instanceStateDir = this.liveConfigManager.resolveInstanceStateDir();
+    const logPath = path.join(instanceStateDir, 'swarm', 'events', 'events.jsonl');
+    await ensureDir(path.dirname(logPath));
+    await fs.chmod(path.dirname(logPath), 0o700);
+    this.eventLogReady = true;
+    this.eventLogPath = logPath;
+    return logPath;
   }
 }

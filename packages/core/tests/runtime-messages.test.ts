@@ -66,6 +66,39 @@ describe('runtime message loop', () => {
     const log = await fs.readFile(logPath, 'utf8');
     const lines = log.split('\n').filter((line) => line.trim().length > 0);
     expect(lines.length).toBe(turn.messages.length);
+
+    const eventLogPath = path.join(tempDir, 'test-instance', 'agents', 'agent', 'events', 'events.jsonl');
+    const eventLog = await fs.readFile(eventLogPath, 'utf8');
+    const eventLines = eventLog.split('\n').filter((line) => line.trim().length > 0);
+    expect(eventLines.length).toBeGreaterThan(0);
+  });
+
+  it('ignores liveConfig.store.instanceStateDir for message/event log path', async () => {
+    const tempDir = await fs.mkdtemp(path.join(tmpdir(), 'goondan-runtime-msg-'));
+    const customRoot = await fs.mkdtemp(path.join(tmpdir(), 'goondan-instance-state-'));
+
+    const { instance } = await createAgentInstance({
+      stateDir: tempDir,
+      instanceStateDirTemplate: path.join(customRoot, '{{instanceId}}'),
+      agentSpec: { modelConfig: { modelRef: { kind: 'Model', name: 'test-model' } } },
+      llmAdapter: async () => ({ content: 'ok', toolCalls: [] }),
+    });
+
+    await instance.runTurn({ input: 'hello', origin: {}, auth: {}, metadata: {} });
+
+    const logPath = path.join(tempDir, 'test-instance', 'agents', 'agent', 'messages', 'llm.jsonl');
+    const log = await fs.readFile(logPath, 'utf8');
+    const lines = log.split('\n').filter((line) => line.trim().length > 0);
+    expect(lines.length).toBeGreaterThan(0);
+
+    const eventLogPath = path.join(tempDir, 'test-instance', 'agents', 'agent', 'events', 'events.jsonl');
+    const eventLog = await fs.readFile(eventLogPath, 'utf8');
+    const eventLines = eventLog.split('\n').filter((line) => line.trim().length > 0);
+    expect(eventLines.length).toBeGreaterThan(0);
+
+    const unexpectedLogPath = path.join(customRoot, 'test-instance', 'agents', 'agent', 'messages', 'llm.jsonl');
+    const unexpectedExists = await fs.stat(unexpectedLogPath).then(() => true).catch(() => false);
+    expect(unexpectedExists).toBe(false);
   });
 });
 
@@ -80,11 +113,13 @@ async function createAgentInstance({
   toolExports = [],
   llmAdapter,
   stateDir,
+  instanceStateDirTemplate,
 }: {
   agentSpec: AgentSpec;
   toolExports?: ToolExportFixture[];
   llmAdapter: LlmAdapter;
   stateDir: string;
+  instanceStateDirTemplate?: string;
 }) {
   const swarm: Resource = {
     apiVersion,
@@ -93,6 +128,16 @@ async function createAgentInstance({
     spec: {
       entrypoint: { kind: 'Agent', name: 'agent' },
       agents: [{ kind: 'Agent', name: 'agent' }],
+      ...(instanceStateDirTemplate
+        ? {
+            policy: {
+              liveConfig: {
+                enabled: true,
+                store: { instanceStateDir: instanceStateDirTemplate },
+              },
+            },
+          }
+        : {}),
     },
   };
 

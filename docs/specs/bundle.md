@@ -1,6 +1,6 @@
 # Goondan Bundle YAML 스펙 (v0.8 구체화)
 
-본 문서는 `goondan_spec.md`의 구성 스펙을 YAML 관점에서 구체화한 문서이다. 런타임/툴링/검증기는 본 문서를 기준으로 구조를 해석한다.
+본 문서는 `docs/requirements/index.md`(특히 §6/§7)의 구성 스펙을 YAML 관점에서 구체화한 문서이다. 런타임/툴링/검증기는 본 문서를 기준으로 구조를 해석한다.
 
 ## 1. 공통 규칙
 
@@ -175,19 +175,16 @@ spec:
     - { kind: Agent, name: planner }
   policy:
     maxStepsPerTurn: 32
-    liveConfig:
+    changesets:
       enabled: true
-      store:
-        instanceStateDir: "shared/state/instances/{{instanceId}}"
       applyAt: ["step.config"]
-      allowedPaths:
-        agentRelative:
-          - "/spec/tools"
-          - "/spec/extensions"
-          - "/spec/hooks"
-        swarmAbsolute:
-          - "/spec/policy"
-      emitConfigChangedEvent: true
+      allowed:
+        files:
+          - "resources/**"
+          - "prompts/**"
+          - "tools/**"
+          - "extensions/**"
+      emitRevisionChangedEvent: true
 ```
 
 ### 5.6 Connector

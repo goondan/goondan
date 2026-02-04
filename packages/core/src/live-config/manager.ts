@@ -4,6 +4,7 @@ import jsonPatch from 'fast-json-patch';
 import type { Operation } from 'fast-json-patch';
 import { LiveConfigStore } from './store.js';
 import { deepClone } from '../utils/json.js';
+import { deriveWorkspaceId, resolveDir, resolveStateRootDir } from '../utils/state-paths.js';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import type {
   EffectiveConfig,
@@ -58,7 +59,10 @@ export class LiveConfigManager {
     this.registry = options.registry;
     this.logger = options.logger || console;
     this.events = options.events || null;
-    this.stateDir = options.stateDir || path.join(process.cwd(), 'state', 'instances');
+    const workspaceDir = this.registry?.baseDir || process.cwd();
+    this.stateDir = options.stateDir
+      ? resolveDir(options.stateDir, workspaceDir)
+      : path.join(resolveStateRootDir({ baseDir: workspaceDir }), 'instances', deriveWorkspaceId(workspaceDir));
     this.writeSnapshots = options.writeSnapshots || false;
 
     this.agentStates = new Map();
@@ -422,14 +426,6 @@ export class LiveConfigManager {
   }
 
   resolveInstanceStateDir(): string {
-    const policy = this.getLiveConfigPolicy();
-    const template = policy.store?.instanceStateDir;
-    if (template) {
-      const resolved = template
-        .replace(/\{\{instanceId\}\}/g, this.instanceId)
-        .replace(/\{\{swarmName\}\}/g, this.swarmConfig?.metadata?.name || 'swarm');
-      return path.isAbsolute(resolved) ? resolved : path.join(process.cwd(), resolved);
-    }
     return path.join(this.stateDir, this.instanceId);
   }
 

@@ -12,5 +12,6 @@ Bundle(확장 묶음) 로딩/등록 로직이 위치합니다.
 - Bundle resource는 spec.include로 지정된 YAML에서 로드되어 ConfigRegistry에 합쳐집니다.
 - spec.dependencies는 Git Bundle을 재귀적으로 해석합니다.
 - spec.entry는 Bundle Root 기준으로 해석되며 절대 경로로 확장됩니다.
+- stateRootDir 기본값은 `~/.goondan`이며 `GOONDAN_STATE_ROOT` 또는 CLI `--state-root`로 오버라이드할 수 있습니다.
 - bundles.json은 enable/disable 상태를 포함합니다.
 - fingerprint는 번들 무결성 확인용이며 CLI verify/refresh로 갱신됩니다.

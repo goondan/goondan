@@ -29,7 +29,7 @@ sample-3-multi-agent/
 - `agent.delegate`: 전문 에이전트에게 작업 위임 (비동기 이벤트 큐 방식)
 - `AVAILABLE_AGENTS`: 에이전트 정보 (name, description, capabilities)
 
-**스펙 기반 동작 (goondan_spec.md §5.1, §9.2):**
+**스펙 기반 동작 (docs/requirements/05_core-concepts.md §5.1, docs/requirements/09_runtime-model.md §9.2):**
 - AgentInstance는 이벤트 큐를 가진다 (MUST)
 - 큐의 이벤트 하나가 Turn의 입력이 된다 (MUST)
 - 위임 흐름:

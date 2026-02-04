@@ -1,9 +1,0 @@
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: skills
-  labels:
-    tier: base
-spec:
-  runtime: node
-  entry: "./dist/extensions/skill/index.js"

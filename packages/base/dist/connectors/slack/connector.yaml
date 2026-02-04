@@ -1,9 +1,0 @@
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: slack
-  labels:
-    tier: base
-spec:
-  type: slack
-  ingress: []

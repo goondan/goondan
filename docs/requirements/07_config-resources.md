@@ -199,7 +199,7 @@ spec:
 규칙:
 
 * SwarmBundleManager는 changeset commit 시 변경된 파일 경로가 `allowed.files`에 포함되는지 검사해야 한다(MUST).
-* 허용되지 않은 파일을 변경하려는 changeset commit은 `changeset-status`에 `result="rejected"`로 기록되어야 한다(MUST).
+* 허용되지 않은 파일을 변경하려는 changeset commit은 `swarmBundle.commitChangeset` tool 결과로 `status="rejected"`를 반환해야 한다(MUST). (권장: Instance event log에 기록, §10)
 
 ### 7.6 Connector
 
@@ -347,7 +347,7 @@ spec:
 
 ### 7.9 OAuthApp
 
-OAuthApp은 외부 시스템 OAuth 인증을 위한 클라이언트 및 엔드포인트를 정의한다. OAuthApp은 설정 리소스이며, 실제 토큰/그랜트 저장은 런타임의 시스템 전역 OAuthStore(§10.2, §12.5)에 속한다.
+OAuthApp은 외부 시스템 OAuth 인증을 위한 클라이언트 및 엔드포인트를 정의한다. OAuthApp은 설정 리소스이며, 실제 토큰/그랜트 저장은 런타임의 시스템 전역 OAuthStore(§10.3, §12.5)에 속한다.
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1

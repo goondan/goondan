@@ -36,11 +36,11 @@ Runtime은 Tool 실행 중 오류가 발생하면 예외를 외부로 전파하�
 SwarmBundle 변경은 Changeset을 통해 수행되어야 한다(MUST).
 LLM은 `swarmBundle.openChangeset`으로 staging workdir을 열고, bash로 파일을 수정한 뒤, `swarmBundle.commitChangeset`으로 커밋한다.
 
-SwarmBundleManager는 정본 로그를 기록하고, 활성화는 Safe Point에서만 수행한다(§9.4, §11.2).
+Git 기반 구현에서 changeset 이력은 Git commit history로 추적 가능하며, 별도의 changeset status/log 파일은 요구하지 않는다(MUST NOT). 커밋 결과(성공/거부/실패)는 tool 결과로 관측 가능해야 한다(MUST). 활성화는 Safe Point에서만 수행한다(§6.4, §9.4, §11.2).
 
 ### 12.5 OAuth 토큰 접근 인터페이스
 
-Tool/Connector 구현은 외부 API 호출을 위해 OAuth 토큰이 필요할 수 있다. Runtime은 Tool/Connector 실행 컨텍스트에 OAuthManager 인터페이스(`ctx.oauth`)를 제공해야 하며(SHOULD), OAuthManager는 시스템 전역 OAuthStore(§10.2)의 유일한 작성자로 동작해야 한다(MUST).
+Tool/Connector 구현은 외부 API 호출을 위해 OAuth 토큰이 필요할 수 있다. Runtime은 Tool/Connector 실행 컨텍스트에 OAuthManager 인터페이스(`ctx.oauth`)를 제공해야 하며(SHOULD), OAuthManager는 시스템 전역 OAuthStore(§10.3)의 유일한 작성자로 동작해야 한다(MUST).
 
 #### 12.5.1 ctx.oauth.getAccessToken (MUST)
 
@@ -108,7 +108,7 @@ Runtime은 `getAccessToken` 호출에 대해 다음 의미론을 제공해야 �
 
 #### 12.5.3 OAuthStore 파일시스템 저장소 및 암호화 규칙 (MUST)
 
-Runtime은 OAuthGrant와 AuthSession을 시스템 전역 OAuthStore(§10.2)에 저장해야 한다(MUST). Runtime은 OAuthStore의 유일한 작성자이며, Tool/Extension/Sidecar는 OAuthStore 파일을 직접 읽거나 수정해서는 안 된다(MUST).
+Runtime은 OAuthGrant와 AuthSession을 시스템 전역 OAuthStore(§10.3)에 저장해야 한다(MUST). Runtime은 OAuthStore의 유일한 작성자이며, Tool/Extension/Sidecar는 OAuthStore 파일을 직접 읽거나 수정해서는 안 된다(MUST).
 
 Runtime은 다음 보안 규칙을 만족해야 한다(MUST).
 

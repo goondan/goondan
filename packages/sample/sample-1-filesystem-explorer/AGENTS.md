@@ -52,5 +52,5 @@ ANTHROPIC_API_KEY=... pnpm run
 ## 연관 문서
 
 - `/GUIDE.md` - 전체 가이드
-- `/goondan_spec.md` - 스펙 문서
+- `/docs/requirements/index.md` - 스펙 문서
 - `/packages/base/AGENTS.md` - base 번들 구조

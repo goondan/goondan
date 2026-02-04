@@ -7,7 +7,10 @@
 - 작업: Bundle 개념을 YAML+코드로 명확화하고, 기존 Bundle을 Bundle Package로 재명명 (GUIDE/spec 반영)
 - 작업: GUIDE 핵심 개념에 Bundle/SwarmBundle/Bundle Package 상위 개념 추가
 - 작업: MCPServer를 Extension 패턴으로 전환하고 관련 문서를 Extension 예시로 정리(spec_main/spec_bundle/GUIDE 반영)
-- goondan_spec.md: 파일 없음(검토 불가)
-- docs/spec_config.md: 파일 없음(검토 불가)
-- GUIDE.md: Bundle Package 용어 반영
-- GUIDE.md: MCP 연동 Extension 예시 반영
+- 작업: 워크스페이스 모델에서 SwarmBundleRoot(정의)와 Instance/System State Root(상태) 분리 (spec/GUIDE 반영)
+- 작업: CLI/Runtime 기본 stateRootDir를 `~/.goondan`로 전환 + `GOONDAN_STATE_ROOT` 지원 + workspaceId 스코핑 적용
+- 작업: 인스턴스 상태 경로를 런타임이 단일하게 결정하도록 통일(설정 파일에서 state 경로 오버라이드 금지)
+- 작업: SwarmInstance/AgentInstance별 event 로그(`events.jsonl`) append-only 기록 구현
+- 작업: 문서 내 `goondan_spec.md`, `docs/spec_config.md` 레퍼런스 제거(현행 스펙 문서로 이관)
+- goondan_spec.md: 파일 없음(legacy). docs/requirements/index.md로 레퍼런스 이관
+- docs/spec_config.md: 파일 없음(legacy). docs/requirements/06_config-spec.md + docs/spec_bundle.md로 레퍼런스 이관

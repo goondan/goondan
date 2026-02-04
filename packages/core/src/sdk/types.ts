@@ -94,7 +94,6 @@ export interface SwarmSpec extends JsonObject {
     maxStepsPerTurn?: number;
     liveConfig?: {
       enabled?: boolean;
-      store?: { instanceStateDir?: string };
       applyAt?: string[];
       allowedPaths?: { agentRelative?: string[]; swarmAbsolute?: string[] };
       emitConfigChangedEvent?: boolean;

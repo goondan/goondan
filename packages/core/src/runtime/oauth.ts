@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import type { ConfigRegistry, Resource } from '../config/registry.js';
 import { resolveRef } from '../config/ref.js';
+import { resolveDir, resolveStateRootDir } from '../utils/state-paths.js';
 import type {
   AuthResumePayload,
   EventBus,
@@ -56,7 +57,7 @@ export class OAuthManager {
 
   constructor(options: OAuthManagerOptions = {}) {
     this.registry = options.registry || null;
-    this.stateDir = options.stateDir || path.join(process.cwd(), 'state');
+    this.stateDir = options.stateDir ? resolveDir(options.stateDir, process.cwd()) : resolveStateRootDir({ baseDir: process.cwd() });
     this.publicBaseUrl = options.publicBaseUrl || process.env.GOONDAN_PUBLIC_URL || null;
     this.logger = options.logger || console;
     const key = loadEncryptionKey(

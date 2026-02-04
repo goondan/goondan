@@ -4,7 +4,7 @@
  * agent.delegate - 다른 에이전트에게 작업 위임 (비동기 이벤트 큐 방식)
  * agent.list - 사용 가능한 에이전트 목록 조회
  *
- * 스펙 기반 동작 (goondan_spec.md §5.1, §9.2):
+ * 스펙 기반 동작 (docs/requirements/05_core-concepts.md §5.1, docs/requirements/09_runtime-model.md §9.2):
  * - AgentInstance는 이벤트 큐를 가진다 (MUST)
  * - 큐의 이벤트 하나가 Turn의 입력이 된다 (MUST)
  * - Turn은 "하나의 입력 이벤트"를 처리하는 단위 (MUST)

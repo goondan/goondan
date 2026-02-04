@@ -20,5 +20,6 @@ Runtime Plane의 Turn/Step 실행 루프와 파이프라인을 구현합니다.
 - CLI origin은 첫 LLM 호출 시 진행 메시지를 한 번 출력합니다.
 - channel이 없는 Connector(예: cli)는 emitFinal/emitProgress에서 바로 send를 호출합니다.
 - Turn.messages에 LLM 응답/도구 결과를 누적하고 다음 Step 컨텍스트로 사용합니다.
-- LLM 메시지 로그는 `state/instances/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록합니다.
+- LLM 메시지 로그는 Instance State Root 아래 `instances/<workspaceId>/<instanceId>/agents/<agent>/messages/llm.jsonl`에 append-only로 기록합니다(기본: `~/.goondan/instances/...`).
+- 이벤트 로그는 Instance State Root 아래 `instances/<workspaceId>/<instanceId>/swarm/events/events.jsonl` 및 `instances/<workspaceId>/<instanceId>/agents/<agent>/events/events.jsonl`에 append-only로 기록합니다.
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행합니다.

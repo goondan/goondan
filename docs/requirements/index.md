@@ -1,6 +1,6 @@
 # Goondan: Agent Swarm Orchestrator 스펙 v0.9
 
-본 문서는 “멀티 에이전트 오케스트레이션과 컨텍스트 최적화를 중심으로 한 에이전트 스웜”을 **선언형 Config Plane(= SwarmBundle)** 과 **stateful long‑running Runtime Plane**, 그리고 런타임 내부 **SwarmBundleManager**가 관리하는 **Changeset → SwarmRevision** 메커니즘(구성+코드 변경 반영)으로 구현하기 위한 통합 규격을 정의한다.
+본 문서는 “멀티 에이전트 오케스트레이션과 컨텍스트 최적화를 중심으로 한 에이전트 스웜”을 **선언형 Config Plane(= SwarmBundle)** 과 **stateful long‑running Runtime Plane**, 그리고 런타임 내부 **SwarmBundleManager**가 관리하는 **Changeset → SwarmBundleRef** 메커니즘(구성+코드 변경 반영, Git 기반)으로 구현하기 위한 통합 규격을 정의한다.
 
 ---
 
@@ -11,8 +11,6 @@
 즉, 문장에 사용된 조동사는 “필수/권장/선택”의 구현 요구 수준을 나타내며, 구현체는 이를 기준으로 호환성과 기대 동작을 맞춰야 한다.
 
 또한 예시는 이해를 돕기 위한 것으로, 실제 값/경로/그룹 이름 등은 구현에 따라 달라질 수 있다.
-
-자세한 본문: @spec_main_00_normative-language.md
 
 ---
 
@@ -58,8 +56,8 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 2. **Runtime Plane**
    stateful long‑running 인스턴스를 유지하며 입력 이벤트를 처리하는 실행 모델(Instance/Turn/Step)과 라이프사이클 파이프라인(훅)을 제공한다. Extension은 파이프라인의 특정 지점에 개입하여 도구 카탈로그, 컨텍스트 블록, LLM 호출, 도구 실행, 워크스페이스 이벤트 등에 영향을 준다.
 
-3. **SwarmBundleManager(Changeset → SwarmRevision)**
-   Runtime 내부에 SwarmBundle 변경을 안전하게 반영하기 위한 SwarmBundleManager를 둔다. LLM은 Changeset으로 staging workdir을 열고 파일을 수정한 뒤 커밋하여 새 SwarmRevision을 생성한다. 새 SwarmRevision은 Safe Point에서만 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다.
+3. **SwarmBundleManager(Changeset → SwarmBundleRef)**
+   Runtime 내부에 SwarmBundle 변경을 안전하게 반영하기 위한 SwarmBundleManager를 둔다. LLM은 `swarmBundle.openChangeset`으로 Git worktree(workdir)를 열고 파일을 수정한 뒤 `swarmBundle.commitChangeset`으로 Git commit을 생성하여 SwarmBundleRoot의 활성 Ref를 업데이트함으로써 새 SwarmBundleRef를 만든다. 새 SwarmBundleRef는 Safe Point에서만 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다.
 
 ---
 
@@ -71,7 +69,7 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 2. stateful long‑running 실행 모델을 제공하여, 사용자에게 대화형 지속 경험을 제공해야 한다.
 3. 실행 라이프사이클 파이프라인을 제공하여 컨텍스트 최적화, 메모리 축적/주입, 도구 노출 최적화 등을 모듈화해야 한다.
 4. 다양한 클라이언트 채널(Connector)에서의 호출과 진행상황 업데이트를 표준화해야 한다.
-5. SwarmBundle의 구성/코드 변경을 런타임 중 안전하게 반영할 수 있어야 한다(Changeset → SwarmRevision).
+5. SwarmBundle의 구성/코드 변경을 런타임 중 안전하게 반영할 수 있어야 한다(Changeset → SwarmBundleRef).
 
 ### 4.2 비목표
 
@@ -84,17 +82,17 @@ AI 에이전트 개발의 패러다임은 단일 에이전트가 “도구 호�
 
 ## 5. 핵심 개념
 
-Goondan 런타임은 SwarmInstance/AgentInstance(장기 실행체) 위에서 Turn(입력 이벤트 1개 처리 단위)과 Step(LLM 호출 1회 중심 단위)을 반복하는 모델을 갖는다. Step이 시작되면 종료까지 Effective Config와 SwarmRevision이 고정되어야 하며, LLM/Tool 결과는 Turn.messages에 누적되어 다음 Step 입력으로 사용된다.
+Goondan 런타임은 SwarmInstance/AgentInstance(장기 실행체) 위에서 Turn(입력 이벤트 1개 처리 단위)과 Step(LLM 호출 1회 중심 단위)을 반복하는 모델을 갖는다. Step이 시작되면 종료까지 Effective Config와 SwarmBundleRef가 고정되어야 하며, LLM/Tool 결과는 Turn.messages에 누적되어 다음 Step 입력으로 사용된다.
 
 Tool은 LLM이 tool call로 호출하는 1급 실행 단위이고, Extension은 라이프사이클 포인트에 개입해 도구 카탈로그/컨텍스트 블록/LLM 호출/도구 실행/워크스페이스 이벤트 등에 영향을 주는 실행 로직 묶음이다. Skill은 SKILL.md 중심 번들로서 필요 시 로드/실행되며, Connector는 외부 이벤트를 수신해 동일 맥락으로 라우팅/응답한다. MCP 연동은 Extension 패턴으로 제공되어 MCP 기반 도구/리소스/프롬프트 제공자를 연결한다.
 
-SwarmBundle은 구성(YAML)+코드(프롬프트/툴/확장/커넥터)를 담는 번들이며, Changeset 커밋으로 새 SwarmRevision(불변 스냅샷)이 생성된다. 정본 기록은 SwarmBundleManager 단일 작성자 규칙을 따르고, 활성화는 Safe Point(최소 step.config)에서만 이뤄지며 기본 규칙은 “다음 Step부터 반영”이다.
+SwarmBundle은 구성(YAML)+코드(프롬프트/툴/확장/커넥터)를 담는 번들이며, Changeset 커밋으로 새 SwarmBundleRef(불변 스냅샷)이 생성된다. Git 기반 구현에서 변경 이력의 정본은 Git history/refs이며, 활성화는 Safe Point(최소 step.config)에서만 이뤄지고 기본 규칙은 “다음 Step부터 반영”이다.
 
 **Bundle/SwarmBundle(구성+코드 번들)**  
 Bundle은 YAML 리소스와 프롬프트/툴/확장/커넥터 구현 소스코드를 함께 담는 폴더 트리이며, SwarmBundle은 Swarm을 정의하는 Bundle이다.
 Git 기반 배포/의존성 해석 단위(기존 Bundle)는 **Bundle Package**로 명명한다.
 
-자세한 본문: @spec_main_05_core-concepts.md
+자세한 본문: @05_core-concepts.md
 
 ---
 
@@ -104,9 +102,9 @@ Config Plane 리소스는 YAML 기반의 apiVersion/kind/metadata/spec 구조를
 
 리소스 간 참조는 ObjectRef(문자열 축약 또는 객체형)로 표현하고, selector+overrides로 선택/덮어쓰기를 조립한다. 병합 규칙은 객체 재귀 병합, 스칼라 덮어쓰기, 배열 교체를 기본으로 한다.
 
-또한 런타임 산출물로서 Changeset/SwarmRevision 상태(정본 로그, cursor/head/base, openChangeset/commitChangeset 인터페이스, status 기록)를 정의하며, OAuth/Connector 등에서 사용하는 ValueSource/SecretRef 주입 패턴과 비밀값 직접 포함 금지 권장을 포함한다.
+또한 Git 기반 changeset 표준 패턴(= worktree 기반 open/commit, tool 결과 baseRef/newRef, allowlist 정책)을 정의하며, OAuth/Connector 등에서 사용하는 ValueSource/SecretRef 주입 패턴과 비밀값 직접 포함 금지 권장을 포함한다.
 
-자세한 본문: @spec_main_06_config-spec.md
+자세한 본문: @06_config-spec.md
 
 ---
 
@@ -114,11 +112,11 @@ Config Plane 리소스는 YAML 기반의 apiVersion/kind/metadata/spec 구조를
 
 본 섹션은 Model/Tool/Extension/Agent/Swarm 등 핵심 리소스 타입의 스키마와 예시를 정의한다. 특히 Agent는 modelConfig, prompt, tools/extensions, hooks(파이프라인 포인트 실행)를 통해 실행 구성을 조립한다.
 
-ChangesetPolicy는 Swarm(최대 허용 범위)과 Agent(추가 제약)로 중첩되는 allowlist로 정의될 수 있으며, SwarmBundleManager는 commit 시 허용 경로 검사 및 rejected/failed status 기록을 수행한다. Connector는 ingress/egress 라우팅과 OAuthApp 기반/Static Token 기반 인증 모드를 정의하고, trigger handler는 runtime entry 모듈의 export 함수로 해석되며 ctx.emit(canonical event) 기반 실행 모델을 따른다.
+ChangesetPolicy는 Swarm(최대 허용 범위)과 Agent(추가 제약)로 중첩되는 allowlist로 정의될 수 있으며, SwarmBundleManager는 commit 시 허용 경로를 검사하고 위반 시 tool 결과로 `rejected/failed`를 반환한다(권장: Instance event log 기록). Connector는 ingress/egress 라우팅과 OAuthApp 기반/Static Token 기반 인증 모드를 정의하고, trigger handler는 runtime entry 모듈의 export 함수로 해석되며 ctx.emit(canonical event) 기반 실행 모델을 따른다.
 
 확장성 측면에서 ResourceType/ExtensionHandler로 사용자 정의 kind의 등록/검증/변환을 지원할 수 있고, OAuthApp은 flow(authorizationCode/deviceCode), subjectMode(global/user), endpoints, scopes, redirect 등을 정의하며 Authorization Code + PKCE(S256) 지원 및 검증 규칙을 포함한다.
 
-자세한 본문: @spec_main_07_config-resources.md
+자세한 본문: @07_config-resources.md
 
 ---
 
@@ -130,7 +128,7 @@ ChangesetPolicy는 Swarm(최대 허용 범위)과 Agent(추가 제약)로 중첩
 
 패키지 간 의존성/values 주입과 같은 세부 메커니즘은 구현 선택이지만, 재사용과 배포 단위를 명확히 하는 방향을 전제로 한다.
 
-자세한 본문: @spec_main_08_packaging.md
+자세한 본문: @08_packaging.md
 
 ---
 
@@ -140,21 +138,21 @@ Runtime은 Connector로부터 입력 이벤트를 받아 instanceKey 규칙으�
 
 Turn은 Step 루프를 수행하며, 표준 순서는 step.config → step.tools → step.blocks → step.llmCall → tool call 처리 → step.post이다. 정책적으로 maxStepsPerTurn을 적용할 수 있고, connector는 canonical event 생성(ctx.emit) 책임만 가지며 실행 모델 자체를 직접 제어하지 않는다.
 
-Changeset 커밋으로 head SwarmRevision이 이동하고, 활성화는 Safe Point(기본 step.config)에서만 일어나며 통상 다음 Step부터 반영된다. 또한 Effective Config의 tools/extensions 배열은 identity 기반 정규화 및 reconcile이 권장된다.
+Changeset 커밋으로 SwarmBundleRoot의 활성 Ref가 업데이트되고(= 새 SwarmBundleRef), 활성화는 Safe Point(기본 step.config)에서만 일어나며 통상 다음 Step부터 반영된다. 또한 Effective Config의 tools/extensions 배열은 identity 기반 정규화 및 reconcile이 권장된다.
 
-자세한 본문: @spec_main_09_runtime-model.md
+자세한 본문: @09_runtime-model.md
 
 ---
 
 ## 10. 워크스페이스 모델
 
-Runtime은 repo 캐시, 에이전트 worktree, turn 단위 scratch, 공유 artifacts, 인스턴스 상태 루트 등 파일시스템 워크스페이스를 관리한다.
+Runtime은 SwarmBundleRoot(정의), Instance State Root(인스턴스 실행 상태), System State Root(전역 상태)를 분리해 파일시스템 워크스페이스를 관리한다.
 
-SwarmBundle 관련 상태는 인스턴스별 `shared/state/instances/<instanceId>/swarm-bundle/` 아래에 base/head/cursor, changeset 로그, staging workdir, effective 스냅샷 등을 포함하는 레이아웃을 MUST로 정의한다. 또한 AgentInstance별 LLM 메시지 로그를 append-only JSONL로 기록한다.
+SwarmBundle 정의(SwarmBundleRoot)와 실행 상태(Instance State Root)는 분리되어야 한다(MUST). Git 기반 구현에서 Changeset/Ref 정본은 SwarmBundleRoot의 Git history/refs이며(§6.4), changeset worktree는 `<goondanHome>/worktrees/<workspaceId>/changesets/<changesetId>/` 아래에 생성한다(권장). 인스턴스 상태는 `<goondanHome>/instances/<workspaceId>/<instanceId>/` 아래에 LLM 메시지 로그(필수)와 이벤트 로그(필수)를 저장한다.
 
-인스턴스 생명주기와 독립적인 시스템 전역 상태 루트(`shared/state/system/`)를 제공해 OAuth grants/sessions를 보존해야 하며, 저장되는 비밀값은 반드시 at-rest encryption을 적용해야 한다.
+인스턴스 생명주기와 독립적인 시스템 전역 상태 루트(`<goondanHome>/`)를 제공해 OAuth grants/sessions와 Bundle Package cache 등을 보존해야 하며, 저장되는 비밀값은 반드시 at-rest encryption을 적용해야 한다.
 
-자세한 본문: @spec_main_10_workspace-model.md
+자세한 본문: @10_workspace-model.md
 
 ---
 
@@ -162,11 +160,11 @@ SwarmBundle 관련 상태는 인스턴스별 `shared/state/instances/<instanceId
 
 파이프라인은 Mutator(순차 상태 변형)와 Middleware(next() 래핑) 두 타입으로 정의되며, Runtime은 turn/step/toolCall/workspace 표준 포인트를 MUST 제공한다. 특히 step.config는 step.tools보다 앞서 실행되어야 한다.
 
-확장 등록 순서에 따른 실행/래핑(onion) 규칙과 hooks 합성(priority 정렬) 원칙을 정의하며, changeset 커밋/활성화 실패는 status 로그에 기록하고 Step 진행은 계속하는 정책을 권장한다.
+확장 등록 순서에 따른 실행/래핑(onion) 규칙과 hooks 합성(priority 정렬) 원칙을 정의하며, changeset 커밋/활성화 실패는 tool 결과로 관측 가능해야 하고 Instance event log 기록을 권장하며 Step 진행은 계속하는 정책을 권장한다.
 
 또한 reconcile은 배열 인덱스가 아니라 identity key 기반으로 수행되어야 하며, 순서 변경만으로 상태 재생성이 발생하면 안 된다. stateful MCP 연동 Extension 연결은 동일 identity로 유지되는 동안 계속 유지되어야 한다.
 
-자세한 본문: @spec_main_11_lifecycle-pipelines.md
+자세한 본문: @11_lifecycle-pipelines.md
 
 ---
 
@@ -178,7 +176,7 @@ Tool 실행 실패는 예외 전파 대신 ToolResult.output에 오류 정보를
 
 OAuth 통합은 ctx.oauth.getAccessToken 의미론(Subject 결정, scopes 부분집합 검증, grant 조회, authorization_required 반환, refresh 권장)을 정의한다. OAuthStore의 단일 작성자/암호화 규칙, OAuthGrantRecord/AuthSessionRecord 스키마, Authorization Code + PKCE(S256) 필수 플로우, (선택) device code, 승인 안내용 블록 주입 권장을 포함한다.
 
-자세한 본문: @spec_main_12_tool-spec-runtime.md
+자세한 본문: @12_tool-spec-runtime.md
 
 ---
 
@@ -190,7 +188,7 @@ Extension은 `register(api)` 엔트리포인트를 제공하고, Runtime은 Agen
 
 또한 확장별 상태 저장(`ctx.extState()` 등)과 인스턴스 공유 상태, 그리고 내부 OAuthManager를 통해 토큰 취득 인터페이스를 표준화하는 방향을 제시한다.
 
-자세한 본문: @spec_main_13_extension-interface.md
+자세한 본문: @13_extension-interface.md
 
 ---
 
@@ -237,13 +235,13 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 
 ### 15.5 Changeset으로 “도구/프롬프트/코드”가 다음 Step부터 바뀌는 흐름
 
-1. Step N에서 LLM이 `swarmBundle.openChangeset` 호출 → staging workdir 수신
+1. Step N에서 LLM이 `swarmBundle.openChangeset` 호출 → workdir(Git worktree) 수신
 2. LLM이 bash로 workdir 안의 YAML/프롬프트/코드 파일을 수정
 3. LLM이 `swarmBundle.commitChangeset` 호출
-4. SwarmBundleManager가 정책 검사/검증 후 새 SwarmRevision 생성, head 이동, changesets/status 기록
+4. SwarmBundleManager가 정책 검사 후 Git commit을 생성하고 tool 결과로 `baseRef/newRef`를 반환
 5. Step N 종료
-6. Step N+1의 `step.config`에서 head를 활성화(activeSwarmRevision으로 반영), status에 appliedAt/stepId 기록
-7. Step N+1부터 새 SwarmRevision 기반으로 실행
+6. Step N+1의 `step.config`에서 `activeSwarmRef`를 확정(통상 `newRef`), Effective Config를 새 SwarmBundleRef 기준으로 로드
+7. Step N+1부터 새 SwarmBundleRef 기반으로 실행
 
 ### 15.6 Slack OAuth 설치/토큰 사용 흐름(개념)
 
@@ -261,7 +259,7 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 2. stateful long‑running 에이전트 경험을 Turn/Step 모델과 이벤트 큐로 일관되게 구현할 수 있다.
 3. 확장을 통해 도구 카탈로그, 컨텍스트 조립, 메모리 축적/주입, 클라이언트 업데이트 전략을 모듈화할 수 있다.
 4. 구성 파일 기반 정의로 재사용과 자동화가 쉬워지고 AI가 구성을 생성·수정·검토하는 흐름이 자연스럽다.
-5. Changeset → SwarmRevision 모델로 “구성뿐 아니라 코드까지” 런타임 중 변경·반영할 수 있다.
+5. Changeset → SwarmBundleRef 모델로 “구성뿐 아니라 코드까지” 런타임 중 변경·반영할 수 있다.
 6. reconcile이 identity 기반으로 수행되고 stateful MCP 연동 Extension 연결이 유지되어, 구성 진화가 불필요한 연결 흔들림을 유발하지 않는다.
 7. OAuthApp 도입으로 Tool/Connector의 인증/토큰 취득 방식이 표준화되어, 통합 난이도와 운영 복잡성이 감소한다.
 
@@ -271,10 +269,10 @@ ToolSearch는 현재 tool catalog에서 필요한 도구를 찾아보고, 검색
 
 Instance → Turn → Step 실행 흐름과 turn/step/toolCall 파이프라인 포인트의 위치를 ASCII 다이어그램으로 제시한다.
 
-특히 step.config에서 SwarmRevision 활성화와 config 로딩이 이뤄지고, step.llmCall/toolCall.exec가 middleware onion 구조로 확장에 의해 래핑될 수 있음을 한눈에 보여준다.
+특히 step.config에서 SwarmBundleRef 활성화와 config 로딩이 이뤄지고, step.llmCall/toolCall.exec가 middleware onion 구조로 확장에 의해 래핑될 수 있음을 한눈에 보여준다.
 
 구현/디버깅 시 “어느 시점에 무엇이 실행되어야 하는지”를 빠르게 확인하는 참고용 부록이다.
 
-자세한 본문: @spec_main_appendix_a_diagram.md
+자세한 본문: @appendix_a_diagram.md
 
 ---

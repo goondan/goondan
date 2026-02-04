@@ -1,6 +1,6 @@
 # Goondan Runtime/SDK API 스펙 (v0.8)
 
-본 문서는 `goondan_spec.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/spec_config.md`를 따른다.
+본 문서는 `docs/requirements/index.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/requirements/06_config-spec.md` 및 `docs/spec_bundle.md`를 따른다.
 
 ## 1. 공통 타입 요약
 
@@ -36,7 +36,7 @@ interface ExtensionApi<State = JsonObject, Config = JsonObject> {
   pipelines: PipelineApi<StepContext>;
   tools: { register: (toolDef: DynamicToolDefinition) => void };
   events: EventBus;
-  liveConfig: LiveConfigApi;
+  swarmBundle: SwarmBundleApi;
   extState: () => State;
 }
 ```
@@ -45,7 +45,7 @@ interface ExtensionApi<State = JsonObject, Config = JsonObject> {
 - `pipelines.wrap(point, fn)`: LLM/tool 실행을 미들웨어로 래핑
 - `tools.register`: 동적 Tool 등록
 - `events.emit/on`: 런타임 이벤트 버스
-- `liveConfig.proposePatch`: Live Config patch 제안
+- `swarmBundle.openChangeset/commitChangeset`: SwarmBundle Changeset 작업
 - `extState()`: 확장별 상태 저장소
 
 ### 2.3 Pipeline Point
@@ -90,7 +90,7 @@ interface ToolContext {
   turn: Turn;
   step: Step;
   toolCatalog: ToolCatalogItem[];
-  liveConfig: LiveConfigApi;
+  swarmBundle: SwarmBundleApi;
   oauth: { getAccessToken: (request) => Promise<JsonObject> };
   events: EventBus;
   logger: Console;
@@ -98,7 +98,7 @@ interface ToolContext {
 ```
 
 - `toolCatalog`는 현재 Step에서 노출된 도구 목록이다.
-- `liveConfig.proposePatch`로 다음 Step의 toolset 확장 제안이 가능하다.
+- SwarmBundle 변경은 `swarmBundle.openChangeset/commitChangeset`을 통해 수행한다(§5).
 
 ### 3.2 ToolCatalogItem
 
@@ -144,33 +144,20 @@ runtime.handleEvent({
 })
 ```
 
-## 5. Live Config API
+## 5. SwarmBundle Changeset API
+
+SwarmBundle 변경은 Changeset을 통해 수행한다. (세부: `docs/requirements/06_config-spec.md` §6.4)
+
+Runtime이 Extension/Tool 실행 컨텍스트에 programmatic API를 제공하며, 다음과 같은 인터페이스를 사용한다(MUST). 단, 제공 된 것을 실제로 사용할지 여부는 SwarmBundle의 설정에 따른다.
 
 ```ts
-interface LiveConfigApi {
-  proposePatch(proposal: LiveConfigPatchProposal): Promise<JsonValue> | JsonValue;
+interface SwarmBundleApi {
+  openChangeset: (input?: { reason?: string }) => Promise<JsonValue> | JsonValue;
+  commitChangeset: (input: { changesetId: string; message?: string }) => Promise<JsonValue> | JsonValue;
 }
 ```
 
-Patch proposal 스키마는 `goondan_spec.md`의 §12.4를 따른다.
-
-```json
-{
-  "scope": "agent",
-  "target": { "kind": "AgentInstance", "name": "planner" },
-  "applyAt": "step.config",
-  "patch": {
-    "type": "json6902",
-    "ops": [
-      { "op": "add", "path": "/spec/tools/-", "value": { "kind": "Tool", "name": "toolSearch" } }
-    ]
-  },
-  "source": { "type": "tool", "name": "toolSearch.find" },
-  "reason": "다음 Step부터 Tool 활성화"
-}
-```
-
-## 6. Bundle Package API (확장 등록)
+## 6. Bundle Package API (패키지 등록)
 
 Bundle Package는 Tool/Extension/Connector를 **묶어서 등록**하기 위한 매니페스트이다.
 

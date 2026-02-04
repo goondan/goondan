@@ -60,29 +60,29 @@ Canonical event는 다음 처리 흐름을 따른다.
 
 Step은 다음 순서로 진행된다.
 
-1. **step.config**: SwarmBundleManager가 이번 Step의 `activeSwarmRevision`을 확정하고 Effective Config(리소스 로드/조립)를 준비
+1. **step.config**: Runtime은 이번 Step의 `activeSwarmRef`(= SwarmBundleRef)를 스냅샷으로 확정하고, Effective Config를 해당 Ref 기준으로 로드/조립
 2. `step.tools`: Tool Catalog 구성
 3. `step.blocks`: Context Blocks 구성
 4. `step.llmCall`: LLM 호출
 5. tool call 처리(동기 실행 또는 비동기 큐잉)
 6. `step.post`: 결과 반영 후 Step 종료
 
-### 9.4 Changeset/SwarmRevision 적용 의미론 (MUST)
+### 9.4 Changeset/SwarmBundleRef 적용 의미론 (MUST)
 
 #### 9.4.1 적용 단위
 
-* Runtime은 각 Step 시작 시 `step.config`에서 현재 `activeSwarmRevision`을 결정해야 한다(MUST).
-* Step 실행 중에는 SwarmRevision과 Effective Config를 변경해서는 안 된다(MUST).
+* Runtime은 각 Step 시작 시 `step.config`에서 현재 `activeSwarmRef`(= SwarmBundleRef)를 결정해야 한다(MUST).
+* Step 실행 중에는 SwarmBundleRef와 Effective Config를 변경해서는 안 된다(MUST).
 
 #### 9.4.2 커밋과 활성화(권장 표준)
 
-* `swarmBundle.commitChangeset`은 새 SwarmRevision을 생성하고 head를 이동시킨다.
-* 새 SwarmRevision은 `step.config` Safe Point에서 `activeSwarmRevision`으로 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다(MUST).
+* `swarmBundle.commitChangeset`은 Git commit을 생성하고 SwarmBundleRoot의 활성 Ref를 업데이트한다(§6.4).
+* 새 SwarmBundleRef는 `step.config` Safe Point에서 `activeSwarmRef`로 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다(MUST).
 
 #### 9.4.3 반영 시점
 
-Step N 중 commit된 changeset으로 생성된 SwarmRevision은, Step N+1의 `step.config`에서 활성화되는 것이 기본 규칙이다(MUST).
-(단, Step N 시작 전에 이미 head가 이동된 경우 Step N에서 그 head를 활성화하는 것은 자연스럽게 허용된다.)
+Step N 중 commit된 changeset으로 생성된 SwarmBundleRef는, Step N+1의 `step.config`에서 활성화되는 것이 기본 규칙이다(MUST).
+(단, Step N 시작 전에 이미 활성 Ref가 업데이트된 경우 Step N에서 그 Ref를 활성화하는 것은 자연스럽게 허용된다.)
 
 #### 9.4.4 변경 가시성(권장)
 

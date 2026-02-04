@@ -19,6 +19,7 @@ import { BundleRegistry } from '../bundles/registry.js';
 import { loadBundleResources, readBundleManifests } from '../bundles/loader.js';
 import { installGitBundle, isGitBundleRef } from '../bundles/git.js';
 import { installNpmBundle } from '../bundles/npm.js';
+import { resolveStateRootDir } from '../utils/state-paths.js';
 import type {
   BundleLockfile,
   BundleManifest,
@@ -127,7 +128,7 @@ async function runCommand(options: RunOptions): Promise<void> {
     options.configPaths = [defaultPath];
   }
 
-  const stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
+  const stateRootDir = resolveStateRootDir({ stateRootDir: options.stateRootDir, baseDir: process.cwd() });
   const bundleRegistry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
   await bundleRegistry.load();
   const bundlePaths = options.noRegistryBundles ? options.bundlePaths : [...bundleRegistry.resolveEnabledPaths(), ...options.bundlePaths];
@@ -250,7 +251,7 @@ async function initCommand(options: { force: boolean }): Promise<void> {
   await fs.writeFile(target, content, 'utf8');
   console.log(`goondan.yaml 생성 완료: ${target}`);
   try {
-    const stateRootDir = path.join(process.cwd(), 'state');
+    const stateRootDir = resolveStateRootDir({ baseDir: process.cwd() });
     const registry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
     const installed = await installBundleSpec(DEFAULT_BASE_SPEC, { stateRootDir });
     await registry.add(installed.manifestPath, 'base', installed.metadata);
@@ -261,12 +262,12 @@ async function initCommand(options: { force: boolean }): Promise<void> {
 }
 
 async function bundleCommand(parsed: any): Promise<void> {
-  const stateRootDir = parsed.stateRootDir || path.join(process.cwd(), 'state');
+  const stateRootDir = resolveStateRootDir({ stateRootDir: parsed.stateRootDir, baseDir: process.cwd() });
   const registry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
 
   switch (parsed.action) {
     case 'bundle:add': {
-      const resolved = await resolveBundleAddTarget(parsed.path, parsed.stateRootDir || path.join(process.cwd(), 'state'));
+      const resolved = await resolveBundleAddTarget(parsed.path, stateRootDir);
       const nameOverride = parsed.name || resolved.name;
       const entry = await registry.add(resolved.manifestPath, nameOverride || undefined, resolved.metadata);
       console.log(`Bundle 등록 완료: ${entry.name} -> ${entry.path}`);
@@ -406,7 +407,7 @@ async function validateCommand(options: ValidateOptions): Promise<void> {
     throw new Error('--config 또는 -c 옵션으로 config 파일을 지정해야 합니다.');
   }
   const strict = Boolean(options.strict);
-  const stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
+  const stateRootDir = resolveStateRootDir({ stateRootDir: options.stateRootDir, baseDir: process.cwd() });
   const bundleResources =
     options.bundlePaths.length > 0 ? await loadBundleResources(options.bundlePaths, { baseDir: process.cwd(), stateRootDir }) : [];
   const configResources = await loadConfigResources(options.configPaths, { baseDir: process.cwd() });
@@ -440,7 +441,7 @@ async function exportCommand(options: ExportOptions): Promise<void> {
     throw new Error('--config 또는 -c 옵션으로 config 파일을 지정해야 합니다.');
   }
 
-  const stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
+  const stateRootDir = resolveStateRootDir({ stateRootDir: options.stateRootDir, baseDir: process.cwd() });
   const bundleRegistry = new BundleRegistry({ rootDir: stateRootDir, logger: console });
   await bundleRegistry.load();
   const bundlePaths = options.noRegistryBundles ? options.bundlePaths : [...bundleRegistry.resolveEnabledPaths(), ...options.bundlePaths];
@@ -524,7 +525,7 @@ async function readStdin(): Promise<string> {
 }
 
 function printUsage(): void {
-  console.log(`\nGoondan CLI\n\n사용법:\n  goondan init [--force]\n  goondan run -c <config.yaml> [options]\n  goondan validate -c <config.yaml> [--strict]\n  goondan export -c <config.yaml> [options]\n  goondan bundle <add|remove|enable|disable|info|validate|verify|lock|verify-lock|refresh|list> [args]\n\n옵션 (init):\n  --force, -f                기존 goondan.yaml 덮어쓰기\n\n옵션 (run):\n  -c, --config <path>         Config YAML 경로 (복수 가능)\n  -b, --bundle <path>         Bundle manifest 경로 (복수 가능)\n  --state-root <dir>          상태 루트 디렉터리 (bundles.json 저장 위치)\n  --swarm <name>              실행할 Swarm 이름\n  --agent <name>              실행할 Agent 이름 (미지정 시 entrypoint)\n  --instance-key <key>        인스턴스 키 (기본: cli)\n  --input <text>              입력 텍스트 (미지정 시 stdin)\n  --mock                       mock LLM 사용\n  --no-registry-bundles        등록된 Bundle 로드를 비활성화\n  --new, -n                  새 SwarmInstance 실행\n\n옵션 (validate):\n  --strict                    entry 존재/중복 리소스 체크\n\n옵션 (export):\n  -c, --config <path>         Config YAML 경로 (복수 가능)\n  -b, --bundle <path>         Bundle manifest 경로 (복수 가능)\n  -o, --output <path>         출력 파일 경로 (미지정 시 stdout)\n  --format <yaml|json>        출력 포맷 (기본: yaml)\n  --state-root <dir>          상태 루트 디렉터리 (bundles.json 저장 위치)\n  --no-registry-bundles        등록된 Bundle 로드를 비활성화\n\n옵션 (bundle):\n  add <path> [--name <name>]  Bundle 등록\n  remove <name>               Bundle 제거\n  enable <name>               Bundle 활성화\n  disable <name>              Bundle 비활성화\n  info <name|path>            Bundle 정보 출력\n  validate <name|path>        Bundle 검증 (--strict 사용 가능)\n  verify <name|path>          Bundle fingerprint 검증\n  lock                        Bundle lockfile 생성 (--output/--all)\n  verify-lock                 Bundle lockfile 검증 (--lock)\n  refresh <name>              Bundle fingerprint 갱신\n  list                        Bundle 목록\n`);
+  console.log(`\nGoondan CLI\n\n사용법:\n  goondan init [--force]\n  goondan run -c <config.yaml> [options]\n  goondan validate -c <config.yaml> [--strict]\n  goondan export -c <config.yaml> [options]\n  goondan bundle <add|remove|enable|disable|info|validate|verify|lock|verify-lock|refresh|list> [args]\n\n옵션 (init):\n  --force, -f                기존 goondan.yaml 덮어쓰기\n\n옵션 (run):\n  -c, --config <path>         Config YAML 경로 (복수 가능)\n  -b, --bundle <path>         Bundle manifest 경로 (복수 가능)\n  --state-root <dir>          상태 루트 디렉터리 (기본: ~/.goondan)\n  --swarm <name>              실행할 Swarm 이름\n  --agent <name>              실행할 Agent 이름 (미지정 시 entrypoint)\n  --instance-key <key>        인스턴스 키 (기본: cli)\n  --input <text>              입력 텍스트 (미지정 시 stdin)\n  --mock                       mock LLM 사용\n  --no-registry-bundles        등록된 Bundle 로드를 비활성화\n  --new, -n                  새 SwarmInstance 실행\n\n옵션 (validate):\n  --strict                    entry 존재/중복 리소스 체크\n\n옵션 (export):\n  -c, --config <path>         Config YAML 경로 (복수 가능)\n  -b, --bundle <path>         Bundle manifest 경로 (복수 가능)\n  -o, --output <path>         출력 파일 경로 (미지정 시 stdout)\n  --format <yaml|json>        출력 포맷 (기본: yaml)\n  --state-root <dir>          상태 루트 디렉터리 (기본: ~/.goondan)\n  --no-registry-bundles        등록된 Bundle 로드를 비활성화\n\n옵션 (bundle):\n  add <path> [--name <name>]  Bundle 등록\n  remove <name>               Bundle 제거\n  enable <name>               Bundle 활성화\n  disable <name>              Bundle 비활성화\n  info <name|path>            Bundle 정보 출력\n  validate <name|path>        Bundle 검증 (--strict 사용 가능)\n  verify <name|path>          Bundle fingerprint 검증\n  lock                        Bundle lockfile 생성 (--output/--all)\n  verify-lock                 Bundle lockfile 검증 (--lock)\n  refresh <name>              Bundle fingerprint 갱신\n  list                        Bundle 목록\n`);
 }
 
 function printBundleUsage(): void {

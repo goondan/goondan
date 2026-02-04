@@ -26,7 +26,7 @@
           ▼
    ┌───────────────────────────────────────┐
    │ step.config     (Mutator)             │
-   │  - activate SwarmRevision + load cfg  │
+   │  - activate SwarmBundleRef + load cfg │
    └───────────────────────────────────────┘
           │
           │ step.tools      (Mutator)

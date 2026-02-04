@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { deriveWorkspaceId, resolveDir, resolveStateRootDir } from '../utils/state-paths.js';
 import { loadConfigFiles } from '../config/loader.js';
 import { resolveRef } from '../config/ref.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -48,6 +49,7 @@ interface RuntimeOptions {
   registry?: ConfigRegistry | null;
   stateDir?: string;
   stateRootDir?: string;
+  workspaceDir?: string;
   llm?: LlmAdapter | null;
   logger?: Console;
   oauth?: OAuthManager;
@@ -75,8 +77,11 @@ export class Runtime {
   constructor(options: RuntimeOptions = {}) {
     this.configPaths = options.configPaths || [];
     this.registry = options.registry || null;
-    this.stateRootDir = options.stateRootDir || path.join(process.cwd(), 'state');
-    this.stateDir = options.stateDir || path.join(this.stateRootDir, 'instances');
+    const workspaceDir = options.workspaceDir || this.registry?.baseDir || process.cwd();
+    this.stateRootDir = resolveStateRootDir({ stateRootDir: options.stateRootDir, baseDir: workspaceDir });
+    this.stateDir = options.stateDir
+      ? resolveDir(options.stateDir, workspaceDir)
+      : path.join(this.stateRootDir, 'instances', deriveWorkspaceId(workspaceDir));
     this.llm = options.llm || createAiSdkAdapter();
     this.logger = options.logger || console;
     this.events = new EventEmitter();

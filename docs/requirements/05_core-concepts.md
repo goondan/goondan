@@ -9,8 +9,8 @@
 
 규칙:
 
-* Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config와 SwarmRevision은 고정**되어야 한다(MUST).
-* SwarmBundle 변경(Changeset 커밋으로 생성된 SwarmRevision)은 **Safe Point에서만 활성화**되며, **다음 Step부터** 반영된다(MUST).
+* Step이 시작되면 해당 Step이 끝날 때까지 **Effective Config와 SwarmBundleRef는 고정**되어야 한다(MUST).
+* SwarmBundle 변경(Changeset 커밋으로 생성된 SwarmBundleRef)은 **Safe Point에서만 활성화**되며, **다음 Step부터** 반영된다(MUST).
 * Runtime은 각 Step의 LLM 응답 및 Tool 결과를 `Turn.messages`에 append하고, 다음 Step의 입력(컨텍스트)으로 반드시 사용해야 한다(MUST).
 
 ### 5.2 Tool
@@ -33,7 +33,7 @@ Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance
 
 MCP 연동은 MCP 프로토콜 기반 도구/리소스/프롬프트 제공자를 연결하기 위한 **Extension 패턴**이다. 연결 구성(transport/attach/expose)과 stateful/stateless 모드는 Extension의 config로 캡슐화하며, Agent는 해당 Extension을 `extensions` 목록에 포함해 사용한다.
 
-### 5.4 SwarmBundle / Changeset / SwarmRevision
+### 5.4 SwarmBundle / Changeset / SwarmBundleRef
 
 #### 5.4.1 Bundle
 
@@ -50,37 +50,32 @@ Bundle Package는 **Bundle을 Git 기반으로 배포/의존성 해석**하기 �
 SwarmBundle은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle이다.  
 SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작과 통합)이 수정**된다.
 
-#### 5.4.3 SwarmRevision
+#### 5.4.3 SwarmBundleRef
 
-SwarmRevision은 특정 SwarmBundle 스냅샷을 식별하는 **불변 식별자**이다(opaque string).  
-구현은 SwarmRevision을 content hash, 순번, 또는 VCS commit id 등으로 표현할 수 있으나, 다음을 만족해야 한다(MUST).
+SwarmBundleRef는 특정 SwarmBundle 스냅샷을 식별하는 **불변 식별자**이다(opaque string).  
+Git 기반 구현에서는 SwarmBundleRoot의 Git commit SHA(또는 tag/branch ref)를 SwarmBundleRef로 사용하는 것을 권장한다(SHOULD).
 
-* 동일 SwarmRevision은 동일한 Bundle 콘텐츠를 재현 가능해야 한다(MUST).
-* Step은 시작 시점에 특정 SwarmRevision으로 핀되어야 한다(MUST).
+* 동일 SwarmBundleRef는 동일한 Bundle 콘텐츠를 재현 가능해야 한다(MUST).
+* Step은 시작 시점에 특정 SwarmBundleRef로 핀되어야 한다(MUST).
 
 #### 5.4.4 Changeset
 
-Changeset은 SwarmBundle에 적용되는 변경 집합이다. Changeset은 **커밋되기 전에는 실행에 영향을 주지 않으며**, 커밋되면 **새 SwarmRevision을 생성**한다.
+Changeset은 SwarmBundleRoot의 변경을 안전하게 수행하기 위한 단위이다. Changeset은 **커밋되기 전에는 실행에 영향을 주지 않으며**, 커밋되면 **새 SwarmBundleRef를 생성**한다.
 
-Changeset의 대표적인 구현 패턴은 다음 중 하나이다(구현 선택, MAY).
+Git 기반 구현(권장, SHOULD)에서는 changeset을 **Git worktree 1개**로 표현한다.
 
-1. **Staging Workdir 기반**
-   * SwarmBundleManager가 changesetId와 staging 디렉터리를 발급(open)
-   * 에이전트(또는 도구/확장)가 그 디렉터리에서 파일을 수정
-   * SwarmBundleManager가 diff를 계산하고 commit하여 SwarmRevision 생성
+* SwarmBundleManager가 `swarmBundle.openChangeset`으로 changesetId와 workdir을 발급(open)
+* 에이전트(또는 도구/확장)가 그 workdir에서 파일을 수정
+* `swarmBundle.commitChangeset`이 Git commit을 만들고 SwarmBundleRoot의 활성 Ref를 업데이트하여 새 SwarmBundleRef를 생성
 
-2. **구조화된 FileOps 기반**
-   * changeset이 file write/delete/rename 등의 ops를 포함
-   * SwarmBundleManager가 ops를 적용해 SwarmRevision 생성
-
-본 문서는 v0.9에서 (1) 패턴을 표준으로 간주한다(SHOULD).
+세부 규격은 §6.4를 따른다.
 
 #### 5.4.5 Canonical Writer(정본 단일 작성자) 규칙 (MUST)
 
-SwarmBundle의 변경 이력(Changeset Log/Status/Cursor 등 정본 기록)은 Runtime 내부 **SwarmBundleManager**만이 기록할 수 있어야 한다(MUST).  
-정본 파일은 관측 가능(파일로 노출)하되, SwarmBundleManager 외의 주체가 정본을 직접 기록하는 모델은 허용하지 않는다(MUST).
+Git 기반 구현에서 정본은 SwarmBundleRoot의 Git history/refs이다. Runtime은 Git과 별개로 병렬 정본 로그/커서를 요구하지 않는다(MUST NOT).  
+또한 SwarmBundleRoot에 대한 변경(Ref 이동/commit)은 Runtime 내부 SwarmBundleManager만이 수행할 수 있어야 한다(MUST).
 
 #### 5.4.6 Safe Point(적용 시점) 규칙 (MUST)
 
 * Runtime은 최소 `step.config` Safe Point를 MUST 제공한다.
-* Step이 시작된 이후에는 Step 종료 전까지 SwarmRevision과 Effective Config가 변경되어서는 안 된다(MUST).
+* Step이 시작된 이후에는 Step 종료 전까지 SwarmBundleRef와 Effective Config가 변경되어서는 안 된다(MUST).

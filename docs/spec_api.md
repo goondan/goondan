@@ -170,9 +170,9 @@ Patch proposal 스키마는 `goondan_spec.md`의 §12.4를 따른다.
 }
 ```
 
-## 6. Bundle API (확장 등록)
+## 6. Bundle Package API (확장 등록)
 
-Bundle은 Tool/Extension/Connector를 **묶어서 등록**하기 위한 매니페스트이다.
+Bundle Package는 Tool/Extension/Connector를 **묶어서 등록**하기 위한 매니페스트이다.
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -187,10 +187,10 @@ spec:
     - extensions/skills/extension.yaml
 ```
 
-- `spec.dependencies`는 Bundle Ref 목록이다.
+- `spec.dependencies`는 Bundle Package Ref 목록이다.
 - `spec.include`는 최종 Config에 포함할 YAML 파일 목록이다.
-- 번들 로더는 `spec.entry` 경로를 **Bundle Root 기준으로 해석**한다.
-- `spec.include`는 다운로드 범위를 제한하지 않으며, Bundle Root 전체를 내려받는다.
+- 번들 로더는 `spec.entry` 경로를 **Bundle Package Root 기준으로 해석**한다.
+- `spec.include`는 다운로드 범위를 제한하지 않으며, Bundle Package Root 전체를 내려받는다.
 
 ## 7. CLI (core)
 
@@ -208,7 +208,7 @@ spec:
 # config export
  goondan export -c <config.yaml> -b <bundle.yaml> --format yaml
 
- # 번들 등록
+ # Bundle Package 등록
  goondan bundle add <bundle.yaml>
  goondan bundle add github.com/goondan/goondan/packages/base
  goondan bundle enable <name>
@@ -226,16 +226,16 @@ spec:
 - `run`은 Swarm을 초기화하고 단일 Turn을 실행한다.
 - `run --new`는 새로운 SwarmInstance 키를 생성하여 실행한다.
 - `init`은 기본 goondan.yaml 템플릿을 생성한다.
-- `init`은 base 번들을 Git Bundle로 자동 등록한다.
+- `init`은 base Bundle Package를 Git 기반으로 자동 등록한다.
 - `run`에서 `-c/--config`가 없으면 cwd의 `goondan.yaml`을 기본으로 사용한다.
 - CLI 인자 파싱은 optique 기반으로 구성한다.
 - `validate --strict`는 entry 존재/중복 리소스 체크까지 수행한다.
-- `export`는 Bundle+Config를 합친 리소스를 YAML/JSON으로 출력한다.
+- `export`는 Bundle Package+Config를 합친 리소스를 YAML/JSON으로 출력한다.
 - `bundle` 명령은 `state/bundles.json`에 등록 정보를 저장하며, enable/disable 플래그로 로딩 여부를 제어한다.
 - `bundle validate`는 기본적으로 스키마 수준만 검사하고, `--strict`로 참조 검증/entry 존재 여부/중복 리소스 체크까지 수행한다.
 - `bundle verify/refresh`는 등록된 fingerprint를 비교/갱신하여 번들 무결성을 확인한다.
 - `bundle lock/verify-lock`는 번들들의 고정 fingerprint 스냅샷을 생성/검증한다.
-- `bundle add <bundleRef>`는 Git 기반 Bundle을 내려받아 캐시에 설치한다.
+- `bundle add <bundleRef>`는 Git 기반 Bundle Package를 내려받아 캐시에 설치한다.
 - `bundle add <path>`는 로컬 `bundle.yaml` 경로를 등록한다.
 - npm은 선택적 호스팅 채널로만 사용할 수 있으며, 필수 요건은 아니다.
 - `--mock` 옵션으로 외부 LLM 없이도 실행 가능하다.

@@ -39,6 +39,12 @@ MCPServer는 MCP 프로토콜 기반 도구/리소스/프롬프트 제공자를 
 
 Bundle은 **YAML 리소스 + 소스코드(도구/확장/커넥터/프롬프트/기타 파일)** 를 함께 포함하는 **폴더 트리**이다.
 
+#### 5.7.1.1 Bundle Package (기존 Bundle)
+
+Bundle Package는 **Bundle을 Git 기반으로 배포/의존성 해석**하기 위한 패키징 단위이다.  
+기존 문서에서 `bundle.yaml`, Bundle Ref, Bundle Root 등으로 설명하던 **“Bundle(배포/패키징 의미)”** 는 이제 **Bundle Package**로 명명한다.  
+하위 호환을 위해 `bundle.yaml`의 `kind: Bundle` 표기는 당분간 유지할 수 있다.
+
 #### 5.7.2 SwarmBundle
 
 SwarmBundle은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle이다.  

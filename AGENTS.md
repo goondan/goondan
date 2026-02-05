@@ -42,6 +42,7 @@
 - packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/cli/src/* : CLI 도구(gdn) 구현
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
+- packages/registry/src/* : 패키지 레지스트리 (Cloudflare Workers, R2/KV 기반)
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Bundle Package로 배포 가능**
   - sample-2-telegram-coder: Telegram 봇 코딩 에이전트

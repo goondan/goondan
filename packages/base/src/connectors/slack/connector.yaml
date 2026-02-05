@@ -1,0 +1,29 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: slack
+spec:
+  type: slack
+  runtime: node
+  entry: "./connectors/slack/index.js"
+  auth:
+    oauthAppRef: { kind: OAuthApp, name: slack-bot }
+  triggers:
+    - handler: onSlackEvent
+  ingress:
+    - match:
+        eventType: "message"
+      route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.event.thread_ts"
+        inputFrom: "$.event.text"
+    - match:
+        eventType: "app_mention"
+      route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.event.thread_ts"
+        inputFrom: "$.event.text"
+  egress:
+    updatePolicy:
+      mode: updateInThread
+      debounceMs: 1500

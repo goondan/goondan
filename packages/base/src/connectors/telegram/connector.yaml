@@ -1,0 +1,34 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: telegram
+  labels:
+    tier: base
+    category: messaging
+spec:
+  type: telegram
+  runtime: node
+  entry: "./connectors/telegram/index.js"
+
+  # Static Token 기반 인증 (환경변수에서 가져오기)
+  auth:
+    staticToken:
+      valueFrom:
+        env: "TELEGRAM_BOT_TOKEN"
+
+  # 기본 Ingress 규칙 (사용자가 오버라이드 가능)
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.message.chat.id"
+        inputFrom: "$.message.text"
+
+  # Egress 설정
+  egress:
+    updatePolicy:
+      mode: newMessage
+      debounceMs: 1000
+
+  # Trigger 핸들러
+  triggers:
+    - handler: onUpdate

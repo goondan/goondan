@@ -1,0 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/base"
+  version: "0.0.1"
+  annotations:
+    description: "Goondan 기본 Tool, Extension, Connector 번들"
+spec:
+  dependencies: []
+  resources:
+    - tools/bash/tool.yaml
+    - extensions/basicCompaction/extension.yaml
+    - connectors/telegram/connector.yaml
+    - connectors/slack/connector.yaml
+  dist:
+    - dist/

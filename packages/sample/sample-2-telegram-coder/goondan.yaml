@@ -25,7 +25,7 @@ spec:
   prompts:
     systemRef: "./prompts/planner.system.md"
   tools:
-    - { kind: Tool, name: delegateToAgent }
+    - { kind: Tool, name: delegate-to-agent }
 
 ---
 
@@ -44,8 +44,8 @@ spec:
   prompts:
     systemRef: "./prompts/coder.system.md"
   tools:
-    - { kind: Tool, name: fileRead }
-    - { kind: Tool, name: fileWrite }
+    - { kind: Tool, name: file-read }
+    - { kind: Tool, name: file-write }
     - { kind: Tool, name: bash }
 
 ---
@@ -65,14 +65,14 @@ spec:
   prompts:
     systemRef: "./prompts/reviewer.system.md"
   tools:
-    - { kind: Tool, name: fileRead }
+    - { kind: Tool, name: file-read }
 
 ---
 
 apiVersion: agents.example.io/v1alpha1
 kind: Tool
 metadata:
-  name: delegateToAgent
+  name: delegate-to-agent
   labels:
     tier: core
 spec:
@@ -97,7 +97,7 @@ spec:
 apiVersion: agents.example.io/v1alpha1
 kind: Tool
 metadata:
-  name: fileRead
+  name: file-read
   labels:
     tier: base
     category: filesystem
@@ -120,7 +120,7 @@ spec:
 apiVersion: agents.example.io/v1alpha1
 kind: Tool
 metadata:
-  name: fileWrite
+  name: file-write
   labels:
     tier: base
     category: filesystem
@@ -143,31 +143,7 @@ spec:
 
 ---
 
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: bash
-  labels:
-    tier: base
-    category: system
-spec:
-  runtime: node
-  entry: "./tools/bash/index.ts"
-  exports:
-    - name: bash.execute
-      description: "Bash 명령어를 실행합니다."
-      parameters:
-        type: object
-        properties:
-          command:
-            type: string
-            description: "실행할 명령어"
-          cwd:
-            type: string
-            description: "작업 디렉터리 (선택)"
-        required: ["command"]
-
----
+# Tool/bash는 @goondan/base 패키지에서 자동 로드됨
 
 apiVersion: agents.example.io/v1alpha1
 kind: Swarm
@@ -186,6 +162,7 @@ spec:
 
 ---
 
+# @goondan/base의 telegram connector 사용
 apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
@@ -193,15 +170,19 @@ metadata:
 spec:
   type: telegram
   runtime: node
-  entry: "./connectors/telegram/index.ts"
+  entry: "./.goondan/packages/@goondan/base/dist/connectors/telegram/index.js"
 
-  # Static Token 기반 인증 (환경변수에서 가져오기)
+  # Static Token 기반 인증
   auth:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
 
-  # Ingress 규칙
+  # Trigger 핸들러 (@goondan/base의 onUpdate 사용)
+  triggers:
+    - handler: onUpdate
+
+  # Ingress 규칙 (이 샘플에 맞게 설정)
   ingress:
     # /start 명령어 매칭
     - match:
@@ -232,7 +213,3 @@ spec:
     updatePolicy:
       mode: updateInThread
       debounceMs: 1500
-
-  # Trigger 핸들러
-  triggers:
-    - handler: onTelegramUpdate

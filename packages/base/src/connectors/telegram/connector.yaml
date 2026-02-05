@@ -16,12 +16,9 @@ spec:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
 
-  # 기본 Ingress 규칙 (사용자가 오버라이드 가능)
-  ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
+  # Ingress 규칙은 사용자가 오버라이드해야 함
+  # 패키지 리소스는 후순위 로드가 덮어씀
+  ingress: []
 
   # Egress 설정
   egress:

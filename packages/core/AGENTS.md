@@ -20,7 +20,8 @@ src/
 │   ├── parser.ts         # YAML 파싱
 │   ├── validator.ts      # 리소스 검증
 │   ├── resolver.ts       # 참조 해석
-│   ├── loader.ts         # Bundle 로딩
+│   ├── loader.ts         # Bundle 로딩 (dependency 자동 로드 지원)
+│   ├── __tests__/        # Bundle 로더 테스트
 │   └── package/          # Package 시스템 (참조 파싱, 캐싱, 의존성 해석)
 ├── runtime/      # [구현완료] 런타임 실행 모델 (SwarmInstance, AgentInstance, Turn, Step)
 │   ├── types.ts              # Runtime 타입 (LlmMessage, ToolCall, TurnOrigin, TurnAuth 등)

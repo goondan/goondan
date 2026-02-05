@@ -10,3 +10,4 @@ test/
 **/tmp-live-config-*/
 mise.local.toml
 **/state/
+.goondan/

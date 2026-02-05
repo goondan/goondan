@@ -1,0 +1,238 @@
+# Telegram Coder Agent Swarm
+# Telegram 봇을 통한 원격 코딩 에이전트 스웜 샘플
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-5
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: planner
+  labels:
+    role: orchestrator
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.3
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/planner.system.md"
+  tools:
+    - { kind: Tool, name: delegateToAgent }
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: coder
+  labels:
+    role: executor
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.5
+      maxTokens: 8192
+  prompts:
+    systemRef: "./prompts/coder.system.md"
+  tools:
+    - { kind: Tool, name: fileRead }
+    - { kind: Tool, name: fileWrite }
+    - { kind: Tool, name: bash }
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: reviewer
+  labels:
+    role: reviewer
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.2
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/reviewer.system.md"
+  tools:
+    - { kind: Tool, name: fileRead }
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: delegateToAgent
+  labels:
+    tier: core
+spec:
+  runtime: node
+  entry: "./tools/delegate/index.ts"
+  exports:
+    - name: delegate.toAgent
+      description: "다른 에이전트에게 작업을 위임합니다."
+      parameters:
+        type: object
+        properties:
+          agentName:
+            type: string
+            description: "위임할 에이전트 이름 (coder 또는 reviewer)"
+          task:
+            type: string
+            description: "위임할 작업 설명"
+        required: ["agentName", "task"]
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: fileRead
+  labels:
+    tier: base
+    category: filesystem
+spec:
+  runtime: node
+  entry: "./tools/file-read/index.ts"
+  exports:
+    - name: file.read
+      description: "파일 내용을 읽습니다."
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: "읽을 파일 경로"
+        required: ["path"]
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: fileWrite
+  labels:
+    tier: base
+    category: filesystem
+spec:
+  runtime: node
+  entry: "./tools/file-write/index.ts"
+  exports:
+    - name: file.write
+      description: "파일에 내용을 씁니다."
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: "쓸 파일 경로"
+          content:
+            type: string
+            description: "파일에 쓸 내용"
+        required: ["path", "content"]
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: bash
+  labels:
+    tier: base
+    category: system
+spec:
+  runtime: node
+  entry: "./tools/bash/index.ts"
+  exports:
+    - name: bash.execute
+      description: "Bash 명령어를 실행합니다."
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: "실행할 명령어"
+          cwd:
+            type: string
+            description: "작업 디렉터리 (선택)"
+        required: ["command"]
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: coding-swarm
+spec:
+  entrypoint: { kind: Agent, name: planner }
+  agents:
+    - { kind: Agent, name: planner }
+    - { kind: Agent, name: coder }
+    - { kind: Agent, name: reviewer }
+  policy:
+    maxStepsPerTurn: 32
+    maxTurnsPerInstance: 100
+    timeoutMs: 600000
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: telegram
+spec:
+  type: telegram
+  runtime: node
+  entry: "./connectors/telegram/index.ts"
+
+  # Static Token 기반 인증 (환경변수에서 가져오기)
+  auth:
+    staticToken:
+      valueFrom:
+        env: "TELEGRAM_BOT_TOKEN"
+
+  # Ingress 규칙
+  ingress:
+    # /start 명령어 매칭
+    - match:
+        command: "/start"
+      route:
+        swarmRef: { kind: Swarm, name: coding-swarm }
+        instanceKeyFrom: "$.message.chat.id"
+        inputFrom: "$.message.text"
+        agentName: planner
+
+    # /code 명령어 매칭
+    - match:
+        command: "/code"
+      route:
+        swarmRef: { kind: Swarm, name: coding-swarm }
+        instanceKeyFrom: "$.message.chat.id"
+        inputFrom: "$.message.text"
+        agentName: planner
+
+    # 기본 메시지 라우팅 (명령어 없는 일반 메시지)
+    - route:
+        swarmRef: { kind: Swarm, name: coding-swarm }
+        instanceKeyFrom: "$.message.chat.id"
+        inputFrom: "$.message.text"
+
+  # Egress 설정
+  egress:
+    updatePolicy:
+      mode: updateInThread
+      debounceMs: 1500
+
+  # Trigger 핸들러
+  triggers:
+    - handler: onTelegramUpdate

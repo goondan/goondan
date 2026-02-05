@@ -38,6 +38,14 @@
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
+- packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
+- packages/base/src/* : 기본 Extension/Connector/Tool 묶음
+- packages/sample/* : 에이전트 샘플 모음
+  - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Bundle Package로 배포 가능**
+  - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
+  - sample-3-self-evolving: Changeset 기반 자기 수정 에이전트
+  - sample-4-compaction: LLM 대화 Compaction Extension (Token/Turn/Sliding Window 전략)
+  - sample-5-package-consumer: sample-1 패키지를 의존성으로 참조하는 예제
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것

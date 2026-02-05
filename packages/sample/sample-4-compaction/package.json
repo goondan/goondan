@@ -1,0 +1,26 @@
+{
+  "name": "@goondan/sample-compaction",
+  "version": "0.0.1",
+  "description": "Compaction Extension Sample - Demonstrates LLM conversation compaction strategies",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

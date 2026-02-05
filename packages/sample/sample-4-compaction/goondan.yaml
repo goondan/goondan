@@ -1,0 +1,94 @@
+# Compaction Extension Sample Bundle
+# Demonstrates LLM conversation compaction strategies for context window management
+
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: compaction-demo
+spec:
+  entrypoint:
+    kind: Agent
+    name: main-agent
+  agents:
+    - kind: Agent
+      name: main-agent
+
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: main-agent
+  labels:
+    tier: demo
+spec:
+  modelConfig:
+    modelRef:
+      kind: Model
+      name: gpt-4o
+  prompt:
+    system:
+      source: file
+      path: "./prompts/default.system.md"
+  extensions:
+    - kind: Extension
+      name: compaction
+  tools: []
+
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: gpt-4o
+spec:
+  provider: openai
+  model: gpt-4o
+  parameters:
+    temperature: 0.7
+    maxTokens: 4096
+
+---
+# Token-based compaction strategy
+apiVersion: agents.example.io/v1alpha1
+kind: Extension
+metadata:
+  name: compaction
+  labels:
+    tier: sample
+spec:
+  runtime: node
+  entry: "./extensions/compaction/index.js"
+  config:
+    strategy: token
+    maxTokens: 8000
+    preserveRecent: 5
+    summaryPrompt: "Summarize the following conversation concisely, preserving key information and context:"
+    enableLogging: true
+
+---
+# Alternative: Turn-based compaction
+# apiVersion: agents.example.io/v1alpha1
+# kind: Extension
+# metadata:
+#   name: compaction-turn
+# spec:
+#   runtime: node
+#   entry: "./extensions/compaction/index.js"
+#   config:
+#     strategy: turn
+#     maxTurns: 20
+#     preserveRecent: 5
+#     enableLogging: true
+
+---
+# Alternative: Sliding window compaction
+# apiVersion: agents.example.io/v1alpha1
+# kind: Extension
+# metadata:
+#   name: compaction-sliding
+# spec:
+#   runtime: node
+#   entry: "./extensions/compaction/index.js"
+#   config:
+#     strategy: sliding
+#     windowSize: 10
+#     enableLogging: true

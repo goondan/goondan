@@ -1,0 +1,22 @@
+# Coding Swarm Bundle Package
+# Planner-Coder-Reviewer 구조의 코딩 에이전트 스웜 패키지
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: coding-swarm
+  version: "1.0.0"
+spec:
+  # 의존성 없음 (기본 패키지)
+  dependencies: []
+  # 패키지에서 export되는 리소스 YAML 목록
+  resources:
+    - model.yaml
+    - tools/file/tool.yaml
+    - tools/delegate/tool.yaml
+    - agents/planner.yaml
+    - agents/coder.yaml
+    - agents/reviewer.yaml
+    - swarm.yaml
+  # tarball에 포함될 폴더
+  dist:
+    - dist/

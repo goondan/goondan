@@ -1,0 +1,21 @@
+{
+  "name": "@goondan/sample-package-consumer",
+  "version": "0.0.1",
+  "description": "Goondan Package Consumer Sample - coding-swarm 패키지를 사용하는 예제",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "goondan run",
+    "dev": "goondan dev",
+    "validate": "goondan validate"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*",
+    "@goondan-samples/coding-swarm": "workspace:*"
+  },
+  "keywords": [
+    "goondan",
+    "package-consumer",
+    "example"
+  ]
+}

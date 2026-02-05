@@ -9,10 +9,12 @@
 import { Command } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
+import * as zlib from "node:zlib";
 import ora from "ora";
 import chalk from "chalk";
 import YAML from "yaml";
-import { info, success, warn, error as logError } from "../../utils/logger.js";
+import { info, success, error as logError } from "../../utils/logger.js";
 import { loadConfig, expandPath } from "../../utils/config.js";
 
 /**
@@ -61,20 +63,69 @@ interface Lockfile {
 }
 
 /**
+ * Registry package metadata
+ */
+interface RegistryVersionMetadata {
+  name: string;
+  version: string;
+  dist: {
+    tarball: string;
+    shasum: string;
+    integrity: string;
+  };
+  dependencies?: Record<string, string>;
+}
+
+interface RegistryPackageMetadata {
+  name: string;
+  versions: Record<string, RegistryVersionMetadata>;
+  "dist-tags": Record<string, string>;
+}
+
+/**
+ * Type guard for registry package metadata
+ */
+function isRegistryPackageMetadata(data: unknown): data is RegistryPackageMetadata {
+  if (typeof data !== "object" || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  return (
+    typeof obj["name"] === "string" &&
+    typeof obj["versions"] === "object" &&
+    obj["versions"] !== null &&
+    typeof obj["dist-tags"] === "object"
+  );
+}
+
+/**
+ * Type guard for registry version metadata
+ */
+function isRegistryVersionMetadata(data: unknown): data is RegistryVersionMetadata {
+  if (typeof data !== "object" || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  const dist = obj["dist"];
+  if (typeof dist !== "object" || dist === null) return false;
+  const distObj = dist as Record<string, unknown>;
+  return (
+    typeof obj["name"] === "string" &&
+    typeof obj["version"] === "string" &&
+    typeof distObj["tarball"] === "string" &&
+    typeof distObj["integrity"] === "string"
+  );
+}
+
+/**
  * Parse package reference to extract scope, name, and version
  */
-function parsePackageRef(ref: string): { scope: string | null; name: string; version: string | null } {
+function parsePackageRef(ref: string): { scope: string | null; name: string; version: string | null; fullName: string } {
   // Format: @scope/name@version or name@version
-  const versionMatch = ref.match(/@([^@]+)$/);
   let version: string | null = null;
   let nameWithScope = ref;
 
-  if (versionMatch && !ref.startsWith("@") || (versionMatch && ref.lastIndexOf("@") !== 0)) {
-    const lastAtIndex = ref.lastIndexOf("@");
-    if (lastAtIndex > 0) {
-      version = ref.slice(lastAtIndex + 1);
-      nameWithScope = ref.slice(0, lastAtIndex);
-    }
+  // Find version part (last @ that's not at position 0)
+  const lastAtIndex = ref.lastIndexOf("@");
+  if (lastAtIndex > 0) {
+    version = ref.slice(lastAtIndex + 1);
+    nameWithScope = ref.slice(0, lastAtIndex);
   }
 
   // Parse scope
@@ -85,6 +136,7 @@ function parsePackageRef(ref: string): { scope: string | null; name: string; ver
         scope: nameWithScope.slice(0, slashIndex),
         name: nameWithScope.slice(slashIndex + 1),
         version,
+        fullName: nameWithScope,
       };
     }
   }
@@ -93,6 +145,7 @@ function parsePackageRef(ref: string): { scope: string | null; name: string; ver
     scope: null,
     name: nameWithScope,
     version,
+    fullName: nameWithScope,
   };
 }
 
@@ -165,6 +218,157 @@ async function getBundlesCacheDir(): Promise<string> {
 }
 
 /**
+ * Fetch package metadata from registry
+ */
+async function fetchPackageMetadata(
+  registryUrl: string,
+  packageName: string
+): Promise<RegistryPackageMetadata> {
+  const url = `${registryUrl}/${packageName}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch package metadata: ${response.status} ${response.statusText}`);
+  }
+
+  const data: unknown = await response.json();
+
+  if (!isRegistryPackageMetadata(data)) {
+    throw new Error(`Invalid package metadata from registry`);
+  }
+
+  return data;
+}
+
+/**
+ * Resolve version from semver range
+ */
+function resolveVersion(
+  metadata: RegistryPackageMetadata,
+  versionRange: string | null
+): string {
+  // If no version specified or "latest", use dist-tags.latest
+  if (!versionRange || versionRange === "latest") {
+    const latest = metadata["dist-tags"]["latest"];
+    if (!latest) {
+      throw new Error(`No latest version found for ${metadata.name}`);
+    }
+    return latest;
+  }
+
+  // Strip semver range prefix for exact version
+  const exactVersion = versionRange.replace(/^[\^~>=<]+/, "");
+
+  // Check if exact version exists
+  if (metadata.versions[exactVersion]) {
+    return exactVersion;
+  }
+
+  // For now, simple version matching (full semver resolution would be more complex)
+  const availableVersions = Object.keys(metadata.versions).sort();
+
+  // Try to find matching version
+  for (const ver of availableVersions.reverse()) {
+    if (ver.startsWith(exactVersion.split(".")[0] ?? "")) {
+      return ver;
+    }
+  }
+
+  throw new Error(`No matching version found for ${metadata.name}@${versionRange}`);
+}
+
+/**
+ * Download tarball from URL
+ */
+async function downloadTarball(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to download tarball: ${response.status} ${response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Verify integrity hash
+ */
+function verifyIntegrity(buffer: Buffer, expectedIntegrity: string): boolean {
+  const hash = crypto.createHash("sha512");
+  hash.update(buffer);
+  const actualIntegrity = `sha512-${hash.digest("base64")}`;
+  return actualIntegrity === expectedIntegrity;
+}
+
+/**
+ * Extract tarball to directory
+ */
+async function extractTarball(tarballBuffer: Buffer, destDir: string): Promise<void> {
+  // Decompress gzip
+  const tarBuffer = await new Promise<Buffer>((resolve, reject) => {
+    zlib.gunzip(tarballBuffer, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+
+  // Parse and extract tar
+  let offset = 0;
+  while (offset < tarBuffer.length) {
+    // Read header (512 bytes)
+    const header = tarBuffer.subarray(offset, offset + 512);
+    offset += 512;
+
+    // Check for end of archive (two empty blocks)
+    if (header.every((b) => b === 0)) {
+      break;
+    }
+
+    // Parse header
+    const nameBytes = header.subarray(0, 100);
+    const nullIndex = nameBytes.indexOf(0);
+    const name = nameBytes.subarray(0, nullIndex > 0 ? nullIndex : 100).toString("utf8");
+
+    const sizeStr = header.subarray(124, 136).toString("utf8").trim();
+    const size = parseInt(sizeStr, 8) || 0;
+
+    const typeFlag = header[156];
+
+    // Skip if empty name
+    if (!name) {
+      continue;
+    }
+
+    // Remove "package/" prefix from tar paths
+    const relativePath = name.replace(/^package\//, "");
+    if (!relativePath) {
+      // Skip the "package/" directory entry itself
+      offset += Math.ceil(size / 512) * 512;
+      continue;
+    }
+
+    const fullPath = path.join(destDir, relativePath);
+
+    // Create directory or file
+    if (typeFlag === 53 || name.endsWith("/")) {
+      // Directory
+      fs.mkdirSync(fullPath, { recursive: true });
+    } else if (typeFlag === 48 || typeFlag === 0) {
+      // Regular file
+      const dirPath = path.dirname(fullPath);
+      fs.mkdirSync(dirPath, { recursive: true });
+
+      const content = tarBuffer.subarray(offset, offset + size);
+      fs.writeFileSync(fullPath, content);
+    }
+
+    // Move to next block (512-byte aligned)
+    offset += Math.ceil(size / 512) * 512;
+  }
+}
+
+/**
  * Execute the install command
  */
 async function executeInstall(options: InstallOptions): Promise<void> {
@@ -172,6 +376,10 @@ async function executeInstall(options: InstallOptions): Promise<void> {
   const projectPath = process.cwd();
 
   try {
+    // Load config for registry URL
+    const config = await loadConfig();
+    const registryUrl = config.registry ?? "https://registry.goondan.io";
+
     // Load package.yaml
     spinner.start("Reading package.yaml...");
     const manifest = loadPackageManifest(projectPath);
@@ -196,9 +404,9 @@ async function executeInstall(options: InstallOptions): Promise<void> {
     }
 
     // Check for lockfile in frozen mode
+    const existingLockfile = loadLockfile(projectPath);
     if (options.frozenLockfile) {
-      const lockfile = loadLockfile(projectPath);
-      if (!lockfile) {
+      if (!existingLockfile) {
         spinner.fail("No lockfile found. Cannot use --frozen-lockfile without packages.lock.yaml");
         process.exitCode = 1;
         return;
@@ -218,7 +426,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
     console.log(chalk.bold("Installing dependencies:"));
     console.log();
 
-    // Process each dependency (stub implementation)
+    // Process each dependency
     const lockfile: Lockfile = {
       lockfileVersion: 1,
       packages: {},
@@ -226,47 +434,108 @@ async function executeInstall(options: InstallOptions): Promise<void> {
 
     for (const dep of allDependencies) {
       const parsed = parsePackageRef(dep);
-      const displayName = parsed.scope ? `${parsed.scope}/${parsed.name}` : parsed.name;
-      const version = parsed.version ?? "latest";
+      const displayName = parsed.fullName;
+      const requestedVersion = parsed.version ?? "latest";
 
-      spinner.start(`Resolving ${displayName}@${version}...`);
+      spinner.start(`Resolving ${displayName}@${requestedVersion}...`);
 
-      // Stub: In real implementation, this would:
-      // 1. Fetch metadata from registry
-      // 2. Resolve version (semver)
-      // 3. Download tarball
-      // 4. Verify integrity
-      // 5. Extract to bundles directory
+      try {
+        // Check lockfile first in frozen mode
+        let resolvedVersion: string;
+        let versionMetadata: RegistryVersionMetadata;
+        let tarballUrl: string;
+        let integrity: string;
 
-      // Simulate async operation
-      await new Promise((resolve) => setTimeout(resolve, 100));
+        const lockfileKey = `${displayName}@${requestedVersion}`;
+        const lockedEntry = existingLockfile?.packages[lockfileKey];
 
-      // Create stub lockfile entry
-      const resolvedVersion = version === "latest" ? "1.0.0" : version.replace(/^[\^~]/, "");
-      const pkgKey = `${displayName}@${resolvedVersion}`;
-      const registryUrl = "https://registry.goondan.io";
+        if (options.frozenLockfile && lockedEntry) {
+          // Use locked version
+          resolvedVersion = lockedEntry.version;
+          tarballUrl = lockedEntry.resolved;
+          integrity = lockedEntry.integrity;
 
-      lockfile.packages[pkgKey] = {
-        version: resolvedVersion,
-        resolved: `${registryUrl}/${displayName}/-/${parsed.name}-${resolvedVersion}.tgz`,
-        integrity: "sha512-PLACEHOLDER...",
-      };
+          // Still need to fetch metadata for dependencies
+          const metadata = await fetchPackageMetadata(registryUrl, displayName);
+          const vData = metadata.versions[resolvedVersion];
+          if (!vData || !isRegistryVersionMetadata(vData)) {
+            throw new Error(`Version ${resolvedVersion} not found in registry`);
+          }
+          versionMetadata = vData;
+        } else {
+          // Fetch metadata and resolve version
+          const metadata = await fetchPackageMetadata(registryUrl, displayName);
+          resolvedVersion = resolveVersion(metadata, requestedVersion);
 
-      spinner.succeed(`${chalk.cyan(displayName)}@${chalk.gray(resolvedVersion)}`);
+          const vData = metadata.versions[resolvedVersion];
+          if (!vData || !isRegistryVersionMetadata(vData)) {
+            throw new Error(`Version ${resolvedVersion} not found`);
+          }
+          versionMetadata = vData;
+          tarballUrl = versionMetadata.dist.tarball;
+          integrity = versionMetadata.dist.integrity;
+        }
 
-      // Check if already cached
-      const cachedPath = path.join(
-        bundlesDir,
-        parsed.scope ?? "_",
-        parsed.name,
-        resolvedVersion
-      );
+        spinner.succeed(`${chalk.cyan(displayName)}@${chalk.gray(resolvedVersion)}`);
 
-      if (fs.existsSync(cachedPath)) {
-        info(`  ${chalk.gray("(cached)")}`);
-      } else {
-        // Stub: Would download and extract here
-        warn(`  ${chalk.yellow("(stub: not actually downloaded)")}`);
+        // Create lockfile entry
+        lockfile.packages[`${displayName}@${resolvedVersion}`] = {
+          version: resolvedVersion,
+          resolved: tarballUrl,
+          integrity,
+          dependencies: versionMetadata.dependencies,
+        };
+
+        // Check if already cached
+        const cachedPath = path.join(
+          bundlesDir,
+          parsed.scope ?? "_unscoped",
+          parsed.name,
+          resolvedVersion
+        );
+
+        if (fs.existsSync(cachedPath)) {
+          info(`  ${chalk.gray("(cached)")}`);
+        } else {
+          // Download tarball
+          spinner.start(`  Downloading...`);
+          const tarballBuffer = await downloadTarball(tarballUrl);
+
+          // Verify integrity
+          if (!verifyIntegrity(tarballBuffer, integrity)) {
+            throw new Error(`Integrity check failed for ${displayName}@${resolvedVersion}`);
+          }
+
+          // Extract to cache directory
+          spinner.text = `  Extracting...`;
+          await extractTarball(tarballBuffer, cachedPath);
+
+          spinner.succeed(`  ${chalk.green("Downloaded and extracted")}`);
+        }
+
+        // Create symlink in project's .goondan/packages directory
+        const projectPackagesDir = path.join(projectPath, ".goondan", "packages");
+        const linkPath = path.join(
+          projectPackagesDir,
+          parsed.scope ?? "_unscoped",
+          parsed.name
+        );
+
+        // Ensure directory exists
+        fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+
+        // Remove existing symlink/directory
+        if (fs.existsSync(linkPath)) {
+          fs.rmSync(linkPath, { recursive: true });
+        }
+
+        // Create symlink to cached package
+        fs.symlinkSync(cachedPath, linkPath, "dir");
+
+      } catch (err) {
+        spinner.fail(`${chalk.red(displayName)} - ${err instanceof Error ? err.message : "Unknown error"}`);
+        process.exitCode = 1;
+        return;
       }
     }
 
@@ -285,10 +554,6 @@ async function executeInstall(options: InstallOptions): Promise<void> {
 
     success(`Installed ${allDependencies.length} package(s)`);
 
-    // Show stub warning
-    console.log();
-    warn(chalk.yellow("Note: This is a stub implementation. Packages are not actually downloaded."));
-    info("Full implementation will connect to the Goondan package registry.");
   } catch (err) {
     spinner.fail("Installation failed");
 

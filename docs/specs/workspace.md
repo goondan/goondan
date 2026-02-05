@@ -163,7 +163,7 @@ function generateInstanceId(swarmName: string, instanceKey: string): string {
 
 ## 4. SwarmBundleRoot 레이아웃
 
-SwarmBundleRoot는 `goondan init`이 생성하는 프로젝트 디렉터리이며, Swarm 정의와 관련 코드를 포함한다.
+SwarmBundleRoot는 `gdn init`이 생성하는 프로젝트 디렉터리이며, Swarm 정의와 관련 코드를 포함한다.
 
 ### 4.1 표준 레이아웃
 
@@ -1133,12 +1133,61 @@ async function initializeInstanceState(
 | `GOONDAN_ENCRYPTION_KEY` | OAuth 암호화 마스터 키 | - |
 | `GOONDAN_REGISTRY` | Bundle Package 레지스트리 URL | `https://registry.goondan.io` |
 | `GOONDAN_REGISTRY_TOKEN` | 레지스트리 인증 토큰 | - |
+| `GOONDAN_LOG_LEVEL` | 로그 레벨 (`debug`, `info`, `warn`, `error`) | `info` |
 
 ---
 
-## 부록 B. 관련 문서
+## 부록 B. CLI 설정 파일
+
+### B.1 ~/.goondanrc
+
+`gdn` CLI 도구의 전역 설정 파일이다.
+
+**위치**: `~/.goondanrc`
+
+**형식**:
+```yaml
+# 기본 레지스트리
+registry: "https://registry.goondan.io"
+
+# System State Root (선택, 기본: ~/.goondan)
+stateRoot: "~/.goondan"
+
+# 로그 레벨
+logLevel: "info"
+
+# 색상 출력
+color: true
+
+# 레지스트리 인증 토큰
+registries:
+  "https://registry.goondan.io":
+    token: "xxx..."
+  "https://my-org-registry.example.com":
+    token: "yyy..."
+
+# 스코프별 레지스트리 매핑
+scopedRegistries:
+  "@myorg": "https://my-org-registry.example.com"
+```
+
+### B.2 프로젝트 설정 파일
+
+프로젝트 루트에 `.goondanrc`를 두면 프로젝트별 설정을 오버라이드할 수 있다(MAY).
+
+**우선순위** (높은 것이 우선):
+1. CLI 옵션
+2. 환경 변수
+3. 프로젝트 설정 (`.goondanrc` in project root)
+4. 전역 설정 (`~/.goondanrc`)
+5. 기본값
+
+---
+
+## 부록 C. 관련 문서
 
 - `docs/requirements/10_workspace-model.md`: 워크스페이스 모델 요구사항
+- `docs/specs/cli.md`: CLI 도구(gdn) 스펙
 - `docs/specs/api.md`: Runtime/SDK API 스펙
 - `docs/specs/bundle.md`: Bundle YAML 스펙
-- `docs/specs/bundle_package.md`: Bundle Package 요구사항
+- `docs/specs/bundle_package.md`: Bundle Package 스펙

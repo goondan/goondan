@@ -31,7 +31,7 @@ SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작
 
 ### 1.2 SwarmBundleRoot 레이아웃
 
-`goondan init`이 생성하는 프로젝트가 SwarmBundleRoot이다.
+`gdn init`이 생성하는 프로젝트가 SwarmBundleRoot이다.
 
 ```text
 <swarmBundleRoot>/

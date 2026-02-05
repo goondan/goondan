@@ -22,10 +22,11 @@
 - docs/requirements/*.md : 요구사항 분할 본문
 
 ### 구현 스펙 문서 (docs/specs/)
+- docs/specs/cli.md : CLI 도구(gdn) 스펙 (명령어, 옵션, 패키지 관리, 인스턴스 관리)
 - docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, OAuth API)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
 - docs/specs/bundle.md : Bundle YAML 스펙 (리소스 정의, 검증 규칙)
-- docs/specs/bundle_package.md : Bundle Package 스펙 (Git 기반 패키징/참조)
+- docs/specs/bundle_package.md : Bundle Package 스펙 (레지스트리 기반 패키징/참조, CLI 명령어)
 - docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
 - docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합)
@@ -39,6 +40,7 @@
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
 - packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
+- packages/cli/src/* : CLI 도구(gdn) 구현
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Bundle Package로 배포 가능**

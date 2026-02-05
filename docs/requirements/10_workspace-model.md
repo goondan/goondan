@@ -4,7 +4,7 @@ Runtime은 인스턴스와 에이전트 실행을 위한 파일시스템 워크�
 
 본 문서는 파일시스템 레이아웃을 다음 3개의 “루트”로 분리해 정의한다(MUST).
 
-1. **SwarmBundleRoot**: `goondan init`이 생성하는 프로젝트(= SwarmBundle 정의). Changeset에 의해 변경될 수 있다(MUST).
+1. **SwarmBundleRoot**: `gdn init`이 생성하는 프로젝트(= SwarmBundle 정의). Changeset에 의해 변경될 수 있다(MUST).
 2. **Instance State Root**: SwarmInstance/AgentInstance의 실행 중 상태(로그 등). SwarmBundleRoot와 분리되어야 한다(MUST).
 3. **System State Root**: 인스턴스 생명주기와 무관한 전역 상태(OAuth, Bundle Package cache 등). Instance State Root와 분리되어야 한다(MUST).
 
@@ -21,7 +21,7 @@ Runtime은 인스턴스와 에이전트 실행을 위한 파일시스템 워크�
 
 ### 10.1 SwarmBundleRoot 레이아웃 (MUST)
 
-SwarmBundleRoot는 Swarm(및 그 하위 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle의 루트이다. `goondan init`은 1개의 SwarmBundleRoot를 생성해야 하며(MUST), SwarmBundleRoot의 콘텐츠는 Changeset에 의해 변경될 수 있어야 한다(MUST).
+SwarmBundleRoot는 Swarm(및 그 하위 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 Bundle의 루트이다. `gdn init`은 1개의 SwarmBundleRoot를 생성해야 하며(MUST), SwarmBundleRoot의 콘텐츠는 Changeset에 의해 변경될 수 있어야 한다(MUST).
 
 권장 레이아웃 예시는 다음과 같다.
 

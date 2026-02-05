@@ -413,39 +413,213 @@ spec:
 
 ## 13. CLI 명령어
 
-### 13.1 패키지 설치
+### 13.1 개요
+
+Goondan CLI(`gdn`)는 Bundle Package를 관리하기 위한 `package` 하위 명령어를 제공한다.
+
+### 13.2 의존성 설치
+
 ```bash
-goondan bundle add @goondan/base
-goondan bundle add @goondan/base@1.0.0
-goondan bundle add @myorg/custom-tools@latest
+# package.yaml에 정의된 모든 의존성 설치
+gdn package install
+
+# lockfile 기준으로 설치 (CI 환경용)
+gdn package install --frozen-lockfile
 ```
 
-### 13.2 패키지 목록
+**동작:**
+1. `package.yaml`의 `spec.dependencies`를 읽는다.
+2. 각 Bundle Package Ref에 대해 레지스트리에서 메타데이터를 조회한다.
+3. 버전 해석(semver 범위 → 정확한 버전)을 수행한다.
+4. 의존성 트리를 구성하고 충돌을 해결한다.
+5. tarball을 다운로드하고 integrity를 검증한다.
+6. `<goondanHome>/bundles/<scope>/<name>/<version>/`에 압축 해제한다.
+7. `packages.lock.yaml`을 생성/업데이트한다.
+
+### 13.3 의존성 추가
+
 ```bash
-goondan bundle list
+# 패키지 추가 (최신 버전)
+gdn package add @goondan/base
+
+# 특정 버전 추가
+gdn package add @goondan/base@1.2.0
+
+# 정확한 버전 고정
+gdn package add @goondan/base@1.2.0 --exact
+
+# semver 범위로 추가 (기본)
+gdn package add @goondan/base@^1.0.0
 ```
 
-### 13.3 패키지 업데이트
+**동작:**
+1. 레지스트리에서 패키지 메타데이터를 조회한다.
+2. `package.yaml`의 `spec.dependencies`에 추가한다.
+3. `gdn package install`을 실행한다.
+
+### 13.4 의존성 제거
+
 ```bash
-goondan bundle update @goondan/base
-goondan bundle update  # 모든 패키지 업데이트
+gdn package remove @goondan/base
 ```
 
-### 13.4 패키지 제거
+**동작:**
+1. `package.yaml`에서 해당 의존성을 제거한다.
+2. 더 이상 필요하지 않은 패키지를 정리한다.
+3. `packages.lock.yaml`을 업데이트한다.
+
+### 13.5 의존성 업데이트
+
 ```bash
-goondan bundle remove @goondan/base
+# 모든 패키지 업데이트 (semver 범위 내)
+gdn package update
+
+# 특정 패키지 업데이트
+gdn package update @goondan/base
+
+# 최신 버전으로 업데이트 (semver 무시)
+gdn package update --latest
 ```
 
-### 13.5 Lockfile 관리
+### 13.6 설치된 패키지 목록
+
 ```bash
-goondan bundle lock      # lockfile 생성/업데이트
-goondan bundle verify    # integrity 검증
+# 직접 의존성만
+gdn package list
+
+# 의존성 트리
+gdn package list --depth 1
+
+# 모든 의존성
+gdn package list --all
 ```
 
-### 13.6 패키지 퍼블리시
-```bash
-goondan bundle publish   # 현재 디렉터리의 bundle을 레지스트리에 퍼블리시
+**출력 예시:**
 ```
+@goondan/base@1.0.0
+├── @goondan/core-utils@0.5.2
+└── @goondan/common@1.0.0
+@goondan/slack-toolkit@2.1.0
+└── @goondan/base@1.0.0 (deduped)
+```
+
+### 13.7 패키지 발행
+
+```bash
+# 패키지 발행
+gdn package publish
+
+# 베타 태그로 발행
+gdn package publish --tag beta
+
+# 비공개 패키지로 발행
+gdn package publish --access restricted
+
+# 시뮬레이션 (실제 발행 안 함)
+gdn package publish --dry-run
+```
+
+**발행 절차:**
+1. `package.yaml` 검증
+2. `spec.dist` 디렉터리 존재 확인
+3. `spec.resources`에 명시된 파일 존재 확인
+4. 구성 검증 (`gdn validate`)
+5. tarball 생성 (`spec.dist` 디렉터리 기준)
+6. integrity hash(sha512) 계산
+7. 레지스트리에 업로드
+
+### 13.8 레지스트리 로그인/로그아웃
+
+```bash
+# 로그인
+gdn package login
+gdn package login --registry https://my-registry.example.com
+gdn package login --scope @myorg
+
+# 로그아웃
+gdn package logout
+gdn package logout --registry https://my-registry.example.com
+```
+
+### 13.9 패키지 정보 조회
+
+```bash
+gdn package info @goondan/base
+gdn package info @goondan/base@1.0.0
+```
+
+**출력 예시:**
+```
+@goondan/base@1.0.0
+
+Description: Goondan 기본 Tool/Extension 번들
+Published:   2026-01-15T10:30:00Z
+
+dist-tags:
+  latest: 1.0.0
+  beta:   2.0.0-beta.1
+
+versions:
+  1.0.0, 0.9.0, 0.8.0
+
+dependencies:
+  @goondan/core-utils: ^0.5.0
+
+resources:
+  - tools/fileRead/tool.yaml
+  - extensions/skills/extension.yaml
+
+tarball: https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz
+integrity: sha512-AAAA...
+```
+
+### 13.10 로컬 tarball 생성
+
+```bash
+# tarball 생성
+gdn package pack
+
+# 출력 경로 지정
+gdn package pack --out ./dist
+```
+
+**출력:**
+```
+Created: @goondan-base-1.0.0.tgz (12.5 KB)
+```
+
+### 13.11 캐시 관리
+
+```bash
+# 캐시 정보
+gdn package cache info
+
+# 캐시 정리
+gdn package cache clean
+
+# 특정 패키지 캐시 삭제
+gdn package cache clean @goondan/base
+```
+
+**캐시 위치:** `<goondanHome>/bundles/`
+
+### 13.12 명령어 요약
+
+| 명령어 | 설명 |
+|--------|------|
+| `gdn package install` | 의존성 설치 |
+| `gdn package add <ref>` | 의존성 추가 |
+| `gdn package remove <ref>` | 의존성 제거 |
+| `gdn package update [ref]` | 의존성 업데이트 |
+| `gdn package list` | 설치된 패키지 목록 |
+| `gdn package publish` | 패키지 발행 |
+| `gdn package login` | 레지스트리 로그인 |
+| `gdn package logout` | 레지스트리 로그아웃 |
+| `gdn package info <ref>` | 패키지 정보 조회 |
+| `gdn package pack` | 로컬 tarball 생성 |
+| `gdn package cache` | 캐시 관리 |
+
+자세한 CLI 스펙은 `docs/specs/cli.md`를 참조한다
 
 ---
 

@@ -2,8 +2,6 @@ node_modules/
 **/node_modules/
 dist/
 **/dist/
-!packages/base/dist/
-!packages/base/dist/**
 test/
 *.log
 .tmp/

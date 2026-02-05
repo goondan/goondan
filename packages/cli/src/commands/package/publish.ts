@@ -9,6 +9,8 @@
 import { Command } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
+import * as zlib from "node:zlib";
 import ora from "ora";
 import chalk from "chalk";
 import YAML from "yaml";
@@ -205,16 +207,18 @@ async function executePublish(targetPath: string, options: PublishOptions): Prom
     spinner.start("Creating package tarball...");
 
     const distDirs = manifest.spec.dist ?? ["dist"];
-    const tarballName = `${packageName.replace("@", "").replace("/", "-")}-${packageVersion}.tgz`;
+    // tarball 파일명: @scope/name -> name-version.tgz
+    const baseName = packageName.includes("/")
+      ? packageName.split("/")[1] ?? packageName
+      : packageName;
+    const tarballName = `${baseName}-${packageVersion}.tgz`;
 
-    // Stub: In real implementation, this would:
-    // 1. Create tar.gz of dist directory
-    // 2. Include package.yaml
-    // 3. Calculate integrity hash
+    // 실제 tarball 생성
+    const tarballBuffer = await createTarball(projectPath, distDirs);
+    const integrity = computeIntegrity(tarballBuffer);
+    const shasum = computeShasum(tarballBuffer);
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    spinner.succeed(`Created ${chalk.cyan(tarballName)}`);
+    spinner.succeed(`Created ${chalk.cyan(tarballName)} (${formatBytes(tarballBuffer.length)})`);
 
     // Show what would be published
     console.log();
@@ -247,24 +251,42 @@ async function executePublish(targetPath: string, options: PublishOptions): Prom
     // Publish to registry
     spinner.start("Publishing to registry...");
 
-    // Stub: In real implementation, this would:
-    // 1. Upload tarball to registry
-    // 2. Set dist-tag
-    // 3. Handle access control
+    try {
+      const publishResult = await publishToRegistry({
+        registryUrl,
+        packageName,
+        packageVersion,
+        tarballBuffer,
+        integrity,
+        shasum,
+        tag: options.tag,
+        token: registryAuth.token,
+        manifest,
+      });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+      if (!publishResult.ok) {
+        spinner.fail("Publish failed");
+        logError(publishResult.error ?? "Unknown error");
+        process.exitCode = 1;
+        return;
+      }
 
-    spinner.succeed("Published to registry");
+      spinner.succeed("Published to registry");
 
-    console.log();
-    success(`Published ${chalk.cyan(packageName)}@${chalk.gray(packageVersion)}`);
+      console.log();
+      success(`Published ${chalk.cyan(packageName)}@${chalk.gray(packageVersion)}`);
 
-    console.log();
-    console.log(chalk.dim(`View at: ${registryUrl}/${packageName}`));
-
-    // Show stub warning
-    console.log();
-    warn(chalk.yellow("Note: This is a stub. Package was not actually uploaded to registry."));
+      console.log();
+      console.log(chalk.dim(`View at: ${registryUrl}/${packageName}`));
+      console.log(chalk.dim(`Integrity: ${integrity}`));
+    } catch (err) {
+      spinner.fail("Publish failed");
+      if (err instanceof Error) {
+        logError(err.message);
+      }
+      process.exitCode = 5; // NETWORK_ERROR
+      return;
+    }
   } catch (err) {
     spinner.fail("Publish failed");
 
@@ -312,3 +334,260 @@ export function createPublishCommand(): Command {
 }
 
 export default createPublishCommand;
+
+/**
+ * Tarball 생성
+ */
+async function createTarball(
+  projectPath: string,
+  distDirs: string[]
+): Promise<Buffer> {
+  const tarBlocks: Buffer[] = [];
+
+  // package.yaml 추가
+  const packageYamlPath = path.join(projectPath, "package.yaml");
+  const packageYamlContent = fs.readFileSync(packageYamlPath);
+  addFileToTar(tarBlocks, "package/package.yaml", packageYamlContent);
+
+  // dist 디렉토리들 추가
+  for (const distDir of distDirs) {
+    const distPath = path.join(projectPath, distDir);
+    if (fs.existsSync(distPath)) {
+      await addDirectoryToTar(tarBlocks, distPath, `package/${distDir}`);
+    }
+  }
+
+  // tar 종료 블록 (2개의 512바이트 빈 블록)
+  tarBlocks.push(Buffer.alloc(1024, 0));
+
+  // tar 버퍼 결합
+  const tarBuffer = Buffer.concat(tarBlocks);
+
+  // gzip 압축
+  return new Promise((resolve, reject) => {
+    zlib.gzip(tarBuffer, { level: 9 }, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+}
+
+/**
+ * 파일을 tar에 추가
+ */
+function addFileToTar(blocks: Buffer[], filePath: string, content: Buffer): void {
+  const header = createTarHeader(filePath, content.length, false);
+  blocks.push(header);
+
+  // 콘텐츠 + 패딩
+  const paddedSize = Math.ceil(content.length / 512) * 512;
+  const paddedContent = Buffer.alloc(paddedSize, 0);
+  content.copy(paddedContent);
+  blocks.push(paddedContent);
+}
+
+/**
+ * 디렉토리를 재귀적으로 tar에 추가
+ */
+async function addDirectoryToTar(
+  blocks: Buffer[],
+  dirPath: string,
+  tarPath: string
+): Promise<void> {
+  // 디렉토리 헤더 추가
+  const dirHeader = createTarHeader(tarPath + "/", 0, true);
+  blocks.push(dirHeader);
+
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    const entryTarPath = `${tarPath}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      await addDirectoryToTar(blocks, fullPath, entryTarPath);
+    } else if (entry.isFile()) {
+      const content = fs.readFileSync(fullPath);
+      addFileToTar(blocks, entryTarPath, content);
+    }
+  }
+}
+
+/**
+ * tar 헤더 생성 (USTAR 형식)
+ */
+function createTarHeader(name: string, size: number, isDir: boolean): Buffer {
+  const header = Buffer.alloc(512, 0);
+
+  // 파일 이름 (0-99)
+  const nameBuf = Buffer.from(name.slice(-100), "utf8");
+  nameBuf.copy(header, 0);
+
+  // 파일 모드 (100-107)
+  const mode = isDir ? "0000755" : "0000644";
+  Buffer.from(mode + " \0", "utf8").copy(header, 100);
+
+  // uid (108-115)
+  Buffer.from("0000000 \0", "utf8").copy(header, 108);
+
+  // gid (116-123)
+  Buffer.from("0000000 \0", "utf8").copy(header, 116);
+
+  // 파일 크기 (124-135)
+  const sizeStr = size.toString(8).padStart(11, "0");
+  Buffer.from(sizeStr + " ", "utf8").copy(header, 124);
+
+  // mtime (136-147)
+  const mtime = Math.floor(Date.now() / 1000).toString(8).padStart(11, "0");
+  Buffer.from(mtime + " ", "utf8").copy(header, 136);
+
+  // 체크섬 placeholder (148-155)
+  Buffer.from("        ", "utf8").copy(header, 148);
+
+  // 타입 플래그 (156)
+  header[156] = isDir ? 53 : 48; // '5' for dir, '0' for file
+
+  // USTAR 매직 (257-264)
+  Buffer.from("ustar\x0000", "utf8").copy(header, 257);
+
+  // 체크섬 계산
+  let checksum = 0;
+  for (let i = 0; i < 512; i++) {
+    checksum += header[i] ?? 0;
+  }
+  const checksumStr = checksum.toString(8).padStart(6, "0");
+  Buffer.from(checksumStr + "\0 ", "utf8").copy(header, 148);
+
+  return header;
+}
+
+/**
+ * SHA-512 integrity 계산
+ */
+function computeIntegrity(buffer: Buffer): string {
+  const hash = crypto.createHash("sha512");
+  hash.update(buffer);
+  return `sha512-${hash.digest("base64")}`;
+}
+
+/**
+ * SHA-1 shasum 계산
+ */
+function computeShasum(buffer: Buffer): string {
+  const hash = crypto.createHash("sha1");
+  hash.update(buffer);
+  return hash.digest("hex");
+}
+
+/**
+ * 바이트 크기 포맷
+ */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * 레지스트리에 퍼블리시
+ */
+interface PublishToRegistryOptions {
+  registryUrl: string;
+  packageName: string;
+  packageVersion: string;
+  tarballBuffer: Buffer;
+  integrity: string;
+  shasum: string;
+  tag: string;
+  token: string;
+  manifest: PackageManifest;
+}
+
+interface PublishResult {
+  ok: boolean;
+  error?: string;
+}
+
+async function publishToRegistry(options: PublishToRegistryOptions): Promise<PublishResult> {
+  const {
+    registryUrl,
+    packageName,
+    packageVersion,
+    tarballBuffer,
+    integrity,
+    shasum,
+    tag,
+    token,
+    manifest,
+  } = options;
+
+  // 퍼블리시 요청 본문 구성 (npm-compatible format)
+  const tarballBase64 = tarballBuffer.toString("base64");
+  // tarball 파일명: @scope/name -> name-version.tgz
+  const baseName = packageName.includes("/")
+    ? packageName.split("/")[1] ?? packageName
+    : packageName;
+  const tarballFilename = `${baseName}-${packageVersion}.tgz`;
+
+  const publishBody = {
+    name: packageName,
+    description: manifest.metadata.annotations?.description ?? "",
+    "dist-tags": {
+      [tag]: packageVersion,
+    },
+    versions: {
+      [packageVersion]: {
+        name: packageName,
+        version: packageVersion,
+        description: manifest.metadata.annotations?.description ?? "",
+        dependencies: Object.fromEntries(
+          (manifest.spec.dependencies ?? []).map((dep: string) => [dep, "*"])
+        ),
+        dist: {
+          tarball: `${registryUrl}/${packageName}/-/${tarballFilename}`,
+          shasum,
+          integrity,
+        },
+        bundle: {
+          include: manifest.spec.resources ?? [],
+          runtime: "node",
+        },
+      },
+    },
+    _attachments: {
+      [tarballFilename]: {
+        content_type: "application/octet-stream",
+        data: tarballBase64,
+        length: tarballBuffer.length,
+      },
+    },
+  };
+
+  // PUT 요청으로 퍼블리시
+  const response = await fetch(`${registryUrl}/${packageName}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(publishBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+    try {
+      const errorJson = JSON.parse(errorText) as { error?: string; message?: string };
+      errorMessage = errorJson.error ?? errorJson.message ?? errorMessage;
+    } catch {
+      if (errorText) {
+        errorMessage = errorText;
+      }
+    }
+
+    return { ok: false, error: errorMessage };
+  }
+
+  return { ok: true };
+}

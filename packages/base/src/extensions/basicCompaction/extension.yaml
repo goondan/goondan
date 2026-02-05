@@ -1,0 +1,11 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Extension
+metadata:
+  name: basicCompaction
+spec:
+  runtime: node
+  entry: "./extensions/basicCompaction/index.js"
+  config:
+    maxTokens: 8000
+    maxChars: 32000
+    compactionPrompt: ""

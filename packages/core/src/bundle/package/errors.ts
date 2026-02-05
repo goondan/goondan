@@ -50,6 +50,7 @@ export interface PackageFetchErrorOptions extends ErrorOptions {
   packageRef: string;
   url?: string;
   statusCode?: number;
+  registry?: string;
 }
 
 /**
@@ -64,6 +65,8 @@ export class PackageFetchError extends PackageError {
   readonly url?: string;
   /** HTTP 상태 코드 */
   readonly statusCode?: number;
+  /** 레지스트리 URL */
+  readonly registry?: string;
 
   constructor(message: string, options: PackageFetchErrorOptions) {
     super(message, options);
@@ -71,6 +74,7 @@ export class PackageFetchError extends PackageError {
     this.packageRef = options.packageRef;
     this.url = options.url;
     this.statusCode = options.statusCode;
+    this.registry = options.registry;
   }
 }
 

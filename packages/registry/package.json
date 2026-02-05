@@ -1,0 +1,26 @@
+{
+  "name": "@goondan/registry",
+  "version": "0.0.1",
+  "description": "Goondan Package Registry - Cloudflare Workers",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250205.0",
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

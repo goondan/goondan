@@ -1,0 +1,63 @@
+{
+  "name": "@goondan/base",
+  "version": "0.0.1",
+  "description": "Goondan - Base Tools, Extensions, and Connectors",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tools/bash": {
+      "types": "./dist/tools/bash/index.d.ts",
+      "import": "./dist/tools/bash/index.js"
+    },
+    "./extensions/basicCompaction": {
+      "types": "./dist/extensions/basicCompaction/index.d.ts",
+      "import": "./dist/extensions/basicCompaction/index.js"
+    },
+    "./connectors/telegram": {
+      "types": "./dist/connectors/telegram/index.d.ts",
+      "import": "./dist/connectors/telegram/index.js"
+    },
+    "./connectors/slack": {
+      "types": "./dist/connectors/slack/index.d.ts",
+      "import": "./dist/connectors/slack/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "package.yaml"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@goondan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "goondan",
+    "agent",
+    "swarm",
+    "tools",
+    "extensions",
+    "connectors"
+  ],
+  "license": "MIT"
+}

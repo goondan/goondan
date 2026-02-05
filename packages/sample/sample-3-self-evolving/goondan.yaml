@@ -1,0 +1,148 @@
+# Self-Evolving Agent Sample
+# 이 샘플은 Changeset 기능을 활용하여 자신의 프롬프트와 설정을 수정할 수 있는 에이전트를 구현합니다.
+#
+# 핵심 기능:
+# - self.readPrompt: 현재 시스템 프롬프트 읽기
+# - self.updatePrompt: Changeset을 통한 프롬프트 수정
+# - self.viewChanges: 변경 이력 조회
+#
+# Changeset 정책:
+# - prompts/** 및 resources/** 디렉터리만 수정 가능
+# - goondan.yaml 및 tools/** 수정 불가 (보안)
+
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-5
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: self-modify
+  labels:
+    tier: core
+    category: self-evolution
+spec:
+  runtime: node
+  entry: "./tools/self-modify/index.js"
+  errorMessageLimit: 2000
+  exports:
+    - name: self.readPrompt
+      description: |
+        현재 시스템 프롬프트를 읽습니다.
+        프롬프트 파일의 전체 내용을 반환합니다.
+      parameters:
+        type: object
+        properties:
+          promptPath:
+            type: string
+            description: "읽을 프롬프트 파일 경로 (기본: prompts/evolving.system.md)"
+        required: []
+
+    - name: self.updatePrompt
+      description: |
+        시스템 프롬프트를 수정합니다.
+        Changeset을 열고 프롬프트 파일을 수정한 후 커밋합니다.
+        변경 사항은 다음 Step부터 적용됩니다.
+      parameters:
+        type: object
+        properties:
+          promptPath:
+            type: string
+            description: "수정할 프롬프트 파일 경로 (기본: prompts/evolving.system.md)"
+          newContent:
+            type: string
+            description: "새로운 프롬프트 내용"
+          reason:
+            type: string
+            description: "변경 이유 (커밋 메시지에 포함)"
+        required: ["newContent"]
+
+    - name: self.viewChanges
+      description: |
+        프롬프트 변경 이력을 조회합니다.
+        Git 로그를 통해 최근 변경 사항을 확인합니다.
+      parameters:
+        type: object
+        properties:
+          maxCount:
+            type: number
+            description: "조회할 최대 변경 수 (기본: 10)"
+          promptPath:
+            type: string
+            description: "특정 파일의 변경만 조회 (선택)"
+        required: []
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: evolving-agent
+  labels:
+    role: self-evolving
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.7
+      maxTokens: 4096
+
+  prompts:
+    systemRef: "./prompts/evolving.system.md"
+
+  tools:
+    - { kind: Tool, name: self-modify }
+
+  # Agent 레벨 Changeset 정책: Swarm 정책의 부분집합
+  changesets:
+    allowed:
+      files:
+        - "prompts/**"
+        - "resources/**"
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entrypoint: { kind: Agent, name: evolving-agent }
+  agents:
+    - { kind: Agent, name: evolving-agent }
+
+  policy:
+    maxStepsPerTurn: 16
+    maxTurnsPerInstance: 100
+    timeoutMs: 300000
+
+    # Swarm 레벨 Changeset 정책: 최대 허용 범위
+    changesets:
+      enabled: true
+      applyAt:
+        - step.config
+      allowed:
+        files:
+          - "prompts/**"
+          - "resources/**"
+      emitRevisionChangedEvent: true
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+  ingress:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

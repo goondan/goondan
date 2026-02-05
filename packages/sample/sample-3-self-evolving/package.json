@@ -1,0 +1,20 @@
+{
+  "name": "@goondan/sample-self-evolving",
+  "version": "0.0.1",
+  "description": "Self-Evolving Agent Sample - Demonstrates Changeset-based self-modification",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

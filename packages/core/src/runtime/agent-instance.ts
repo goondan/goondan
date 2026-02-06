@@ -5,7 +5,7 @@
 
 import type { JsonObject } from '../types/json.js';
 import type { ObjectRefLike } from '../types/object-ref.js';
-import type { AgentInstanceStatus, AgentEvent } from './types.js';
+import type { AgentInstanceStatus, AgentEvent, LlmMessage } from './types.js';
 import type { SwarmInstance } from './swarm-instance.js';
 
 /**
@@ -110,6 +110,9 @@ export interface AgentInstance {
 
   /** 인스턴스 상태 */
   status: AgentInstanceStatus;
+
+  /** 대화 히스토리 (Turn 간 메시지 누적, 다음 Turn에서 이전 대화 맥락으로 사용) */
+  readonly conversationHistory: LlmMessage[];
 }
 
 /**
@@ -161,5 +164,6 @@ export function createAgentInstance(
     createdAt: now,
     lastActivityAt: now,
     status: 'idle',
+    conversationHistory: [],
   };
 }

@@ -91,7 +91,7 @@ export interface PackageManager {
  */
 export function createPackageManager(options: PackageManagerOptions = {}): PackageManager {
   const cacheDir = options.cacheDir ?? getCacheDir();
-  const registry = options.registry ?? 'https://registry.goondan.io';
+  const registry = options.registry ?? 'https://goondan-registry.yechanny.workers.dev';
   const scopedRegistries = options.scopedRegistries ?? {};
 
   const cache = createPackageCache({ cacheDir });

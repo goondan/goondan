@@ -31,7 +31,7 @@ export interface LoginOptions {
 /**
  * Default registry URL
  */
-const DEFAULT_REGISTRY = "https://registry.goondan.io";
+const DEFAULT_REGISTRY = "https://goondan-registry.yechanny.workers.dev";
 
 /**
  * Execute the login command

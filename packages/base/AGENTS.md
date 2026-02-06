@@ -79,7 +79,9 @@ packages/base/
 │       │   └── index.test.ts
 │       └── github/
 │           └── index.test.ts
-├── package.json         # npm 패키지 설정
+├── scripts/
+│   └── copy-yaml.mjs   # 빌드 시 src/ YAML 파일을 dist/로 복사
+├── package.json         # npm 패키지 설정 (build: tsc + copy-yaml)
 ├── package.yaml         # Bundle Package 정의
 ├── vitest.config.ts     # Vitest 테스트 설정
 └── tsconfig.json        # TypeScript 설정

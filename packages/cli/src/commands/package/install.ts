@@ -114,9 +114,36 @@ function isRegistryVersionMetadata(data: unknown): data is RegistryVersionMetada
 }
 
 /**
- * Parse package reference to extract scope, name, and version
+ * Parsed package reference
  */
-function parsePackageRef(ref: string): { scope: string | null; name: string; version: string | null; fullName: string } {
+interface ParsedPackageRef {
+  scope: string | null;
+  name: string;
+  version: string | null;
+  fullName: string;
+  /** file: 프로토콜 로컬 경로 */
+  filePath?: string;
+}
+
+/**
+ * Parse package reference to extract scope, name, and version
+ * Supports file: protocol for local dependencies
+ */
+function parsePackageRef(ref: string): ParsedPackageRef {
+  // file: 프로토콜 감지
+  if (ref.startsWith("file:")) {
+    const filePath = ref.slice("file:".length);
+    const segments = filePath.replace(/\/+$/, "").split("/");
+    const lastName = segments[segments.length - 1] ?? filePath;
+    return {
+      scope: null,
+      name: lastName,
+      version: null,
+      fullName: lastName,
+      filePath,
+    };
+  }
+
   // Format: @scope/name@version or name@version
   let version: string | null = null;
   let nameWithScope = ref;
@@ -378,7 +405,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
   try {
     // Load config for registry URL
     const config = await loadConfig();
-    const registryUrl = config.registry ?? "https://registry.goondan.io";
+    const registryUrl = config.registry ?? "https://goondan-registry.yechanny.workers.dev";
 
     // Load package.yaml
     spinner.start("Reading package.yaml...");
@@ -435,11 +462,63 @@ async function executeInstall(options: InstallOptions): Promise<void> {
     for (const dep of allDependencies) {
       const parsed = parsePackageRef(dep);
       const displayName = parsed.fullName;
-      const requestedVersion = parsed.version ?? "latest";
-
-      spinner.start(`Resolving ${displayName}@${requestedVersion}...`);
 
       try {
+        // file: 프로토콜 로컬 의존성 처리
+        if (parsed.filePath) {
+          spinner.start(`Linking local package ${displayName}...`);
+
+          const localPath = path.resolve(projectPath, parsed.filePath);
+
+          // 로컬 경로 존재 확인
+          if (!fs.existsSync(localPath)) {
+            throw new Error(`Local package not found: ${localPath}`);
+          }
+
+          // package.yaml 확인
+          const localManifestPath = path.join(localPath, "package.yaml");
+          if (!fs.existsSync(localManifestPath)) {
+            throw new Error(`No package.yaml found in ${localPath}`);
+          }
+
+          // 로컬 패키지의 manifest에서 name 읽기
+          const localManifest = loadPackageManifest(localPath);
+          const localName = localManifest?.metadata.name ?? displayName;
+          const localVersion = localManifest?.metadata.version ?? "0.0.0";
+
+          // lockfile 엔트리 (file: 참조 기록)
+          lockfile.packages[`${localName}@${localVersion}`] = {
+            version: localVersion,
+            resolved: `file:${parsed.filePath}`,
+            integrity: "",
+          };
+
+          // .goondan/packages/에 심링크 생성
+          // file: dep은 manifest name 기반으로 심링크 경로 결정
+          const projectPackagesDir = path.join(projectPath, ".goondan", "packages");
+          const localParsedName = parsePackageRef(localName);
+          const linkPath = path.join(
+            projectPackagesDir,
+            localParsedName.scope ?? "_unscoped",
+            localParsedName.name
+          );
+
+          fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+
+          if (fs.existsSync(linkPath)) {
+            fs.rmSync(linkPath, { recursive: true });
+          }
+
+          fs.symlinkSync(localPath, linkPath, "dir");
+
+          spinner.succeed(`${chalk.cyan(localName)} -> ${chalk.gray(parsed.filePath)} (local)`);
+          continue;
+        }
+
+        // 레지스트리 의존성 처리
+        const requestedVersion = parsed.version ?? "latest";
+        spinner.start(`Resolving ${displayName}@${requestedVersion}...`);
+
         // Check lockfile first in frozen mode
         let resolvedVersion: string;
         let versionMetadata: RegistryVersionMetadata;

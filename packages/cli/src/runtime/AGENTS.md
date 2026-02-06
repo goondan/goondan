@@ -7,9 +7,12 @@
 ```
 runtime/
 ├── index.ts                 # 모든 구현체 re-export
+├── types.ts                 # 공유 타입 (RuntimeContext, RevisionState, ProcessConnectorTurnResult)
 ├── bundle-loader-impl.ts    # BundleLoadResult 기반 BundleLoader 구현
 ├── llm-caller-impl.ts       # AI SDK 기반 LLM 호출 구현
 ├── tool-executor-impl.ts    # Tool entry 모듈 동적 로드/실행 구현
+├── connector-runner.ts      # Connection 감지, 커넥터 디스패치, 공유 헬퍼
+├── telegram-connector.ts    # Telegram Bot API 롱 폴링 커넥터
 ├── AGENTS.md                # 이 파일
 └── __tests__/               # 테스트 코드
     ├── bundle-loader-impl.test.ts
@@ -18,6 +21,12 @@ runtime/
 ```
 
 ## 파일 역할
+
+### types.ts
+- `RuntimeContext`: Turn 실행에 필요한 런타임 컨텍스트 (turnRunner, toolExecutor, swarmInstanceManager 등)
+- `RevisionState`: SwarmBundleRef 리비전 전환 상태 (activeRef, pendingRef, inFlightTurnsByRef)
+- `ProcessConnectorTurnResult`: 커넥터 Turn 실행 결과 (response, status)
+- 순환 의존성 방지를 위해 `run.ts`와 커넥터 모듈이 공유하는 타입을 별도 파일로 분리
 
 ### bundle-loader-impl.ts
 - `BundleLoader` 인터페이스의 CLI 전용 구현
@@ -28,18 +37,40 @@ runtime/
 - `LlmCaller` 인터페이스의 AI SDK(Vercel) 기반 구현
 - `ModelResource`의 `provider`에 따라 `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google` 동적 import
 - Goondan `LlmMessage`/`ToolCatalogItem`을 AI SDK `CoreMessage`/`tool` 형식으로 변환
+- **Tool name sanitization**: AI SDK는 tool name에 dot(`.`)을 허용하지 않으므로 (`^[a-zA-Z0-9_-]{1,128}$`), dot을 underscore로 변환하고 매핑 테이블로 원래 이름 복원
 - `generateText`로 LLM 호출, 결과를 `LlmResult`로 변환
 
 ### tool-executor-impl.ts
 - `ToolExecutor` 인터페이스의 구현
 - `ToolSpec.entry` 경로에서 모듈 동적 import (ESM)
 - export name으로 핸들러 함수를 찾아 실행 (정확한 이름 -> camelCase -> 마지막 세그먼트 -> default)
-- 모듈 캐시로 중복 로드 방지
+- 핸들러 호출 시그니처는 `handler(ctx, input)`을 따른다
+- 기본 모드에서 `SwarmBundleRef` 세대별 Worker thread를 사용해 코드 로딩을 격리
+- Worker 모드에서 `swarmBundle.openChangeset/commitChangeset`는 Main thread API로 RPC 전달된다
+- `beginTurn/endTurn`으로 세대별 in-flight turn을 추적하고 idle 세대를 정리
+- `maxActiveGenerations` 초과 시 오래된 idle 세대 워커를 종료하여 메모리 회수
 - 에러 시 `ToolResult.error`로 변환 (예외 전파 금지)
+
+### connector-runner.ts
+- **Connection 감지**: `detectConnections(bundle)` - Bundle에서 Connection 리소스를 찾고 참조된 Connector 리소스와 매핑
+- **ConnectorRunner 인터페이스**: `start()`, `shutdown()` 메서드를 가진 커넥터 실행기 인터페이스
+- **공유 헬퍼**:
+  - `isObjectWithKey()`: 타입 가드 (object이고 특정 key 보유 확인)
+  - `extractStaticToken()`: Connection auth에서 ValueSource 기반 토큰 추출
+  - `toIngressRules()`: Connection rules를 타입 안전한 IngressRule[]로 변환
+  - `resolveAgentFromRoute()`: route에서 agentName 또는 agentRef.name 추출
+
+### telegram-connector.ts
+- `TelegramConnectorRunner`: Telegram Bot API 롱 폴링 기반 커넥터
+- `getUpdates` API로 메시지 수신 (30초 timeout 롱 폴링)
+- Core의 `routeEvent()`, `createCanonicalEventFromIngress()` 사용하여 라우팅
+- `processConnectorTurn` 콜백으로 Turn 실행 (run.ts에서 주입)
+- `sendMessage` API로 응답 전송 (4000자 청크 분할)
+- `AbortController` 기반 graceful shutdown
 
 ## 참고해야 할 사항
 
 - **타입 단언 금지**: `as`, `as unknown as` 사용 불가. 타입 가드나 `isObjectWithKey` 등의 타입 안전 함수 사용
 - **AI SDK 버전**: 현재 `ai@4.x` 기반. `CoreMessage` 타입의 discriminated union 구조에 맞게 메시지 변환
 - **의존성**: 이 모듈은 `@goondan/core`의 runtime 모듈(`@goondan/core/runtime`)에 의존
-- **스펙 문서**: `/docs/specs/runtime.md`, `/docs/specs/tool.md` 참조
+- **스펙 문서**: `/docs/specs/runtime.md`, `/docs/specs/tool.md`, `/docs/specs/connector.md`, `/docs/specs/connection.md` 참조

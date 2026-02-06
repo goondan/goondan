@@ -22,7 +22,7 @@ describe('PackageManager', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'goondan-manager-test-'));
     manager = createPackageManager({
       cacheDir: tempDir,
-      registry: 'https://registry.goondan.io',
+      registry: 'https://goondan-registry.yechanny.workers.dev',
     });
   });
 
@@ -196,7 +196,7 @@ spec:
     it('scope별 레지스트리를 설정할 수 있어야 한다', async () => {
       const customManager = createPackageManager({
         cacheDir: tempDir,
-        registry: 'https://registry.goondan.io',
+        registry: 'https://goondan-registry.yechanny.workers.dev',
         scopedRegistries: {
           '@myorg': 'https://my-org-registry.example.com',
         },
@@ -208,7 +208,7 @@ spec:
 
     it('scope별 레지스트리가 없으면 기본 레지스트리를 사용해야 한다', async () => {
       const registry = manager.getRegistryForScope('@goondan');
-      expect(registry).toBe('https://registry.goondan.io');
+      expect(registry).toBe('https://goondan-registry.yechanny.workers.dev');
     });
   });
 });

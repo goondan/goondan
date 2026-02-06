@@ -13,4 +13,31 @@ export type { BundleLoaderImplOptions } from "./bundle-loader-impl.js";
 export { createLlmCallerImpl } from "./llm-caller-impl.js";
 
 export { createToolExecutorImpl } from "./tool-executor-impl.js";
-export type { ToolExecutorImplOptions } from "./tool-executor-impl.js";
+export {
+  isRevisionedToolExecutor,
+} from "./tool-executor-impl.js";
+export type {
+  ToolExecutorImplOptions,
+  RevisionedToolExecutor,
+} from "./tool-executor-impl.js";
+
+export {
+  detectConnections,
+  extractStaticToken,
+  toIngressRules,
+  resolveAgentFromRoute,
+  isObjectWithKey,
+} from "./connector-runner.js";
+export type {
+  DetectedConnection,
+  ConnectorRunner,
+} from "./connector-runner.js";
+
+export { TelegramConnectorRunner } from "./telegram-connector.js";
+export type { TelegramConnectorOptions } from "./telegram-connector.js";
+
+export type {
+  RuntimeContext,
+  RevisionState,
+  ProcessConnectorTurnResult,
+} from "./types.js";

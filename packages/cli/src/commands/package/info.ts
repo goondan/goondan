@@ -91,7 +91,7 @@ async function executeInfo(packageRef: string, options: InfoOptions): Promise<vo
 
     // Get registry URL
     const config = await loadConfig();
-    const registryUrl = options.registry ?? config.registry ?? "https://registry.goondan.io";
+    const registryUrl = options.registry ?? config.registry ?? "https://goondan-registry.yechanny.workers.dev";
 
     // Fetch package metadata
     spinner.start(`Fetching ${chalk.cyan(parsed.name)}...`);

@@ -46,7 +46,7 @@ export interface GoondanConfig {
  * Default configuration values
  */
 export const DEFAULT_CONFIG: Readonly<GoondanConfig> = {
-  registry: "https://registry.goondan.io",
+  registry: "https://goondan-registry.yechanny.workers.dev",
   stateRoot: "~/.goondan",
   logLevel: "info",
   color: true,

@@ -1,27 +1,31 @@
 {
-  "name": "@goondan/sample-telegram-coder",
+  "name": "@goondan-samples/telegram-coder",
   "version": "0.0.1",
   "description": "Telegram Bot Coding Agent Swarm Sample",
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx src/main.ts",
-    "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts",
-    "test": "vitest"
+    "start": "gdn run",
+    "dev": "gdn dev",
+    "validate": "gdn validate",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@goondan/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.3",
-    "vitest": "^1.2.0"
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=20.0.0"
-  }
+    "node": ">=18"
+  },
+  "keywords": [
+    "goondan",
+    "agent",
+    "telegram",
+    "coding-assistant"
+  ],
+  "license": "MIT"
 }

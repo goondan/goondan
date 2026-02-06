@@ -1,4 +1,4 @@
-# Goondan CLI (gdn) 스펙 (v0.9)
+# Goondan CLI (gdn) 스펙 (v0.10)
 
 본 문서는 Goondan CLI 도구 `gdn`의 명령어, 옵션, 동작 규격을 정의한다.
 
@@ -51,6 +51,7 @@ gdn <command> [subcommand] [options]
 | `gdn logs` | 로그 조회 |
 | `gdn config` | CLI 설정 관리 |
 | `gdn completion` | 쉘 자동완성 스크립트 생성 |
+| `gdn doctor` | 환경 진단 및 문제 확인 |
 
 ---
 
@@ -963,7 +964,97 @@ scopedRegistries:
 
 ---
 
-## 13. 관련 문서
+## 13. gdn doctor
+
+환경을 진단하고 일반적인 문제를 확인한다.
+
+### 13.1 사용법
+
+```bash
+gdn doctor [options]
+```
+
+### 13.2 옵션
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--fix` | | 자동 수정 시도 (placeholder) | `false` |
+
+### 13.3 검사 항목
+
+**System:**
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| Node.js | 버전 >=18 확인 | fail |
+| npm | npm 설치 확인 | fail |
+| pnpm | pnpm 설치 확인 | warn |
+| TypeScript | tsc 설치 확인 | warn |
+
+**API Keys:**
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| ANTHROPIC_API_KEY | Anthropic API 키 | warn |
+| OPENAI_API_KEY | OpenAI API 키 | warn |
+| GOOGLE_GENERATIVE_AI_API_KEY | Google AI API 키 | warn |
+
+**Goondan Packages:**
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| @goondan/core | core 패키지 버전 | warn |
+| @goondan/cli | cli 패키지 버전 | warn |
+| @goondan/base | base 패키지 버전 | warn |
+
+**Project:**
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| Bundle Config | goondan.yaml 존재 여부 | warn |
+| Dependencies | node_modules 존재 여부 | warn |
+| Bundle Validation | goondan.yaml 유효성 검증 | fail/warn |
+
+### 13.4 출력 예시
+
+```
+Goondan Doctor
+Checking your environment...
+
+System
+  ✓ Node.js: Node.js v20.11.0
+  ✓ npm: npm 10.2.4
+  ✓ pnpm: pnpm 9.1.0
+  ✓ TypeScript: TypeScript 5.4.5
+
+API Keys
+  ✓ Anthropic API Key: ANTHROPIC_API_KEY is set (sk-a...****)
+  ⚠ OpenAI API Key: OPENAI_API_KEY is not set
+    Set if using OpenAI: export OPENAI_API_KEY=your-api-key
+
+Goondan Packages
+  ✓ @goondan/core: @goondan/core@0.0.1
+  ✓ @goondan/cli: @goondan/cli@0.0.1
+  ✓ @goondan/base: @goondan/base@0.0.1
+
+Project
+  ✓ Bundle Config: Found goondan.yaml
+  ✓ Dependencies: node_modules found
+  ✓ Bundle Validation: Valid (5 resources)
+
+Summary
+  9 passed, 1 warnings, 0 errors
+```
+
+### 13.5 예시
+
+```bash
+# 환경 진단
+gdn doctor
+
+# JSON 형식 출력
+gdn doctor --json
+```
+
+---
+
+## 14. 관련 문서
 
 - `docs/specs/bundle.md`: Bundle YAML 스펙
 - `docs/specs/bundle_package.md`: Bundle Package 스펙
@@ -973,5 +1064,5 @@ scopedRegistries:
 
 ---
 
-**문서 버전**: v0.9
-**최종 수정**: 2026-02-05
+**문서 버전**: v0.10
+**최종 수정**: 2026-02-06

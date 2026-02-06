@@ -242,6 +242,32 @@ describe('Egress 정책 처리', () => {
     });
   });
 
+  describe('mode getter', () => {
+    it('설정된 mode를 반환해야 한다', () => {
+      const sendMock = vi.fn();
+      const handler = new EgressHandler({
+        send: sendMock,
+        config: { updatePolicy: { mode: 'replace' } },
+      });
+
+      expect(handler.mode).toBe('replace');
+    });
+
+    it('mode가 설정되지 않으면 append를 반환해야 한다', () => {
+      const sendMock = vi.fn();
+      const handler = new EgressHandler({ send: sendMock });
+
+      expect(handler.mode).toBe('append');
+    });
+
+    it('updatePolicy가 없으면 append를 반환해야 한다', () => {
+      const sendMock = vi.fn();
+      const handler = new EgressHandler({ send: sendMock, config: {} });
+
+      expect(handler.mode).toBe('append');
+    });
+  });
+
   describe('shutdown 처리', () => {
     it('shutdown 시 pending 메시지를 즉시 flush한다', async () => {
       const sendMock = vi.fn().mockResolvedValue({ ok: true });

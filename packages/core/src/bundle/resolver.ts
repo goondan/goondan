@@ -6,7 +6,7 @@
 import { ReferenceError, ValidationError } from './errors.js';
 import { validateScopesSubset } from './validator.js';
 import type { Resource, ObjectRefLike, ObjectRef } from '../types/index.js';
-import { normalizeObjectRef, isSelectorWithOverrides } from '../types/index.js';
+import { normalizeObjectRef, isSelectorWithOverrides, getSpec } from '../types/index.js';
 
 /**
  * 리소스 인덱스 타입
@@ -97,6 +97,9 @@ function validateResourceReferences(
     case 'Connector':
       errors.push(...validateConnectorReferences(resource, index, ctx));
       break;
+    case 'Connection':
+      errors.push(...validateConnectionReferences(resource, index, ctx));
+      break;
     case 'ResourceType':
       errors.push(...validateResourceTypeReferences(resource, index, ctx));
       break;
@@ -114,7 +117,7 @@ function validateAgentReferences(
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
 
   // modelConfig.modelRef 검증
   const modelConfig = spec.modelConfig as Record<string, unknown> | undefined;
@@ -161,7 +164,7 @@ function validateSwarmReferences(
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
 
   // entrypoint 검증
   if (spec.entrypoint) {
@@ -215,7 +218,7 @@ function validateToolReferences(
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
 
   // auth.oauthAppRef 검증
   const auth = spec.auth as Record<string, unknown> | undefined;
@@ -249,26 +252,44 @@ function validateToolReferences(
 
 /**
  * Connector 참조 검증
+ * Connector는 순수 프로토콜 구현체이므로 참조 검증할 대상이 없음
  */
 function validateConnectorReferences(
+  _resource: Resource,
+  _index: ResourceIndex,
+  _ctx: { sourceKind: string; sourceName: string }
+): (ReferenceError | ValidationError)[] {
+  return [];
+}
+
+/**
+ * Connection 참조 검증
+ */
+function validateConnectionReferences(
   resource: Resource,
   index: ResourceIndex,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
 
-  // auth.oauthAppRef 검증
+  // connectorRef → Connector 참조 검증
+  if (spec.connectorRef) {
+    const error = validateSingleRef(spec.connectorRef, 'Connector', index, ctx);
+    if (error) errors.push(error);
+  }
+
+  // auth.oauthAppRef → OAuthApp 참조 검증
   const auth = spec.auth as Record<string, unknown> | undefined;
   if (auth?.oauthAppRef) {
     const error = validateSingleRef(auth.oauthAppRef, 'OAuthApp', index, ctx);
     if (error) errors.push(error);
   }
 
-  // ingress[].route.swarmRef 검증
-  const ingress = spec.ingress as unknown[] | undefined;
-  if (Array.isArray(ingress)) {
-    for (const rule of ingress) {
+  // rules[].route.swarmRef → Swarm 참조 검증
+  const rules = spec.rules as unknown[] | undefined;
+  if (Array.isArray(rules)) {
+    for (const rule of rules) {
       if (rule && typeof rule === 'object') {
         const route = (rule as Record<string, unknown>).route as
           | Record<string, unknown>
@@ -293,7 +314,7 @@ function validateResourceTypeReferences(
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
 
   // handlerRef 검증
   if (spec.handlerRef) {

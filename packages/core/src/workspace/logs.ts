@@ -5,6 +5,13 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { JsonObject } from '../types/json.js';
+
+/**
+ * NodeJS.ErrnoException 타입 가드
+ */
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
+}
 import type {
   LlmMessageLogRecord,
   LlmMessage,
@@ -48,12 +55,13 @@ export class JsonlWriter<T> {
       const content = await fs.readFile(this.filePath, 'utf8');
       for (const line of content.split('\n')) {
         if (line.trim()) {
-          yield JSON.parse(line) as T;
+          // JSON.parse 결과를 제네릭 T로 변환 (JSONL Writer/Reader 대칭 구조)
+          const parsed: unknown = JSON.parse(line);
+          yield parsed as T;
         }
       }
     } catch (err) {
-      const nodeErr = err as NodeJS.ErrnoException;
-      if (nodeErr.code !== 'ENOENT') {
+      if (isNodeError(err) && err.code !== 'ENOENT') {
         throw err;
       }
       // 파일이 없으면 빈 generator

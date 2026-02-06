@@ -50,7 +50,16 @@ metadata:
   name: cli
 spec:
   type: cli
-  ingress:
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-default
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
     - route:
         swarmRef: { kind: Swarm, name: default }
         instanceKeyFrom: "$.instanceKey"

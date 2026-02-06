@@ -105,6 +105,18 @@ function parseDependencyRef(ref: string): DependencyRef {
 }
 
 /**
+ * PackageManifest 타입 가드
+ */
+function isPackageManifest(value: unknown): value is PackageManifest {
+  if (value === null || typeof value !== 'object') return false;
+  if (!('kind' in value) || !('apiVersion' in value) || !('metadata' in value) || !('spec' in value)) return false;
+  return value.kind === 'Package' &&
+    typeof value.apiVersion === 'string' &&
+    typeof value.metadata === 'object' && value.metadata !== null &&
+    typeof value.spec === 'object' && value.spec !== null;
+}
+
+/**
  * package.yaml 파싱
  */
 async function parsePackageManifest(
@@ -112,9 +124,9 @@ async function parsePackageManifest(
 ): Promise<PackageManifest | null> {
   try {
     const content = await fs.promises.readFile(packageYamlPath, 'utf-8');
-    const manifest = parseYaml(content) as PackageManifest;
-    if (manifest?.kind === 'Package') {
-      return manifest;
+    const parsed: unknown = parseYaml(content);
+    if (isPackageManifest(parsed)) {
+      return parsed;
     }
     return null;
   } catch {
@@ -196,13 +208,13 @@ async function loadDependencyResources(
 
           // entry 경로를 패키지 dist 기준으로 조정
           for (const resource of parsed) {
-            if (resource.spec && typeof resource.spec === 'object') {
-              const spec = resource.spec as Record<string, unknown>;
-              if (typeof spec['entry'] === 'string') {
+            if (resource.spec && typeof resource.spec === 'object' && !Array.isArray(resource.spec)) {
+              const spec = resource.spec;
+              if ('entry' in spec && typeof spec.entry === 'string') {
                 // entry가 상대 경로이면 dist 기준 절대 경로로 변환
-                const entry = spec['entry'] as string;
+                const entry = spec.entry;
                 if (entry.startsWith('./') || entry.startsWith('../')) {
-                  spec['entry'] = path.join(distDir, entry);
+                  spec.entry = path.join(distDir, entry);
                 }
               }
             }

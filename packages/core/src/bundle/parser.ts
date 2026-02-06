@@ -13,6 +13,12 @@ import type { Resource } from '../types/index.js';
  */
 export const DEFAULT_API_VERSION = 'agents.example.io/v1alpha1';
 
+/** YAML 입력 최대 크기 (1MB) - YAML bomb 방지 */
+const MAX_YAML_SIZE = 1_048_576;
+
+/** 다중 문서 최대 수 */
+const MAX_DOCUMENT_COUNT = 100;
+
 /**
  * 단일 YAML 문서 파싱
  *
@@ -25,6 +31,13 @@ export function parseYaml(
   content: string,
   source?: string
 ): Record<string, unknown> | null {
+  if (content.length > MAX_YAML_SIZE) {
+    throw new ParseError(
+      `YAML input exceeds maximum size of ${MAX_YAML_SIZE} bytes`,
+      { source }
+    );
+  }
+
   const trimmed = content.trim();
   if (!trimmed) {
     return null;
@@ -79,6 +92,13 @@ export function parseMultiDocument(
   content: string,
   source?: string
 ): Resource[] {
+  if (content.length > MAX_YAML_SIZE) {
+    throw new ParseError(
+      `YAML input exceeds maximum size of ${MAX_YAML_SIZE} bytes`,
+      { source }
+    );
+  }
+
   const trimmed = content.trim();
   if (!trimmed) {
     return [];
@@ -87,6 +107,13 @@ export function parseMultiDocument(
   try {
     const documents = parseAllDocuments(content);
     const resources: Resource[] = [];
+
+    if (documents.length > MAX_DOCUMENT_COUNT) {
+      throw new ParseError(
+        `Too many YAML documents: ${documents.length} (maximum: ${MAX_DOCUMENT_COUNT})`,
+        { source }
+      );
+    }
 
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
@@ -141,6 +168,30 @@ export function parseMultiDocument(
 }
 
 /**
+ * unknown 객체를 Record<string, unknown>으로 안전하게 변환
+ */
+function toRecord(value: object): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    result[k] = v;
+  }
+  return result;
+}
+
+/**
+ * 객체를 Record<string, string>으로 안전하게 변환 (string 값만 유지)
+ */
+function toStringRecord(value: object): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === 'string') {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+/**
  * 리소스에 기본값 적용
  *
  * @param parsed 파싱된 객체
@@ -163,7 +214,7 @@ function applyDefaults(parsed: Record<string, unknown>): Resource {
     rawMetadata !== null &&
     typeof rawMetadata === 'object' &&
     !Array.isArray(rawMetadata)
-      ? normalizeMetadata(rawMetadata as Record<string, unknown>)
+      ? normalizeMetadata(toRecord(rawMetadata))
       : { name: '' };
 
   // spec 추출
@@ -171,7 +222,7 @@ function applyDefaults(parsed: Record<string, unknown>): Resource {
     parsed.spec !== null &&
     typeof parsed.spec === 'object' &&
     !Array.isArray(parsed.spec)
-      ? (parsed.spec as Record<string, unknown>)
+      ? toRecord(parsed.spec)
       : {};
 
   return {
@@ -198,7 +249,7 @@ function normalizeMetadata(
     typeof raw.labels === 'object' &&
     !Array.isArray(raw.labels)
   ) {
-    metadata.labels = raw.labels as Record<string, string>;
+    metadata.labels = toStringRecord(raw.labels);
   }
 
   // annotations
@@ -207,7 +258,7 @@ function normalizeMetadata(
     typeof raw.annotations === 'object' &&
     !Array.isArray(raw.annotations)
   ) {
-    metadata.annotations = raw.annotations as Record<string, string>;
+    metadata.annotations = toStringRecord(raw.annotations);
   }
 
   // namespace

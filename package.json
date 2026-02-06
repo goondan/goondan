@@ -11,12 +11,21 @@
     "build:core": "pnpm --filter @goondan/core build",
     "build:cli": "pnpm --filter @goondan/cli build",
     "build:base": "pnpm --filter @goondan/base build",
+    "test": "pnpm -r test",
+    "test:core": "pnpm --filter @goondan/core test",
+    "test:cli": "pnpm --filter @goondan/cli test",
+    "test:base": "pnpm --filter @goondan/base test",
+    "typecheck": "pnpm -r typecheck",
+    "typecheck:core": "pnpm --filter @goondan/core typecheck",
+    "typecheck:cli": "pnpm --filter @goondan/cli typecheck",
+    "typecheck:base": "pnpm --filter @goondan/base typecheck",
+    "clean": "pnpm -r clean",
     "deploy": "pnpm --filter @goondan/core --filter @goondan/cli --filter @goondan/base publish --access public",
     "deploy:core": "pnpm --filter @goondan/core publish --access public",
     "deploy:cli": "pnpm --filter @goondan/cli publish --access public",
     "deploy:base": "pnpm --filter @goondan/base publish --access public",
-    "test": "pnpm -r test",
-    "gdn": "node ./packages/cli/dist/bin.js"
+    "gdn": "node ./packages/cli/dist/bin.js",
+    "validate": "pnpm gdn validate"
   },
   "devDependencies": {
     "@types/node": "^22.19.7",

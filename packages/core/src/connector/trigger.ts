@@ -3,7 +3,7 @@
  * @see /docs/specs/connector.md - 6. Trigger Handler 시스템, 7. Trigger Execution Model
  */
 
-import type { Resource, ConnectorSpec, JsonObject } from '../types/index.js';
+import type { Resource, ConnectorSpec, ConnectionSpec } from '../types/index.js';
 import type { TriggerConfig } from '../types/specs/connector.js';
 import type {
   TriggerHandler,
@@ -25,6 +25,8 @@ export interface TriggerExecutorOptions {
   logger: Console;
   /** Connector 설정 (선택) */
   connector?: Resource<ConnectorSpec>;
+  /** Connection 설정 (선택) */
+  connection?: Resource<ConnectionSpec>;
   /** OAuth API (선택) */
   oauth?: {
     getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
@@ -41,6 +43,8 @@ export interface TriggerExecutorOptions {
 export interface CreateTriggerContextOptions {
   /** Connector 설정 */
   connector: Resource<ConnectorSpec>;
+  /** Connection 설정 */
+  connection: Resource<ConnectionSpec>;
   /** Canonical event 발행 콜백 */
   onEmit: (event: CanonicalEvent) => Promise<void>;
   /** 로거 */
@@ -66,6 +70,7 @@ export function createTriggerContext(options: CreateTriggerContextOptions): Trig
     emit: options.onEmit,
     logger: options.logger,
     connector: options.connector,
+    connection: options.connection,
   };
 
   if (options.oauth) {
@@ -121,7 +126,7 @@ export class TriggerExecutor {
   async execute(
     handlerName: string,
     event: TriggerEvent,
-    connection: JsonObject
+    connection: Resource<ConnectionSpec>
   ): Promise<void> {
     const handler = this.handlers.get(handlerName);
     if (!handler) {
@@ -136,8 +141,17 @@ export class TriggerExecutor {
       spec: { type: 'custom' },
     };
 
+    // 기본 Connection 설정
+    const defaultConnection: Resource<ConnectionSpec> = {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connection',
+      metadata: { name: 'default' },
+      spec: { connectorRef: { kind: 'Connector', name: 'default' } },
+    };
+
     const ctx = createTriggerContext({
       connector: this.options.connector ?? defaultConnector,
+      connection: this.options.connection ?? connection ?? defaultConnection,
       onEmit: this.options.onEmit,
       logger: this.options.logger,
       oauth: this.options.oauth,
@@ -181,6 +195,7 @@ export function loadTriggerModule(
       throw new Error(`Handler is not a function: ${name}`);
     }
 
+    // typeof handler === 'function'이 위에서 검증됨
     handlers.set(name, handler as TriggerHandler);
   }
 

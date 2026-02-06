@@ -9,23 +9,5 @@ spec:
   type: telegram
   runtime: node
   entry: "./connectors/telegram/index.js"
-
-  # Static Token 기반 인증 (환경변수에서 가져오기)
-  auth:
-    staticToken:
-      valueFrom:
-        env: "TELEGRAM_BOT_TOKEN"
-
-  # Ingress 규칙은 사용자가 오버라이드해야 함
-  # 패키지 리소스는 후순위 로드가 덮어씀
-  ingress: []
-
-  # Egress 설정
-  egress:
-    updatePolicy:
-      mode: newMessage
-      debounceMs: 1000
-
-  # Trigger 핸들러
   triggers:
     - handler: onUpdate

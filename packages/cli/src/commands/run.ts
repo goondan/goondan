@@ -2,7 +2,10 @@
  * gdn run command
  *
  * Runs a Swarm with the specified options.
+ * Bundle을 로드하고 실제 런타임(LLM 호출 + Tool 실행)을 연결하여 대화형 실행합니다.
+ *
  * @see /docs/specs/cli.md - Section 4 (gdn run)
+ * @see /docs/specs/runtime.md - 실행 모델
  */
 
 import { Command, Option } from "commander";
@@ -15,9 +18,25 @@ import {
   loadBundleFromFile,
   loadBundleFromDirectory,
   type BundleLoadResult,
+  createEffectiveConfigLoader,
+  createStepRunner,
+  createTurnRunner,
+  createSwarmInstanceManager,
+  createAgentInstance,
+  createAgentEvent,
+  isLlmAssistantMessage,
+} from "@goondan/core";
+import type {
+  SwarmInstanceManager,
+  TurnRunner,
+  Turn,
+  AgentInstance,
 } from "@goondan/core";
 import { info, success, warn, error as logError, debug } from "../utils/logger.js";
 import { ExitCode } from "../types.js";
+import { createBundleLoaderImpl } from "../runtime/bundle-loader-impl.js";
+import { createLlmCallerImpl } from "../runtime/llm-caller-impl.js";
+import { createToolExecutorImpl } from "../runtime/tool-executor-impl.js";
 
 /**
  * Run command options
@@ -171,11 +190,224 @@ async function readInputFile(filePath: string): Promise<string> {
 }
 
 /**
- * Run interactive mode with readline
+ * ObjectRefLike에서 name 추출
+ */
+function resolveRefName(ref: unknown): string {
+  if (typeof ref === "string") {
+    const parts = ref.split("/");
+    if (parts.length === 2 && parts[1]) {
+      return parts[1];
+    }
+    return ref;
+  }
+  if (isObjectWithKey(ref, "name") && typeof ref.name === "string") {
+    return ref.name;
+  }
+  return "default";
+}
+
+/**
+ * 타입 가드: object이고 특정 key를 갖는지 확인
+ */
+function isObjectWithKey<K extends string>(
+  value: unknown,
+  key: K,
+): value is Record<K, unknown> {
+  return typeof value === "object" && value !== null && key in value;
+}
+
+/**
+ * SwarmSpec에서 policy 값을 타입 안전하게 추출
+ */
+function getSwarmPolicyValue(
+  spec: unknown,
+  key: string,
+  defaultValue: number,
+): number {
+  if (!isObjectWithKey(spec, "policy")) return defaultValue;
+  const policy = spec.policy;
+  if (!isObjectWithKey(policy, key)) return defaultValue;
+  const value = policy[key];
+  return typeof value === "number" ? value : defaultValue;
+}
+
+/**
+ * SwarmSpec에서 entrypoint를 타입 안전하게 추출
+ */
+function getSwarmEntrypoint(spec: unknown): unknown {
+  if (!isObjectWithKey(spec, "entrypoint")) return undefined;
+  return spec.entrypoint;
+}
+
+/**
+ * Runtime context for running turns
+ */
+interface RuntimeContext {
+  turnRunner: TurnRunner;
+  swarmInstanceManager: SwarmInstanceManager;
+  swarmName: string;
+  entrypointAgent: string;
+  instanceKey: string;
+  /** AgentInstance 캐시 (instanceKey -> Map<agentName, AgentInstance>) */
+  agentInstances: Map<string, AgentInstance>;
+}
+
+/**
+ * Turn 결과에서 최종 assistant 메시지 텍스트 추출
+ */
+function extractAssistantResponse(turn: Turn): string {
+  // Turn.messages를 역순으로 순회하여 마지막 assistant 메시지 텍스트 반환
+  for (let i = turn.messages.length - 1; i >= 0; i--) {
+    const msg = turn.messages[i];
+    if (msg && isLlmAssistantMessage(msg) && msg.content) {
+      return msg.content;
+    }
+  }
+  return "(No response)";
+}
+
+/**
+ * 사용량 정보 표시
+ */
+function displayUsage(turn: Turn): void {
+  let totalPrompt = 0;
+  let totalCompletion = 0;
+  let stepCount = 0;
+
+  for (const step of turn.steps) {
+    if (step.llmResult?.usage) {
+      totalPrompt += step.llmResult.usage.promptTokens;
+      totalCompletion += step.llmResult.usage.completionTokens;
+    }
+    stepCount++;
+  }
+
+  if (totalPrompt > 0 || totalCompletion > 0) {
+    console.log(
+      chalk.dim(
+        `  [${stepCount} step(s), ${totalPrompt} prompt + ${totalCompletion} completion tokens]`
+      )
+    );
+  }
+}
+
+/**
+ * 단일 입력 처리 (Turn 실행)
+ */
+async function processInput(
+  ctx: RuntimeContext,
+  input: string,
+): Promise<void> {
+  // SwarmInstance 조회 또는 생성
+  const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
+    `Swarm/${ctx.swarmName}`,
+    ctx.instanceKey,
+    "default"
+  );
+
+  // AgentInstance 조회 또는 생성
+  let agentInstance = ctx.agentInstances.get(ctx.entrypointAgent);
+  if (!agentInstance) {
+    agentInstance = createAgentInstance(
+      swarmInstance,
+      `Agent/${ctx.entrypointAgent}`
+    );
+    ctx.agentInstances.set(ctx.entrypointAgent, agentInstance);
+    // SwarmInstance에도 등록
+    swarmInstance.agents.set(ctx.entrypointAgent, {
+      id: agentInstance.id,
+      agentName: agentInstance.agentName,
+    });
+  }
+
+  // AgentEvent 생성
+  const event = createAgentEvent("user.input", input);
+
+  // Turn 실행
+  const turn = await ctx.turnRunner.run(agentInstance, event);
+
+  // 결과 출력
+  if (turn.status === "completed") {
+    const response = extractAssistantResponse(turn);
+    console.log(chalk.green("Agent:"), response);
+    displayUsage(turn);
+  } else if (turn.status === "failed") {
+    const errorMeta = turn.metadata["error"];
+    if (isObjectWithKey(errorMeta, "message")) {
+      logError(`Turn failed: ${String(errorMeta.message)}`);
+    } else {
+      logError("Turn failed with unknown error");
+    }
+  }
+
+  console.log();
+}
+
+/**
+ * 실제 런타임을 초기화하고 RuntimeContext를 생성
+ */
+function initializeRuntime(
+  result: BundleLoadResult,
+  bundleRootDir: string,
+  swarmName: string,
+  instanceKey: string,
+): RuntimeContext {
+  // 1. BundleLoaderImpl 생성
+  const bundleLoader = createBundleLoaderImpl({
+    bundleLoadResult: result,
+    bundleRootDir,
+  });
+
+  // 2. EffectiveConfigLoader 생성
+  const effectiveConfigLoader = createEffectiveConfigLoader(bundleLoader);
+
+  // 3. LlmCaller 생성
+  const llmCaller = createLlmCallerImpl();
+
+  // 4. ToolExecutor 생성
+  const toolExecutor = createToolExecutorImpl({ bundleRootDir });
+
+  // 5. StepRunner 생성
+  const stepRunner = createStepRunner({
+    llmCaller,
+    toolExecutor,
+    effectiveConfigLoader,
+  });
+
+  // 6. TurnRunner 생성
+  const swarmResource = result.getResource("Swarm", swarmName);
+  const swarmSpec = swarmResource?.spec;
+  const maxStepsPerTurn = getSwarmPolicyValue(swarmSpec, "maxStepsPerTurn", 32);
+
+  const turnRunner = createTurnRunner({
+    stepRunner,
+    maxStepsPerTurn,
+  });
+
+  // 7. SwarmInstanceManager 생성
+  const swarmInstanceManager = createSwarmInstanceManager();
+
+  // 8. Entrypoint agent 확인
+  const entrypointRef = getSwarmEntrypoint(swarmSpec);
+  const entrypointAgent = entrypointRef
+    ? resolveRefName(entrypointRef)
+    : "default";
+
+  return {
+    turnRunner,
+    swarmInstanceManager,
+    swarmName,
+    entrypointAgent,
+    instanceKey,
+    agentInstances: new Map(),
+  };
+}
+
+/**
+ * Run interactive mode with readline (실제 런타임 연결)
  */
 async function runInteractiveMode(
-  swarmName: string,
-  instanceKey: string
+  ctx: RuntimeContext,
 ): Promise<void> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -186,7 +418,7 @@ async function runInteractiveMode(
   console.log();
 
   const prompt = (): void => {
-    rl.question(chalk.cyan("You: "), async (input) => {
+    rl.question(chalk.cyan("You: "), (input) => {
       const trimmedInput = input.trim();
 
       if (trimmedInput.toLowerCase() === "exit" || trimmedInput.toLowerCase() === "quit") {
@@ -201,13 +433,20 @@ async function runInteractiveMode(
         return;
       }
 
-      // Placeholder: Show that we received the input
-      console.log();
-      console.log(chalk.gray(`[${swarmName}/${instanceKey}] Processing...`));
-      console.log(chalk.dim("(Runtime execution not yet implemented)"));
       console.log();
 
-      prompt();
+      // 실제 런타임으로 Turn 실행
+      processInput(ctx, trimmedInput)
+        .then(() => {
+          prompt();
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error) {
+            logError(`Runtime error: ${err.message}`);
+            debug(err.stack ?? "");
+          }
+          prompt();
+        });
     });
   };
 
@@ -239,9 +478,10 @@ async function executeRun(options: RunOptions): Promise<void> {
     if (!configPath) {
       spinner.fail("Bundle configuration not found");
       logError(
-        `No ${CONFIG_FILE_NAMES.join(" or ")} found in current directory`
+        `Bundle not found at './${CONFIG_FILE_NAMES[0]}'. No ${CONFIG_FILE_NAMES.join(" or ")} found in current directory.`
       );
-      info("Run 'gdn init' to create a new project or navigate to a project directory.");
+      info("Run 'gdn init' to create a new project, or navigate to a project directory.");
+      info("Run 'gdn doctor' to diagnose your environment.");
       process.exitCode = ExitCode.CONFIG_ERROR;
       return;
     }
@@ -250,6 +490,7 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     // Load and validate bundle
     spinner.start("Loading and validating bundle...");
+    const bundleRootDir = path.dirname(configPath);
     const result = await loadBundle(configPath);
 
     if (!result.isValid()) {
@@ -287,8 +528,14 @@ async function executeRun(options: RunOptions): Promise<void> {
     // Display warnings if any
     displayValidationResults(result);
 
+    // Initialize runtime
+    spinner.start("Initializing runtime...");
+    const ctx = initializeRuntime(result, bundleRootDir, options.swarm, instanceKey);
+    spinner.succeed("Runtime initialized");
+
     // Show starting message
     console.log(chalk.bold.green(`Starting Swarm: ${options.swarm}`));
+    console.log(chalk.dim(`  Entrypoint: ${ctx.entrypointAgent}`));
     console.log();
 
     // Handle initial input
@@ -312,9 +559,8 @@ async function executeRun(options: RunOptions): Promise<void> {
     if (initialInput) {
       console.log(chalk.cyan("You:"), initialInput);
       console.log();
-      console.log(chalk.gray(`[${options.swarm}/${instanceKey}] Processing...`));
-      console.log(chalk.dim("(Runtime execution not yet implemented)"));
-      console.log();
+
+      await processInput(ctx, initialInput);
 
       // If not interactive, exit after processing
       if (!options.interactive) {
@@ -325,7 +571,7 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     // Run interactive mode if enabled
     if (options.interactive) {
-      await runInteractiveMode(options.swarm, instanceKey);
+      await runInteractiveMode(ctx);
     } else {
       // Non-interactive mode without input
       info("No input provided and interactive mode is disabled.");
@@ -351,6 +597,16 @@ async function executeRun(options: RunOptions): Promise<void> {
 export function createRunCommand(): Command {
   const command = new Command("run")
     .description("Run a Swarm")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ gdn run                             Run default Swarm interactively
+  $ gdn run -s my-swarm                 Run a specific Swarm
+  $ gdn run --input "Hello, agent!"     Send a single message
+  $ gdn run --input-file request.txt    Send input from file
+  $ gdn run --no-interactive            Non-interactive mode`
+    )
     .addOption(
       new Option("-s, --swarm <name>", "Swarm name to run").default("default")
     )
@@ -382,15 +638,20 @@ export function createRunCommand(): Command {
       new Option("--no-install", "Skip dependency installation")
     )
     .action(async (opts: Record<string, unknown>) => {
+      const optStr = (key: string): string | undefined =>
+        typeof opts[key] === "string" ? opts[key] : undefined;
+      const optNum = (key: string): number | undefined =>
+        typeof opts[key] === "number" ? opts[key] : undefined;
+
       const runOptions: RunOptions = {
-        swarm: (opts.swarm as string) ?? "default",
-        connector: opts.connector as string | undefined,
-        instanceKey: opts.instanceKey as string | undefined,
-        input: opts.input as string | undefined,
-        inputFile: opts.inputFile as string | undefined,
+        swarm: optStr("swarm") ?? "default",
+        connector: optStr("connector"),
+        instanceKey: optStr("instanceKey"),
+        input: optStr("input"),
+        inputFile: optStr("inputFile"),
         interactive: opts.interactive !== false,
-        watch: (opts.watch as boolean) ?? false,
-        port: opts.port as number | undefined,
+        watch: opts.watch === true,
+        port: optNum("port"),
         noInstall: opts.install === false,
       };
 

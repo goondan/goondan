@@ -2,51 +2,18 @@
 # Demonstrates LLM conversation compaction strategies for context window management
 
 apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: compaction-demo
-spec:
-  entrypoint:
-    kind: Agent
-    name: main-agent
-  agents:
-    - kind: Agent
-      name: main-agent
-
----
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: main-agent
-  labels:
-    tier: demo
-spec:
-  modelConfig:
-    modelRef:
-      kind: Model
-      name: gpt-4o
-  prompt:
-    system:
-      source: file
-      path: "./prompts/default.system.md"
-  extensions:
-    - kind: Extension
-      name: compaction
-  tools: []
-
----
-apiVersion: agents.example.io/v1alpha1
 kind: Model
 metadata:
   name: gpt-4o
 spec:
   provider: openai
-  model: gpt-4o
-  parameters:
+  name: gpt-4o
+  options:
     temperature: 0.7
     maxTokens: 4096
 
 ---
+
 # Token-based compaction strategy
 apiVersion: agents.example.io/v1alpha1
 kind: Extension
@@ -56,7 +23,7 @@ metadata:
     tier: sample
 spec:
   runtime: node
-  entry: "./extensions/compaction/index.js"
+  entry: "./extensions/compaction/index.ts"
   config:
     strategy: token
     maxTokens: 8000
@@ -65,6 +32,7 @@ spec:
     enableLogging: true
 
 ---
+
 # Alternative: Turn-based compaction
 # apiVersion: agents.example.io/v1alpha1
 # kind: Extension
@@ -72,7 +40,7 @@ spec:
 #   name: compaction-turn
 # spec:
 #   runtime: node
-#   entry: "./extensions/compaction/index.js"
+#   entry: "./extensions/compaction/index.ts"
 #   config:
 #     strategy: turn
 #     maxTurns: 20
@@ -80,6 +48,7 @@ spec:
 #     enableLogging: true
 
 ---
+
 # Alternative: Sliding window compaction
 # apiVersion: agents.example.io/v1alpha1
 # kind: Extension
@@ -87,8 +56,59 @@ spec:
 #   name: compaction-sliding
 # spec:
 #   runtime: node
-#   entry: "./extensions/compaction/index.js"
+#   entry: "./extensions/compaction/index.ts"
 #   config:
 #     strategy: sliding
 #     windowSize: 10
 #     enableLogging: true
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: main-agent
+  labels:
+    tier: demo
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: gpt-4o }
+  prompts:
+    systemRef: "./prompts/default.system.md"
+  extensions:
+    - { kind: Extension, name: compaction }
+  tools: []
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: compaction-demo
+spec:
+  entrypoint: { kind: Agent, name: main-agent }
+  agents:
+    - { kind: Agent, name: main-agent }
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-compaction-demo
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
+    - route:
+        swarmRef: { kind: Swarm, name: compaction-demo }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

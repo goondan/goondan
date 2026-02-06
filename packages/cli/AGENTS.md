@@ -39,6 +39,12 @@ packages/cli/
       logs.ts         # gdn logs - 로그 조회 (JSONL 파싱, 필터링, 실시간 스트리밍)
       config.ts       # gdn config get/set/list/delete/path (설정 관리)
       completion.ts   # gdn completion - 쉘 자동완성 (bash/zsh/fish/powershell)
+      doctor.ts       # gdn doctor - 환경 진단 (Node.js, pnpm, API 키, 의존성 확인)
+    runtime/            # gdn run 런타임 구현체 (AGENTS.md 참조)
+      index.ts          # 모든 구현체 re-export
+      bundle-loader-impl.ts  # BundleLoadResult 기반 BundleLoader 구현
+      llm-caller-impl.ts     # AI SDK 기반 LLM 호출 구현 (anthropic/openai/google)
+      tool-executor-impl.ts  # Tool entry 모듈 동적 로드/실행 구현
     utils/
       logger.ts       # 로깅 유틸리티 (verbose/quiet/json/color 지원)
       config.ts       # 설정 파일 로딩 (~/.goondanrc, 환경변수 병합)
@@ -55,6 +61,10 @@ packages/cli/
 ## 의존성
 
 - `@goondan/core`: Goondan 코어 기능 (Bundle, Runtime, Workspace 등)
+- `ai`: Vercel AI SDK (LLM 호출, generateText, tool 정의)
+- `@ai-sdk/anthropic`: Anthropic provider (Claude 모델)
+- `@ai-sdk/openai`: OpenAI provider (GPT 모델)
+- `@ai-sdk/google`: Google provider (Gemini 모델)
 - `commander`: CLI 프레임워크
 - `chalk`: 터미널 색상 출력
 - `ora`: 스피너/로딩 표시

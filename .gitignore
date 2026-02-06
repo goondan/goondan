@@ -11,3 +11,17 @@ test/
 mise.local.toml
 **/state/
 .goondan/
+
+# Security - sensitive files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+**/secrets/
+**/.secrets/
+**/oauth/grants/
+**/oauth/sessions/

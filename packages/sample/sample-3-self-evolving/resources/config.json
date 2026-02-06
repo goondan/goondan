@@ -1,0 +1,15 @@
+{
+  "behavior": {
+    "responseLanguage": "en",
+    "responseStyle": "formal",
+    "selfModificationAggression": 0.3
+  },
+  "learning": {
+    "maxPromptTokens": 4096,
+    "maxHistoryEntries": 100
+  },
+  "safety": {
+    "requireConfirmation": true,
+    "maxRollbacks": 5
+  }
+}

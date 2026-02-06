@@ -15,7 +15,7 @@ import type {
   TriggerContext,
   CanonicalEvent,
 } from '../../src/connector/types.js';
-import type { Resource, ConnectorSpec, JsonObject } from '../../src/types/index.js';
+import type { Resource, ConnectorSpec, ConnectionSpec, JsonObject } from '../../src/types/index.js';
 
 describe('TriggerHandler 실행', () => {
   describe('TriggerExecutor 클래스', () => {
@@ -45,7 +45,14 @@ describe('TriggerHandler 실행', () => {
         timestamp: new Date().toISOString(),
       };
 
-      await executor.execute('onWebhook', triggerEvent, {});
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
+
+      await executor.execute('onWebhook', triggerEvent, connection);
 
       expect(emitted.length).toBe(1);
       expect(emitted[0]?.instanceKey).toBe('req-1');
@@ -63,7 +70,14 @@ describe('TriggerHandler 실행', () => {
         timestamp: new Date().toISOString(),
       };
 
-      await expect(executor.execute('nonexistent', triggerEvent, {})).rejects.toThrow(
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
+
+      await expect(executor.execute('nonexistent', triggerEvent, connection)).rejects.toThrow(
         'Handler not found: nonexistent'
       );
     });
@@ -103,7 +117,14 @@ describe('TriggerHandler 실행', () => {
         timestamp: new Date().toISOString(),
       };
 
-      await expect(executor.execute('failing', triggerEvent, {})).rejects.toThrow(
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
+
+      await expect(executor.execute('failing', triggerEvent, connection)).rejects.toThrow(
         'Handler error'
       );
     });
@@ -117,9 +138,16 @@ describe('TriggerHandler 실행', () => {
         metadata: { name: 'test-connector' },
         spec: { type: 'custom' },
       };
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
 
       const ctx = createTriggerContext({
         connector,
+        connection,
         onEmit: async () => {},
         logger: console,
       });
@@ -127,6 +155,7 @@ describe('TriggerHandler 실행', () => {
       expect(ctx.emit).toBeDefined();
       expect(ctx.logger).toBeDefined();
       expect(ctx.connector).toBe(connector);
+      expect(ctx.connection).toBe(connection);
     });
 
     it('emit 호출 시 onEmit 콜백이 실행된다', async () => {
@@ -137,9 +166,16 @@ describe('TriggerHandler 실행', () => {
         metadata: { name: 'test-connector' },
         spec: { type: 'custom' },
       };
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
 
       const ctx = createTriggerContext({
         connector,
+        connection,
         onEmit: async (event) => {
           emitted.push(event);
         },
@@ -164,9 +200,16 @@ describe('TriggerHandler 실행', () => {
         metadata: { name: 'slack-connector' },
         spec: { type: 'slack' },
       };
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'slack-connector' } },
+      };
 
       const ctx = createTriggerContext({
         connector,
+        connection,
         onEmit: async () => {},
         logger: console,
         oauth: {
@@ -189,10 +232,17 @@ describe('TriggerHandler 실행', () => {
         metadata: { name: 'test-connector' },
         spec: { type: 'custom' },
       };
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
+      };
 
       const patches: unknown[] = [];
       const ctx = createTriggerContext({
         connector,
+        connection,
         onEmit: async () => {},
         logger: console,
         liveConfig: {
@@ -217,12 +267,12 @@ describe('TriggerHandler 실행', () => {
       const mockModule = {
         onWebhook: async (
           event: TriggerEvent,
-          connection: JsonObject,
+          connection: Resource<ConnectionSpec>,
           ctx: TriggerContext
         ) => {},
         onCron: async (
           event: TriggerEvent,
-          connection: JsonObject,
+          connection: Resource<ConnectionSpec>,
           ctx: TriggerContext
         ) => {},
       };
@@ -306,7 +356,7 @@ describe('TriggerHandler 실행', () => {
 
   describe('TriggerExecutor connection 파라미터', () => {
     it('connection 객체를 handler에 전달한다', async () => {
-      let receivedConnection: JsonObject | null = null;
+      let receivedConnection: Resource<ConnectionSpec> | null = null;
 
       const executor = new TriggerExecutor({
         onEmit: async () => {},
@@ -319,9 +369,13 @@ describe('TriggerHandler 실행', () => {
 
       executor.registerHandler('onWebhook', handler);
 
-      const connection: JsonObject = {
-        apiKey: 'secret-key',
-        baseUrl: 'https://api.example.com',
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'test-connector' },
+        },
       };
 
       await executor.execute(
@@ -344,7 +398,16 @@ describe('TriggerHandler 실행', () => {
         metadata: { name: 'my-webhook' },
         spec: {
           type: 'custom',
-          ingress: [
+        },
+      };
+
+      const connection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'my-webhook-conn' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'my-webhook' },
+          rules: [
             {
               route: {
                 swarmRef: { kind: 'Swarm', name: 'default' },
@@ -360,9 +423,10 @@ describe('TriggerHandler 실행', () => {
         onEmit: async () => {},
         logger: console,
         connector,
+        connection,
       });
 
-      const handler: TriggerHandler = async (event, connection, ctx) => {
+      const handler: TriggerHandler = async (event, conn, ctx) => {
         connectorName = ctx.connector.metadata.name;
       };
 
@@ -371,7 +435,7 @@ describe('TriggerHandler 실행', () => {
       await executor.execute(
         'onWebhook',
         { type: 'webhook', payload: {}, timestamp: new Date().toISOString() },
-        {}
+        connection
       );
 
       expect(connectorName).toBe('my-webhook');

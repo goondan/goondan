@@ -31,7 +31,8 @@
 - docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
 - docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합)
 - docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴)
-- docs/specs/connector.md : Connector 시스템 스펙 (인증, Ingress/Egress, Trigger Handler)
+- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 구현체, Trigger Handler)
+- docs/specs/connection.md : Connection 시스템 스펙 (인증, 라우팅 규칙, Egress 바인딩)
 - docs/specs/oauth.md : OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
 - docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point)
 - docs/specs/workspace.md : Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마)
@@ -49,6 +50,10 @@
   - sample-3-self-evolving: Changeset 기반 자기 수정 에이전트
   - sample-4-compaction: LLM 대화 Compaction Extension (Token/Turn/Sliding Window 전략)
   - sample-5-package-consumer: sample-1 패키지를 의존성으로 참조하는 예제
+  - sample-6-cli-chatbot: CLI 채팅봇 (초보자용 가장 단순한 구성)
+  - sample-7-multi-model: 여러 LLM 모델 조합 (라우터 + 창작/분석 에이전트)
+  - sample-8-web-researcher: 웹 리서치 에이전트 (http-fetch + json-query 활용, 수집/요약 분리)
+  - sample-9-devops-assistant: DevOps 지원 에이전트 (bash + logging, 계획/실행 분리)
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것

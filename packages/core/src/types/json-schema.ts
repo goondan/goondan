@@ -3,6 +3,8 @@
  * @see /docs/specs/resources.md - 6.2 Tool (JsonSchema)
  */
 
+import type { JsonValue } from './json.js';
+
 /**
  * JSON Schema 타입 (간략화)
  */
@@ -19,8 +21,8 @@ export interface JsonSchema {
   description?: string;
   /** 추가 속성 허용 여부 */
   additionalProperties?: boolean | JsonSchema;
-  /** 허용된 값 목록 */
-  enum?: unknown[];
-  /** 기본값 */
-  default?: unknown;
+  /** 허용된 값 목록 (JSON 호환 값만 허용) */
+  enum?: JsonValue[];
+  /** 기본값 (JSON 호환 값만 허용) */
+  default?: JsonValue;
 }

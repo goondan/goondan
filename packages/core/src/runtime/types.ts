@@ -336,7 +336,7 @@ export function createToolResult(
         error: {
           message: error.message,
           name: error.name,
-          code: (error as Error & { code?: string }).code,
+          code: 'code' in error && typeof error.code === 'string' ? error.code : undefined,
         },
       },
     };

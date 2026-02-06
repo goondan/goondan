@@ -11,7 +11,6 @@ import type {
   ExtensionApi,
   ExtStepContext,
   ExtTurnContext,
-  ExtLlmMessage,
   ExtContextBlock,
 } from '@goondan/core';
 import type { CompactionConfig, CompactionState } from './types.js';
@@ -37,7 +36,7 @@ const DEFAULT_CONFIG: Required<CompactionConfig> = {
  * In production, this would call an LLM for actual summarization
  */
 function createDefaultSummarizer(
-  prompt: string,
+  _prompt: string,
   logger?: Console
 ): (text: string) => Promise<string> {
   return async (text: string): Promise<string> => {
@@ -219,7 +218,7 @@ export async function register(
         },
       },
     },
-    handler: async (ctx, input) => {
+    handler: async (_ctx, input) => {
       const limit = Number(input.limit) || 10;
       const summaries = state.summaries.slice(-limit);
       return {

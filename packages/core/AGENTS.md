@@ -14,7 +14,7 @@ src/
 │   ├── selector.ts       # Selector, SelectorWithOverrides, RefOrSelector
 │   ├── value-source.ts   # ValueSource, ValueFrom, SecretRef
 │   ├── utils.ts          # 유틸리티 함수 (타입 가드, deepMerge, resolveValueSource)
-│   └── specs/            # Kind별 Spec 인터페이스 (Model, Tool, Extension 등)
+│   └── specs/            # Kind별 Spec 인터페이스 (Model, Tool, Extension, Connection 등)
 ├── bundle/       # [구현완료] Bundle YAML 파싱, 검증 및 Package 시스템
 │   ├── errors.ts         # Bundle 에러 타입
 │   ├── parser.ts         # YAML 파싱
@@ -51,9 +51,9 @@ src/
 │   ├── api.ts             # createExtensionApi 팩토리
 │   ├── loader.ts          # ExtensionLoader (모듈 로드/초기화)
 │   └── index.ts           # 모든 기능 re-export
-├── connector/    # [구현완료] Connector 시스템 (Ingress/Egress, Trigger Handler)
+├── connector/    # [구현완료] Connector/Connection 시스템 (Ingress/Egress, Trigger Handler)
 │   ├── types.ts          # ConnectorAdapter, TriggerHandler, CanonicalEvent 등 타입
-│   ├── adapter.ts        # BaseConnectorAdapter, createConnectorAdapter
+│   ├── adapter.ts        # BaseConnectorAdapter, createConnectorAdapter (ConnectionConfig 기반)
 │   ├── ingress.ts        # IngressMatcher, matchIngressRule, routeEvent
 │   ├── egress.ts         # EgressHandler, createEgressHandler (debounce 포함)
 │   ├── trigger.ts        # TriggerExecutor, createTriggerContext, loadTriggerModule
@@ -76,7 +76,7 @@ src/
 - `pipeline/` → `/docs/specs/pipeline.md`
 - `tool/` → `/docs/specs/tool.md`
 - `extension/` → `/docs/specs/extension.md`
-- `connector/` → `/docs/specs/connector.md`
+- `connector/` → `/docs/specs/connector.md`, `/docs/specs/connection.md`
 - `oauth/` → `/docs/specs/oauth.md`
 - `changeset/` → `/docs/specs/changeset.md`
 - `workspace/` → `/docs/specs/workspace.md`
@@ -85,6 +85,10 @@ src/
 
 1. **TDD 방식**: 테스트 코드를 먼저 작성하고, 테스트를 통과하는 코드를 구현합니다.
 2. **타입 안전성**: `as` 타입 단언 금지. 타입 가드와 정확한 타입 정의로 해결합니다.
+   - `Resource<unknown>`의 spec 접근: `getSpec(resource)` 헬퍼 사용 (types/utils.ts)
+   - `NodeJS.ErrnoException` 체크: `isNodeError(err)` 타입 가드 사용
+   - `JSON.parse` 결과: 타입 가드 함수로 검증 후 사용
+   - 제네릭 파이프라인 핸들러 등록: TypeScript 구조적 한계로 내부 변환 시 허용
 3. **스펙 준수**: 스펙 문서의 MUST/SHOULD/MAY 규칙을 엄격히 준수합니다.
 4. **의존성 순서**:
    - `types/`는 다른 모듈에 의존하지 않음
@@ -111,12 +115,12 @@ pnpm typecheck      # 타입 체크만
 | 모듈 | 상태 | 테스트 |
 |------|------|--------|
 | types/ | 완료 | 169개 테스트 통과 |
-| bundle/ | 완료 | 236개 테스트 통과 |
-| runtime/ | 완료 | 138개 테스트 통과 |
+| bundle/ | 완료 | 247개 테스트 통과 |
+| runtime/ | 완료 | 150개 테스트 통과 |
 | pipeline/ | 완료 | 108개 테스트 통과 |
 | tool/ | 완료 | 94개 테스트 통과 |
 | extension/ | 완료 | 105개 테스트 통과 |
-| connector/ | 완료 | 128개 테스트 통과 |
+| connector/ | 완료 | 131개 테스트 통과 |
 | oauth/ | 완료 | 107개 테스트 통과 |
 | changeset/ | 완료 | 99개 테스트 통과 |
 | workspace/ | 완료 | 147개 테스트 통과 |

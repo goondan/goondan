@@ -227,6 +227,9 @@ export interface ToolContext {
 
   /** 로거 */
   logger: Console;
+
+  /** 다른 에이전트에 작업 위임 */
+  delegate?(agentName: string, task: string, context?: string): Promise<JsonValue>;
 }
 
 // =============================================================================

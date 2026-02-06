@@ -37,8 +37,8 @@ export interface Step {
   /** 이 Step에 고정된 SwarmBundleRef */
   readonly activeSwarmBundleRef: SwarmBundleRef;
 
-  /** 이 Step의 Effective Config */
-  effectiveConfig: EffectiveConfig;
+  /** 이 Step의 Effective Config (Step 실행 중 config 단계에서 설정됨) */
+  effectiveConfig: EffectiveConfig | undefined;
 
   /** LLM에 노출된 Tool Catalog */
   readonly toolCatalog: ToolCatalogItem[];
@@ -104,7 +104,7 @@ export function createStep(
     turn,
     index,
     activeSwarmBundleRef,
-    effectiveConfig: undefined as unknown as EffectiveConfig, // 나중에 설정
+    effectiveConfig: undefined,
     toolCatalog: [],
     blocks: [],
     toolCalls: [],
@@ -153,6 +153,16 @@ export interface StepRunner {
    * @returns 완료된 Step
    */
   run(turn: Turn): Promise<Step>;
+}
+
+/**
+ * Error에서 code 프로퍼티를 안전하게 추출 (타입 가드 방식)
+ */
+function extractErrorCode(error: Error): string | undefined {
+  if ('code' in error && typeof error.code === 'string') {
+    return error.code;
+  }
+  return undefined;
 }
 
 /**
@@ -267,7 +277,7 @@ class StepRunnerImpl implements StepRunner {
                 error: {
                   message: truncateErrorMessage(error.message),
                   name: error.name,
-                  code: (error as Error & { code?: string }).code,
+                  code: extractErrorCode(error),
                 },
               },
             };
@@ -373,15 +383,11 @@ class StepRunnerImpl implements StepRunner {
     }
 
     if (schema.enum !== undefined) {
-      result['enum'] = schema.enum.map((v) =>
-        v === undefined ? null : (v as import('../types/json.js').JsonValue)
-      );
+      result['enum'] = schema.enum.map((v) => v ?? null);
     }
 
     if (schema.default !== undefined) {
-      result['default'] = schema.default === undefined
-        ? null
-        : (schema.default as import('../types/json.js').JsonValue);
+      result['default'] = schema.default ?? null;
     }
 
     return result;

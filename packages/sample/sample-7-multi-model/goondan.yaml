@@ -1,0 +1,159 @@
+# Goondan Multi-Model Sample
+# 여러 모델을 조합하여 작업 성격에 따라 다른 에이전트에게 위임하는 구성
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: anthropic-model
+  labels:
+    provider: anthropic
+    tier: premium
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-5
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: openai-model
+  labels:
+    provider: openai
+    tier: premium
+spec:
+  provider: openai
+  name: gpt-4o
+
+---
+
+# Delegate Tool - 다른 에이전트에게 작업 위임
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: delegate-tool
+  labels:
+    tier: base
+    category: orchestration
+spec:
+  runtime: node
+  entry: "./tools/delegate/index.ts"
+  exports:
+    - name: agent.delegate
+      description: "다른 에이전트에게 작업을 위임합니다. 위임받은 에이전트가 작업을 완료하면 결과를 반환합니다."
+      parameters:
+        type: object
+        properties:
+          agentName:
+            type: string
+            description: "위임할 에이전트의 이름"
+            enum:
+              - creative-writer
+              - analyst
+          task:
+            type: string
+            description: "에이전트에게 전달할 작업 내용"
+          context:
+            type: string
+            description: "작업 수행에 필요한 추가 컨텍스트"
+        required:
+          - agentName
+          - task
+        additionalProperties: false
+
+---
+
+# Router Agent - 작업 성격에 따라 적절한 에이전트에게 위임
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: router
+  labels:
+    role: orchestrator
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: anthropic-model }
+    params:
+      temperature: 0.3
+      maxTokens: 2048
+  prompts:
+    systemRef: "./prompts/router.system.md"
+  tools:
+    - { kind: Tool, name: delegate-tool }
+
+---
+
+# Creative Writer - 창작/글쓰기 전문 에이전트 (OpenAI)
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: creative-writer
+  labels:
+    role: executor
+    specialty: creative
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: openai-model }
+    params:
+      temperature: 0.9
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/creative-writer.system.md"
+
+---
+
+# Analyst - 분석/추론 전문 에이전트 (Anthropic)
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: analyst
+  labels:
+    role: executor
+    specialty: analysis
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: anthropic-model }
+    params:
+      temperature: 0.2
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/analyst.system.md"
+
+---
+
+# Multi-Model Swarm
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: multi-model-swarm
+spec:
+  entrypoint: { kind: Agent, name: router }
+  agents:
+    - { kind: Agent, name: router }
+    - { kind: Agent, name: creative-writer }
+    - { kind: Agent, name: analyst }
+  policy:
+    maxStepsPerTurn: 20
+
+---
+
+# CLI Connector
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-multi-model-swarm
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
+    - route:
+        swarmRef: { kind: Swarm, name: multi-model-swarm }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

@@ -19,6 +19,7 @@
    - [6.7 OAuthApp](#67-oauthapp)
    - [6.8 ResourceType](#68-resourcetype)
    - [6.9 ExtensionHandler](#69-extensionhandler)
+   - [6.10 Connection](#610-connection)
 7. [공통 타입 정의](#7-공통-타입-정의)
 8. [Validation 규칙 요약](#8-validation-규칙-요약)
 
@@ -66,6 +67,7 @@ type KnownKind =
   | 'Agent'
   | 'Swarm'
   | 'Connector'
+  | 'Connection'
   | 'OAuthApp'
   | 'ResourceType'
   | 'ExtensionHandler'
@@ -1098,7 +1100,7 @@ spec:
 
 ### 6.6 Connector
 
-Connector는 외부 채널 이벤트를 수신하여 Swarm으로 라우팅한다.
+Connector는 외부 채널과의 통신 프로토콜(타입)을 정의한다. 인증, 라우팅(ingress), 응답(egress) 설정은 Connection 리소스에서 관리한다.
 
 #### TypeScript 인터페이스
 
@@ -1113,64 +1115,8 @@ interface ConnectorSpec {
   runtime?: 'node' | 'python' | 'deno';
   /** 엔트리 파일 경로 (custom 타입용) */
   entry?: string;
-  /** 인증 설정 */
-  auth?: ConnectorAuth;
-  /** Ingress 규칙 */
-  ingress?: IngressRule[];
-  /** Egress 설정 */
-  egress?: EgressConfig;
   /** Trigger 핸들러 목록 (custom 타입용) */
   triggers?: TriggerConfig[];
-}
-
-/**
- * Connector 인증 설정
- */
-type ConnectorAuth =
-  | { oauthAppRef: ObjectRef; staticToken?: never }
-  | { oauthAppRef?: never; staticToken: ValueSource };
-
-/**
- * Ingress 규칙
- */
-interface IngressRule {
-  /** 매칭 조건 */
-  match?: IngressMatch;
-  /** 라우팅 설정 */
-  route: IngressRoute;
-}
-
-interface IngressMatch {
-  /** 명령어 매칭 (예: "/swarm") */
-  command?: string;
-  /** 이벤트 타입 매칭 */
-  eventType?: string;
-  /** 채널 매칭 */
-  channel?: string;
-}
-
-interface IngressRoute {
-  /** 대상 Swarm */
-  swarmRef: ObjectRefLike;
-  /** instanceKey 추출 표현식 (JSONPath) */
-  instanceKeyFrom?: string;
-  /** 입력 텍스트 추출 표현식 (JSONPath) */
-  inputFrom?: string;
-}
-
-/**
- * Egress 설정
- */
-interface EgressConfig {
-  /** 업데이트 정책 */
-  updatePolicy?: UpdatePolicy;
-}
-
-interface UpdatePolicy {
-  /** 업데이트 모드 */
-  mode: 'replace' | 'updateInThread' | 'newMessage';
-  /** 디바운스 시간 (밀리초) */
-  debounceMs?: number;
 }
 
 /**
@@ -1187,60 +1133,13 @@ type ConnectorResource = Resource<ConnectorSpec>;
 #### YAML 예시
 
 ```yaml
-# Slack Connector (OAuthApp 기반)
+# Slack Connector
 apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
-  name: slack-main
+  name: slack
 spec:
   type: slack
-
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-
-  ingress:
-    - match:
-        command: "/swarm"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-
-    - match:
-        eventType: "app_mention"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
-
----
-# Slack Connector (Static Token 기반)
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: slack-static
-spec:
-  type: slack
-
-  auth:
-    staticToken:
-      valueFrom:
-        secretRef:
-          ref: "Secret/slack-bot-token"
-          key: "bot_token"
-
-  ingress:
-    - match:
-        command: "/swarm"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
 
 ---
 # CLI Connector
@@ -1250,12 +1149,6 @@ metadata:
   name: cli
 spec:
   type: cli
-
-  ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
 
 ---
 # Custom Connector (Trigger Handler 사용)
@@ -1271,12 +1164,6 @@ spec:
   triggers:
     - handler: onWebhook
     - handler: onCron
-
-  ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.payload.id"
-        inputFrom: "$.payload.message"
 ```
 
 #### Validation 규칙
@@ -1286,15 +1173,9 @@ spec:
 | `type` | MUST | string | 비어있지 않은 문자열 |
 | `runtime` | MAY | enum | custom 타입에서 필수 |
 | `entry` | MAY | string | custom 타입에서 필수 |
-| `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
-| `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
-| `ingress` | MAY | array | IngressRule 배열 |
-| `ingress[].route.swarmRef` | MUST | ObjectRef | 유효한 Swarm 참조 |
-| `egress.updatePolicy.mode` | MAY | enum | 유효한 모드 |
 | `triggers[].handler` | MAY | string | entry 모듈의 export 함수명 |
 
 **추가 검증 규칙:**
-- `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
 - `type=custom`인 경우 `runtime`과 `entry`가 필수 (MUST).
 - `triggers[].handler`는 모듈 한정자(`exports.`, 파일 경로)를 포함해서는 안 된다 (MUST).
 - 지정된 handler export가 존재하지 않으면 구성 로드 단계에서 오류 (MUST).
@@ -1673,6 +1554,143 @@ interface MaterializeContext {
 
 ---
 
+### 6.10 Connection
+
+Connection은 Connector와 Swarm 사이의 바인딩을 정의한다. 인증, 라우팅 규칙(ingress), 응답 설정(egress)을 포함한다.
+
+#### TypeScript 인터페이스
+
+```typescript
+/**
+ * Connection 리소스 스펙
+ */
+interface ConnectionSpec {
+  /** 참조할 Connector */
+  connectorRef: ObjectRefLike;
+  /** 인증 설정 */
+  auth?: ConnectorAuth;
+  /** 라우팅 규칙 (ingress) */
+  rules?: ConnectionRule[];
+  /** Egress 설정 */
+  egress?: EgressConfig;
+}
+
+/**
+ * Connection 라우팅 규칙 (IngressRule과 동일 구조)
+ */
+type ConnectionRule = IngressRule;
+
+/**
+ * Connector 인증 설정
+ */
+type ConnectorAuth =
+  | { oauthAppRef: ObjectRef; staticToken?: never }
+  | { oauthAppRef?: never; staticToken: ValueSource };
+
+/**
+ * Ingress 규칙
+ */
+interface IngressRule {
+  /** 매칭 조건 */
+  match?: IngressMatch;
+  /** 라우팅 설정 */
+  route: IngressRoute;
+}
+
+interface IngressMatch {
+  /** 명령어 매칭 (예: "/swarm") */
+  command?: string;
+  /** 이벤트 타입 매칭 */
+  eventType?: string;
+  /** 채널 매칭 */
+  channel?: string;
+}
+
+interface IngressRoute {
+  /** 대상 Swarm */
+  swarmRef: ObjectRefLike;
+  /** instanceKey 추출 표현식 (JSONPath) */
+  instanceKeyFrom?: string;
+  /** 입력 텍스트 추출 표현식 (JSONPath) */
+  inputFrom?: string;
+}
+
+/**
+ * Egress 설정
+ */
+interface EgressConfig {
+  /** 업데이트 정책 */
+  updatePolicy?: UpdatePolicy;
+}
+
+interface UpdatePolicy {
+  /** 업데이트 모드 */
+  mode: 'replace' | 'updateInThread' | 'newMessage';
+  /** 디바운스 시간 (밀리초) */
+  debounceMs?: number;
+}
+
+type ConnectionResource = Resource<ConnectionSpec>;
+```
+
+#### YAML 예시
+
+```yaml
+# CLI Connection
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-default
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
+    - route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"
+
+---
+# Slack Connection with auth + egress
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: slack-to-default
+spec:
+  connectorRef: { kind: Connector, name: slack }
+  auth:
+    oauthAppRef: { kind: OAuthApp, name: slack-bot }
+  rules:
+    - match:
+        command: "/agent"
+      route:
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.event.thread_ts"
+        inputFrom: "$.event.text"
+  egress:
+    updatePolicy:
+      mode: updateInThread
+      debounceMs: 1500
+```
+
+#### Validation 규칙
+
+| 필드 | 필수 | 타입 | 규칙 |
+|------|------|------|------|
+| `connectorRef` | MUST | ObjectRefLike | 유효한 Connector 참조 |
+| `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
+| `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
+| `auth` | MUST | - | oauthAppRef와 staticToken은 동시에 존재할 수 없음 |
+| `rules` | MAY | array | ConnectionRule 배열 |
+| `rules[].route.swarmRef` | MUST | ObjectRef | 유효한 Swarm 참조 |
+| `egress.updatePolicy.mode` | MAY | enum | 유효한 모드 |
+
+**추가 검증 규칙:**
+- `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
+- `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
+- `rules[].route.swarmRef`는 유효한 Swarm 리소스를 참조해야 한다 (MUST).
+
+---
+
 ## 7. 공통 타입 정의
 
 ### JSON 기본 타입
@@ -1773,8 +1791,10 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 | Swarm | entrypoint, agents 필수 | MUST |
 | Swarm | entrypoint는 agents에 포함 | MUST |
 | Connector | type 필수 | MUST |
-| Connector | oauthAppRef와 staticToken 동시 불가 | MUST |
 | Connector | custom 타입에서 runtime, entry 필수 | MUST |
+| Connection | connectorRef 필수 | MUST |
+| Connection | oauthAppRef와 staticToken 동시 불가 | MUST |
+| Connection | rules[].route.swarmRef 유효한 Swarm 참조 | MUST |
 | OAuthApp | flow, subjectMode 필수 | MUST |
 | OAuthApp | authorizationCode 시 authorizationUrl, callbackPath 필수 | MUST |
 | OAuthApp | deviceCode 미지원 시 거부 | MUST |

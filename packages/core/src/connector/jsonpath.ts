@@ -54,12 +54,13 @@ export function readJsonPath(payload: JsonObject, expr: string): JsonValue | und
     }
 
     // 단일 결과인 경우
+    // JSONPath 라이브러리 반환값은 JSON-safe 값이므로 JsonValue로 취급
     if (results.length === 1) {
       return results[0] as JsonValue;
     }
 
     // 복수 결과인 경우 배열 반환
-    return results as JsonValue;
+    return results as JsonValue[];
   } catch {
     // 파싱 오류 시 undefined 반환
     return undefined;
@@ -142,8 +143,9 @@ export function readSimplePath(payload: JsonObject, expr: string): unknown {
       }
       current = current[index];
     } else {
-      // 객체 키인 경우
-      current = (current as Record<string, unknown>)[segment];
+      // 객체 키인 경우 - typeof current === 'object' && !Array.isArray(current)이 보장됨
+      const record = Object.fromEntries(Object.entries(current));
+      current = record[segment];
     }
   }
 

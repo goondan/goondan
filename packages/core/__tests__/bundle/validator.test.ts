@@ -306,17 +306,7 @@ describe('Bundle Validator', () => {
           apiVersion: 'agents.example.io/v1alpha1',
           kind: 'Connector',
           metadata: { name: 'test-conn' },
-          spec: {
-            ingress: [
-              {
-                route: {
-                  swarmRef: { kind: 'Swarm', name: 'test' },
-                  instanceKeyFrom: '$.id',
-                  inputFrom: '$.text',
-                },
-              },
-            ],
-          },
+          spec: {},
         };
         const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/type')).toBe(true);
@@ -329,7 +319,22 @@ describe('Bundle Validator', () => {
           metadata: { name: 'test-conn' },
           spec: {
             type: 'custom',
-            ingress: [
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/runtime')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/entry')).toBe(true);
+      });
+    });
+
+    describe('Connection', () => {
+      it('connectorRef가 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-connection' },
+          spec: {
+            rules: [
               {
                 route: {
                   swarmRef: { kind: 'Swarm', name: 'test' },
@@ -341,26 +346,51 @@ describe('Bundle Validator', () => {
           },
         };
         const errors = validateResources([resource]);
-        expect(errors.some((e) => e.path === '/spec/runtime')).toBe(true);
-        expect(errors.some((e) => e.path === '/spec/entry')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/connectorRef')).toBe(true);
       });
 
       it('auth에서 oauthAppRef와 staticToken이 동시에 있으면 오류를 반환해야 한다', () => {
         const resource: Resource = {
           apiVersion: 'agents.example.io/v1alpha1',
-          kind: 'Connector',
-          metadata: { name: 'test-conn' },
+          kind: 'Connection',
+          metadata: { name: 'test-connection' },
           spec: {
-            type: 'slack',
+            connectorRef: { kind: 'Connector', name: 'slack' },
             auth: {
               oauthAppRef: { kind: 'OAuthApp', name: 'slack' },
               staticToken: { value: 'token' },
             },
-            ingress: [],
+            rules: [],
           },
         };
         const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/auth')).toBe(true);
+      });
+
+      it('유효한 Connection은 오류가 없어야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-connection' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            rules: [
+              {
+                route: {
+                  swarmRef: { kind: 'Swarm', name: 'default' },
+                  instanceKeyFrom: '$.instanceKey',
+                  inputFrom: '$.text',
+                },
+              },
+            ],
+          },
+        };
+        const errors = validateResources([resource]);
+        // 공통 검증 오류만 확인 (Connection 자체의 kind별 검증은 통과해야 함)
+        const connectionErrors = errors.filter(
+          (e) => e.kind === 'Connection' && e.level !== 'warning'
+        );
+        expect(connectionErrors).toHaveLength(0);
       });
     });
 

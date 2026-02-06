@@ -65,9 +65,18 @@ export async function register(
 2. **turn**: 대화 턴 수 기반 압축
 3. **sliding**: 슬라이딩 윈도우 방식 압축
 
+## Bundle 리소스 정의 (goondan.yaml)
+
+- **Model** (`gpt-4o`): OpenAI gpt-4o 모델
+- **Extension** (`compaction`): Token 기반 대화 압축 확장
+- **Agent** (`main-agent`): compaction extension을 사용하는 데모 에이전트
+- **Swarm** (`compaction-demo`): 단일 에이전트 스웜
+- **Connector** (`cli`): CLI 인터페이스
+
 ## 참조 문서
 
 - `/docs/specs/extension.md` - Extension 시스템 스펙
+- `/docs/specs/bundle.md` - Bundle YAML 스펙
 - `/packages/core/src/extension/` - Core Extension 구현
 
 ## 수정 시 주의사항
@@ -76,3 +85,7 @@ export async function register(
 2. 파이프라인 포인트 추가 시 Core 타입과 일치 확인
 3. 테스트 추가/수정 시 모든 전략에 대해 테스트 수행
 4. 타입 단언(`as`) 사용 금지, 타입 가드로 해결
+5. goondan.yaml 수정 시 `/docs/specs/bundle.md` 스펙 준수:
+   - `Model.spec.name` (model이 아님), `Model.spec.options` (parameters가 아님)
+   - `Agent.spec.prompts.systemRef` (prompt.system이 아님)
+   - 반드시 CLI Connector 포함

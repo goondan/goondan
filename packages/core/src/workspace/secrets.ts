@@ -7,6 +7,28 @@ import * as path from 'path';
 import type { SecretEntry } from './types.js';
 
 /**
+ * NodeJS.ErrnoException 타입 가드
+ */
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
+}
+
+/**
+ * SecretEntry 타입 가드
+ */
+function isSecretEntry(value: unknown): value is SecretEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  if (!('value' in value)) {
+    return false;
+  }
+  const record: Record<string, unknown> = Object.create(null);
+  Object.assign(record, value);
+  return typeof record['value'] === 'string';
+}
+
+/**
  * 시크릿 이름 유효성 검사
  */
 function validateSecretName(name: string): void {
@@ -53,14 +75,18 @@ export class SecretsStore {
    * 시크릿 조회
    */
   async get(name: string): Promise<SecretEntry | undefined> {
+    validateSecretName(name);
     const filePath = this.getPath(name);
 
     try {
       const content = await fs.readFile(filePath, 'utf8');
-      return JSON.parse(content) as SecretEntry;
+      const parsed: unknown = JSON.parse(content);
+      if (!isSecretEntry(parsed)) {
+        return undefined;
+      }
+      return parsed;
     } catch (err) {
-      const nodeErr = err as NodeJS.ErrnoException;
-      if (nodeErr.code === 'ENOENT') {
+      if (isNodeError(err) && err.code === 'ENOENT') {
         return undefined;
       }
       throw err;
@@ -71,13 +97,13 @@ export class SecretsStore {
    * 시크릿 삭제
    */
   async delete(name: string): Promise<void> {
+    validateSecretName(name);
     const filePath = this.getPath(name);
 
     try {
       await fs.unlink(filePath);
     } catch (err) {
-      const nodeErr = err as NodeJS.ErrnoException;
-      if (nodeErr.code === 'ENOENT') {
+      if (isNodeError(err) && err.code === 'ENOENT') {
         // 파일이 없으면 무시
         return;
       }
@@ -89,6 +115,7 @@ export class SecretsStore {
    * 시크릿 존재 여부 확인
    */
   async has(name: string): Promise<boolean> {
+    validateSecretName(name);
     const filePath = this.getPath(name);
 
     try {
@@ -109,8 +136,7 @@ export class SecretsStore {
         .filter(file => file.endsWith('.json'))
         .map(file => file.slice(0, -5)); // .json 제거
     } catch (err) {
-      const nodeErr = err as NodeJS.ErrnoException;
-      if (nodeErr.code === 'ENOENT') {
+      if (isNodeError(err) && err.code === 'ENOENT') {
         return [];
       }
       throw err;

@@ -88,7 +88,16 @@ metadata:
   name: cli
 spec:
   type: cli
-  ingress:
+
+---
+
+apiVersion: ${apiVersion}
+kind: Connection
+metadata:
+  name: cli-to-default
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
     - route:
         swarmRef: { kind: Swarm, name: default }
         instanceKeyFrom: "$.instanceKey"
@@ -176,7 +185,16 @@ metadata:
   name: cli
 spec:
   type: cli
-  ingress:
+
+---
+
+apiVersion: ${apiVersion}
+kind: Connection
+metadata:
+  name: cli-to-${name}
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
     - route:
         swarmRef: { kind: Swarm, name: ${name} }
         instanceKeyFrom: "$.instanceKey"
@@ -226,7 +244,16 @@ metadata:
   name: cli
 spec:
   type: cli
-  ingress:
+
+---
+
+apiVersion: ${apiVersion}
+kind: Connection
+metadata:
+  name: cli-to-${name}
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
     - route:
         swarmRef: { kind: Swarm, name: ${name} }
         instanceKeyFrom: "$.instanceKey"
@@ -808,6 +835,16 @@ export { executeInitCommand as executeInit };
 export function createInitCommand(): Command {
   const command = new Command("init")
     .description("Initialize a new Goondan Swarm project")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ gdn init                             Create project in current directory
+  $ gdn init ./my-agent                  Create project in new directory
+  $ gdn init -t multi-agent              Multi-agent template
+  $ gdn init -t minimal                  Minimal single-file config
+  $ gdn init --package -n @org/tools     Initialize as Bundle Package`
+    )
     .argument("[path]", "Project directory path", ".")
     .option("-n, --name <name>", "Swarm name")
     .option(

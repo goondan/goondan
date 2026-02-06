@@ -62,7 +62,7 @@ gdn package install
 
 ### Connector 오버라이드
 
-@goondan/base의 telegram connector를 기반으로 ingress 규칙만 오버라이드:
+@goondan/base의 telegram connector를 기반으로, `annotations.base`로 상속을 표시하고 ingress/auth만 설정:
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -70,16 +70,24 @@ kind: Connector
 metadata:
   name: telegram
   annotations:
-    base: "@goondan/base"  # base 패키지의 telegram connector 상속
+    base: "@goondan/base"
 spec:
-  # ingress 규칙만 오버라이드
+  type: telegram
+  auth:
+    staticToken:
+      valueFrom:
+        env: "TELEGRAM_BOT_TOKEN"
   ingress:
     - match:
         command: "/start"
       route:
         swarmRef: { kind: Swarm, name: coding-swarm }
-        # ...
+        instanceKeyFrom: "$.message.chat.id"
+        inputFrom: "$.message.text"
+        agentRef: { kind: Agent, name: planner }
 ```
+
+> **주의**: entry 경로를 직접 하드코딩하지 않는다. `annotations.base`를 통해 패키지 시스템이 자동으로 resolve한다. ingress의 `agentRef`는 ObjectRef 형식을 사용한다 (문자열 `agentName`이 아님).
 
 ## Ingress 규칙
 

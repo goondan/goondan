@@ -60,6 +60,13 @@ export type {
   ConnectorResource,
 } from './connector.js';
 
+// Connection
+export type {
+  ConnectionSpec,
+  ConnectionRule,
+  ConnectionResource,
+} from './connection.js';
+
 // OAuthApp
 export type {
   OAuthAppSpec,

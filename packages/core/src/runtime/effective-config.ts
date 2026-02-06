@@ -138,7 +138,7 @@ class EffectiveConfigLoaderImpl implements EffectiveConfigLoader {
     }
 
     // 2. Swarm 정의 조회
-    const swarm = this.bundleLoader.getSwarmForAgent(agent as AgentResource);
+    const swarm = this.bundleLoader.getSwarmForAgent(agent);
 
     // 3. Model 조회
     const modelName = resolveRefName(agent.spec.modelConfig.modelRef);
@@ -160,9 +160,9 @@ class EffectiveConfigLoaderImpl implements EffectiveConfigLoader {
 
     // 7. Effective Config 조립
     return {
-      swarm: swarm as SwarmResource,
-      agent: agent as AgentResource,
-      model: model as ModelResource,
+      swarm,
+      agent,
+      model,
       tools,
       extensions,
       systemPrompt,

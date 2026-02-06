@@ -14,6 +14,13 @@ import type {
 } from './types.js';
 
 /**
+ * NodeJS.ErrnoException 타입 가드
+ */
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
+}
+
+/**
  * OAuthStore 인터페이스
  */
 export interface OAuthStore {
@@ -66,6 +73,21 @@ function normalizeObjectRef(ref: ObjectRefLike): ObjectRef {
 }
 
 /**
+ * OAuth ID 유효성 검사 (경로 순회 방지)
+ */
+function validateOAuthId(id: string, label: string): void {
+  if (!id) {
+    throw new Error(`${label} cannot be empty`);
+  }
+  if (id.includes('/') || id.includes('\\') || id.includes('..')) {
+    throw new Error(`Invalid ${label}: ${id}`);
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new Error(`Invalid ${label}: ${id}. Only alphanumeric, hyphen, and underscore are allowed.`);
+  }
+}
+
+/**
  * 파일 시스템 기반 OAuthStore 생성
  */
 export function createOAuthStore(baseDir: string): OAuthStore {
@@ -80,10 +102,11 @@ export function createOAuthStore(baseDir: string): OAuthStore {
   async function readJsonFile<T>(path: string): Promise<T | null> {
     try {
       const content = await readFile(path, 'utf8');
-      return JSON.parse(content) as T;
+      // JSON.parse 결과를 제네릭 T로 변환 (readJsonFile/writeJsonFile 대칭 구조)
+      const parsed: unknown = JSON.parse(content);
+      return parsed as T;
     } catch (error) {
-      const nodeError = error as NodeJS.ErrnoException;
-      if (nodeError.code === 'ENOENT') {
+      if (isNodeError(error) && error.code === 'ENOENT') {
         return null;
       }
       throw error;
@@ -100,10 +123,11 @@ export function createOAuthStore(baseDir: string): OAuthStore {
     try {
       await unlink(path);
     } catch (error) {
-      const nodeError = error as NodeJS.ErrnoException;
-      if (nodeError.code !== 'ENOENT') {
-        throw error;
+      // ENOENT (파일 없음)이면 무시, 그 외 에러는 전파
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return;
       }
+      throw error;
     }
   }
 
@@ -113,6 +137,7 @@ export function createOAuthStore(baseDir: string): OAuthStore {
     // ========================================================================
 
     async getGrant(grantId: string): Promise<OAuthGrantRecord | null> {
+      validateOAuthId(grantId, 'grantId');
       const path = join(grantsDir, `${grantId}.json`);
       return readJsonFile<OAuthGrantRecord>(path);
     },
@@ -136,6 +161,7 @@ export function createOAuthStore(baseDir: string): OAuthStore {
     },
 
     async deleteGrant(grantId: string): Promise<void> {
+      validateOAuthId(grantId, 'grantId');
       const path = join(grantsDir, `${grantId}.json`);
       await deleteFile(path);
     },
@@ -145,6 +171,7 @@ export function createOAuthStore(baseDir: string): OAuthStore {
     // ========================================================================
 
     async getSession(sessionId: string): Promise<AuthSessionRecord | null> {
+      validateOAuthId(sessionId, 'sessionId');
       const path = join(sessionsDir, `${sessionId}.json`);
       return readJsonFile<AuthSessionRecord>(path);
     },
@@ -173,6 +200,7 @@ export function createOAuthStore(baseDir: string): OAuthStore {
     },
 
     async deleteSession(sessionId: string): Promise<void> {
+      validateOAuthId(sessionId, 'sessionId');
       const path = join(sessionsDir, `${sessionId}.json`);
       await deleteFile(path);
     },
@@ -198,11 +226,11 @@ export function createOAuthStore(baseDir: string): OAuthStore {
           }
         }
       } catch (error) {
-        const nodeError = error as NodeJS.ErrnoException;
-        if (nodeError.code !== 'ENOENT') {
-          throw error;
+        if (isNodeError(error) && error.code === 'ENOENT') {
+          // 디렉토리가 없으면 정리할 것도 없음
+          return;
         }
-        // 디렉토리가 없으면 정리할 것도 없음
+        throw error;
       }
     },
   };

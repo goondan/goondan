@@ -4,11 +4,16 @@
  */
 
 import type { Resource } from '../resource.js';
-import type { ObjectRef, ObjectRefLike } from '../object-ref.js';
+import type { ObjectRef } from '../object-ref.js';
+import type { ObjectRefLike } from '../object-ref.js';
 import type { ValueSource } from '../value-source.js';
 
 /**
  * Connector 리소스 스펙
+ *
+ * Connector는 순수 프로토콜 구현체(패키지 배포 단위)이다.
+ * 인증, 라우팅, Egress 설정은 Connection 리소스에서 관리한다.
+ * @see /docs/specs/connection.md
  */
 export interface ConnectorSpec {
   /** Connector 타입 (slack, cli, github, custom 등) */
@@ -17,12 +22,6 @@ export interface ConnectorSpec {
   runtime?: 'node' | 'python' | 'deno';
   /** 엔트리 파일 경로 (custom 타입용) */
   entry?: string;
-  /** 인증 설정 */
-  auth?: ConnectorAuth;
-  /** Ingress 규칙 */
-  ingress?: IngressRule[];
-  /** Egress 설정 */
-  egress?: EgressConfig;
   /** Trigger 핸들러 목록 (custom 타입용) */
   triggers?: TriggerConfig[];
 }

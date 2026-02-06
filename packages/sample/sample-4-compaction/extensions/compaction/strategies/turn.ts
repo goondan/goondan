@@ -5,7 +5,7 @@
  * A turn pair is typically a user message followed by an assistant response.
  */
 
-import type { ExtLlmMessage, ExtSystemMessage, ExtUserMessage } from '@goondan/core';
+import type { ExtLlmMessage, ExtUserMessage } from '@goondan/core';
 import type {
   CompactionConfig,
   CompactionResult,

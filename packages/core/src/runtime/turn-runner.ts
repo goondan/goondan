@@ -185,6 +185,13 @@ class TurnRunnerImpl implements TurnRunner {
       // 2. turn.pre 파이프라인 실행 (향후 구현)
       // await runPipeline('turn.pre', { turn });
 
+      // 2.5 이전 Turn의 대화 히스토리를 현재 Turn에 프리펜드
+      if (agentInstance.conversationHistory.length > 0) {
+        for (const msg of agentInstance.conversationHistory) {
+          turn.messages.push(msg);
+        }
+      }
+
       // 3. 초기 사용자 메시지 추가
       if (event.input) {
         turn.messages.push({
@@ -222,6 +229,13 @@ class TurnRunnerImpl implements TurnRunner {
       // 7. Turn 완료
       turn.status = 'completed';
       turn.completedAt = new Date();
+
+      // 7.5 대화 히스토리 저장 (다음 Turn에서 이전 대화 맥락으로 사용)
+      const history = agentInstance.conversationHistory;
+      history.splice(0, history.length);
+      for (const msg of turn.messages) {
+        history.push(msg);
+      }
     } catch (error) {
       // 8. 에러 처리
       turn.status = 'failed';

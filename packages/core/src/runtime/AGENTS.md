@@ -44,13 +44,15 @@ Runtime
 - 이벤트 큐 (FIFO 순서 처리)
 - Extension별 상태 저장소 (`extensionStates`)
 - 공유 상태 (`sharedState`)
+- **대화 히스토리** (`conversationHistory`): Turn 간 LlmMessage 누적, 다음 Turn에서 이전 대화 맥락으로 프리펜드
 
 ### Turn
 
 - 하나의 입력 이벤트 처리 단위
 - `origin`과 `auth`는 Turn 생애주기 동안 불변
-- `messages` 배열에 LLM 응답과 Tool 결과 누적
+- `messages` 배열에 LLM 응답과 Tool 결과 누적 (이전 Turn의 conversationHistory가 프리펜드됨)
 - `maxStepsPerTurn` 정책 적용
+- Turn 완료 시 messages가 AgentInstance.conversationHistory에 저장되어 다음 Turn으로 전달
 
 ### Step
 

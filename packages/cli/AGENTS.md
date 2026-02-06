@@ -15,11 +15,11 @@ packages/cli/
     commands/
       index.ts        # 명령어 모듈 export
       init.ts         # gdn init 명령어 구현
-      run.ts          # gdn run 명령어 구현 (Swarm 실행, 대화형 모드)
+      run.ts          # gdn run 명령어 구현 (Swarm 실행, Connection 감지→커넥터 디스패치, 대화형 모드 폴백, SwarmBundleRef 전환/세대 관리, 자동 의존성 설치, processConnectorTurn 커넥터 콜백 export)
       validate.ts     # gdn validate 명령어 구현 (Bundle 검증)
       package/        # gdn package 명령어 그룹 (AGENTS.md 참조)
         index.ts      # 패키지 명령어 그룹 등록
-        install.ts    # gdn package install
+        install.ts    # gdn package install (file: 프로토콜 로컬 의존성 지원)
         add.ts        # gdn package add
         remove.ts     # gdn package remove
         update.ts     # gdn package update
@@ -42,9 +42,12 @@ packages/cli/
       doctor.ts       # gdn doctor - 환경 진단 (Node.js, pnpm, API 키, 의존성 확인)
     runtime/            # gdn run 런타임 구현체 (AGENTS.md 참조)
       index.ts          # 모든 구현체 re-export
+      types.ts          # 공유 타입 (RuntimeContext, RevisionState, ProcessConnectorTurnResult)
       bundle-loader-impl.ts  # BundleLoadResult 기반 BundleLoader 구현
       llm-caller-impl.ts     # AI SDK 기반 LLM 호출 구현 (anthropic/openai/google)
-      tool-executor-impl.ts  # Tool entry 모듈 동적 로드/실행 구현
+      tool-executor-impl.ts  # Tool entry 모듈 동적 로드/실행 구현 (ref 세대별 격리/정리 포함)
+      connector-runner.ts    # Connection 감지, ConnectorRunner 인터페이스, 공유 헬퍼
+      telegram-connector.ts  # Telegram Bot API 롱 폴링 커넥터
     utils/
       logger.ts       # 로깅 유틸리티 (verbose/quiet/json/color 지원)
       config.ts       # 설정 파일 로딩 (~/.goondanrc, 환경변수 병합)

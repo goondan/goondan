@@ -591,6 +591,12 @@ spec:
         - step.config
 ```
 
+### 7.2.1 추가 Safe Point (선택)
+
+구현은 `turn.start` Safe Point를 추가 제공할 수 있다(MAY).  
+`turn.start` Safe Point를 사용하는 구현은 Turn 시작 시 `activeSwarmRef`를 고정하고,
+Turn 종료 전까지 같은 Ref를 유지해야 한다(SHOULD).
+
 ### 7.3 step.config에서 activeSwarmRef 결정
 
 Step 시작 시 `step.config` 파이프라인 포인트에서 다음을 수행한다.
@@ -637,6 +643,11 @@ Step N+1:
   - 새 Effective Config 로드
   - Step N+1부터 새 SwarmBundle 기반으로 실행
 ```
+
+`turn.start` Safe Point를 사용하는 구현에서는 위 규칙을 Turn 경계로 확장할 수 있다(MAY):
+
+- Turn T 중 commit된 Ref는 Turn T+1 시작 시 활성화
+- Turn T가 종료되기 전에는 Ref 전환 금지
 
 ### 7.6 예외 사항
 

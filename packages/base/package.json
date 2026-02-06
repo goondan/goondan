@@ -64,7 +64,7 @@
     "package.yaml"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc; node scripts/copy-yaml.mjs",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -2,7 +2,10 @@
  * ToolExecutorImpl 테스트
  */
 
-import { describe, it, expect } from "vitest";
+import * as os from "node:os";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { describe, it, expect, afterAll } from "vitest";
 import { createToolExecutorImpl } from "../tool-executor-impl.js";
 import type { Step, ToolCall, ToolCatalogItem } from "@goondan/core/runtime";
 import type { ToolSpec, ToolExport } from "@goondan/core";
@@ -10,6 +13,11 @@ import type { ToolSpec, ToolExport } from "@goondan/core";
 describe("ToolExecutorImpl", () => {
   const executor = createToolExecutorImpl({
     bundleRootDir: "/test/project",
+    isolateByRevision: false,
+  });
+
+  afterAll(async () => {
+    await executor.dispose();
   });
 
   /**
@@ -19,7 +27,8 @@ describe("ToolExecutorImpl", () => {
     toolCatalogItems: Array<{
       name: string;
       toolEntry?: string;
-    }>
+    }>,
+    activeSwarmBundleRef: string = "default",
   ): Step {
     const toolCatalog: ToolCatalogItem[] = toolCatalogItems.map((item) => {
       const toolExport: ToolExport = {
@@ -81,7 +90,7 @@ describe("ToolExecutorImpl", () => {
       id: "step-1",
       turn: mockTurn,
       index: 0,
-      activeSwarmBundleRef: "default",
+      activeSwarmBundleRef,
       effectiveConfig: undefined,
       toolCatalog,
       blocks: [],
@@ -140,6 +149,201 @@ describe("ToolExecutorImpl", () => {
 
       expect(result.error).toBeDefined();
       expect(result.toolCallId).toBe("call-3");
+    });
+
+    it("핸들러를 (ctx, input) 순서로 호출해야 한다", async () => {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-order-"));
+      const entryPath = path.join(tempRoot, "tool.js");
+
+      await fs.writeFile(
+        entryPath,
+        [
+          "export async function testTool(ctx, input) {",
+          "  return {",
+          "    hasSwarmBundle: typeof ctx.swarmBundle?.getActiveRef === 'function',",
+          "    value: input.value ?? null,",
+          "  };",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const step = createMockStep([{ name: "test.tool", toolEntry: entryPath }], "git:ctx-order");
+      const toolCall: ToolCall = {
+        id: "call-ctx-order",
+        name: "test.tool",
+        input: { value: "ok" },
+      };
+
+      const result = await executor.execute(toolCall, step);
+
+      expect(result.error).toBeUndefined();
+      expect(result.output).toEqual({
+        hasSwarmBundle: true,
+        value: "ok",
+      });
+
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    });
+  });
+
+  describe("revision isolation", () => {
+    it("세대 제한을 초과하면 idle ref 워커를 정리해야 한다", async () => {
+      const isolated = createToolExecutorImpl({
+        bundleRootDir: "/test/project",
+        isolateByRevision: true,
+        maxActiveGenerations: 1,
+      });
+
+      isolated.beginTurn("git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+      isolated.endTurn("git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+      isolated.beginTurn("git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+      isolated.endTurn("git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+      // 내부 정리는 비동기로 일어나므로 한 tick 양보
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 50);
+      });
+
+      expect(isolated.getGenerationRefs().length).toBeLessThanOrEqual(1);
+      await isolated.dispose();
+    });
+
+    it("step.activeSwarmBundleRef 기준으로 워커에서 핸들러를 실행해야 한다", async () => {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-"));
+      const entryPath = path.join(tempRoot, "tool.js");
+
+      await fs.writeFile(
+        entryPath,
+        [
+          "export async function testTool(ctx, input) {",
+          "  return {",
+          "    ok: true,",
+          "    ref: ctx.step.activeSwarmBundleRef,",
+          "    echo: input.value ?? null",
+          "  };",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const isolated = createToolExecutorImpl({
+        bundleRootDir: tempRoot,
+        isolateByRevision: true,
+        maxActiveGenerations: 2,
+      });
+
+      isolated.beginTurn("git:cccccccccccccccccccccccccccccccccccccccc");
+
+      const step = createMockStep(
+        [{ name: "test.tool", toolEntry: entryPath }],
+        "git:cccccccccccccccccccccccccccccccccccccccc",
+      );
+      const toolCall: ToolCall = {
+        id: "call-4",
+        name: "test.tool",
+        input: { value: "hello" },
+      };
+
+      const result = await isolated.execute(toolCall, step);
+      isolated.endTurn("git:cccccccccccccccccccccccccccccccccccccccc");
+
+      expect(result.error).toBeUndefined();
+      expect(result.output).toEqual({
+        ok: true,
+        ref: "git:cccccccccccccccccccccccccccccccccccccccc",
+        echo: "hello",
+      });
+
+      await isolated.dispose();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    });
+
+    it("워커에서 swarmBundle open/commit API를 호출할 수 있어야 한다", async () => {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-api-"));
+      const entryPath = path.join(tempRoot, "tool.js");
+
+      await fs.writeFile(
+        entryPath,
+        [
+          "export async function testTool(ctx, input) {",
+          "  const opened = await ctx.swarmBundle.openChangeset({ reason: input.reason });",
+          "  const committed = await ctx.swarmBundle.commitChangeset({",
+          "    changesetId: opened.changesetId,",
+          "    message: 'test commit',",
+          "  });",
+          "  return {",
+          "    openedId: opened.changesetId,",
+          "    committedStatus: committed.status,",
+          "    activeRef: ctx.swarmBundle.getActiveRef(),",
+          "  };",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      let committedRef = "";
+
+      const isolated = createToolExecutorImpl({
+        bundleRootDir: tempRoot,
+        isolateByRevision: true,
+        swarmBundleApi: {
+          async openChangeset() {
+            return {
+              changesetId: "cs-test",
+              baseRef: "git:base",
+              workdir: tempRoot,
+            };
+          },
+          async commitChangeset() {
+            return {
+              status: "ok",
+              changesetId: "cs-test",
+              baseRef: "git:base",
+              newRef: "git:new",
+              summary: {
+                filesChanged: ["prompts/a.md"],
+                filesAdded: [],
+                filesDeleted: [],
+              },
+            };
+          },
+          getActiveRef() {
+            return "git:active";
+          },
+        },
+        onCommittedRef: (ref: string) => {
+          committedRef = ref;
+        },
+      });
+
+      isolated.beginTurn("git:active");
+      const step = createMockStep(
+        [{ name: "test.tool", toolEntry: entryPath }],
+        "git:active",
+      );
+      const toolCall: ToolCall = {
+        id: "call-5",
+        name: "test.tool",
+        input: { reason: "unit-test" },
+      };
+
+      const result = await isolated.execute(toolCall, step);
+      isolated.endTurn("git:active");
+
+      expect(result.error).toBeUndefined();
+      expect(result.output).toEqual({
+        openedId: "cs-test",
+        committedStatus: "ok",
+        activeRef: "git:active",
+      });
+      expect(committedRef).toBe("git:new");
+
+      await isolated.dispose();
+      await fs.rm(tempRoot, { recursive: true, force: true });
     });
   });
 });

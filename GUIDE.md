@@ -388,6 +388,7 @@ spec:
 **중요 규칙:**
 - `entrypoint`는 `agents` 배열에 반드시 포함되어야 합니다 (MUST).
 - `agents`에는 최소 1개 이상의 Agent 참조가 있어야 합니다 (MUST).
+- Changeset 반영 시점은 기본적으로 `step.config`이며, 구현에 따라 `turn.start` Safe Point를 추가로 사용할 수 있습니다 (MAY).
 
 ### 4.4 Connector & Connection 정의
 

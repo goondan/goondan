@@ -12,10 +12,10 @@ import { Command, Option } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { parse as parseYaml } from "yaml";
 import chalk from "chalk";
 import ora from "ora";
 import {
-  loadBundleFromFile,
   loadBundleFromDirectory,
   type BundleLoadResult,
   createEffectiveConfigLoader,
@@ -25,18 +25,32 @@ import {
   createAgentInstance,
   createAgentEvent,
   isLlmAssistantMessage,
+  SwarmBundleManagerImpl,
+  createSwarmBundleApi,
+  resolveGoondanHome,
+  generateWorkspaceId,
 } from "@goondan/core";
 import type {
-  SwarmInstanceManager,
   TurnRunner,
   Turn,
-  AgentInstance,
+  SwarmBundleApi,
+  ChangesetPolicy,
+  OpenChangesetInput,
+  CommitChangesetInput,
 } from "@goondan/core";
 import { info, success, warn, error as logError, debug } from "../utils/logger.js";
 import { ExitCode } from "../types.js";
 import { createBundleLoaderImpl } from "../runtime/bundle-loader-impl.js";
 import { createLlmCallerImpl } from "../runtime/llm-caller-impl.js";
-import { createToolExecutorImpl } from "../runtime/tool-executor-impl.js";
+import {
+  createToolExecutorImpl,
+  isRevisionedToolExecutor,
+} from "../runtime/tool-executor-impl.js";
+import type { RevisionedToolExecutor } from "../runtime/tool-executor-impl.js";
+import { detectConnections } from "../runtime/connector-runner.js";
+import type { ConnectorRunner } from "../runtime/connector-runner.js";
+import { TelegramConnectorRunner } from "../runtime/telegram-connector.js";
+import type { RuntimeContext, ProcessConnectorTurnResult, RevisionState } from "../runtime/types.js";
 
 /**
  * Run command options
@@ -97,7 +111,8 @@ async function loadBundle(configPath: string): Promise<BundleLoadResult> {
     return loadBundleFromDirectory(configPath);
   }
 
-  return loadBundleFromFile(configPath);
+  // 파일인 경우 해당 디렉토리에서 로드 (package.yaml 의존성 포함)
+  return loadBundleFromDirectory(path.dirname(configPath));
 }
 
 /**
@@ -239,17 +254,221 @@ function getSwarmEntrypoint(spec: unknown): unknown {
   return spec.entrypoint;
 }
 
+
 /**
- * Runtime context for running turns
+ * normalize swarm bundle ref
  */
-interface RuntimeContext {
-  turnRunner: TurnRunner;
-  swarmInstanceManager: SwarmInstanceManager;
-  swarmName: string;
-  entrypointAgent: string;
-  instanceKey: string;
-  /** AgentInstance 캐시 (instanceKey -> Map<agentName, AgentInstance>) */
-  agentInstances: Map<string, AgentInstance>;
+function normalizeSwarmBundleRef(ref: string | undefined): string {
+  const trimmed = ref?.trim();
+  if (!trimmed) {
+    return "default";
+  }
+  return trimmed;
+}
+
+/**
+ * 새로운 ref를 pending으로 등록
+ */
+function queuePendingRef(state: RevisionState, ref: string | undefined): void {
+  const normalizedRef = normalizeSwarmBundleRef(ref);
+  if (normalizedRef === state.activeRef) {
+    return;
+  }
+  if (normalizedRef === state.pendingRef) {
+    return;
+  }
+  state.pendingRef = normalizedRef;
+}
+
+/**
+ * 전체 in-flight turn 수
+ */
+function getTotalInFlightTurns(state: RevisionState): number {
+  let total = 0;
+  for (const count of state.inFlightTurnsByRef.values()) {
+    total += count;
+  }
+  return total;
+}
+
+/**
+ * pending ref를 active로 승격한다.
+ */
+function promotePendingRef(state: RevisionState): string | null {
+  if (!state.pendingRef) {
+    return null;
+  }
+
+  if (getTotalInFlightTurns(state) > 0) {
+    return null;
+  }
+
+  const nextRef = normalizeSwarmBundleRef(state.pendingRef);
+  state.pendingRef = undefined;
+
+  if (nextRef === state.activeRef) {
+    return null;
+  }
+
+  state.activeRef = nextRef;
+  return nextRef;
+}
+
+/**
+ * active ref의 turn 카운트 증가
+ */
+function acquireTurnRef(state: RevisionState): string {
+  const normalizedRef = normalizeSwarmBundleRef(state.activeRef);
+  const current = state.inFlightTurnsByRef.get(normalizedRef) ?? 0;
+  state.inFlightTurnsByRef.set(normalizedRef, current + 1);
+  return normalizedRef;
+}
+
+/**
+ * turn 종료 시 ref 카운트 감소
+ */
+function releaseTurnRef(state: RevisionState, ref: string): void {
+  const normalizedRef = normalizeSwarmBundleRef(ref);
+  const current = state.inFlightTurnsByRef.get(normalizedRef);
+  if (current === undefined) {
+    return;
+  }
+
+  if (current <= 1) {
+    state.inFlightTurnsByRef.delete(normalizedRef);
+    return;
+  }
+
+  state.inFlightTurnsByRef.set(normalizedRef, current - 1);
+}
+
+/**
+ * 문자열 배열인지 확인
+ */
+function isStringArray(value: unknown): value is string[] {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  return value.every((item) => typeof item === "string");
+}
+
+/**
+ * ChangesetPolicy로 변환
+ */
+function toChangesetPolicy(value: unknown): ChangesetPolicy | undefined {
+  if (!isObjectWithKey(value, "enabled") && !isObjectWithKey(value, "allowed") && !isObjectWithKey(value, "applyAt") && !isObjectWithKey(value, "emitRevisionChangedEvent")) {
+    if (typeof value !== "object" || value === null) {
+      return undefined;
+    }
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const policy: ChangesetPolicy = {};
+
+  if (isObjectWithKey(value, "enabled") && typeof value.enabled === "boolean") {
+    policy.enabled = value.enabled;
+  }
+
+  if (isObjectWithKey(value, "applyAt") && isStringArray(value.applyAt)) {
+    policy.applyAt = value.applyAt;
+  }
+
+  if (isObjectWithKey(value, "emitRevisionChangedEvent") && typeof value.emitRevisionChangedEvent === "boolean") {
+    policy.emitRevisionChangedEvent = value.emitRevisionChangedEvent;
+  }
+
+  if (isObjectWithKey(value, "allowed") && typeof value.allowed === "object" && value.allowed !== null) {
+    const allowed = value.allowed;
+    if (isObjectWithKey(allowed, "files") && isStringArray(allowed.files)) {
+      policy.allowed = { files: allowed.files };
+    }
+  }
+
+  return policy;
+}
+
+/**
+ * Swarm spec에서 changeset policy 추출
+ */
+function extractSwarmChangesetPolicy(swarmSpec: unknown): ChangesetPolicy | undefined {
+  if (!isObjectWithKey(swarmSpec, "policy")) {
+    return undefined;
+  }
+  const policy = swarmSpec.policy;
+  if (!isObjectWithKey(policy, "changesets")) {
+    return undefined;
+  }
+  return toChangesetPolicy(policy.changesets);
+}
+
+/**
+ * Agent spec에서 changeset policy 추출
+ */
+function extractAgentChangesetPolicy(agentSpec: unknown): ChangesetPolicy | undefined {
+  if (!isObjectWithKey(agentSpec, "changesets")) {
+    return undefined;
+  }
+  return toChangesetPolicy(agentSpec.changesets);
+}
+
+/**
+ * 런타임용 SwarmBundleApi 생성
+ */
+async function createRuntimeSwarmBundleApi(
+  result: BundleLoadResult,
+  bundleRootDir: string,
+  swarmName: string,
+  entrypointAgent: string,
+  revisionState: RevisionState,
+): Promise<{ api: SwarmBundleApi; activeRef: string }> {
+  const swarmResource = result.getResource("Swarm", swarmName);
+  const agentResource = result.getResource("Agent", entrypointAgent);
+  const swarmPolicy = extractSwarmChangesetPolicy(swarmResource?.spec);
+  const agentPolicy = extractAgentChangesetPolicy(agentResource?.spec);
+
+  const manager = new SwarmBundleManagerImpl({
+    swarmBundleRoot: bundleRootDir,
+    goondanHome: resolveGoondanHome(),
+    workspaceId: generateWorkspaceId(bundleRootDir),
+    swarmPolicy,
+    agentPolicy,
+  });
+
+  let activeRef = "default";
+  try {
+    activeRef = normalizeSwarmBundleRef(await manager.getActiveRef());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warn(`SwarmBundleManager 초기화 실패: ${message}`);
+  }
+
+  const baseApi = createSwarmBundleApi(manager);
+
+  const api: SwarmBundleApi = {
+    openChangeset: async (input?: OpenChangesetInput) => {
+      return baseApi.openChangeset(input);
+    },
+    commitChangeset: async (input: CommitChangesetInput) => {
+      const result = await baseApi.commitChangeset(input);
+      if (result.status === "ok" && result.newRef) {
+        queuePendingRef(revisionState, result.newRef);
+      }
+      return result;
+    },
+    getActiveRef: () => {
+      const ref = baseApi.getActiveRef();
+      const normalized = normalizeSwarmBundleRef(ref);
+      if (normalized === "default") {
+        return normalizeSwarmBundleRef(revisionState.activeRef);
+      }
+      return normalized;
+    },
+  };
+
+  return { api, activeRef };
 }
 
 /**
@@ -291,103 +510,41 @@ function displayUsage(turn: Turn): void {
   }
 }
 
-/**
- * 단일 입력 처리 (Turn 실행)
- */
-async function processInput(
-  ctx: RuntimeContext,
-  input: string,
-): Promise<void> {
-  // SwarmInstance 조회 또는 생성
-  const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
-    `Swarm/${ctx.swarmName}`,
-    ctx.instanceKey,
-    "default"
-  );
-
-  // AgentInstance 조회 또는 생성
-  let agentInstance = ctx.agentInstances.get(ctx.entrypointAgent);
-  if (!agentInstance) {
-    agentInstance = createAgentInstance(
-      swarmInstance,
-      `Agent/${ctx.entrypointAgent}`
-    );
-    ctx.agentInstances.set(ctx.entrypointAgent, agentInstance);
-    // SwarmInstance에도 등록
-    swarmInstance.agents.set(ctx.entrypointAgent, {
-      id: agentInstance.id,
-      agentName: agentInstance.agentName,
-    });
-  }
-
-  // AgentEvent 생성
-  const event = createAgentEvent("user.input", input);
-
-  // Turn 실행
-  const turn = await ctx.turnRunner.run(agentInstance, event);
-
-  // 결과 출력
-  if (turn.status === "completed") {
-    const response = extractAssistantResponse(turn);
-    console.log(chalk.green("Agent:"), response);
-    displayUsage(turn);
-  } else if (turn.status === "failed") {
-    const errorMeta = turn.metadata["error"];
-    if (isObjectWithKey(errorMeta, "message")) {
-      logError(`Turn failed: ${String(errorMeta.message)}`);
-    } else {
-      logError("Turn failed with unknown error");
-    }
-  }
-
-  console.log();
+interface RuntimeCore {
+  turnRunner: TurnRunner;
+  entrypointAgent: string;
 }
 
 /**
- * 실제 런타임을 초기화하고 RuntimeContext를 생성
+ * Bundle 결과에서 TurnRunner/Entrypoint를 재구성한다.
  */
-function initializeRuntime(
+function createRuntimeCore(
   result: BundleLoadResult,
   bundleRootDir: string,
   swarmName: string,
-  instanceKey: string,
-): RuntimeContext {
-  // 1. BundleLoaderImpl 생성
+  toolExecutor: RevisionedToolExecutor,
+): RuntimeCore {
   const bundleLoader = createBundleLoaderImpl({
     bundleLoadResult: result,
     bundleRootDir,
   });
 
-  // 2. EffectiveConfigLoader 생성
   const effectiveConfigLoader = createEffectiveConfigLoader(bundleLoader);
-
-  // 3. LlmCaller 생성
   const llmCaller = createLlmCallerImpl();
-
-  // 4. ToolExecutor 생성
-  const toolExecutor = createToolExecutorImpl({ bundleRootDir });
-
-  // 5. StepRunner 생성
   const stepRunner = createStepRunner({
     llmCaller,
     toolExecutor,
     effectiveConfigLoader,
   });
 
-  // 6. TurnRunner 생성
   const swarmResource = result.getResource("Swarm", swarmName);
   const swarmSpec = swarmResource?.spec;
   const maxStepsPerTurn = getSwarmPolicyValue(swarmSpec, "maxStepsPerTurn", 32);
-
   const turnRunner = createTurnRunner({
     stepRunner,
     maxStepsPerTurn,
   });
 
-  // 7. SwarmInstanceManager 생성
-  const swarmInstanceManager = createSwarmInstanceManager();
-
-  // 8. Entrypoint agent 확인
   const entrypointRef = getSwarmEntrypoint(swarmSpec);
   const entrypointAgent = entrypointRef
     ? resolveRefName(entrypointRef)
@@ -395,10 +552,240 @@ function initializeRuntime(
 
   return {
     turnRunner,
-    swarmInstanceManager,
-    swarmName,
     entrypointAgent,
+  };
+}
+
+/**
+ * active ref 전환 시 런타임 코어를 재로딩한다.
+ */
+async function reloadRuntimeForActiveRef(ctx: RuntimeContext): Promise<boolean> {
+  const result = await loadBundle(ctx.configPath);
+  if (!result.isValid()) {
+    warn(`SwarmBundleRef ${ctx.revisionState.activeRef} 로드 실패: validation error`);
+    return false;
+  }
+
+  const swarms = result.getResourcesByKind("Swarm");
+  const targetSwarm = swarms.find((swarm) => swarm.metadata.name === ctx.swarmName);
+  if (!targetSwarm) {
+    warn(`SwarmBundleRef ${ctx.revisionState.activeRef}에 Swarm '${ctx.swarmName}'이 없습니다.`);
+    return false;
+  }
+
+  const core = createRuntimeCore(
+    result,
+    ctx.bundleRootDir,
+    ctx.swarmName,
+    ctx.toolExecutor,
+  );
+
+  ctx.currentBundle = result;
+  ctx.turnRunner = core.turnRunner;
+  ctx.entrypointAgent = core.entrypointAgent;
+  ctx.agentInstances.clear();
+
+  for (const swarmInstance of ctx.swarmInstanceManager.list()) {
+    swarmInstance.agents.clear();
+  }
+
+  return true;
+}
+
+/**
+ * pending ref 승격 가능하면 승격하고 런타임을 재로딩한다.
+ */
+async function maybeActivatePendingRef(ctx: RuntimeContext): Promise<void> {
+  const previousRef = ctx.revisionState.activeRef;
+  const promotedRef = promotePendingRef(ctx.revisionState);
+  if (!promotedRef) {
+    return;
+  }
+
+  const reloaded = await reloadRuntimeForActiveRef(ctx);
+  if (!reloaded) {
+    ctx.revisionState.pendingRef = promotedRef;
+    ctx.revisionState.activeRef = previousRef;
+    return;
+  }
+
+  info(`Activated SwarmBundleRef: ${promotedRef}`);
+}
+
+/**
+ * 단일 입력 처리 (Turn 실행)
+ */
+async function processInput(
+  ctx: RuntimeContext,
+  input: string,
+): Promise<void> {
+  await maybeActivatePendingRef(ctx);
+
+  const turnRef = acquireTurnRef(ctx.revisionState);
+  ctx.toolExecutor.beginTurn(turnRef);
+
+  try {
+    // SwarmInstance 조회 또는 생성
+    const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
+      `Swarm/${ctx.swarmName}`,
+      ctx.instanceKey,
+      turnRef
+    );
+    swarmInstance.activeSwarmBundleRef = turnRef;
+
+    // AgentInstance 조회 또는 생성
+    let agentInstance = ctx.agentInstances.get(ctx.entrypointAgent);
+    if (!agentInstance) {
+      agentInstance = createAgentInstance(
+        swarmInstance,
+        `Agent/${ctx.entrypointAgent}`
+      );
+      ctx.agentInstances.set(ctx.entrypointAgent, agentInstance);
+      // SwarmInstance에도 등록
+      swarmInstance.agents.set(ctx.entrypointAgent, {
+        id: agentInstance.id,
+        agentName: agentInstance.agentName,
+      });
+    }
+
+    // AgentEvent 생성
+    const event = createAgentEvent("user.input", input);
+
+    // Turn 실행
+    const turn = await ctx.turnRunner.run(agentInstance, event);
+
+    // 결과 출력
+    if (turn.status === "completed") {
+      const response = extractAssistantResponse(turn);
+      console.log(chalk.green("Agent:"), response);
+      displayUsage(turn);
+    } else if (turn.status === "failed") {
+      const errorMeta = turn.metadata["error"];
+      if (isObjectWithKey(errorMeta, "message")) {
+        logError(`Turn failed: ${String(errorMeta.message)}`);
+      } else {
+        logError("Turn failed with unknown error");
+      }
+    }
+  } finally {
+    ctx.toolExecutor.endTurn(turnRef);
+    releaseTurnRef(ctx.revisionState, turnRef);
+    await maybeActivatePendingRef(ctx);
+  }
+
+  console.log();
+}
+
+/**
+ * 커넥터용 Turn 실행 (커스텀 instanceKey, agentName, 응답 반환)
+ */
+export async function processConnectorTurn(
+  ctx: RuntimeContext,
+  options: { instanceKey: string; agentName?: string; input: string },
+): Promise<ProcessConnectorTurnResult> {
+  await maybeActivatePendingRef(ctx);
+
+  const turnRef = acquireTurnRef(ctx.revisionState);
+  ctx.toolExecutor.beginTurn(turnRef);
+
+  try {
+    const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
+      `Swarm/${ctx.swarmName}`,
+      options.instanceKey,
+      turnRef,
+    );
+    swarmInstance.activeSwarmBundleRef = turnRef;
+
+    const agentName = options.agentName ?? ctx.entrypointAgent;
+    const cacheKey = `${options.instanceKey}::${agentName}`;
+
+    let agentInstance = ctx.agentInstances.get(cacheKey);
+    if (!agentInstance) {
+      agentInstance = createAgentInstance(
+        swarmInstance,
+        `Agent/${agentName}`,
+      );
+      ctx.agentInstances.set(cacheKey, agentInstance);
+      swarmInstance.agents.set(agentName, {
+        id: agentInstance.id,
+        agentName: agentInstance.agentName,
+      });
+    }
+
+    const event = createAgentEvent("user.input", options.input);
+    const turn = await ctx.turnRunner.run(agentInstance, event);
+
+    if (turn.status === "completed") {
+      return { response: extractAssistantResponse(turn), status: "completed" };
+    }
+
+    const errorMeta = turn.metadata["error"];
+    const msg = isObjectWithKey(errorMeta, "message")
+      ? String(errorMeta.message)
+      : "Unknown error";
+    return { response: `Error: ${msg}`, status: "failed" };
+  } finally {
+    ctx.toolExecutor.endTurn(turnRef);
+    releaseTurnRef(ctx.revisionState, turnRef);
+    await maybeActivatePendingRef(ctx);
+  }
+}
+
+/**
+ * 실제 런타임을 초기화하고 RuntimeContext를 생성
+ */
+async function initializeRuntime(
+  result: BundleLoadResult,
+  configPath: string,
+  bundleRootDir: string,
+  swarmName: string,
+  instanceKey: string,
+): Promise<RuntimeContext> {
+  const revisionState: RevisionState = {
+    activeRef: "default",
+    inFlightTurnsByRef: new Map(),
+  };
+
+  const entrypointRef = getSwarmEntrypoint(result.getResource("Swarm", swarmName)?.spec);
+  const entrypointAgentForPolicy = entrypointRef
+    ? resolveRefName(entrypointRef)
+    : "default";
+
+  const { api: swarmBundleApi, activeRef } = await createRuntimeSwarmBundleApi(
+    result,
+    bundleRootDir,
+    swarmName,
+    entrypointAgentForPolicy,
+    revisionState,
+  );
+
+  revisionState.activeRef = activeRef;
+
+  const toolExecutor = createToolExecutorImpl({
+    bundleRootDir,
+    maxActiveGenerations: 3,
+    isolateByRevision: true,
+    swarmBundleApi,
+    swarmBundleRoot: bundleRootDir,
+    logger: console,
+    onCommittedRef: (newRef: string) => {
+      queuePendingRef(revisionState, newRef);
+    },
+  });
+
+  const core = createRuntimeCore(result, bundleRootDir, swarmName, toolExecutor);
+
+  return {
+    turnRunner: core.turnRunner,
+    toolExecutor,
+    swarmInstanceManager: createSwarmInstanceManager(),
+    swarmName,
+    entrypointAgent: core.entrypointAgent,
     instanceKey,
+    bundleRootDir,
+    configPath,
+    currentBundle: result,
+    revisionState,
     agentInstances: new Map(),
   };
 }
@@ -451,17 +838,95 @@ async function runInteractiveMode(
   };
 
   // Handle Ctrl+C gracefully
-  rl.on("close", () => {
-    console.log();
-    process.exit(ExitCode.SUCCESS);
-  });
+  await new Promise<void>((resolve) => {
+    rl.on("close", () => {
+      console.log();
+      resolve();
+    });
 
-  prompt();
-
-  // Keep the process running
-  await new Promise<void>(() => {
-    // Never resolves - exits via rl.close() or Ctrl+C
+    prompt();
   });
+}
+
+/**
+ * package.yaml의 의존성이 설치되어 있는지 확인하고 필요 시 자동 설치
+ */
+async function autoInstallDependencies(
+  projectDir: string,
+  spinner: ReturnType<typeof ora>,
+): Promise<boolean> {
+  const packageYamlPath = path.join(projectDir, "package.yaml");
+
+  // package.yaml 없으면 의존성 없음
+  try {
+    await fs.promises.access(packageYamlPath, fs.constants.R_OK);
+  } catch {
+    return true;
+  }
+
+  // package.yaml 파싱
+  let content: string;
+  try {
+    content = await fs.promises.readFile(packageYamlPath, "utf-8");
+  } catch {
+    return true;
+  }
+
+  const parsed: unknown = parseYaml(content);
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    !("spec" in parsed) ||
+    typeof parsed.spec !== "object" ||
+    parsed.spec === null
+  ) {
+    return true;
+  }
+
+  const spec = parsed.spec;
+  if (!("dependencies" in spec) || !Array.isArray(spec.dependencies) || spec.dependencies.length === 0) {
+    return true;
+  }
+
+  // file: 의존성은 로컬 경로이므로 설치 불필요 (core loader가 직접 해석)
+  // 레지스트리 의존성만 체크
+  const registryDeps: string[] = [];
+  for (const dep of spec.dependencies) {
+    if (typeof dep === "string" && !dep.startsWith("file:")) {
+      registryDeps.push(dep);
+    }
+  }
+
+  if (registryDeps.length === 0) {
+    return true;
+  }
+
+  // .goondan/packages/ 디렉토리 존재 확인
+  const packagesDir = path.join(projectDir, ".goondan", "packages");
+  try {
+    await fs.promises.access(packagesDir, fs.constants.R_OK);
+    // 디렉토리가 있으면 이미 설치된 것으로 간주
+    return true;
+  } catch {
+    // 설치 필요
+  }
+
+  spinner.start("Auto-installing dependencies...");
+
+  try {
+    const { execSync } = await import("node:child_process");
+    execSync("gdn package install", {
+      cwd: projectDir,
+      stdio: "pipe",
+    });
+    spinner.succeed("Dependencies installed");
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    spinner.fail(`Failed to auto-install dependencies: ${message}`);
+    info("Run 'gdn package install' manually to install dependencies.");
+    return false;
+  }
 }
 
 /**
@@ -469,6 +934,7 @@ async function runInteractiveMode(
  */
 async function executeRun(options: RunOptions): Promise<void> {
   const spinner = ora();
+  let runtimeCtx: RuntimeContext | null = null;
 
   try {
     // Find bundle configuration
@@ -488,9 +954,18 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     spinner.succeed(`Found configuration: ${path.relative(process.cwd(), configPath)}`);
 
+    // Auto-install dependencies if needed
+    const bundleRootDir = path.dirname(configPath);
+    if (!options.noInstall) {
+      const installed = await autoInstallDependencies(bundleRootDir, spinner);
+      if (!installed) {
+        process.exitCode = ExitCode.CONFIG_ERROR;
+        return;
+      }
+    }
+
     // Load and validate bundle
     spinner.start("Loading and validating bundle...");
-    const bundleRootDir = path.dirname(configPath);
     const result = await loadBundle(configPath);
 
     if (!result.isValid()) {
@@ -530,7 +1005,14 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     // Initialize runtime
     spinner.start("Initializing runtime...");
-    const ctx = initializeRuntime(result, bundleRootDir, options.swarm, instanceKey);
+    const ctx = await initializeRuntime(
+      result,
+      configPath,
+      bundleRootDir,
+      options.swarm,
+      instanceKey,
+    );
+    runtimeCtx = ctx;
     spinner.succeed("Runtime initialized");
 
     // Show starting message
@@ -569,11 +1051,70 @@ async function executeRun(options: RunOptions): Promise<void> {
       }
     }
 
-    // Run interactive mode if enabled
+    // Detect connections and dispatch to appropriate connector
+    const connections = detectConnections(result);
+
+    if (connections.length > 0) {
+      const filtered = options.connector
+        ? connections.filter(
+            (c) =>
+              c.connectorName === options.connector ||
+              c.connectorType === options.connector,
+          )
+        : connections;
+
+      if (filtered.length === 0 && options.connector) {
+        warn(`Connector '${options.connector}' not found in bundle`);
+        info(
+          `Available connectors: ${connections.map((c) => `${c.connectorName} (${c.connectorType})`).join(", ")}`,
+        );
+        process.exitCode = ExitCode.CONFIG_ERROR;
+        return;
+      }
+
+      const runners: ConnectorRunner[] = [];
+
+      for (const detected of filtered) {
+        if (detected.connectorType === "telegram") {
+          info(`Starting Telegram connector: ${detected.connectorName}`);
+          const runner = new TelegramConnectorRunner({
+            runtimeCtx: ctx,
+            connectionResource: detected.connectionResource,
+            connectorResource: detected.connectorResource,
+            processConnectorTurn,
+          });
+          runners.push(runner);
+        } else if (detected.connectorType === "cli") {
+          info(`Starting CLI connector: ${detected.connectorName}`);
+          await runInteractiveMode(ctx);
+          return;
+        } else {
+          warn(`Unsupported connector type: ${detected.connectorType}`);
+        }
+      }
+
+      if (runners.length > 0) {
+        const shutdown = async (): Promise<void> => {
+          for (const runner of runners) {
+            await runner.shutdown();
+          }
+        };
+        process.on("SIGINT", () => {
+          shutdown().catch(() => {});
+        });
+        process.on("SIGTERM", () => {
+          shutdown().catch(() => {});
+        });
+
+        await Promise.all(runners.map((r) => r.start()));
+        return;
+      }
+    }
+
+    // Fallback: no connections → interactive mode
     if (options.interactive) {
       await runInteractiveMode(ctx);
     } else {
-      // Non-interactive mode without input
       info("No input provided and interactive mode is disabled.");
       info("Use --input or --input-file to provide input, or --interactive for interactive mode.");
     }
@@ -586,6 +1127,10 @@ async function executeRun(options: RunOptions): Promise<void> {
     }
 
     process.exitCode = ExitCode.ERROR;
+  } finally {
+    if (runtimeCtx && isRevisionedToolExecutor(runtimeCtx.toolExecutor)) {
+      await runtimeCtx.toolExecutor.dispose();
+    }
   }
 }
 

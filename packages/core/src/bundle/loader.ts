@@ -40,6 +40,8 @@ interface DependencyRef {
   name: string;
   version: string | null;
   fullName: string;
+  /** file: 프로토콜로 참조된 로컬 경로 */
+  filePath?: string;
 }
 
 /**
@@ -74,8 +76,24 @@ export interface LoadDirectoryOptions {
  * Bundle Package Ref 파싱
  * @example "@goondan/base@1.0.0" -> { scope: "@goondan", name: "base", version: "1.0.0" }
  * @example "@goondan/base" -> { scope: "@goondan", name: "base", version: null }
+ * @example "file:../../base" -> { filePath: "../../base", name: "base", ... }
  */
 function parseDependencyRef(ref: string): DependencyRef {
+  // file: 프로토콜 감지
+  if (ref.startsWith('file:')) {
+    const filePath = ref.slice('file:'.length);
+    // 경로에서 이름 추출 (마지막 path segment)
+    const segments = filePath.replace(/\/+$/, '').split('/');
+    const lastName = segments[segments.length - 1] ?? filePath;
+    return {
+      scope: null,
+      name: lastName,
+      version: null,
+      fullName: lastName,
+      filePath,
+    };
+  }
+
   // @scope/name@version 또는 @scope/name 또는 name@version 또는 name
   const versionMatch = ref.match(/^(.+?)@(\d+\.\d+\.\d+.*)$/);
   let nameWithScope: string;
@@ -136,13 +154,79 @@ async function parsePackageManifest(
 
 /**
  * 패키지 경로 resolve
- * .goondan/packages/{scope}/{name}/ 또는 .goondan/packages/{name}/
+ * - file: dep이면 projectDir 기준 상대 경로 해석
+ * - 그 외: .goondan/packages/{scope}/{name}/ 또는 .goondan/packages/{name}/
  */
 function resolvePackagePath(projectDir: string, depRef: DependencyRef): string {
+  if (depRef.filePath) {
+    return path.resolve(projectDir, depRef.filePath);
+  }
   if (depRef.scope) {
     return path.join(projectDir, '.goondan', 'packages', depRef.scope, depRef.name);
   }
   return path.join(projectDir, '.goondan', 'packages', depRef.name);
+}
+
+/**
+ * pnpm workspace에서 패키지를 찾는다.
+ * projectDir에서 위로 올라가며 pnpm-workspace.yaml을 찾고,
+ * workspace 패턴에 매칭되는 디렉토리의 package.yaml을 검색한다.
+ */
+async function findWorkspacePackagePath(
+  startDir: string,
+  depRef: DependencyRef
+): Promise<string | null> {
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+  let workspaceRoot: string | null = null;
+  let workspaceGlobs: string[] = [];
+
+  // pnpm-workspace.yaml 찾기
+  while (currentDir !== root) {
+    const wsPath = path.join(currentDir, 'pnpm-workspace.yaml');
+    try {
+      const content = await fs.promises.readFile(wsPath, 'utf-8');
+      const parsed: unknown = parseYaml(content);
+      if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        'packages' in parsed &&
+        Array.isArray(parsed.packages)
+      ) {
+        workspaceRoot = currentDir;
+        for (const g of parsed.packages) {
+          if (typeof g === 'string') {
+            workspaceGlobs.push(g);
+          }
+        }
+      }
+      break;
+    } catch {
+      currentDir = path.dirname(currentDir);
+    }
+  }
+
+  if (!workspaceRoot || workspaceGlobs.length === 0) {
+    return null;
+  }
+
+  // workspace 패턴에 매칭되는 디렉토리 검색
+  for (const glob of workspaceGlobs) {
+    const dirs = await fg(glob, {
+      cwd: workspaceRoot,
+      onlyDirectories: true,
+      absolute: true,
+    });
+
+    for (const dir of dirs) {
+      const manifest = await parsePackageManifest(path.join(dir, 'package.yaml'));
+      if (manifest && manifest.metadata.name === depRef.fullName) {
+        return dir;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -161,30 +245,50 @@ async function loadDependencyResources(
   for (const dep of dependencies) {
     const depRef = parseDependencyRef(dep);
 
+    // 패키지 경로 확인
+    let resolvedPackagePath = resolvePackagePath(projectDir, depRef);
+
+    // file: dep은 절대 경로를 key로 사용하여 순환 의존성 방지
+    const dedupeKey = depRef.filePath ? resolvedPackagePath : depRef.fullName;
+
     // 이미 로드된 패키지인 경우 스킵 (순환 의존성 방지)
-    if (loadedPackages.has(depRef.fullName)) {
+    if (loadedPackages.has(dedupeKey)) {
       continue;
     }
-    loadedPackages.add(depRef.fullName);
+    loadedPackages.add(dedupeKey);
 
-    // 패키지 경로 확인
-    const packagePath = resolvePackagePath(projectDir, depRef);
-    const packageYamlPath = path.join(packagePath, 'package.yaml');
+    let packageYamlPath = path.join(resolvedPackagePath, 'package.yaml');
 
-    const manifest = await parsePackageManifest(packageYamlPath);
+    let manifest = await parsePackageManifest(packageYamlPath);
+
+    // .goondan/packages에 없으면 pnpm workspace에서 검색
+    if (!manifest && !depRef.filePath) {
+      const wsPath = await findWorkspacePackagePath(projectDir, depRef);
+      if (wsPath) {
+        resolvedPackagePath = wsPath;
+        packageYamlPath = path.join(wsPath, 'package.yaml');
+        manifest = await parsePackageManifest(packageYamlPath);
+      }
+    }
+
     if (!manifest) {
+      const hint = depRef.filePath
+        ? `Local package not found at ${resolvedPackagePath}. Check the file: path in your dependencies.`
+        : `Run 'gdn package install' first, or check that the package exists in the workspace.`;
       errors.push(
         new BundleError(
-          `Dependency package not found: ${dep} (expected at ${packagePath}). Run 'gdn package install' first.`
+          `Dependency package not found: ${dep} (expected at ${resolvedPackagePath}). ${hint}`
         )
       );
       continue;
     }
 
     // 재귀적으로 하위 의존성 로드
+    // file:/workspace dep의 하위 의존성은 해당 패키지 디렉토리 기준으로 해석
     if (manifest.spec.dependencies && manifest.spec.dependencies.length > 0) {
+      const subProjectDir = depRef.filePath ? resolvedPackagePath : resolvedPackagePath;
       const subResources = await loadDependencyResources(
-        projectDir,
+        subProjectDir,
         manifest.spec.dependencies,
         loadedPackages,
         errors,
@@ -197,7 +301,7 @@ async function loadDependencyResources(
     if (manifest.spec.resources && manifest.spec.resources.length > 0) {
       // dist 폴더 경로 결정 (기본: dist/)
       const distPath = manifest.spec.dist?.[0]?.replace(/\/$/, '') ?? 'dist';
-      const distDir = path.join(packagePath, distPath);
+      const distDir = path.join(resolvedPackagePath, distPath);
 
       for (const resourcePath of manifest.spec.resources) {
         const fullResourcePath = path.join(distDir, resourcePath);

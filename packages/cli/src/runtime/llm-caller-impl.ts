@@ -89,7 +89,7 @@ function convertMessages(messages: readonly LlmMessage[]): CoreMessage[] {
             parts.push({
               type: "tool-call",
               toolCallId: tc.id,
-              toolName: tc.name,
+              toolName: sanitizeToolName(tc.name),
               args: tc.input,
             });
           }
@@ -109,7 +109,7 @@ function convertMessages(messages: readonly LlmMessage[]): CoreMessage[] {
             {
               type: "tool-result",
               toolCallId: msg.toolCallId,
-              toolName: msg.toolName,
+              toolName: sanitizeToolName(msg.toolName),
               result: msg.output,
             },
           ],
@@ -123,22 +123,34 @@ function convertMessages(messages: readonly LlmMessage[]): CoreMessage[] {
 }
 
 /**
+ * AI SDK는 tool name에 dot을 허용하지 않음 (^[a-zA-Z0-9_-]{1,128}$)
+ * dot을 underscore로 변환하고, 매핑 테이블로 원래 이름 복원
+ */
+function sanitizeToolName(name: string): string {
+  return name.replace(/\./g, '_');
+}
+
+/**
  * ToolCatalogItem 배열을 AI SDK tools 형식으로 변환
+ * @returns [tools, nameMap] - nameMap: sanitized name → original name
  */
 function convertToolCatalog(
   catalog: ToolCatalogItem[],
-): Record<string, ReturnType<typeof tool>> {
+): { tools: Record<string, ReturnType<typeof tool>>; nameMap: Map<string, string> } {
   const tools: Record<string, ReturnType<typeof tool>> = {};
+  const nameMap = new Map<string, string>();
 
   for (const item of catalog) {
+    const sanitized = sanitizeToolName(item.name);
+    nameMap.set(sanitized, item.name);
     // AI SDK tool은 execute 없이 정의하면 tool call만 반환
-    tools[item.name] = tool({
+    tools[sanitized] = tool({
       description: item.description ?? "",
       parameters: jsonSchema(item.parameters ?? { type: "object" }),
     });
   }
 
-  return tools;
+  return { tools, nameMap };
 }
 
 /**
@@ -216,7 +228,7 @@ export function createLlmCallerImpl(): LlmCaller {
       );
 
       const convertedMessages = convertMessages(messages);
-      const convertedTools = convertToolCatalog(toolCatalog);
+      const { tools: convertedTools, nameMap } = convertToolCatalog(toolCatalog);
 
       const result = await generateText({
         model: languageModel,
@@ -225,14 +237,15 @@ export function createLlmCallerImpl(): LlmCaller {
         maxSteps: 1, // Step 루프는 우리가 직접 관리
       });
 
-      // Tool calls 추출
+      // Tool calls 추출 (sanitized name → original name 복원)
       const toolCalls: ToolCall[] = [];
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const tc of result.toolCalls) {
           const args = isJsonObject(tc.args) ? tc.args : {};
+          const originalName = nameMap.get(tc.toolName) ?? tc.toolName;
           toolCalls.push({
             id: tc.toolCallId,
-            name: tc.toolName,
+            name: originalName,
             input: args,
           });
         }

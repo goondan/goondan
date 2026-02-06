@@ -194,7 +194,7 @@ function parseRegistryRef(input: string): PackageRef {
 
   return {
     type: 'registry',
-    url: 'https://registry.goondan.io', // 기본 레지스트리
+    url: 'https://goondan-registry.yechanny.workers.dev', // 기본 레지스트리
     scope,
     name,
     version: version ?? 'latest',

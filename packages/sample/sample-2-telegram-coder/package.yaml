@@ -7,6 +7,6 @@ metadata:
     description: "Telegram Bot Coding Agent Swarm Sample"
 spec:
   dependencies:
-    - "@goondan/base@0.0.1"
+    - "@goondan/base"
   resources:
     - goondan.yaml

@@ -47,6 +47,7 @@ export type KnownKind =
   | 'Agent'
   | 'Swarm'
   | 'Connector'
+  | 'Connection'
   | 'OAuthApp'
   | 'ResourceType'
   | 'ExtensionHandler'

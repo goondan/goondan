@@ -29,7 +29,7 @@ metadata:
     category: self-evolution
 spec:
   runtime: node
-  entry: "./tools/self-modify/index.js"
+  entry: "./tools/self-modify/index.ts"
   errorMessageLimit: 2000
   exports:
     - name: self.readPrompt
@@ -141,7 +141,16 @@ metadata:
   name: cli
 spec:
   type: cli
-  ingress:
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-default
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
     - route:
         swarmRef: { kind: Swarm, name: default }
         instanceKeyFrom: "$.instanceKey"

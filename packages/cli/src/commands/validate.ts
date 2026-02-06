@@ -19,7 +19,10 @@ import ora from "ora";
 import {
   loadBundleFromDirectory,
   loadBundleFromFile,
+  BundleError,
+  ParseError,
   ValidationError,
+  ReferenceError,
   type BundleLoadResult,
   type Resource,
 } from "@goondan/core";
@@ -51,6 +54,8 @@ export interface ValidationIssue {
   field?: string;
   file?: string;
   line?: number;
+  suggestion?: string;
+  helpUrl?: string;
 }
 
 /**
@@ -189,6 +194,12 @@ function convertBundleErrors(
       level: "error",
     };
 
+    // Propagate suggestion/helpUrl from BundleError
+    if (err instanceof BundleError) {
+      issue.suggestion = err.suggestion;
+      issue.helpUrl = err.helpUrl;
+    }
+
     // Handle ValidationError with level
     if (err instanceof ValidationError) {
       issue.level = err.level;
@@ -200,20 +211,18 @@ function convertBundleErrors(
     }
 
     // Handle ReferenceError
-    if (err.name === "ReferenceError") {
+    if (err instanceof ReferenceError) {
       issue.code = "REFERENCE_ERROR";
-      const refErr = err as { sourceKind?: string; sourceName?: string };
-      if (refErr.sourceKind && refErr.sourceName) {
-        issue.resource = `${refErr.sourceKind}/${refErr.sourceName}`;
+      if (err.sourceKind && err.sourceName) {
+        issue.resource = `${err.sourceKind}/${err.sourceName}`;
       }
     }
 
     // Handle ParseError
-    if (err.name === "ParseError") {
+    if (err instanceof ParseError) {
       issue.code = "PARSE_ERROR";
-      const parseErr = err as { source?: string; line?: number };
-      issue.file = parseErr.source;
-      issue.line = parseErr.line;
+      issue.file = err.source;
+      issue.line = err.line;
     }
 
     if (issue.level === "warning") {
@@ -319,6 +328,16 @@ function formatTextOutput(
       !e.code.includes("REQUIRED")
   );
 
+  // Helper to print suggestion after error
+  const printSuggestion = (issue: ValidationIssue): void => {
+    if (issue.suggestion) {
+      console.log(c.cyan(`    -> ${issue.suggestion}`));
+    }
+    if (issue.helpUrl) {
+      console.log(c.dim(`    See: ${issue.helpUrl}`));
+    }
+  };
+
   // Schema validation
   if (schemaErrors.length === 0 && parseErrors.length === 0) {
     console.log(c.green("\u2713") + " Schema validation passed");
@@ -327,6 +346,7 @@ function formatTextOutput(
     for (const err of [...parseErrors, ...schemaErrors]) {
       const location = err.resource ? ` (${err.resource})` : "";
       console.log(c.red(`  - ${err.message}${location}`));
+      printSuggestion(err);
     }
   }
 
@@ -338,6 +358,7 @@ function formatTextOutput(
     for (const err of refErrors) {
       const location = err.resource ? ` in ${err.resource}` : "";
       console.log(c.red(`  - ${err.message}${location}`));
+      printSuggestion(err);
     }
   }
 
@@ -349,6 +370,7 @@ function formatTextOutput(
     for (const err of fileErrors) {
       const location = err.resource ? ` (referenced in ${err.resource})` : "";
       console.log(c.red(`  - ${err.file}: File not found${location}`));
+      printSuggestion(err);
     }
   }
 
@@ -524,6 +546,16 @@ async function executeValidateCommand(
 export function createValidateCommand(): Command {
   const command = new Command("validate")
     .description("Validate Bundle configuration")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ gdn validate                   Validate current directory
+  $ gdn validate ./my-project      Validate specific path
+  $ gdn validate --strict          Treat warnings as errors
+  $ gdn validate --format json     Output as JSON
+  $ gdn validate --format github   GitHub Actions annotations`
+    )
     .argument("[path]", "Bundle path (file or directory)", ".")
     .addOption(
       new Option("--strict", "Treat warnings as errors").default(false)

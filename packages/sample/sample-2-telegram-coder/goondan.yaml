@@ -167,23 +167,25 @@ apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
   name: telegram
+  annotations:
+    base: "@goondan/base"
 spec:
   type: telegram
-  runtime: node
-  entry: "./.goondan/packages/@goondan/base/dist/connectors/telegram/index.js"
 
-  # Static Token 기반 인증
+---
+
+# Connection: telegram → coding-swarm
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: telegram-to-coding-swarm
+spec:
+  connectorRef: { kind: Connector, name: telegram }
   auth:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
-
-  # Trigger 핸들러 (@goondan/base의 onUpdate 사용)
-  triggers:
-    - handler: onUpdate
-
-  # Ingress 규칙 (이 샘플에 맞게 설정)
-  ingress:
+  rules:
     # /start 명령어 매칭
     - match:
         command: "/start"
@@ -191,7 +193,7 @@ spec:
         swarmRef: { kind: Swarm, name: coding-swarm }
         instanceKeyFrom: "$.message.chat.id"
         inputFrom: "$.message.text"
-        agentName: planner
+        agentRef: { kind: Agent, name: planner }
 
     # /code 명령어 매칭
     - match:
@@ -200,15 +202,13 @@ spec:
         swarmRef: { kind: Swarm, name: coding-swarm }
         instanceKeyFrom: "$.message.chat.id"
         inputFrom: "$.message.text"
-        agentName: planner
+        agentRef: { kind: Agent, name: planner }
 
     # 기본 메시지 라우팅 (명령어 없는 일반 메시지)
     - route:
         swarmRef: { kind: Swarm, name: coding-swarm }
         instanceKeyFrom: "$.message.chat.id"
         inputFrom: "$.message.text"
-
-  # Egress 설정
   egress:
     updatePolicy:
       mode: updateInThread

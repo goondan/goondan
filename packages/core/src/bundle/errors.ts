@@ -8,16 +8,22 @@
  */
 export class BundleError extends Error {
   readonly errorCause?: unknown;
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  readonly suggestion?: string;
+  /** 관련 문서 URL */
+  readonly helpUrl?: string;
 
   constructor(
     message: string,
-    options?: { cause?: unknown }
+    options?: { cause?: unknown; suggestion?: string; helpUrl?: string }
   ) {
     super(message);
     this.name = 'BundleError';
     if (options?.cause) {
       this.errorCause = options.cause;
     }
+    this.suggestion = options?.suggestion;
+    this.helpUrl = options?.helpUrl;
 
     // Error 프로토타입 체인 복원 (TypeScript ES5 타겟 호환)
     Object.setPrototypeOf(this, new.target.prototype);
@@ -38,6 +44,10 @@ export interface ParseErrorOptions {
   column?: number;
   /** 다중 문서에서의 문서 인덱스 */
   documentIndex?: number;
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  suggestion?: string;
+  /** 관련 문서 URL */
+  helpUrl?: string;
 }
 
 /**
@@ -54,7 +64,7 @@ export class ParseError extends BundleError {
   readonly documentIndex?: number;
 
   constructor(message: string, options: ParseErrorOptions = {}) {
-    super(message, { cause: options.cause });
+    super(message, { cause: options.cause, suggestion: options.suggestion, helpUrl: options.helpUrl });
     this.name = 'ParseError';
     this.source = options.source;
     this.line = options.line;
@@ -83,6 +93,10 @@ export interface ValidationErrorOptions {
   actual?: string;
   /** 오류 수준 */
   level?: 'error' | 'warning';
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  suggestion?: string;
+  /** 관련 문서 URL */
+  helpUrl?: string;
 }
 
 /**
@@ -103,7 +117,7 @@ export class ValidationError extends BundleError {
   readonly level: 'error' | 'warning';
 
   constructor(message: string, options: ValidationErrorOptions = {}) {
-    super(message, { cause: options.cause });
+    super(message, { cause: options.cause, suggestion: options.suggestion, helpUrl: options.helpUrl });
     this.name = 'ValidationError';
     this.path = options.path;
     this.kind = options.kind;
@@ -130,6 +144,10 @@ export interface ReferenceErrorOptions {
   targetKind?: string;
   /** 참조 대상 리소스의 이름 */
   targetName?: string;
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  suggestion?: string;
+  /** 관련 문서 URL */
+  helpUrl?: string;
 }
 
 /**
@@ -146,7 +164,7 @@ export class ReferenceError extends BundleError {
   readonly targetName?: string;
 
   constructor(message: string, options: ReferenceErrorOptions = {}) {
-    super(message, { cause: options.cause });
+    super(message, { cause: options.cause, suggestion: options.suggestion, helpUrl: options.helpUrl });
     this.name = 'ReferenceError';
     this.sourceKind = options.sourceKind;
     this.sourceName = options.sourceName;

@@ -1,0 +1,52 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: json-query
+  labels:
+    tier: base
+    category: data
+spec:
+  runtime: node
+  entry: "./tools/json-query/index.js"
+  errorMessageLimit: 2000
+  exports:
+    - name: json.query
+      description: "JSON 데이터에서 JSONPath 표현식으로 값을 추출합니다."
+      parameters:
+        type: object
+        properties:
+          data:
+            type: string
+            description: "JSON 문자열"
+          path:
+            type: string
+            description: "JSONPath 표현식 (예: $.store.book[0].title, $.items[*].name)"
+        required: ["data", "path"]
+    - name: json.transform
+      description: "JSON 데이터를 변환합니다. pick(필드 선택), omit(필드 제거), flatten(배열 평탄화) 등을 지원합니다."
+      parameters:
+        type: object
+        properties:
+          data:
+            type: string
+            description: "JSON 문자열"
+          operation:
+            type: string
+            description: "변환 작업"
+            enum:
+              - pick
+              - omit
+              - flatten
+              - keys
+              - values
+              - entries
+              - merge
+          fields:
+            type: array
+            items:
+              type: string
+            description: "대상 필드 목록 (pick, omit에서 사용)"
+          mergeData:
+            type: string
+            description: "병합할 JSON 문자열 (merge에서 사용)"
+        required: ["data", "operation"]

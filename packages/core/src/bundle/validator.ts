@@ -5,6 +5,7 @@
 
 import { ValidationError } from './errors.js';
 import type { Resource } from '../types/index.js';
+import { getSpec } from '../types/index.js';
 
 /**
  * 유효한 runtime 값
@@ -34,6 +35,7 @@ export function validateResource(resource: Resource): ValidationError[] {
         path: '/apiVersion',
         kind: resource.kind,
         resourceName: resource.metadata?.name,
+        suggestion: 'Add "apiVersion: agents.example.io/v1alpha1" to the resource definition',
       })
     );
   }
@@ -44,6 +46,7 @@ export function validateResource(resource: Resource): ValidationError[] {
       new ValidationError('kind is required', {
         path: '/kind',
         resourceName: resource.metadata?.name,
+        suggestion: 'Specify one of: Model, Tool, Extension, Agent, Swarm, Connector, OAuthApp, Secret',
       })
     );
   }
@@ -54,6 +57,7 @@ export function validateResource(resource: Resource): ValidationError[] {
       new ValidationError('metadata is required', {
         path: '/metadata',
         kind: resource.kind,
+        suggestion: 'Add "metadata: { name: <resource-name> }" to the resource definition',
       })
     );
   } else {
@@ -159,6 +163,9 @@ export function validateResources(resources: Resource[]): ValidationError[] {
         break;
       case 'Connector':
         errors.push(...validateConnector(resource));
+        break;
+      case 'Connection':
+        errors.push(...validateConnection(resource));
         break;
       case 'OAuthApp':
         errors.push(...validateOAuthApp(resource));
@@ -423,7 +430,7 @@ export function validateScopesSubset(
 
 function validateModel(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   if (!spec.provider) {
@@ -449,7 +456,7 @@ function validateModel(resource: Resource): ValidationError[] {
 
 function validateTool(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   // runtime 검증
@@ -541,7 +548,7 @@ function validateTool(resource: Resource): ValidationError[] {
 
 function validateExtension(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   if (!spec.runtime) {
@@ -577,7 +584,7 @@ function validateExtension(resource: Resource): ValidationError[] {
 
 function validateAgent(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   // modelConfig 검증
@@ -647,7 +654,7 @@ function validateAgent(resource: Resource): ValidationError[] {
 
 function validateSwarm(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   if (!spec.entrypoint) {
@@ -676,7 +683,7 @@ function validateSwarm(resource: Resource): ValidationError[] {
 
 function validateConnector(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   // type 검증
@@ -715,6 +722,24 @@ function validateConnector(resource: Resource): ValidationError[] {
     }
   }
 
+  return errors;
+}
+
+function validateConnection(resource: Resource): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const spec = getSpec(resource);
+  const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
+
+  // connectorRef 필수 검증
+  if (!spec.connectorRef) {
+    errors.push(
+      new ValidationError('spec.connectorRef is required for Connection', {
+        ...ctx,
+        path: '/spec/connectorRef',
+      })
+    );
+  }
+
   // auth 상호 배타 검증
   if (spec.auth) {
     const auth = spec.auth as Record<string, unknown>;
@@ -739,7 +764,7 @@ function validateConnector(resource: Resource): ValidationError[] {
 
 function validateOAuthApp(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   // 필수 필드 검증
@@ -816,7 +841,7 @@ function validateOAuthApp(resource: Resource): ValidationError[] {
 
 function validateResourceType(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   if (!spec.group) {
@@ -870,7 +895,7 @@ function validateResourceType(resource: Resource): ValidationError[] {
 
 function validateExtensionHandler(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
-  const spec = resource.spec as Record<string, unknown>;
+  const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
 
   if (!spec.runtime) {

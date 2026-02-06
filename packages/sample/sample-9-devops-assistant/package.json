@@ -1,0 +1,20 @@
+{
+  "name": "@goondan-samples/devops-assistant",
+  "version": "1.0.0",
+  "description": "Goondan DevOps Assistant - DevOps 지원 에이전트 스웜 샘플",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "goondan run",
+    "dev": "goondan dev",
+    "validate": "goondan validate"
+  },
+  "keywords": [
+    "goondan",
+    "agent-swarm",
+    "devops",
+    "bash",
+    "system-admin"
+  ],
+  "license": "MIT"
+}

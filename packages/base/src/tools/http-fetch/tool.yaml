@@ -1,0 +1,45 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: http-fetch
+  labels:
+    tier: base
+    category: network
+spec:
+  runtime: node
+  entry: "./tools/http-fetch/index.js"
+  errorMessageLimit: 2000
+  exports:
+    - name: http.get
+      description: "HTTP GET 요청을 실행하고 응답을 반환합니다."
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: "요청할 URL"
+          headers:
+            type: object
+            description: "요청 헤더 (key-value)"
+          timeout:
+            type: number
+            description: "타임아웃 (ms, 기본값: 30000)"
+        required: ["url"]
+    - name: http.post
+      description: "HTTP POST 요청을 실행하고 응답을 반환합니다."
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: "요청할 URL"
+          body:
+            type: string
+            description: "요청 본문 (JSON 문자열)"
+          headers:
+            type: object
+            description: "요청 헤더 (key-value)"
+          timeout:
+            type: number
+            description: "타임아웃 (ms, 기본값: 30000)"
+        required: ["url"]

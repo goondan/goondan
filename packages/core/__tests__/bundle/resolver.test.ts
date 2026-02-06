@@ -228,6 +228,102 @@ describe('Bundle Resolver', () => {
       expect(errors.some((e) => e.message.includes('files:write'))).toBe(true);
     });
 
+    it('Connection의 connectorRef를 검증해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'cli' },
+          spec: { type: 'cli' },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Swarm',
+          metadata: { name: 'default' },
+          spec: {
+            entrypoint: { kind: 'Agent', name: 'agent-1' },
+            agents: [{ kind: 'Agent', name: 'agent-1' }],
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Agent',
+          metadata: { name: 'agent-1' },
+          spec: {
+            modelConfig: { modelRef: { kind: 'Model', name: 'gpt-5' } },
+            prompts: { system: 'test' },
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'cli-to-default' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            rules: [
+              {
+                route: {
+                  swarmRef: { kind: 'Swarm', name: 'default' },
+                  instanceKeyFrom: '$.instanceKey',
+                  inputFrom: '$.text',
+                },
+              },
+            ],
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      // Model/gpt-5가 없어서 Agent 참조 오류가 발생하지만, Connection 참조는 유효
+      const connectionErrors = errors.filter(
+        (e) => 'sourceKind' in e && e.sourceKind === 'Connection'
+      );
+      expect(connectionErrors).toHaveLength(0);
+    });
+
+    it('Connection의 존재하지 않는 connectorRef에 대해 오류를 반환해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-connection' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'nonexistent' },
+            rules: [],
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.message.includes('Connector/nonexistent'))).toBe(true);
+    });
+
+    it('Connection의 rules[].route.swarmRef를 검증해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'cli' },
+          spec: { type: 'cli' },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-rules' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            rules: [
+              {
+                route: {
+                  swarmRef: { kind: 'Swarm', name: 'nonexistent' },
+                },
+              },
+            ],
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.message.includes('Swarm/nonexistent'))).toBe(true);
+    });
+
     it('Selector를 가진 참조도 처리해야 한다', () => {
       const resources: Resource[] = [
         {

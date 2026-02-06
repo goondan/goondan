@@ -14,7 +14,7 @@ import type {
   CanonicalEvent,
   RuntimeEventInput,
 } from '../../src/connector/types.js';
-import type { Resource, ConnectorSpec, JsonObject } from '../../src/types/index.js';
+import type { Resource, ConnectorSpec, ConnectionSpec, JsonObject } from '../../src/types/index.js';
 
 describe('ConnectorAdapter', () => {
   describe('BaseConnectorAdapter 클래스', () => {
@@ -26,7 +26,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'test' },
         spec: {
           type: 'cli',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'test' },
+          rules: [
             {
               route: {
                 swarmRef: { kind: 'Swarm', name: 'default' },
@@ -45,6 +53,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
       });
 
       await adapter.handleEvent({
@@ -65,7 +74,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'slack' },
         spec: {
           type: 'slack',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack' },
+          rules: [
             {
               match: { command: '/agent' },
               route: {
@@ -93,6 +110,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
       });
 
       // /agent 명령어
@@ -125,7 +143,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'slack' },
         spec: {
           type: 'slack',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack' },
+          rules: [
             {
               match: { command: '/specific' },
               route: {
@@ -143,6 +169,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
       });
 
       await adapter.handleEvent({
@@ -161,7 +188,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'slack-main' },
         spec: {
           type: 'slack',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-main-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack-main' },
+          rules: [
             {
               route: {
                 swarmRef: { kind: 'Swarm', name: 'default' },
@@ -180,6 +215,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
         buildOrigin: (payload) => ({
           connector: 'slack-main',
           channel: String(payload['channel'] ?? ''),
@@ -208,7 +244,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'slack' },
         spec: {
           type: 'slack',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack' },
+          rules: [
             {
               route: {
                 swarmRef: { kind: 'Swarm', name: 'default' },
@@ -227,6 +271,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
         buildAuth: (payload) => ({
           actor: {
             type: 'user',
@@ -260,13 +305,22 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'test' },
         spec: {
           type: 'cli',
-          ingress: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'test' },
+          rules: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
         },
       };
 
       const adapter = new BaseConnectorAdapter({
         runtime: { handleEvent: async () => {} },
         connectorConfig,
+        connectionConfig,
         sendImpl: async (input) => {
           sentMessages.push(input);
           return { ok: true };
@@ -290,13 +344,22 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'test' },
         spec: {
           type: 'webhook',
-          ingress: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'test' },
+          rules: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
         },
       };
 
       const adapter = new BaseConnectorAdapter({
         runtime: { handleEvent: async () => {} },
         connectorConfig,
+        connectionConfig,
       });
 
       expect(adapter.send).toBeUndefined();
@@ -312,13 +375,22 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'test' },
         spec: {
           type: 'cli',
-          ingress: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'test' },
+          rules: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
         },
       };
 
       const adapter = new BaseConnectorAdapter({
         runtime: { handleEvent: async () => {} },
         connectorConfig,
+        connectionConfig,
         shutdownImpl: async () => {
           shutdownCalled = true;
         },
@@ -345,7 +417,15 @@ describe('ConnectorAdapter', () => {
           metadata: { name: 'test' },
           spec: {
             type: 'cli',
-            ingress: [
+          },
+        },
+        connectionConfig: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-connection' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'test' },
+            rules: [
               {
                 route: {
                   swarmRef: { kind: 'Swarm', name: 'default' },
@@ -383,7 +463,15 @@ describe('ConnectorAdapter', () => {
           metadata: { name: 'test' },
           spec: {
             type: 'cli',
-            ingress: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
+          },
+        },
+        connectionConfig: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-connection' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'test' },
+            rules: [{ route: { swarmRef: { kind: 'Swarm', name: 'default' } } }],
           },
         },
         logger: mockLogger,
@@ -403,10 +491,18 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'slack-main' },
         spec: {
           type: 'slack',
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-main-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack-main' },
           auth: {
             oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
           },
-          ingress: [
+          rules: [
             {
               match: { command: '/agent' },
               route: {
@@ -440,6 +536,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
         buildOrigin: (payload) => {
           const event = payload['event'];
           if (typeof event === 'object' && event !== null) {
@@ -502,7 +599,15 @@ describe('ConnectorAdapter', () => {
         metadata: { name: 'cli' },
         spec: {
           type: 'cli',
-          ingress: [
+        },
+      };
+      const connectionConfig: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'cli-connection' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'cli' },
+          rules: [
             {
               route: {
                 swarmRef: { kind: 'Swarm', name: 'default' },
@@ -521,6 +626,7 @@ describe('ConnectorAdapter', () => {
           },
         },
         connectorConfig,
+        connectionConfig,
         buildOrigin: () => ({ connector: 'cli' }),
         buildAuth: () => ({
           actor: { type: 'cli', id: 'local-user' },

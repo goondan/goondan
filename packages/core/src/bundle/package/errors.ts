@@ -4,13 +4,29 @@
  */
 
 /**
+ * Package 에러 옵션
+ */
+export interface PackageErrorOptions extends ErrorOptions {
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  suggestion?: string;
+  /** 관련 문서 URL */
+  helpUrl?: string;
+}
+
+/**
  * 기본 Package 에러
  */
 export class PackageError extends Error {
   override name = 'PackageError';
+  /** 사용자에게 다음 행동을 안내하는 메시지 */
+  readonly suggestion?: string;
+  /** 관련 문서 URL */
+  readonly helpUrl?: string;
 
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(message: string, options?: PackageErrorOptions) {
     super(message, options);
+    this.suggestion = options?.suggestion;
+    this.helpUrl = options?.helpUrl;
     // Error 클래스 상속 시 prototype chain 복구
     Object.setPrototypeOf(this, new.target.prototype);
   }
@@ -19,7 +35,7 @@ export class PackageError extends Error {
 /**
  * 패키지 참조 파싱 에러 옵션
  */
-export interface PackageRefParseErrorOptions extends ErrorOptions {
+export interface PackageRefParseErrorOptions extends PackageErrorOptions {
   input: string;
   expectedFormat?: string;
 }
@@ -46,7 +62,7 @@ export class PackageRefParseError extends PackageError {
 /**
  * 패키지 Fetch 에러 옵션
  */
-export interface PackageFetchErrorOptions extends ErrorOptions {
+export interface PackageFetchErrorOptions extends PackageErrorOptions {
   packageRef: string;
   url?: string;
   statusCode?: number;
@@ -81,7 +97,7 @@ export class PackageFetchError extends PackageError {
 /**
  * 패키지 무결성 에러 옵션
  */
-export interface PackageIntegrityErrorOptions extends ErrorOptions {
+export interface PackageIntegrityErrorOptions extends PackageErrorOptions {
   packageRef: string;
   expected: string;
   actual: string;
@@ -112,7 +128,7 @@ export class PackageIntegrityError extends PackageError {
 /**
  * 패키지 Not Found 에러 옵션
  */
-export interface PackageNotFoundErrorOptions extends ErrorOptions {
+export interface PackageNotFoundErrorOptions extends PackageErrorOptions {
   packageRef: string;
   registry?: string;
   availableVersions?: string[];
@@ -143,7 +159,7 @@ export class PackageNotFoundError extends PackageError {
 /**
  * 의존성 해석 에러 옵션
  */
-export interface DependencyResolutionErrorOptions extends ErrorOptions {
+export interface DependencyResolutionErrorOptions extends PackageErrorOptions {
   packageRef: string;
   dependencyChain?: string[];
   conflictingVersions?: string[];

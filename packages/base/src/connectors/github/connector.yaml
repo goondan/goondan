@@ -1,0 +1,13 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: github
+  labels:
+    tier: base
+    category: devops
+spec:
+  type: github
+  runtime: node
+  entry: "./connectors/github/index.js"
+  triggers:
+    - handler: onGitHubEvent

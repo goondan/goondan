@@ -3,7 +3,7 @@
  * @see /docs/specs/connector.md - 8. ConnectorAdapter 인터페이스
  */
 
-import type { Resource, ConnectorSpec, JsonObject } from '../types/index.js';
+import type { Resource, ConnectorSpec, ConnectionSpec, JsonObject } from '../types/index.js';
 import type {
   ConnectorAdapter,
   ConnectorOptions,
@@ -23,6 +23,8 @@ export interface BaseConnectorAdapterOptions {
   runtime: RuntimeEventHandler;
   /** Connector 리소스 설정 */
   connectorConfig: Resource<ConnectorSpec>;
+  /** Connection 리소스 설정 */
+  connectionConfig: Resource<ConnectionSpec>;
   /** 로거 (선택) */
   logger?: Console;
   /** origin 빌더 함수 (선택) */
@@ -42,6 +44,7 @@ export interface BaseConnectorAdapterOptions {
 export class BaseConnectorAdapter implements ConnectorAdapter {
   private readonly runtime: RuntimeEventHandler;
   private readonly config: Resource<ConnectorSpec>;
+  private readonly connectionConfig: Resource<ConnectionSpec>;
   private readonly logger?: Console;
   private readonly buildOriginFn?: (payload: JsonObject) => JsonObject;
   private readonly buildAuthFn?: (payload: JsonObject) => TurnAuth;
@@ -51,16 +54,17 @@ export class BaseConnectorAdapter implements ConnectorAdapter {
   constructor(options: BaseConnectorAdapterOptions) {
     this.runtime = options.runtime;
     this.config = options.connectorConfig;
+    this.connectionConfig = options.connectionConfig;
     this.logger = options.logger;
     this.buildOriginFn = options.buildOrigin;
     this.buildAuthFn = options.buildAuth;
     this.shutdownImplFn = options.shutdownImpl;
 
-    // Egress 핸들러 초기화
+    // Egress 핸들러 초기화 (Connection에서 egress 설정 참조)
     if (options.sendImpl) {
       this.egressHandler = new EgressHandler({
         send: options.sendImpl,
-        config: this.config.spec.egress,
+        config: this.connectionConfig.spec.egress,
       });
     }
   }
@@ -71,7 +75,7 @@ export class BaseConnectorAdapter implements ConnectorAdapter {
    * @param payload - 외부 이벤트 페이로드
    */
   async handleEvent(payload: JsonObject): Promise<void> {
-    const rules = this.config.spec.ingress ?? [];
+    const rules = this.connectionConfig.spec.rules ?? [];
 
     // 매칭되는 규칙 찾기
     const matchedRule = routeEvent(rules, payload);
@@ -140,9 +144,9 @@ export class BaseConnectorAdapter implements ConnectorAdapter {
     // event.type (Slack 등)
     const event = payload['event'];
     if (event !== null && typeof event === 'object' && !Array.isArray(event)) {
-      const eventType = (event as JsonObject)['type'];
-      if (typeof eventType === 'string') {
-        return eventType;
+      const eventObj: Record<string, unknown> = event as Record<string, unknown>;
+      if ('type' in eventObj && typeof eventObj['type'] === 'string') {
+        return eventObj['type'];
       }
     }
 
@@ -160,6 +164,7 @@ export function createConnectorAdapter(options: ConnectorOptions): ConnectorAdap
   return new BaseConnectorAdapter({
     runtime: options.runtime,
     connectorConfig: options.connectorConfig,
+    connectionConfig: options.connectionConfig,
     logger: options.logger,
   });
 }

@@ -48,10 +48,13 @@ export {
   isResource,
   isResourceOfKind,
   isObjectRef,
+  isObjectRefLike,
   isSelectorWithOverrides,
+  isRefOrSelector,
   normalizeObjectRef,
   deepMerge,
   resolveValueSource,
+  getSpec,
 } from './utils.js';
 
 export type { ValueSourceContext } from './utils.js';

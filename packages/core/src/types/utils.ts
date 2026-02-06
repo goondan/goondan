@@ -5,7 +5,7 @@
 
 import type { Resource, KnownKind } from './resource.js';
 import type { ObjectRef, ObjectRefLike } from './object-ref.js';
-import type { SelectorWithOverrides } from './selector.js';
+import type { RefOrSelector, SelectorWithOverrides } from './selector.js';
 import type { ValueSource } from './value-source.js';
 
 /**
@@ -75,6 +75,45 @@ export function isSelectorWithOverrides(
     value !== null &&
     'selector' in value
   );
+}
+
+/**
+ * ObjectRefLike 판별 (문자열 "Kind/name" 또는 ObjectRef)
+ * @param value 확인할 값
+ * @returns ObjectRefLike 타입 여부
+ */
+export function isObjectRefLike(value: unknown): value is ObjectRefLike {
+  if (typeof value === 'string') {
+    const slashIndex = value.indexOf('/');
+    return slashIndex > 0 && slashIndex < value.length - 1;
+  }
+  return isObjectRef(value);
+}
+
+/**
+ * RefOrSelector 판별 (ObjectRefLike 또는 SelectorWithOverrides)
+ * @param value 확인할 값
+ * @returns RefOrSelector 타입 여부
+ */
+export function isRefOrSelector(value: unknown): value is RefOrSelector {
+  return isObjectRefLike(value) || isSelectorWithOverrides(value);
+}
+
+/**
+ * Resource의 spec을 Record<string, unknown>으로 안전하게 추출
+ *
+ * Resource<unknown>의 spec은 unknown이므로, 검증/해석 함수에서
+ * 프로퍼티에 접근하기 위해 이 헬퍼를 사용합니다.
+ *
+ * @param resource Resource (spec: unknown)
+ * @returns Record<string, unknown>으로의 spec 참조
+ */
+export function getSpec(resource: Resource): Record<string, unknown> {
+  const spec = resource.spec;
+  if (typeof spec === 'object' && spec !== null && !Array.isArray(spec)) {
+    return spec as Record<string, unknown>;
+  }
+  return {};
 }
 
 /**
@@ -150,14 +189,24 @@ export function deepMerge<T extends Record<string, unknown>>(
       overrideVal !== null &&
       !Array.isArray(overrideVal)
     ) {
-      // 타입 가드를 사용하여 안전하게 캐스팅
-      const baseRecord = baseVal as Record<string, unknown>;
-      const overrideRecord = overrideVal as Record<string, unknown>;
+      // 제네릭 T에 동적 키 할당을 위한 구조적 한계 (TypeScript generic limitation)
+      const baseRecord: Record<string, unknown> = Object.fromEntries(Object.entries(baseVal));
+      const overrideRecord: Record<string, unknown> = Object.fromEntries(Object.entries(overrideVal));
       const merged = deepMerge(baseRecord, overrideRecord);
-      (result as Record<string, unknown>)[key] = merged;
+      Object.defineProperty(result, key, {
+        value: merged,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
     } else {
       // 스칼라 또는 배열: 덮어쓰기
-      (result as Record<string, unknown>)[key] = overrideVal;
+      Object.defineProperty(result, key, {
+        value: overrideVal,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
     }
   }
 

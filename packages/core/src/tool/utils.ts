@@ -55,7 +55,7 @@ export function createToolErrorResult(
   if (error instanceof Error) {
     message = error.message;
     name = error.name;
-    code = (error as Error & { code?: string }).code;
+    code = 'code' in error && typeof error.code === 'string' ? error.code : undefined;
   } else if (typeof error === 'string') {
     message = error;
     name = 'UnknownError';
@@ -143,5 +143,6 @@ export function isAsyncToolResult(value: unknown): value is AsyncToolOutput {
     return false;
   }
 
-  return (value as Record<string, unknown>).__async === true;
+  return '__async' in value &&
+    (value as Record<string, unknown>)['__async'] === true;
 }

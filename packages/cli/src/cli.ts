@@ -15,6 +15,7 @@ import { createInstanceCommand } from "./commands/instance/index.js";
 import { createLogsCommand } from "./commands/logs.js";
 import { createConfigCommand } from "./commands/config.js";
 import { createCompletionCommand } from "./commands/completion.js";
+import { createDoctorCommand } from "./commands/doctor.js";
 
 /**
  * CLI version - should match package.json
@@ -73,7 +74,19 @@ export function createProgram(): Command {
     .name(CLI_NAME)
     .description("Goondan - Agent Swarm Orchestrator CLI")
     .version(CLI_VERSION, "-V, --version", "Output the version number")
-    .helpOption("-h, --help", "Display help for command");
+    .helpOption("-h, --help", "Display help for command")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ gdn init                    Create a new Swarm project
+  $ gdn run                     Run the default Swarm interactively
+  $ gdn run -s my-swarm         Run a specific Swarm
+  $ gdn validate                Validate Bundle configuration
+  $ gdn doctor                  Check environment readiness
+
+Documentation: https://github.com/goondan/goondan`
+    );
 
   // Global options
   program
@@ -105,6 +118,7 @@ export function createProgram(): Command {
   program.addCommand(createLogsCommand());
   program.addCommand(createConfigCommand());
   program.addCommand(createCompletionCommand());
+  program.addCommand(createDoctorCommand());
 
   return program;
 }

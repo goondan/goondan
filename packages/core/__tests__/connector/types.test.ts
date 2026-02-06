@@ -15,7 +15,7 @@ import type {
   TurnAuth,
   RuntimeEventInput,
 } from '../../src/connector/types.js';
-import type { JsonObject, Resource, ConnectorSpec } from '../../src/types/index.js';
+import type { JsonObject, Resource, ConnectorSpec, ConnectionSpec } from '../../src/types/index.js';
 
 describe('Connector 시스템 타입', () => {
   describe('ConnectorAdapter 인터페이스', () => {
@@ -154,11 +154,18 @@ describe('Connector 시스템 타입', () => {
           metadata: { name: 'test' },
           spec: { type: 'custom' },
         },
+        connection: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-conn' },
+          spec: { connectorRef: { kind: 'Connector', name: 'test' } },
+        },
       };
 
       expect(ctx.emit).toBeDefined();
       expect(ctx.logger).toBeDefined();
       expect(ctx.connector).toBeDefined();
+      expect(ctx.connection).toBeDefined();
 
       await ctx.emit({
         type: 'test',
@@ -179,6 +186,12 @@ describe('Connector 시스템 타입', () => {
           kind: 'Connector',
           metadata: { name: 'test' },
           spec: { type: 'slack' },
+        },
+        connection: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-conn' },
+          spec: { connectorRef: { kind: 'Connector', name: 'test' } },
         },
         oauth: {
           getAccessToken: async (_request) => ({
@@ -202,6 +215,12 @@ describe('Connector 시스템 타입', () => {
           kind: 'Connector',
           metadata: { name: 'test' },
           spec: { type: 'custom' },
+        },
+        connection: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-conn' },
+          spec: { connectorRef: { kind: 'Connector', name: 'test' } },
         },
         liveConfig: {
           proposePatch: async (_patch) => {},
@@ -364,6 +383,12 @@ describe('Connector 시스템 타입', () => {
           metadata: { name: 'test' },
           spec: { type: 'cli' },
         },
+        connectionConfig: {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'test-conn' },
+          spec: { connectorRef: { kind: 'Connector', name: 'test' } },
+        },
       };
 
       const adapter = factory(options);
@@ -376,7 +401,7 @@ describe('Connector 시스템 타입', () => {
     it('TriggerEvent를 받아 처리하는 함수이다', async () => {
       const handler: TriggerHandler = async (
         event: TriggerEvent,
-        connection: JsonObject,
+        connection: Resource<ConnectionSpec>,
         ctx: TriggerContext
       ): Promise<void> => {
         await ctx.emit({
@@ -388,6 +413,12 @@ describe('Connector 시스템 타입', () => {
       };
 
       const emitted: CanonicalEvent[] = [];
+      const testConnection: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'test-conn' },
+        spec: { connectorRef: { kind: 'Connector', name: 'test' } },
+      };
       const ctx: TriggerContext = {
         emit: async (event) => { emitted.push(event); },
         logger: console,
@@ -397,6 +428,7 @@ describe('Connector 시스템 타입', () => {
           metadata: { name: 'test' },
           spec: { type: 'custom' },
         },
+        connection: testConnection,
       };
 
       await handler(
@@ -405,7 +437,7 @@ describe('Connector 시스템 타입', () => {
           payload: { requestId: 'req-1', message: 'test message' },
           timestamp: new Date().toISOString(),
         },
-        {},
+        testConnection,
         ctx
       );
 

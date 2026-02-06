@@ -5,6 +5,7 @@
 
 import type { JsonObject, ObjectRefLike, Resource } from '../types/index.js';
 import type { ConnectorSpec } from '../types/specs/connector.js';
+import type { ConnectionSpec } from '../types/specs/connection.js';
 
 /**
  * 에이전트 응답 전송 입력
@@ -58,6 +59,8 @@ export interface ConnectorOptions {
   runtime: RuntimeEventHandler;
   /** Connector 리소스 설정 */
   connectorConfig: Resource<ConnectorSpec>;
+  /** Connection 리소스 설정 */
+  connectionConfig: Resource<ConnectionSpec>;
   /** 로거 (선택) */
   logger?: Console;
 }
@@ -135,6 +138,9 @@ export interface TriggerContext {
 
   /** Connector 설정 */
   connector: Resource<ConnectorSpec>;
+
+  /** Connection 설정 (배포 바인딩) */
+  connection: Resource<ConnectionSpec>;
 }
 
 /**
@@ -142,7 +148,7 @@ export interface TriggerContext {
  */
 export type TriggerHandler = (
   event: TriggerEvent,
-  connection: JsonObject,
+  connection: Resource<ConnectionSpec>,
   ctx: TriggerContext
 ) => Promise<void>;
 

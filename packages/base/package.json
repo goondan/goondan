@@ -14,9 +14,29 @@
       "types": "./dist/tools/bash/index.d.ts",
       "import": "./dist/tools/bash/index.js"
     },
+    "./tools/http-fetch": {
+      "types": "./dist/tools/http-fetch/index.d.ts",
+      "import": "./dist/tools/http-fetch/index.js"
+    },
+    "./tools/json-query": {
+      "types": "./dist/tools/json-query/index.d.ts",
+      "import": "./dist/tools/json-query/index.js"
+    },
+    "./tools/file-system": {
+      "types": "./dist/tools/file-system/index.d.ts",
+      "import": "./dist/tools/file-system/index.js"
+    },
+    "./tools/text-transform": {
+      "types": "./dist/tools/text-transform/index.d.ts",
+      "import": "./dist/tools/text-transform/index.js"
+    },
     "./extensions/basicCompaction": {
       "types": "./dist/extensions/basicCompaction/index.d.ts",
       "import": "./dist/extensions/basicCompaction/index.js"
+    },
+    "./extensions/logging": {
+      "types": "./dist/extensions/logging/index.d.ts",
+      "import": "./dist/extensions/logging/index.js"
     },
     "./connectors/telegram": {
       "types": "./dist/connectors/telegram/index.d.ts",
@@ -25,6 +45,18 @@
     "./connectors/slack": {
       "types": "./dist/connectors/slack/index.d.ts",
       "import": "./dist/connectors/slack/index.js"
+    },
+    "./connectors/cli": {
+      "types": "./dist/connectors/cli/index.d.ts",
+      "import": "./dist/connectors/cli/index.js"
+    },
+    "./connectors/discord": {
+      "types": "./dist/connectors/discord/index.d.ts",
+      "import": "./dist/connectors/discord/index.js"
+    },
+    "./connectors/github": {
+      "types": "./dist/connectors/github/index.d.ts",
+      "import": "./dist/connectors/github/index.js"
     }
   },
   "files": [

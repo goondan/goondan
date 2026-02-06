@@ -191,6 +191,7 @@ spec:
 2. `spec.resources`에 포함되지 않은 파일도 **spec.dist 에 정의 된 폴더 안에 있는 한 다운로드**된다(MUST).
 3. `spec.resources` 경로는 **spec.dist 기준 상대 경로**로 해석한다(MUST).
 4. `spec.resources`가 없으면 이는 export 되는 패키지가 아니라 최종적으로 consume만 하는 번들이다. (MUST).
+5. 패키지는 **사용 가능한 모든 리소스를 export**해야 한다(SHOULD). 인증(OAuthApp, Secret 등)이 필요한 리소스라도 패키지에서 제외해서는 안 되며, **사용처에서 적절한 인증 리소스를 구성**해야 한다(MUST).
 
 ---
 

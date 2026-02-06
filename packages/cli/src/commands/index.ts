@@ -73,3 +73,10 @@ export {
   createCompletionCommand,
   type Shell,
 } from "./completion.js";
+
+// Doctor command
+export {
+  createDoctorCommand,
+  type DoctorCheckResult,
+  type DoctorOptions,
+} from "./doctor.js";

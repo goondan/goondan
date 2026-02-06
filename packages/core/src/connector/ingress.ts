@@ -61,9 +61,9 @@ export class IngressMatcher {
     // event 하위에서 검색 (Slack 등 중첩 구조 지원)
     const event = payload['event'];
     if (event !== null && typeof event === 'object' && !Array.isArray(event)) {
-      const eventObj = event as JsonObject;
-      if (key in eventObj) {
-        return eventObj[key];
+      const eventRecord: Record<string, unknown> = event as Record<string, unknown>;
+      if (key in eventRecord) {
+        return eventRecord[key];
       }
     }
 

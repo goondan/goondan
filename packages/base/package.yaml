@@ -9,8 +9,16 @@ spec:
   dependencies: []
   resources:
     - tools/bash/tool.yaml
+    - tools/http-fetch/tool.yaml
+    - tools/json-query/tool.yaml
+    - tools/file-system/tool.yaml
+    - tools/text-transform/tool.yaml
     - connectors/telegram/connector.yaml
-    # slack connector는 OAuthApp 설정이 필요하므로 기본 export에서 제외
-    # - connectors/slack/connector.yaml
+    - connectors/slack/connector.yaml
+    - connectors/cli/connector.yaml
+    - connectors/discord/connector.yaml
+    - connectors/github/connector.yaml
+    - extensions/basicCompaction/extension.yaml
+    - extensions/logging/extension.yaml
   dist:
     - dist/

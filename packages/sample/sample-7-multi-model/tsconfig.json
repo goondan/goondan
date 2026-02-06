@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "@goondan/core": ["../../core/dist/index.d.ts"]
+    }
+  },
+  "include": ["tools/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

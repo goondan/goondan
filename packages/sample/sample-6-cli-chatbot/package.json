@@ -1,0 +1,20 @@
+{
+  "name": "@goondan-samples/cli-chatbot",
+  "version": "1.0.0",
+  "description": "Goondan CLI Chatbot - 가장 단순한 CLI 채팅봇 샘플",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "goondan run",
+    "dev": "goondan dev",
+    "validate": "goondan validate"
+  },
+  "keywords": [
+    "goondan",
+    "agent",
+    "chatbot",
+    "cli",
+    "beginner"
+  ],
+  "license": "MIT"
+}

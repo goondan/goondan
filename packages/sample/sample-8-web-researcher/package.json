@@ -1,0 +1,20 @@
+{
+  "name": "@goondan-samples/web-researcher",
+  "version": "1.0.0",
+  "description": "Goondan Web Researcher - 웹 리서치 에이전트 스웜 샘플",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "goondan run",
+    "dev": "goondan dev",
+    "validate": "goondan validate"
+  },
+  "keywords": [
+    "goondan",
+    "agent-swarm",
+    "web-research",
+    "http-fetch",
+    "json-query"
+  ],
+  "license": "MIT"
+}

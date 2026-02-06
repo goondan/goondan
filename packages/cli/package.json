@@ -32,6 +32,10 @@
   },
   "dependencies": {
     "@goondan/core": "workspace:*",
+    "ai": "^4.3.0",
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0",
     "commander": "^13.1.0",
     "chalk": "^5.4.2",
     "ora": "^8.1.2",

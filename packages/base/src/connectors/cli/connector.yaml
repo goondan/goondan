@@ -1,0 +1,13 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+  labels:
+    tier: base
+    category: interactive
+spec:
+  type: cli
+  runtime: node
+  entry: "./connectors/cli/index.js"
+  triggers:
+    - handler: onCliInput

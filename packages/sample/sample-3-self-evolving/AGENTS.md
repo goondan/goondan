@@ -48,3 +48,4 @@ sample-3-self-evolving/
 1. goondan.yaml의 Changeset 정책 수정 시 보안 영향 검토
 2. tools/self-modify/index.ts 수정 시 타입 안전성 확인
 3. 새 파일 패턴 추가 시 Swarm/Agent 양쪽 정책 업데이트
+4. Tool의 `entry` 경로는 실제 소스 파일 확장자(.ts)를 사용 (빌드 산출물 .js가 아님)

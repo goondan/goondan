@@ -158,7 +158,11 @@ describe('Turn Strategy', () => {
 
     expect(system.length).toBe(1);
     expect(turns.length).toBe(3);
-    expect(turns[0].length).toBe(2); // user + assistant
+    const firstTurn = turns[0];
+    expect(firstTurn).toBeDefined();
+    if (firstTurn) {
+      expect(firstTurn.length).toBe(2); // user + assistant
+    }
   });
 
   it('should not compact when under turn limit', () => {

@@ -53,12 +53,10 @@ function isStatePayload(value: unknown): value is StatePayload {
     return false;
   }
 
-  const obj = value as Record<string, unknown>;
-
   return (
-    typeof obj.sessionId === 'string' &&
-    typeof obj.nonce === 'string' &&
-    typeof obj.timestamp === 'number'
+    'sessionId' in value && typeof (value as Record<string, unknown>).sessionId === 'string' &&
+    'nonce' in value && typeof (value as Record<string, unknown>).nonce === 'string' &&
+    'timestamp' in value && typeof (value as Record<string, unknown>).timestamp === 'number'
   );
 }
 

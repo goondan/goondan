@@ -1,0 +1,181 @@
+# Goondan DevOps Assistant Sample
+# DevOps 지원 에이전트 스웜 - devops(명령 실행/진단) + planner(작업 계획)
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: default-model
+  labels:
+    provider: anthropic
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-5
+
+---
+
+# Bash Tool - 시스템 명령어 실행
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: bash
+  labels:
+    tier: system
+spec:
+  runtime: node
+  entry: "./tools/bash/index.ts"
+  errorMessageLimit: 2000
+  exports:
+    - name: bash.exec
+      description: "bash 명령어를 실행합니다. 시스템 점검, 로그 분석, 프로세스 관리 등에 사용합니다."
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: "실행할 bash 명령어"
+          timeout:
+            type: number
+            description: "타임아웃 (ms, 기본값: 30000)"
+          cwd:
+            type: string
+            description: "작업 디렉토리"
+        required: ["command"]
+
+---
+
+# Delegate Tool - 에이전트 간 작업 위임
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: delegate-tool
+  labels:
+    tier: base
+    category: orchestration
+spec:
+  runtime: node
+  entry: "./tools/delegate/index.ts"
+  exports:
+    - name: agent.delegate
+      description: "다른 에이전트에게 작업을 위임합니다. 복잡한 작업을 계획 에이전트에게 위임하거나, 실행 에이전트에게 명령을 전달할 때 사용합니다."
+      parameters:
+        type: object
+        properties:
+          agentName:
+            type: string
+            description: "위임할 에이전트의 이름"
+            enum:
+              - devops
+              - planner
+          task:
+            type: string
+            description: "에이전트에게 전달할 작업 내용"
+          context:
+            type: string
+            description: "작업 수행에 필요한 추가 컨텍스트"
+        required:
+          - agentName
+          - task
+        additionalProperties: false
+
+---
+
+# Logging Extension - 작업 로깅
+apiVersion: agents.example.io/v1alpha1
+kind: Extension
+metadata:
+  name: logging
+  labels:
+    category: observability
+spec:
+  runtime: node
+  entry: "./extensions/logging/index.ts"
+  config:
+    logLevel: "info"
+    logDir: "./logs"
+    includeTimestamp: true
+    maxLogFileSizeMB: 10
+
+---
+
+# DevOps Agent - 시스템 명령 실행 및 진단
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: devops
+  labels:
+    role: executor
+    specialty: operations
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.2
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/devops.md"
+  tools:
+    - { kind: Tool, name: bash }
+    - { kind: Tool, name: delegate-tool }
+  extensions:
+    - { kind: Extension, name: logging }
+
+---
+
+# Planner Agent - 작업 계획 및 분석
+apiVersion: agents.example.io/v1alpha1
+kind: Agent
+metadata:
+  name: planner
+  labels:
+    role: orchestrator
+    specialty: planning
+spec:
+  modelConfig:
+    modelRef: { kind: Model, name: default-model }
+    params:
+      temperature: 0.3
+      maxTokens: 4096
+  prompts:
+    systemRef: "./prompts/planner.md"
+  tools:
+    - { kind: Tool, name: delegate-tool }
+  extensions:
+    - { kind: Extension, name: logging }
+
+---
+
+# DevOps Swarm
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: devops-swarm
+spec:
+  entrypoint: { kind: Agent, name: devops }
+  agents:
+    - { kind: Agent, name: devops }
+    - { kind: Agent, name: planner }
+  policy:
+    maxStepsPerTurn: 25
+
+---
+
+# CLI Connector
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+
+---
+
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: cli-to-devops
+spec:
+  connectorRef: { kind: Connector, name: cli }
+  rules:
+    - route:
+        swarmRef: { kind: Swarm, name: devops-swarm }
+        instanceKeyFrom: "$.instanceKey"
+        inputFrom: "$.text"

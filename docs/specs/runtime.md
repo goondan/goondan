@@ -2668,7 +2668,179 @@ function serializeError(error: Error): JsonObject {
 
 ---
 
-## 15. 구현 요구사항 요약
+## 15. Retry / Timeout 정책
+
+### 15.1 LLM 호출 재시도
+
+```typescript
+/**
+ * LLM 호출 재시도 정책
+ *
+ * 규칙:
+ * - SHOULD: LLM 호출 실패 시 설정된 정책에 따라 재시도할 수 있다
+ * - MUST: 재시도 횟수가 maxRetries를 초과하면 LlmCallError를 발생시킨다
+ * - MUST: 재시도 간격은 exponential backoff를 따른다
+ * - MUST NOT: 4xx 클라이언트 에러(400, 401, 403, 404)는 재시도하지 않는다
+ * - SHOULD: 429(Rate Limit), 5xx(서버 에러)는 재시도한다
+ */
+interface RetryPolicy {
+  /** 최대 재시도 횟수 (기본: 3) */
+  maxRetries: number;
+
+  /** 초기 재시도 대기 시간(ms) (기본: 1000) */
+  initialDelayMs: number;
+
+  /** 최대 재시도 대기 시간(ms) (기본: 30000) */
+  maxDelayMs: number;
+
+  /** backoff 승수 (기본: 2) */
+  backoffMultiplier: number;
+
+  /** 재시도 가능한 에러 코드 (기본: [429, 500, 502, 503, 504]) */
+  retryableStatusCodes: number[];
+}
+```
+
+### 15.2 Step Timeout
+
+```typescript
+/**
+ * Step 실행 타임아웃 정책
+ *
+ * 규칙:
+ * - SHOULD: 각 Step에 타임아웃을 설정할 수 있다
+ * - MUST: 타임아웃 초과 시 StepTimeoutError를 발생시킨다
+ * - SHOULD: LLM 호출과 Tool 실행에 각각 별도의 타임아웃을 설정할 수 있다
+ */
+interface TimeoutPolicy {
+  /** Step 전체 타임아웃(ms) (기본: 300000 = 5분) */
+  stepTimeoutMs: number;
+
+  /** LLM 호출 타임아웃(ms) (기본: 120000 = 2분) */
+  llmCallTimeoutMs: number;
+
+  /** 개별 Tool 실행 타임아웃(ms) (기본: 60000 = 1분) */
+  toolExecutionTimeoutMs: number;
+}
+
+class StepTimeoutError extends RuntimeError {
+  constructor(phase: 'step' | 'llmCall' | 'toolExecution', timeoutMs: number) {
+    super(
+      `${phase} timed out after ${timeoutMs}ms`,
+      'STEP_TIMEOUT',
+      { phase, timeoutMs }
+    );
+    this.name = 'StepTimeoutError';
+  }
+}
+```
+
+### 15.3 Turn Timeout
+
+```typescript
+/**
+ * Turn 전체 타임아웃
+ *
+ * 규칙:
+ * - SHOULD: Turn에 전체 타임아웃을 설정할 수 있다 (Swarm.policy.maxTurnDurationMs)
+ * - MUST: 타임아웃 초과 시 Turn.status를 'failed'로 설정하고 TurnTimeoutError를 기록한다
+ */
+```
+
+### 15.4 정책 설정 위치
+
+Retry/Timeout 정책은 Swarm 리소스의 `policy` 필드에서 설정한다:
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: my-swarm
+spec:
+  policy:
+    maxStepsPerTurn: 32
+    retry:
+      maxRetries: 3
+      initialDelayMs: 1000
+      backoffMultiplier: 2
+    timeout:
+      stepTimeoutMs: 300000
+      llmCallTimeoutMs: 120000
+      toolExecutionTimeoutMs: 60000
+      maxTurnDurationMs: 600000
+```
+
+---
+
+## 16. Observability
+
+### 16.1 구조화된 로깅
+
+```typescript
+/**
+ * Runtime 이벤트 로깅
+ *
+ * 규칙:
+ * - MUST: 모든 Turn/Step 시작/종료를 구조화된 로그로 기록한다
+ * - MUST: 에러 발생 시 context 정보(instanceKey, agentName, turnId, stepIndex)를 포함한다
+ * - SHOULD: 로그 레벨을 debug/info/warn/error로 구분한다
+ */
+interface RuntimeLogEntry {
+  timestamp: string;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  event: string;
+  context: {
+    instanceKey?: string;
+    swarmRef?: string;
+    agentName?: string;
+    turnId?: string;
+    stepIndex?: number;
+  };
+  data?: JsonObject;
+  error?: {
+    name: string;
+    message: string;
+    code?: string;
+    stack?: string;
+  };
+}
+```
+
+### 16.2 메트릭 포인트
+
+Extension은 `api.events.emit()`을 통해 다음 메트릭 이벤트를 수집할 수 있다:
+
+| 이벤트 | 설명 | 포함 데이터 |
+|--------|------|------------|
+| `turn.started` | Turn 시작 | instanceKey, agentName, origin |
+| `turn.completed` | Turn 완료 | duration, stepCount, status |
+| `turn.failed` | Turn 실패 | error, duration |
+| `step.llmCall.started` | LLM 호출 시작 | model, messageCount |
+| `step.llmCall.completed` | LLM 호출 완료 | duration, tokenUsage |
+| `step.llmCall.failed` | LLM 호출 실패 | error, retryCount |
+| `step.toolCall.completed` | Tool 실행 완료 | toolName, duration |
+| `step.toolCall.failed` | Tool 실행 실패 | toolName, error |
+
+### 16.3 Token 사용량 추적
+
+```typescript
+/**
+ * LLM 토큰 사용량 추적
+ *
+ * 규칙:
+ * - SHOULD: 각 Step에서 LLM 호출의 토큰 사용량을 기록한다
+ * - SHOULD: Turn 완료 시 총 토큰 사용량을 집계한다
+ */
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+```
+
+---
+
+## 17. 구현 요구사항 요약
 
 ### 15.1 MUST 요구사항
 
@@ -2705,6 +2877,9 @@ function serializeError(error: Error): JsonObject {
 |------|------|
 | maxStepsPerTurn 정책 | 선택적으로 적용 가능 |
 | LLM 재시도 | step.llmError 후 재시도 수행 가능 |
+| Retry Policy | Swarm.policy.retry로 재시도 정책 설정 가능 |
+| Timeout Policy | Swarm.policy.timeout으로 타임아웃 정책 설정 가능 |
+| Token 사용량 추적 | Step/Turn 단위로 토큰 사용량 기록 가능 |
 | 동기/비동기 Handoff | 위임 결과 대기 방식 선택 가능 |
 | Tool call 허용 범위 | Catalog 기반 또는 Registry 기반 선택 |
 

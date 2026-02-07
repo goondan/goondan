@@ -2,17 +2,19 @@
 
 ### 9.1 인스턴스 생성과 라우팅
 
-Runtime은 Connector로부터 입력 이벤트를 수신하고, 라우팅 규칙에 따라 SwarmInstance를 조회/생성한다.
+Runtime은 Connector/Connection에서 전달된 canonical event를 입력으로 받아 SwarmInstance를 조회/생성한다.
 
-* `instanceKey`를 사용하여 동일 맥락을 같은 인스턴스로 라우팅할 수 있어야 한다(MUST).
-* SwarmInstance 내부에 AgentInstance를 생성하고 유지해야 한다(MUST).
+규칙:
 
-#### 9.1.1 Turn Origin 컨텍스트와 인증 컨텍스트
+1. `instanceKey`를 사용해 동일 맥락 이벤트를 동일 SwarmInstance로 라우팅할 수 있어야 한다(MUST).
+2. SwarmInstance 내부에서 AgentInstance를 생성/유지해야 한다(MUST).
+3. connector는 실행 모델을 직접 제어하지 않고 canonical event 생성 책임만 가져야 한다(MUST).
 
-OAuth 기반 통합을 위해 Runtime은 Turn 컨텍스트에 호출 맥락(origin)과 인증 컨텍스트(auth)를 유지해야 한다(SHOULD).
+#### 9.1.1 Turn Origin/Auth 컨텍스트
 
 ```yaml
 turn:
+  traceId: "tr-01J9..."
   origin:
     connector: slack-main
     channel: "C123"
@@ -25,77 +27,124 @@ turn:
       display: "alice"
     subjects:
       global: "slack:team:T111"
-      user:   "slack:user:T111:U234567"
+      user: "slack:user:T111:U234567"
 ```
 
 규칙:
 
-1. Runtime이 에이전트 간 handoff를 위해 내부 이벤트를 생성하거나 라우팅할 때, `turn.auth`는 변경 없이 전달되어야 한다(MUST). 이 규칙은 “Turn을 트리거한 사용자 컨텍스트가 handoff 이후에도 유지된다”는 요구를 보장하기 위한 것이다.
-2. Runtime은 `turn.auth`가 누락된 Turn에 대해 사용자 토큰이 필요한 OAuthApp(`subjectMode=user`)을 사용해 토큰을 조회하거나 승인 플로우를 시작해서는 안 된다(MUST). 이 경우에는 오류로 처리하고, 에이전트가 사용자에게 필요한 컨텍스트(예: 다시 호출, 계정 연결 필요)를 안내하도록 하는 것이 바람직하다(SHOULD).
-
----
+1. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
+2. OAuth가 필요한 경로에서는 Connection이 필요한 `turn.auth.subjects`를 채우지 못하면 Turn을 실패 처리해야 한다(MUST).
+3. Runtime이 handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
 
 #### 9.1.2 Canonical Event Flow
 
-Connector trigger handler가 `ctx.emit(canonicalEvent)`를 호출하면, Runtime은 이를 내부 이벤트 큐에 enqueue한다.
+1. Connector trigger handler가 `ctx.emit(canonicalEvent)`를 호출한다.
+2. Runtime은 event type + ingress rule로 대상 Swarm을 결정한다.
+3. `instanceKey` 규칙으로 SwarmInstance를 조회/생성한다.
+4. event를 Turn 입력으로 변환하여 AgentInstance 큐에 enqueue한다.
 
-Canonical event는 다음 처리 흐름을 따른다.
+### 9.2 이벤트 큐, 동시성, Turn 실행
 
-1. Runtime은 canonical event의 `type`과 Connector ingress 설정을 기준으로 대상 Swarm을 결정한다.
-2. `instanceKey` 계산 규칙에 따라 SwarmInstance를 조회하거나 생성한다.
-3. Canonical event는 Turn 입력 이벤트로 변환되어 AgentInstance 이벤트 큐에 enqueue된다.
-4. AgentInstance는 해당 이벤트를 하나의 Turn으로 소비한다.
+규칙:
 
-이 과정에서 Connector는 에이전트 실행 모델(Instance/Turn/Step)을 직접 제어하지 않으며,
-오직 canonical event 생성 책임만을 가진다(MUST).
+1. AgentInstance는 이벤트 큐를 가져야 한다(MUST).
+2. AgentInstance 큐는 FIFO 순서로 직렬 처리되어야 한다(MUST).
+3. 같은 AgentInstance에 대해 Turn 동시 실행은 허용되지 않는다(MUST NOT).
+4. 서로 다른 AgentInstance는 구현 정책에 따라 병렬 실행할 수 있다(MAY).
+5. `Swarm.policy.maxStepsPerTurn`을 적용할 수 있어야 한다(MAY).
 
-### 9.2 이벤트 큐와 Turn 실행
+#### 9.2.1 Changeset 동시성
 
-* AgentInstance는 이벤트 큐를 가진다(MUST).
-* 큐의 이벤트 하나가 Turn의 입력이 된다(MUST).
-* Runtime은 Turn 내에서 Step을 반복 실행할 수 있어야 한다(MUST).
-* `Swarm.policy.maxStepsPerTurn` 정책을 적용할 수 있어야 한다(MAY).
+1. 여러 Agent가 동시에 changeset을 열 수 있어야 한다(MUST).
+2. commit 충돌 시 `status="conflict"`와 충돌 상세를 반환해야 하며, 충돌 정보를 숨겨서는 안 된다(MUST).
+3. Runtime은 충돌 상세를 통해 에이전트가 후속 Step에서 스스로 복구할 수 있게 해야 한다(SHOULD).
 
 ### 9.3 Step 실행과 도구 호출 처리
 
-Step은 다음 순서로 진행된다.
+Step은 다음 순서를 따른다.
 
-1. **step.config**: Runtime은 이번 Step의 `activeSwarmRef`(= SwarmBundleRef)를 스냅샷으로 확정하고, Effective Config를 해당 Ref 기준으로 로드/조립
+1. `step.config`: activeSwarmRef 확정, Effective Config 로드/조립
 2. `step.tools`: Tool Catalog 구성
 3. `step.blocks`: Context Blocks 구성
 4. `step.llmCall`: LLM 호출
-5. tool call 처리(동기 실행 또는 비동기 큐잉)
-6. `step.post`: 결과 반영 후 Step 종료
+5. tool call 처리(동기 실행 또는 비동기 제출)
+6. `step.post`: 결과 반영 후 종료
 
-### 9.4 Changeset/SwarmBundleRef 적용 의미론 (MUST)
+### 9.4 Changeset/SwarmBundleRef 적용 의미론
 
 #### 9.4.1 적용 단위
 
-* Runtime은 각 Step 시작 시 `step.config`에서 현재 `activeSwarmRef`(= SwarmBundleRef)를 결정해야 한다(MUST).
-* Step 실행 중에는 SwarmBundleRef와 Effective Config를 변경해서는 안 된다(MUST).
+1. Runtime은 Step 시작 시 `step.config`에서 activeSwarmRef를 결정해야 한다(MUST).
+2. Step 실행 중에는 Ref/Config를 변경해서는 안 된다(MUST).
 
-#### 9.4.2 커밋과 활성화(권장 표준)
+#### 9.4.2 커밋과 활성화
 
-* `swarmBundle.commitChangeset`은 Git commit을 생성하고 SwarmBundleRoot의 활성 Ref를 업데이트한다(§6.4).
-* 새 SwarmBundleRef는 `step.config` Safe Point에서 `activeSwarmRef`로 활성화되며, 기본 규칙은 “다음 Step부터 반영”이다(MUST).
+1. `swarmBundle.commitChangeset`은 Git commit을 생성하고 활성 Ref를 갱신해야 한다(MUST).
+2. 새 Ref는 Safe Point(기본 `step.config`)에서만 활성화되어야 한다(MUST).
 
 #### 9.4.3 반영 시점
 
-Step N 중 commit된 changeset으로 생성된 SwarmBundleRef는, Step N+1의 `step.config`에서 활성화되는 것이 기본 규칙이다(MUST).
-(단, Step N 시작 전에 이미 활성 Ref가 업데이트된 경우 Step N에서 그 Ref를 활성화하는 것은 자연스럽게 허용된다.)
+Step N 중 commit된 Ref는 기본적으로 Step N+1의 `step.config`에서 활성화되어야 한다(MUST).
 
-#### 9.4.4 변경 가시성(권장)
+#### 9.4.4 변경 가시성
 
-`emitRevisionChangedEvent=true`인 경우, Runtime은 revision 변경 요약을 다음 Step 입력 또는 블록에 포함시키는 것을 SHOULD 한다.
+`emitRevisionChangedEvent=true`면 Runtime은 revision 변경 요약을 다음 Step 입력/블록으로 제공하는 것을 권장한다(SHOULD).
 
-#### 9.4.7 Effective Config 배열 정규화 규칙 (SHOULD)
+#### 9.4.5 코드 변경 반영 의미론
 
-Runtime은 Effective Config 생성 후 다음 배열을 **identity key 기반으로 정규화**하는 것을 SHOULD 한다.
+Changeset으로 소스코드(Tool/Extension/Connector entry 모듈)가 변경된 경우, 변경된 코드는 Safe Point(`step.config`)에서 새 SwarmBundleRef 활성화와 함께 반영되어야 한다(MUST).
 
-* `/spec/tools`, `/spec/extensions`
+규칙:
 
-정규화 규칙(SHOULD):
+1. Runtime은 Step 시작 시 활성화된 SwarmBundleRef 기준으로 entry 모듈을 resolve해야 한다(MUST).
+2. Step 실행 중에는 entry 모듈을 동적으로 교체(hot-reload)해서는 안 된다(MUST NOT).
+3. 코드 변경의 반영 단위는 Config 변경과 동일하게 Step 경계여야 한다(MUST).
 
-* identity key가 동일한 항목이 중복될 경우, 마지막에 나타난 항목이 내용을 대표(last-wins)한다.
-* 배열의 순서는 bundle 파일 변경(커밋 결과)에 의해 만들어진 순서를 유지한다.
-* 실행 상태 유지(reconcile)는 순서가 아니라 identity key 기준으로 수행한다(§11.6).
+#### 9.4.6 Effective Config 정규화
+
+Runtime은 `/spec/tools`, `/spec/extensions`를 identity key 기준으로 정규화하는 것을 권장한다(SHOULD).
+
+### 9.5 Agent 간 Handoff 프로토콜
+
+handoff는 도구 호출 기반 비동기 패턴으로 제공한다.
+
+규칙:
+
+1. handoff는 표준 Tool API를 통해 요청되어야 한다(MUST).
+2. 최소 입력으로 대상 Agent 식별자와 입력 프롬프트를 포함해야 한다(MUST).
+3. 추가 context 전달 필드를 지원할 수 있다(MAY).
+4. handoff 요청 후 원래 Agent는 상태를 종료하지 않고 비동기 응답을 대기할 수 있어야 한다(SHOULD).
+5. handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 이벤트/메시지로 합류되어야 한다(SHOULD).
+
+참고: core는 handoff 인터페이스를 제공하고, 기본 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
+
+### 9.6 인스턴스 라이프사이클
+
+Runtime은 최소 다음 인스턴스 연산을 지원해야 한다.
+
+- `inspect`: 상태 조회
+- `pause`: 처리 일시정지
+- `resume`: 처리 재개
+- `terminate`: 즉시 종료
+- `delete`: 상태 삭제
+
+규칙:
+
+1. pause 상태에서는 새 Turn을 실행해서는 안 된다(MUST NOT).
+2. resume 이후에는 큐 적재 이벤트를 순서대로 재개해야 한다(MUST).
+3. delete는 인스턴스 상태를 제거하되 시스템 전역 상태(OAuth grant 등)는 보존해야 한다(MUST).
+4. TTL/idle 기반 자동 정리(GC)는 정책으로 제공하는 것을 권장한다(SHOULD).
+
+### 9.6.1 운영 인터페이스(예: CLI)
+
+1. 구현은 인스턴스 라이프사이클 연산(`list/inspect/pause/resume/terminate/delete`)을 운영 인터페이스로 제공해야 한다(MUST).
+2. CLI를 제공하는 구현은 위 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+
+### 9.7 Observability
+
+규칙:
+
+1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
+2. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`(prompt/completion/total)를 기록해야 한다(SHOULD).
+3. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
+4. Runtime 상태 점검(health check) 인터페이스(명령/엔드포인트)를 제공하는 것을 권장한다(SHOULD).

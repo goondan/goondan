@@ -1,4 +1,4 @@
-# Goondan CLI (gdn) 스펙 (v0.10)
+# Goondan CLI (gdn) 스펙 (v0.11)
 
 본 문서는 Goondan CLI 도구 `gdn`의 명령어, 옵션, 동작 규격을 정의한다.
 
@@ -46,8 +46,8 @@ gdn <command> [subcommand] [options]
 | `gdn init` | 새 Swarm 프로젝트 초기화 |
 | `gdn run` | Swarm 실행 |
 | `gdn validate` | Bundle 구성 검증 |
-| `gdn package` | 패키지 관리 (install, add, remove, publish, login) |
-| `gdn instance` | 인스턴스 관리 (list, inspect, delete) |
+| `gdn package` | 패키지 관리 (install, add, remove, publish, unpublish, deprecate, login) |
+| `gdn instance` | 인스턴스 관리 (list, inspect, pause, resume, terminate, delete) |
 | `gdn logs` | 로그 조회 |
 | `gdn config` | CLI 설정 관리 |
 | `gdn completion` | 쉘 자동완성 스크립트 생성 |
@@ -248,6 +248,7 @@ gdn validate [path] [options]
 4. **scopes 검증**: OAuth scopes 부분집합 관계
 5. **순환 참조**: 리소스 간 순환 참조 탐지
 6. **명명 규칙**: metadata.name 형식 검증
+7. **Model capability 검증**: Agent 요구 capability와 Model 선언 capability의 일치 여부
 
 ### 5.5 출력 예시
 
@@ -275,14 +276,17 @@ Errors: 1, Warnings: 1
       "message": "File not found",
       "path": "prompts/missing.md",
       "resource": "Agent/planner",
-      "field": "spec.prompts.systemRef"
+      "field": "spec.prompts.systemRef",
+      "suggestion": "prompts/ 디렉터리에 해당 파일을 생성하세요",
+      "helpUrl": "https://docs.goondan.io/errors/FILE_NOT_FOUND"
     }
   ],
   "warnings": [
     {
       "code": "NAMING_CONVENTION",
       "message": "Name should be lowercase with hyphens",
-      "resource": "Tool/MyTool"
+      "resource": "Tool/MyTool",
+      "suggestion": "my-tool 형식으로 이름을 변경하세요"
     }
   ]
 }
@@ -304,6 +308,8 @@ Bundle Package를 관리한다.
 | `gdn package update` | 의존성 업데이트 |
 | `gdn package list` | 설치된 패키지 목록 |
 | `gdn package publish` | 패키지 발행 |
+| `gdn package unpublish` | 패키지 버전 비게시 |
+| `gdn package deprecate` | 패키지 폐기 표시 |
 | `gdn package login` | 레지스트리 로그인 |
 | `gdn package logout` | 레지스트리 로그아웃 |
 | `gdn package pack` | 로컬 tarball 생성 |
@@ -512,7 +518,73 @@ gdn package publish --dry-run
 
 ---
 
-### 6.8 gdn package login
+### 6.8 gdn package unpublish
+
+게시된 패키지 버전을 비게시(unpublish)한다.
+
+**사용법:**
+```bash
+gdn package unpublish <ref> [options]
+```
+
+**인자:**
+
+| 인자 | 설명 |
+|------|------|
+| `ref` | 비게시할 패키지 (예: `@goondan/base@1.0.0`) |
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--force` | `-f` | 확인 없이 비게시 | `false` |
+| `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
+
+**예시:**
+```bash
+# 특정 버전 비게시
+gdn package unpublish @goondan/base@1.0.0
+
+# 확인 없이 비게시
+gdn package unpublish @goondan/base@1.0.0 --force
+```
+
+---
+
+### 6.9 gdn package deprecate
+
+패키지에 폐기(deprecate) 표시를 설정한다.
+
+**사용법:**
+```bash
+gdn package deprecate <ref> [options]
+```
+
+**인자:**
+
+| 인자 | 설명 |
+|------|------|
+| `ref` | 폐기 표시할 패키지 (예: `@goondan/base@1.0.0`) |
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--message <msg>` | `-m` | 폐기 사유 메시지 | - |
+| `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
+
+**예시:**
+```bash
+# 폐기 표시
+gdn package deprecate @goondan/base@1.0.0 --message "2.0.0으로 마이그레이션하세요"
+
+# 폐기 표시 해제 (빈 메시지)
+gdn package deprecate @goondan/base@1.0.0 --message ""
+```
+
+---
+
+### 6.10 gdn package login
 
 레지스트리에 로그인한다.
 
@@ -559,7 +631,7 @@ scopedRegistries:
 
 ---
 
-### 6.9 gdn package logout
+### 6.11 gdn package logout
 
 레지스트리에서 로그아웃한다.
 
@@ -577,7 +649,7 @@ gdn package logout [options]
 
 ---
 
-### 6.10 gdn package pack
+### 6.12 gdn package pack
 
 로컬 tarball 파일을 생성한다.
 
@@ -608,7 +680,7 @@ Created: my-package-1.0.0.tgz
 
 ---
 
-### 6.11 gdn package info
+### 6.13 gdn package info
 
 패키지 정보를 조회한다.
 
@@ -660,8 +732,10 @@ shasum:  abc123def456...
 |--------|------|
 | `gdn instance list` | 인스턴스 목록 |
 | `gdn instance inspect <id>` | 인스턴스 상세 정보 |
-| `gdn instance delete <id>` | 인스턴스 삭제 |
+| `gdn instance pause <id>` | 인스턴스 일시 중지 |
 | `gdn instance resume <id>` | 인스턴스 재개 |
+| `gdn instance terminate <id>` | 인스턴스 종료 |
+| `gdn instance delete <id>` | 인스턴스 삭제 |
 
 ---
 
@@ -679,6 +753,7 @@ gdn instance list [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--swarm <name>` | `-s` | Swarm 이름으로 필터 | - |
+| `--status <status>` | | 상태 필터 (`running`, `paused`, `terminated`) | - |
 | `--limit <n>` | `-n` | 최대 개수 | `20` |
 | `--all` | `-a` | 모든 인스턴스 | `false` |
 
@@ -726,7 +801,59 @@ State Root: ~/.goondan/instances/a1b2c3d4e5f6/default-cli/
 
 ---
 
-### 7.4 gdn instance delete
+### 7.4 gdn instance pause
+
+인스턴스를 일시 중지한다. 새 Turn 실행을 중지하고 현재 진행 중인 Turn이 완료되면 paused 상태로 전환한다.
+
+**사용법:**
+```bash
+gdn instance pause <id> [options]
+```
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--force` | `-f` | 진행 중인 Turn도 즉시 중지 | `false` |
+
+---
+
+### 7.5 gdn instance resume
+
+일시 중지된 인스턴스를 재개한다.
+
+**사용법:**
+```bash
+gdn instance resume <id> [options]
+```
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--input <text>` | | 재개 시 입력 메시지 | - |
+
+---
+
+### 7.6 gdn instance terminate
+
+인스턴스를 종료한다. 종료된 인스턴스는 더 이상 Turn을 처리하지 않으며, 상태는 terminated로 변경된다.
+
+**사용법:**
+```bash
+gdn instance terminate <id> [options]
+```
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--force` | `-f` | 확인 없이 종료 | `false` |
+| `--reason <text>` | | 종료 사유 | - |
+
+---
+
+### 7.7 gdn instance delete
 
 인스턴스 상태를 삭제한다.
 
@@ -740,23 +867,6 @@ gdn instance delete <id> [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--force` | `-f` | 확인 없이 삭제 | `false` |
-
----
-
-### 7.5 gdn instance resume
-
-저장된 인스턴스를 재개한다.
-
-**사용법:**
-```bash
-gdn instance resume <id> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--input <text>` | | 재개 시 입력 메시지 | - |
 
 ---
 
@@ -781,6 +891,7 @@ gdn logs [instance-id] [options]
 | `--since <time>` | | 특정 시간 이후 | - |
 | `--until <time>` | | 특정 시간 이전 | - |
 | `--turn <id>` | | 특정 Turn 로그만 | - |
+| `--trace <id>` | | 특정 traceId 로그만 | - |
 
 ### 8.3 예시
 
@@ -980,7 +1091,42 @@ gdn doctor [options]
 |------|------|------|--------|
 | `--fix` | | 자동 수정 시도 (placeholder) | `false` |
 
-### 13.3 검사 항목
+### 13.3 Health Check
+
+`gdn doctor`는 환경 진단 외에 실행 중인 Runtime의 상태 점검(health check) 기능도 제공한다.
+
+**Runtime Health Check:**
+```bash
+# 실행 중인 인스턴스의 상태 점검
+gdn doctor --runtime
+
+# HTTP 모드 서버 상태 점검
+gdn doctor --runtime --port 3000
+```
+
+**HTTP 모드 Health Endpoint:**
+
+`gdn run --connector http`로 실행 시 `/health` 엔드포인트를 자동 제공한다.
+
+```
+GET /health
+```
+
+**응답 예시:**
+```json
+{
+  "status": "healthy",
+  "uptime": 3600,
+  "instances": {
+    "running": 3,
+    "paused": 1,
+    "terminated": 0
+  },
+  "timestamp": "2026-02-05T10:30:00.000Z"
+}
+```
+
+### 13.4 검사 항목
 
 **System:**
 | 항목 | 설명 | 수준 |
@@ -1011,7 +1157,7 @@ gdn doctor [options]
 | Dependencies | node_modules 존재 여부 | warn |
 | Bundle Validation | goondan.yaml 유효성 검증 | fail/warn |
 
-### 13.4 출력 예시
+### 13.5 출력 예시
 
 ```
 Goondan Doctor
@@ -1042,7 +1188,7 @@ Summary
   9 passed, 1 warnings, 0 errors
 ```
 
-### 13.5 예시
+### 13.6 예시
 
 ```bash
 # 환경 진단
@@ -1064,5 +1210,5 @@ gdn doctor --json
 
 ---
 
-**문서 버전**: v0.10
-**최종 수정**: 2026-02-06
+**문서 버전**: v0.11
+**최종 수정**: 2026-02-07

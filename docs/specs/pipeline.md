@@ -1,4 +1,4 @@
-# Goondan 라이프사이클 파이프라인(훅) 스펙 (v0.9)
+# Goondan 라이프사이클 파이프라인(훅) 스펙 (v0.10)
 
 본 문서는 `docs/requirements/11_lifecycle-pipelines.md`를 기반으로 Runtime 파이프라인 시스템의 **구현 스펙**을 정의한다.
 
@@ -136,17 +136,19 @@ type PipelinePoint =
   | 'toolCall.pre'
   | 'toolCall.exec'
   | 'toolCall.post'
-  // Workspace 레벨
+  // Workspace 레벨 (비표준/선택 포인트)
   | 'workspace.repoAvailable'
   | 'workspace.worktreeMounted';
 ```
 
 ### 3.2 포인트별 타입과 의미론
 
+**표준 파이프라인 포인트 (MUST)**:
+
 | 포인트 | 타입 | 설명 |
 |--------|------|------|
 | `turn.pre` | Mutator | Turn 시작 직전, 입력 전처리 |
-| `turn.post` | Mutator | Turn 종료 직후, 결과 후처리 |
+| `turn.post` | Mutator | Turn 종료 훅, `(base, events)` 입력 기반 후처리 |
 | `step.pre` | Mutator | Step 시작 직전 |
 | `step.config` | Mutator | SwarmBundleRef 활성화 및 Effective Config 로드 |
 | `step.tools` | Mutator | Tool Catalog 구성 |
@@ -157,13 +159,20 @@ type PipelinePoint =
 | `toolCall.pre` | Mutator | 개별 tool call 실행 직전 |
 | `toolCall.exec` | Middleware | tool call 실행 래핑 |
 | `toolCall.post` | Mutator | 개별 tool call 실행 직후 |
+
+**비표준 파이프라인 포인트 (선택)**:
+
+비표준 포인트는 Runtime이 선택적으로 제공할 수 있다. 비표준 포인트는 표준 동작을 깨뜨려서는 안 되며(MUST NOT), 해당 포인트의 존재 여부와 동작을 문서화해야 한다(MUST).
+
+| 포인트 | 타입 | 설명 |
+|--------|------|------|
 | `workspace.repoAvailable` | Mutator | 레포지토리 확보 시 |
 | `workspace.worktreeMounted` | Mutator | worktree 마운트 시 |
 
 ### 3.3 실행 순서 제약 (MUST)
 
 ```
-step.config → step.tools → step.blocks → step.llmCall
+step.config → step.tools → step.blocks → step.llmInput → step.llmCall
 ```
 
 - `step.config`는 `step.tools`보다 **반드시 먼저** 실행되어야 한다 (MUST)
@@ -198,6 +207,10 @@ interface BasePipelineContext {
 interface TurnContext extends BasePipelineContext {
   /** 현재 Turn */
   turn: Turn;
+  /** turn 시작 기준 메시지 (turn.post에서 제공) */
+  baseMessages?: LlmMessage[];
+  /** turn 중 누적 메시지 이벤트 (turn.post에서 제공) */
+  messageEvents?: MessageEvent[];
 }
 
 interface Turn {
@@ -205,8 +218,12 @@ interface Turn {
   id: string;
   /** Turn 입력 텍스트 */
   input: string;
-  /** 누적된 LLM 메시지 */
-  messages: LlmMessage[];
+  /** Turn 메시지 상태 */
+  messageState: {
+    baseMessages: LlmMessage[];
+    events: MessageEvent[];
+    nextMessages: LlmMessage[];
+  };
   /** Tool 실행 결과 */
   toolResults: ToolResult[];
   /** 호출 원점 정보 (Connector 등) */
@@ -218,6 +235,13 @@ interface Turn {
   /** Turn 요약 (turn.post에서 생성) */
   summary?: string;
 }
+
+type MessageEvent =
+  | { type: 'system_message'; seq: number; message: LlmMessage }
+  | { type: 'llm_message'; seq: number; message: LlmMessage }
+  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
+  | { type: 'remove'; seq: number; targetId: string }
+  | { type: 'truncate'; seq: number };
 
 interface TurnAuth {
   /** 호출자 정보 */
@@ -294,8 +318,8 @@ interface ToolCall {
   id: string;
   /** 호출할 도구 이름 */
   name: string;
-  /** 도구 입력 */
-  input: JsonObject;
+  /** 도구 인자 */
+  args: JsonObject;
 }
 
 interface ToolResult {
@@ -306,12 +330,18 @@ interface ToolResult {
   /** 실행 결과 */
   output: JsonValue;
   /** 실행 상태 */
-  status: 'success' | 'error';
+  status: 'ok' | 'error' | 'pending';
+  /** 비동기 제출 시 핸들 */
+  handle?: string;
   /** 오류 정보 (status가 error인 경우) */
   error?: {
     name: string;
     message: string;
     code?: string;
+    /** 사용자 복구를 위한 제안 (SHOULD) */
+    suggestion?: string;
+    /** 관련 문서 링크 (SHOULD) */
+    helpUrl?: string;
   };
 }
 ```
@@ -515,6 +545,20 @@ Agent의 `hooks`와 Extension이 등록한 파이프라인 핸들러는 다음 �
 1. Extension이 등록한 핸들러 (등록 순서대로)
 2. Agent hooks (priority 정렬 후 안정 정렬)
 
+**Extension-Hook 실행순서 MUST 규칙:**
+
+1. **Extension 우선 실행(MUST)**: Extension 파이프라인은 Agent Hook보다 항상 먼저 실행되어야 한다.
+2. **Middleware 바깥 레이어(MUST)**: Middleware 포인트에서 Extension은 Agent Hook보다 바깥 레이어(onion 외곽)여야 한다. 즉, Extension이 먼저 진입하고 마지막에 빠져나온다.
+3. **전체 순서 보장(MUST)**: 동일 포인트에 Extension 파이프라인과 Agent Hook이 모두 등록된 경우, Extension 전체 → Agent Hook 전체 순서를 따라야 한다.
+
+```
+Mutator 실행 순서:
+  ExtA.mutate → ExtB.mutate → ExtC.mutate → HookA → HookB
+
+Middleware 레이어 순서 (onion):
+  ExtA(바깥) → ExtB → ExtC → HookA → HookB(안쪽) → Core
+```
+
 ```ts
 interface HookSpec {
   /** Hook 식별자 (reconcile용, 권장) */
@@ -531,7 +575,7 @@ interface HookAction {
   /** tool call 실행 */
   toolCall?: {
     tool: string;
-    input: Record<string, JsonValue | { expr: string }>;
+    args: Record<string, JsonValue | { expr: string }>;
   };
 }
 ```
@@ -539,6 +583,13 @@ interface HookAction {
 ---
 
 ## 8. Reconcile Identity 규칙
+
+### 8.0 Reconcile 대상 정의 (MUST)
+
+Reconcile 대상은 **이전 Step에서 활성화된 Effective Config**와 **현재 Step에서 활성화될 Effective Config**의 차이여야 한다(MUST).
+
+- `step.config` Mutator 실행 후, Runtime은 이전 Step의 Effective Config와 현재 Step의 Effective Config를 identity 기반으로 비교하여 retained/added/removed/updated를 판별한다.
+- Changeset merge로 SwarmBundleRef가 변경된 경우에도 동일한 Reconcile 알고리즘이 적용되어야 한다(MUST). SwarmBundleRef 변경은 Effective Config 전체가 바뀔 수 있으므로, 모든 항목(Extension, Tool, Hook)에 대해 identity 기반 비교를 수행한다.
 
 ### 8.1 Identity Key 정의 (MUST)
 
@@ -650,6 +701,10 @@ function reconcile<T>(
 2. **순서 불변성**: 배열의 순서 변경만으로는 연결/상태 재생성이 발생해서는 안 된다.
 
 3. **변경 감지**: 구성 내용이 변경된 경우에만 상태를 재초기화한다.
+
+4. **항목 제거 시 cleanup(MUST)**: Reconcile 결과 제거된 항목에 대해 Runtime은 cleanup을 수행해야 한다. (예: Extension 해제, MCP 연결 종료, Tool 핸들러 등록 해제)
+
+5. **항목 추가 시 init(MUST)**: Reconcile 결과 새로 추가된 항목에 대해 Runtime은 init을 수행해야 한다. (예: Extension register 호출, MCP 연결 생성, Tool 핸들러 등록)
 
 ```ts
 // 잘못된 구현 (배열 비교)
@@ -1064,6 +1119,14 @@ async function executeStep(
      │   Turn Start   │
      └───────────────┘
           │
+          │ load BaseMessages
+          ▼
+   ┌───────────────────────────────────────┐
+   │ Message State Init                    │
+   │  - baseMessages                       │
+   │  - events = []                        │
+   └───────────────────────────────────────┘
+          │
           │ turn.pre        (Mutator)
           ▼
    ┌───────────────────────────────────────┐
@@ -1090,6 +1153,7 @@ async function executeStep(
    ┌───────────────────────────────────────┐
    │ step.blocks     (Mutator)             │
    │  - build/transform Context Blocks     │
+   │  - compose Next = Base + SUM(Events)  │
    └───────────────────────────────────────┘
           │
           │ step.llmCall    (Middleware)
@@ -1122,6 +1186,14 @@ async function executeStep(
           └───────────┐             └─────────────┐
                       ▼                           ▼
                   (next Step)               turn.post (Mutator)
+                                                │
+                                                │ hooks input: (base, events)
+                                                │ hooks may emit events
+                                                ▼
+                                   fold: Base + SUM(Events)
+                                                │
+                                                ▼
+                                  persist base + clear events
                                                 │
                                                 ▼
                                              Turn End

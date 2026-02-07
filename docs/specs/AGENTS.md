@@ -4,19 +4,19 @@ Goondan 구현 스펙 문서 폴더입니다. 요구사항 문서(docs/requireme
 
 ## 파일 구조
 
-- `api.md` - Runtime/SDK API 스펙 (Extension, Tool, Connector API)
+- `api.md` - Runtime/SDK API 스펙 (Extension, Tool, Connector, Connection, OAuth API)
 - `resources.md` - Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
 - `bundle.md` - Bundle YAML 스펙 (리소스 정의, 검증 규칙)
-- `bundle_package.md` - Bundle Package 스펙 (Git 기반 패키징/참조)
-- `runtime.md` - Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존)
-- `changeset.md` - Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point)
-- `connector.md` - Connector 시스템 스펙 (프로토콜 구현 패키지, Trigger Handler)
-- `connection.md` - Connection 시스템 스펙 (배포 바인딩: 인증, Rules, Egress)
-- `extension.md` - Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴)
+- `bundle_package.md` - Bundle Package 스펙 (레지스트리 기반 패키징/참조, CLI 명령어)
+- `runtime.md` - Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존, 코드 변경 반영, GC)
+- `changeset.md` - Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point, Conflict)
+- `connector.md` - Connector 시스템 스펙 (프로토콜 구현체, Trigger Handler, 서명 검증)
+- `connection.md` - Connection 시스템 스펙 (배포 바인딩: 인증, Ingress 라우팅 규칙, 서명 검증 시크릿)
+- `extension.md` - Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴, getState/setState)
 - `oauth.md` - OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
-- `pipeline.md` - 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트)
-- `tool.md` - Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합)
-- `workspace.md` - Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마)
+- `pipeline.md` - 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
+- `tool.md` - Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합, Handoff 패턴)
+- `workspace.md` - Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마, Metrics, Lifecycle)
 
 ## 문서 작성 규칙
 
@@ -31,6 +31,7 @@ Goondan 구현 스펙 문서 폴더입니다. 요구사항 문서(docs/requireme
 1. **요구사항 일치**: 스펙은 `docs/requirements/*.md`의 요구사항과 일치해야 합니다.
 2. **GUIDE.md 동기화**: 스펙 변경 시 `/GUIDE.md` 반영 여부를 검토합니다.
 3. **구현 검증**: 스펙 변경 후 `packages/core` 구현이 스펙을 준수하는지 확인합니다.
+4. **메시지 모델 정합성**: Runtime/Workspace/Pipeline/Extension/API 스펙에서 Turn 메시지 처리 규칙은 `NextMessages = BaseMessages + SUM(Events)` 및 `messages/base.jsonl`/`messages/events.jsonl` 구조와 일치해야 합니다.
 
 ## 관련 문서
 

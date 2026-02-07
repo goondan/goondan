@@ -78,10 +78,12 @@ GET /<scope>/<name>
 {
   "name": "@goondan/base",
   "description": "Goondan 기본 Tool/Extension 번들",
+  "access": "public",
   "versions": {
     "1.0.0": {
       "version": "1.0.0",
       "dependencies": {},
+      "deprecated": "",
       "dist": {
         "tarball": "https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz",
         "shasum": "abc123...",
@@ -134,15 +136,51 @@ GET /<scope>/<name>/-/<name>-<version>.tgz
 
 Tarball은 Bundle Package Root 전체를 포함하는 gzip 압축 tar 아카이브이다.
 
+#### 4.2.4 패키지 비게시(Unpublish)
+
+```
+DELETE /<scope>/<name>/<version>
+```
+
+인증 필수(MUST). 해당 버전을 레지스트리에서 제거한다. 전체 패키지를 비게시하려면 버전을 생략한다.
+
+```
+DELETE /<scope>/<name>
+```
+
+#### 4.2.5 패키지 폐기(Deprecate)
+
+```
+PUT /<scope>/<name>/<version>/deprecate
+Content-Type: application/json
+
+{
+  "message": "Use v2.0.0 instead"
+}
+```
+
+인증 필수(MUST). 빈 `message`(`""`)를 전달하면 폐기 표시를 해제한다.
+
 ### 4.3 인증
 
-프라이빗 레지스트리의 경우 Bearer 토큰 인증을 지원한다(MAY).
+레지스트리는 Bearer Token 기반 인증을 지원해야 한다(MUST).
 
 ```
 Authorization: Bearer <token>
 ```
 
-토큰은 `.goondanrc` 또는 환경 변수 `GOONDAN_REGISTRY_TOKEN`으로 설정할 수 있다.
+인증 토큰은 프로젝트 설정 파일(`.goondanrc`) 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다(MUST).
+
+**보안 권장사항**:
+- 인증 토큰은 설정 파일에 평문으로 직접 저장하지 않는 것을 권장한다(SHOULD).
+- 환경 변수 참조 패턴(`${GOONDAN_REGISTRY_TOKEN}`)을 사용하는 것을 권장한다(SHOULD).
+
+```yaml
+# .goondanrc - 권장: 환경 변수 참조
+registries:
+  "https://registry.goondan.io":
+    token: "${GOONDAN_REGISTRY_TOKEN}"
+```
 
 ---
 
@@ -165,6 +203,7 @@ metadata:
   name: base
   version: "1.0.0"
 spec:
+  access: public             # 'public' | 'restricted'
   dependencies:
     - "@goondan/core-utils@^0.5.0"
     - "@myorg/slack-toolkit@1.2.0"
@@ -179,9 +218,11 @@ spec:
 1. `kind: Package`은 필수이다(MUST).
 2. `metadata.name`은 Bundle Package의 식별명으로 사용된다(MUST).
 3. `metadata.version`은 semver 형식이어야 한다(MUST).
-4. `spec.dependencies`는 Bundle Package Ref 목록이다(MAY).
-5. `spec.resources`는 **패키지로써 export 될 YAML 목록**이다(SHOULD).
-6. `spec.dist`는 패키지로써 tarball로 export 될 폴더이며, 빌드 된 소스코드, yaml 등을 모두 포함해야 한다.
+4. `spec.access`는 `'public'` 또는 `'restricted'` 중 하나이다(MUST). 기본값은 `'public'`이다.
+5. `spec.dependencies`는 Bundle Package Ref 목록이다(MAY).
+6. `spec.resources`는 **패키지로써 export 될 YAML 목록**이다(SHOULD).
+7. `spec.dist`는 패키지로써 tarball로 export 될 폴더이며, 빌드 된 소스코드, yaml 등을 모두 포함해야 한다.
+8. `restricted` 접근 수준 패키지의 게시/설치는 인증된 요청만 허용해야 한다(MUST).
 
 ---
 
@@ -260,6 +301,33 @@ spec:
 3. 하나의 Bundle Package 안에서는 `spec.resources`에 나열된 **순서대로 리소스를 로드**한다(SHOULD).
 4. 동일 Kind/name이 중복될 경우, **후순위 로드가 덮어쓴다**(정책 선택 가능). 덮어쓰기 허용 여부는 런타임 정책에 따른다(MAY).
 
+### 9.1 의존성 충돌 해결 정책
+
+1. 동일 패키지의 상이한 버전 요구가 충돌하면 **설치를 중단하고 충돌 보고를 반환**해야 한다(MUST).
+2. 충돌 자동 우회(임의 최신 버전 선택)는 **기본 동작이 되어서는 안 된다**(MUST NOT).
+3. 의존성 그래프는 **순환 참조 없이 DAG를 구성**해야 한다(MUST). 순환 참조가 감지되면 설치를 거부해야 한다(MUST).
+
+충돌 보고 예시:
+```
+ERROR: Version conflict for @goondan/core-utils
+  - @goondan/base@1.0.0 requires @goondan/core-utils@^0.5.0
+  - @myorg/toolkit@2.0.0 requires @goondan/core-utils@^1.0.0
+Resolution: Manually align version ranges or use explicit overrides.
+```
+
+### 9.2 values 병합 우선순위
+
+values 병합 우선순위는 다음 순서를 따라야 한다(MUST). 후순위가 선순위를 덮어쓴다.
+
+1. **패키지 기본값**: Bundle Package 내부에 정의된 기본 values
+2. **상위 패키지 override**: 상위(의존하는) Bundle Package에서 지정한 override
+3. **사용자 override**: 프로젝트 로컬(SwarmBundleRoot)에서 지정한 override
+
+추가 규칙:
+- 객체는 재귀 병합(deep merge)한다(SHOULD).
+- 배열은 기본 교체(replace) 정책을 사용한다(SHOULD).
+- 민감값은 values에 직접 입력하지 않고 ValueSource/SecretRef를 사용해야 한다(SHOULD).
+
 ---
 
 ## 10. 이름 충돌과 참조 방식
@@ -311,6 +379,34 @@ packages:
     resolved: "https://registry.goondan.io/@goondan/core-utils/-/core-utils-0.5.2.tgz"
     integrity: "sha512-BBBB..."
 ```
+
+---
+
+## 11.2 보안 및 검증
+
+패키지 설치 및 로드 시 다음 보안 규칙을 적용해야 한다.
+
+### Schema 검증
+
+1. `package.yaml` 및 리소스 YAML의 **schema 검증을 수행**하고, 실패 시 로드를 중단해야 한다(MUST).
+2. 알 수 없는 `kind` 또는 필수 필드 누락은 오류로 처리한다(MUST).
+
+### 경로 탐색 방지
+
+1. `spec.resources`, `spec.dist`, 리소스의 `spec.entry` 등에서 **상위 디렉터리 참조(`../`)를 포함하는 경로는 거부**해야 한다(MUST).
+2. 절대 경로 참조도 거부해야 한다(MUST). 모든 경로는 Bundle Package Root 또는 `spec.dist` 기준 상대 경로여야 한다.
+
+### 의존성 검증 오류 코드
+
+1. Runtime 실행 전에 패키지 의존성 검증 결과를 사용자에게 **명확한 오류 코드와 함께 제공**해야 한다(MUST).
+2. 오류 코드 예시:
+   - `PKG_NOT_FOUND`: 레지스트리에서 패키지를 찾을 수 없음
+   - `PKG_VERSION_CONFLICT`: 의존성 버전 충돌
+   - `PKG_INTEGRITY_FAIL`: integrity hash 불일치
+   - `PKG_SCHEMA_INVALID`: schema 검증 실패
+   - `PKG_PATH_TRAVERSAL`: 허용되지 않은 경로 참조
+   - `PKG_CIRCULAR_DEP`: 순환 참조 감지
+   - `PKG_AUTH_REQUIRED`: 인증이 필요한 restricted 패키지
 
 ---
 
@@ -529,7 +625,43 @@ gdn package publish --dry-run
 6. integrity hash(sha512) 계산
 7. 레지스트리에 업로드
 
-### 13.8 레지스트리 로그인/로그아웃
+### 13.8 패키지 비게시(Unpublish)
+
+```bash
+# 특정 버전 비게시
+gdn package unpublish @goondan/base@1.0.0
+
+# 전체 패키지 비게시 (모든 버전)
+gdn package unpublish @goondan/base
+
+# 시뮬레이션
+gdn package unpublish @goondan/base@1.0.0 --dry-run
+```
+
+**동작:**
+1. 레지스트리에서 해당 버전(또는 전체 패키지)을 제거한다.
+2. 다른 패키지가 해당 버전에 의존하고 있는 경우 경고를 제공해야 한다(SHOULD).
+3. 비게시된 버전은 더 이상 다운로드할 수 없다.
+
+### 13.9 패키지 폐기(Deprecate)
+
+```bash
+# 특정 버전 폐기
+gdn package deprecate @goondan/base@1.0.0 --message "Use v2.0.0 instead"
+
+# 전체 패키지 폐기
+gdn package deprecate @goondan/base --message "This package is no longer maintained"
+
+# 폐기 해제
+gdn package deprecate @goondan/base@1.0.0 --message ""
+```
+
+**동작:**
+1. 패키지에 폐기(deprecate) 표시를 한다.
+2. 폐기된 패키지는 다운로드는 허용하되 설치 시 경고를 출력해야 한다(SHOULD).
+3. `--message ""`로 빈 메시지를 전달하면 폐기 표시를 해제한다.
+
+### 13.10 레지스트리 로그인/로그아웃
 
 ```bash
 # 로그인
@@ -542,7 +674,7 @@ gdn package logout
 gdn package logout --registry https://my-registry.example.com
 ```
 
-### 13.9 패키지 정보 조회
+### 13.11 패키지 정보 조회
 
 ```bash
 gdn package info @goondan/base
@@ -574,7 +706,7 @@ tarball: https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz
 integrity: sha512-AAAA...
 ```
 
-### 13.10 로컬 tarball 생성
+### 13.12 로컬 tarball 생성
 
 ```bash
 # tarball 생성
@@ -589,7 +721,7 @@ gdn package pack --out ./dist
 Created: @goondan-base-1.0.0.tgz (12.5 KB)
 ```
 
-### 13.11 캐시 관리
+### 13.13 캐시 관리
 
 ```bash
 # 캐시 정보
@@ -604,7 +736,7 @@ gdn package cache clean @goondan/base
 
 **캐시 위치:** `<goondanHome>/bundles/`
 
-### 13.12 명령어 요약
+### 13.14 명령어 요약
 
 | 명령어 | 설명 |
 |--------|------|
@@ -614,6 +746,8 @@ gdn package cache clean @goondan/base
 | `gdn package update [ref]` | 의존성 업데이트 |
 | `gdn package list` | 설치된 패키지 목록 |
 | `gdn package publish` | 패키지 발행 |
+| `gdn package unpublish <ref>` | 패키지 비게시 |
+| `gdn package deprecate <ref>` | 패키지 폐기 |
 | `gdn package login` | 레지스트리 로그인 |
 | `gdn package logout` | 레지스트리 로그아웃 |
 | `gdn package info <ref>` | 패키지 정보 조회 |
@@ -641,9 +775,17 @@ GOONDAN_REGISTRY_TOKEN=your-auth-token
 ```
 
 ### 14.3 스코프별 레지스트리
+
+scope별 레지스트리 분리 구성을 지원해야 한다(SHOULD).
+
 ```yaml
 # .goondanrc
 registry: "https://registry.goondan.io"
 scopedRegistries:
   "@myorg": "https://my-org-registry.example.com"
 ```
+
+**동작 규칙:**
+1. `@scope` 패턴에 매칭되는 패키지는 해당 scope의 레지스트리를 우선 사용해야 한다(SHOULD).
+2. 매칭되는 scope가 없으면 기본 레지스트리(`registry`)를 사용한다.
+3. scope별 레지스트리 라우팅은 설치(`install`/`add`), 게시(`publish`), 조회(`info`) 모두에 적용된다.

@@ -1,6 +1,6 @@
 # Goondan Changeset/SwarmBundle 스펙 (v0.9)
 
-본 문서는 `docs/requirements/index.md`(특히 5.4, 6.4, 7.4.1, 7.5.1, 9.4)를 기반으로 Changeset/SwarmBundle 시스템의 **구현 스펙**을 정의한다.
+본 문서는 `docs/requirements/index.md`(특히 5.5, 6.4, 7.4.1, 7.5.1, 9.4)를 기반으로 Changeset/SwarmBundle 시스템의 **구현 스펙**을 정의한다.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ### 1.1 정의
 
-**SwarmBundle**은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/OAuthApp 등)을 정의하는 **Bundle**이다. Bundle은 YAML 리소스와 소스코드(도구/확장/커넥터/프롬프트/기타 파일)를 함께 포함하는 **폴더 트리**이다.
+**SwarmBundle**은 Swarm(및 그에 포함된 Agent/Tool/Extension/Connector/Connection/OAuthApp 등)을 정의하는 **Bundle**이다. Bundle은 YAML 리소스와 소스코드(도구/확장/커넥터/프롬프트/기타 파일)를 함께 포함하는 **폴더 트리**이다.
 
 SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작과 통합)이 수정**된다.
 
@@ -259,7 +259,11 @@ BASE_REF="git:$(git rev-parse HEAD)"
 ### 4.7 규칙
 
 - Open된 changeset은 commit되기 전까지 실행에 영향을 주지 않는다(MUST).
-- 동시에 여러 changeset을 열 수 있으나, commit 시 충돌 해결은 구현 선택이다(MAY).
+- 여러 Agent가 동시에 changeset을 열 수 있어야 한다(MUST).
+- commit 충돌 시 `status="conflict"`와 충돌 상세를 반환해야 하며, 충돌 정보를 숨겨서는 안 된다(MUST).
+- commit 충돌 시 changeset은 열린 상태를 유지해야 한다(MUST). Agent는 기존 changeset에서 충돌 파일을 수정한 뒤 다시 commitChangeset을 호출하여 재시도할 수 있어야 한다(MUST).
+- Runtime은 충돌 상세를 통해 에이전트가 후속 Step에서 스스로 복구할 수 있게 해야 한다(SHOULD).
+- 자동 충돌 해결은 구현 선택이다(MAY).
 
 ---
 
@@ -293,9 +297,10 @@ interface CommitChangesetResult {
    * 처리 결과 상태
    * - ok: 성공적으로 커밋됨
    * - rejected: ChangesetPolicy 위반으로 거부됨
+   * - conflict: 병합 충돌 발생 (MUST: 충돌 상세를 반환)
    * - failed: 기타 오류로 실패함
    */
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
 
   /**
    * Changeset ID
@@ -355,6 +360,11 @@ interface CommitError {
    * 위반된 파일 목록 (rejected인 경우)
    */
   violatedFiles?: string[];
+
+  /**
+   * 충돌 파일 목록 (conflict인 경우, MUST: 충돌 정보를 숨겨서는 안 된다)
+   */
+  conflictingFiles?: string[];
 }
 ```
 
@@ -389,7 +399,22 @@ interface CommitError {
 }
 ```
 
-### 5.6 Git commit 생성 규칙
+### 5.6 출력 예시 (충돌)
+
+```json
+{
+  "status": "conflict",
+  "changesetId": "cs-000123",
+  "baseRef": "git:3d2a1b4c5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
+  "error": {
+    "code": "MERGE_CONFLICT",
+    "message": "ff-only merge 실패: 다른 changeset이 먼저 반영되었습니다. 기존 changeset에서 충돌 파일을 수정한 뒤 다시 commitChangeset을 호출하세요.",
+    "conflictingFiles": ["prompts/planner.system.md", "tools/newTool/index.ts"]
+  }
+}
+```
+
+### 5.8 Git commit 생성 규칙
 
 1. **변경 감지**: worktree에서 `git status`로 변경된 파일을 감지한다.
 2. **정책 검증**: 변경된 파일이 ChangesetPolicy의 allowed.files와 일치하는지 검사한다.
@@ -398,7 +423,7 @@ interface CommitError {
 5. **Ref 업데이트**: SwarmBundleRoot의 활성 브랜치에 변경 사항을 반영한다.
 6. **정리**: worktree를 제거한다.
 
-### 5.7 Git 명령어 예시
+### 5.9 Git 명령어 예시
 
 ```bash
 # worktree 경로
@@ -430,13 +455,14 @@ git worktree remove "${WORKTREE_PATH}"
 git branch -d changeset-${CHANGESET_ID}
 ```
 
-### 5.8 status 값 정의
+### 5.10 status 값 정의
 
 | status | 의미 | 조건 |
 |--------|------|------|
 | `ok` | 성공적으로 커밋됨 | 정책 검증 통과, Git 작업 성공 |
 | `rejected` | 정책 위반으로 거부됨 | ChangesetPolicy의 allowed.files 위반 |
-| `failed` | 기타 오류로 실패함 | Git 오류, 파일시스템 오류, 병합 충돌 등 |
+| `conflict` | 병합 충돌 발생 | ff-only merge 실패 (MUST: 충돌 상세와 함께 반환) |
+| `failed` | 기타 오류로 실패함 | Git 오류, 파일시스템 오류 등 |
 
 ---
 
@@ -649,7 +675,19 @@ Step N+1:
 - Turn T 중 commit된 Ref는 Turn T+1 시작 시 활성화
 - Turn T가 종료되기 전에는 Ref 전환 금지
 
-### 7.6 예외 사항
+### 7.6 코드 변경 반영
+
+Safe Point에서 SwarmBundleRef가 활성화될 때, Config(YAML 리소스)뿐만 아니라 소스코드(Tool/Extension/Connector entry 모듈)도 함께 반영되어야 한다.
+
+규칙:
+
+- Runtime은 Step 시작 시 활성화된 SwarmBundleRef 기준으로 entry 모듈을 resolve해야 한다(MUST).
+- Step 실행 중에는 entry 모듈을 동적으로 교체(hot-reload)해서는 안 된다(MUST NOT).
+- 코드 변경의 반영 단위는 Config 변경과 동일하게 Step 경계여야 한다(MUST).
+
+상세 구현은 `docs/specs/runtime.md` 섹션 9.3(코드 변경 반영 의미론)을 참조한다.
+
+### 7.7 예외 사항
 
 Step N 시작 전에 이미 활성 Ref가 업데이트된 경우, Step N에서 그 Ref를 활성화하는 것은 자연스럽게 허용된다.
 
@@ -794,11 +832,12 @@ Changeset commit 실패 또는 거부 여부는 tool 결과로 충분히 관측 
 ```typescript
 interface ChangesetEventRecord {
   type: 'agent.event';
-  kind: 'changeset.committed' | 'changeset.rejected' | 'changeset.failed';
+  kind: 'changeset.committed' | 'changeset.rejected' | 'changeset.conflict' | 'changeset.failed';
   recordedAt: string;  // ISO8601 timestamp
   instanceId: string;
   instanceKey: string;
   agentName: string;
+  traceId?: string;  // MUST: Turn에서 전파된 traceId
   turnId?: string;
   stepId?: string;
   stepIndex?: number;
@@ -806,7 +845,7 @@ interface ChangesetEventRecord {
     changesetId: string;
     baseRef: SwarmBundleRef;
     newRef?: SwarmBundleRef;
-    status: 'ok' | 'rejected' | 'failed';
+    status: 'ok' | 'rejected' | 'conflict' | 'failed';
     summary?: CommitSummary;
     error?: CommitError;
   };
@@ -916,7 +955,7 @@ interface CommitChangesetInput {
 }
 
 interface CommitChangesetResult {
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
   changesetId: string;
   baseRef: SwarmBundleRef;
   newRef?: SwarmBundleRef;
@@ -934,6 +973,7 @@ interface CommitError {
   code: string;
   message: string;
   violatedFiles?: string[];
+  conflictingFiles?: string[];
 }
 
 // ============================================================
@@ -984,11 +1024,12 @@ interface RevisionChangedEvent {
 
 interface ChangesetEventRecord {
   type: 'agent.event';
-  kind: 'changeset.committed' | 'changeset.rejected' | 'changeset.failed';
+  kind: 'changeset.committed' | 'changeset.rejected' | 'changeset.conflict' | 'changeset.failed';
   recordedAt: string;
   instanceId: string;
   instanceKey: string;
   agentName: string;
+  traceId?: string;
   turnId?: string;
   stepId?: string;
   stepIndex?: number;
@@ -996,7 +1037,7 @@ interface ChangesetEventRecord {
     changesetId: string;
     baseRef: SwarmBundleRef;
     newRef?: SwarmBundleRef;
-    status: 'ok' | 'rejected' | 'failed';
+    status: 'ok' | 'rejected' | 'conflict' | 'failed';
     summary?: CommitSummary;
     error?: CommitError;
   };
@@ -1156,7 +1197,32 @@ async function commitChangeset(
     // 7.4. SwarmBundleRoot로 변경 사항 반영
     const branchName = `changeset-${changesetId}`;
     await execGit(swarmBundleRoot, ['fetch', workdir, `HEAD:${branchName}`]);
-    await execGit(swarmBundleRoot, ['merge', '--ff-only', branchName]);
+
+    try {
+      await execGit(swarmBundleRoot, ['merge', '--ff-only', branchName]);
+    } catch (mergeError) {
+      // MUST: ff-only merge 실패 시 conflict status 반환
+      // MUST: 충돌 정보를 숨겨서는 안 된다
+      const conflictingFiles = await detectConflictingFiles(
+        swarmBundleRoot,
+        branchName
+      );
+
+      // 임시 브랜치만 정리 (SwarmBundleRoot 측)
+      // changeset worktree는 유지 — Agent가 충돌 파일을 수정 후 재시도할 수 있어야 한다(MUST)
+      await execGit(swarmBundleRoot, ['branch', '-d', branchName]).catch(() => {});
+
+      return {
+        status: 'conflict',
+        changesetId,
+        baseRef,
+        error: {
+          code: 'MERGE_CONFLICT',
+          message: 'ff-only merge 실패: 다른 changeset이 먼저 반영되었습니다. 기존 changeset에서 충돌 파일을 수정한 뒤 다시 commitChangeset을 호출하세요.',
+          conflictingFiles
+        }
+      };
+    }
 
     // 7.5. 정리
     await execGit(swarmBundleRoot, ['worktree', 'remove', workdir]);

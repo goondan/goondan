@@ -1,4 +1,4 @@
-# Goondan Extension 시스템 스펙 (v0.9)
+# Goondan Extension 시스템 스펙 (v0.10)
 
 본 문서는 `@docs/requirements/index.md`를 기반으로 Extension 시스템의 **구현 스펙**을 정의한다.
 
@@ -172,8 +172,10 @@ export async function register(
   api: ExtensionApi<MyState, MyConfig>
 ): Promise<void> {
   // 1. 상태 초기화
-  const state = api.extState();
-  state.processedSteps = 0;
+  api.state.set({
+    processedSteps: 0,
+    lastProcessedAt: undefined,
+  });
 
   // 2. 설정 읽기
   const config = api.extension.spec?.config ?? {};
@@ -181,11 +183,15 @@ export async function register(
 
   // 3. 파이프라인 등록
   api.pipelines.mutate('step.post', async (ctx: StepContext) => {
-    state.processedSteps++;
-    state.lastProcessedAt = Date.now();
+    const prev = api.state.get();
+    api.state.set({
+      ...prev,
+      processedSteps: prev.processedSteps + 1,
+      lastProcessedAt: Date.now(),
+    });
 
     if (config.enableLogging) {
-      api.logger?.info?.(`Step ${state.processedSteps} completed`);
+      api.logger?.info?.(`Step ${api.state.get().processedSteps} completed`);
     }
 
     return ctx;
@@ -258,10 +264,15 @@ interface ExtensionApi<
   oauth: OAuthApi;
 
   /**
-   * 확장별 상태 저장소
+   * 확장별 상태 접근 API
    * Extension 인스턴스별 격리된 상태
    */
-  extState: () => TState;
+  state: {
+    /** 현재 상태를 반환 */
+    get(): TState;
+    /** 상태를 교체 (불변 패턴) */
+    set(next: TState): void;
+  };
 
   /**
    * 인스턴스 공유 상태
@@ -365,6 +376,7 @@ type MutatorPoint =
   | 'step.config'
   | 'step.tools'
   | 'step.blocks'
+  | 'step.llmError'
   | 'step.post'
   | 'toolCall.pre'
   | 'toolCall.post'
@@ -377,7 +389,6 @@ type MutatorPoint =
  */
 type MiddlewarePoint =
   | 'step.llmCall'
-  | 'step.llmError'
   | 'toolCall.exec';
 ```
 
@@ -410,6 +421,12 @@ interface TurnContext {
   swarm: Resource<SwarmSpec>;
   agent: Resource<AgentSpec>;
   effectiveConfig: EffectiveConfig;
+  /** turn 시작 기준 메시지 */
+  baseMessages?: LlmMessage[];
+  /** turn 중 누적 메시지 이벤트 */
+  messageEvents?: MessageEvent[];
+  /** turn 메시지 이벤트 발행 */
+  emitMessageEvent?: (event: MessageEvent) => Promise<void>;
 }
 
 interface StepContext extends TurnContext {
@@ -472,6 +489,19 @@ api.pipelines.mutate('turn.pre', async (ctx: TurnContext) => {
 api.pipelines.mutate('turn.post', async (ctx: TurnContext) => {
   const duration = Date.now() - (ctx.turn.metadata?.startTime ?? 0);
   api.logger?.info?.(`Turn completed in ${duration}ms`);
+
+  // turn.post에서 메시지 이벤트 추가 발행 가능
+  await ctx.emitMessageEvent?.({
+    type: 'replace',
+    seq: Date.now(),
+    targetId: 'msg-summary',
+    message: {
+      id: 'msg-summary',
+      role: 'assistant',
+      content: `작업이 ${duration}ms 만에 완료되었습니다.`,
+    },
+  });
+
   return ctx;
 });
 ```
@@ -522,18 +552,14 @@ api.pipelines.wrap('toolCall.exec', async (ctx, next) => {
   }
 });
 
-// step.llmError: LLM 오류 처리
-api.pipelines.wrap('step.llmError', async (ctx, next) => {
-  // 재시도 전 대기
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  // 오류 컨텍스트에 재시도 정보 추가
-  ctx.step.metadata = {
-    ...ctx.step.metadata,
-    retryAttempt: (ctx.step.metadata?.retryAttempt ?? 0) + 1,
+// step.llmError: LLM 오류 처리 (Mutator)
+api.pipelines.mutate('step.llmError', async (ctx) => {
+  // 재시도 설정
+  return {
+    ...ctx,
+    shouldRetry: ctx.retryCount < 3,
+    retryDelayMs: Math.min(1000 * Math.pow(2, ctx.retryCount), 10000),
   };
-
-  return next(ctx);
 });
 ```
 
@@ -664,10 +690,10 @@ export async function register(api: ExtensionApi): Promise<void> {
     name: 'myExt.getStatus',
     description: 'Get current extension status',
     handler: async (ctx) => {
-      const state = api.extState();
+      const s = api.state.get();
       return {
-        processedSteps: state.processedSteps,
-        uptime: Date.now() - state.startTime,
+        processedSteps: s.processedSteps,
+        uptime: Date.now() - s.startTime,
       };
     },
   });
@@ -952,25 +978,35 @@ export async function register(api: ExtensionApi): Promise<void> {
 
 ## 9. 상태 관리
 
-### 9.1 확장별 상태 (extState)
+### 9.1 확장별 상태 (getState/setState)
 
-각 Extension 인스턴스는 격리된 상태 저장소를 가진다.
+각 Extension은 SwarmInstance별로 격리된 상태 저장소를 가진다. Runtime이 자동으로 영속화를 관리한다.
 
 ```typescript
 interface ExtensionApi<TState = JsonObject> {
   /**
-   * 확장별 상태 저장소 반환
-   * 동일 Extension 인스턴스 내에서 상태 유지
-   * AgentInstance 생명주기와 함께 유지됨
+   * 확장별 상태 조회
+   * 현재 상태의 스냅샷을 반환
+   * 인스턴스 초기화 시 디스크에서 자동 복원됨
    */
-  extState(): TState;
+  getState(): TState;
+
+  /**
+   * 확장별 상태 저장
+   * 새 상태로 교체 (변경 감지 가능)
+   * Runtime이 Turn 종료 시 자동으로 디스크에 기록
+   */
+  setState(next: TState): void;
 }
 ```
 
 **특징:**
-- Extension 인스턴스별 격리 (다른 Extension과 공유되지 않음)
-- AgentInstance 생명주기와 함께 유지
-- 메모리 기반 (재시작 시 초기화)
+- Extension별 격리 (다른 Extension과 공유되지 않음)
+- **SwarmInstance별 관리**: 동일 Extension이라도 인스턴스가 다르면 상태가 독립적
+- **Runtime 자동 영속화**: Turn 종료 시 Runtime이 Instance State Root에 자동 기록(MUST)
+- **자동 복원**: 인스턴스 재시작/재개 시 Runtime이 디스크에서 상태를 자동 로드(MUST)
+- `getState()/setState()` 패턴으로 상태 변경을 추적 가능
+- 저장 경로: `<instanceStateRoot>/extensions/<extensionName>/state.json` (workspace.md §5.4 참조)
 
 **사용 예시:**
 
@@ -984,17 +1020,25 @@ interface MyState {
 export async function register(
   api: ExtensionApi<MyState>
 ): Promise<void> {
-  const state = api.extState();
-
-  // 초기화
-  state.processedSteps = 0;
-  state.catalog = [];
-  state.lastUpdated = Date.now();
+  // 초기 상태 설정 (디스크에 저장된 상태가 있으면 자동 복원됨)
+  const existing = api.getState();
+  if (!existing.processedSteps) {
+    api.setState({
+      processedSteps: 0,
+      catalog: [],
+      lastUpdated: Date.now(),
+    });
+  }
 
   // 파이프라인에서 상태 접근
   api.pipelines.mutate('step.post', async (ctx) => {
-    state.processedSteps++;
-    state.lastUpdated = Date.now();
+    const prev = api.getState();
+    api.setState({
+      ...prev,
+      processedSteps: prev.processedSteps + 1,
+      lastUpdated: Date.now(),
+    });
+    // Turn 종료 시 Runtime이 자동으로 디스크에 기록
     return ctx;
   });
 
@@ -1002,25 +1046,29 @@ export async function register(
   api.tools.register({
     name: 'myExt.getStats',
     description: 'Get extension statistics',
-    handler: async () => ({
-      processedSteps: state.processedSteps,
-      catalogSize: state.catalog.length,
-      lastUpdated: state.lastUpdated,
-    }),
+    handler: async () => {
+      const s = api.getState();
+      return {
+        processedSteps: s.processedSteps,
+        catalogSize: s.catalog.length,
+        lastUpdated: s.lastUpdated,
+      };
+    },
   });
 }
 ```
 
 ### 9.2 인스턴스 공유 상태 (instance.shared)
 
-동일 AgentInstance 내 Extension 간 상태 공유가 필요한 경우 사용한다.
+동일 SwarmInstance 내 Extension 간 상태 공유가 필요한 경우 사용한다. Extension별 상태와 마찬가지로 Runtime이 자동 영속화한다.
 
 ```typescript
 interface ExtensionApi {
   instance: {
     /**
      * 인스턴스 공유 상태
-     * 동일 AgentInstance 내 모든 Extension이 접근 가능
+     * 동일 SwarmInstance 내 모든 Extension이 접근 가능
+     * Runtime이 Turn 종료 시 자동으로 디스크에 기록
      */
     shared: JsonObject;
   };
@@ -1028,9 +1076,11 @@ interface ExtensionApi {
 ```
 
 **특징:**
-- 동일 AgentInstance 내 모든 Extension이 접근 가능
-- 키 충돌 방지를 위해 네임스페이스 사용 권장
-- AgentInstance 생명주기와 함께 유지
+- 동일 SwarmInstance 내 모든 Extension이 접근 가능
+- 키 충돌 방지를 위해 네임스페이스(`extensionName:key`) 사용 권장(SHOULD)
+- **Runtime 자동 영속화**: Turn 종료 시 Instance State Root에 자동 기록(MUST)
+- **자동 복원**: 인스턴스 재시작/재개 시 자동 로드(MUST)
+- 저장 경로: `<instanceStateRoot>/extensions/_shared.json` (workspace.md §5.4 참조)
 
 **사용 예시:**
 
@@ -1057,47 +1107,18 @@ export async function register(api: ExtensionApi): Promise<void> {
 }
 ```
 
-### 9.3 영속 상태
+### 9.3 영속화 규칙
 
-메모리 기반 상태 외에 영속 저장이 필요한 경우, Extension은 직접 파일시스템이나 외부 저장소를 사용해야 한다.
+Extension 상태의 영속화는 Runtime이 자동으로 관리한다. Extension 개발자가 직접 파일 I/O를 수행할 필요가 없다.
 
-```typescript
-export async function register(api: ExtensionApi): Promise<void> {
-  const fs = await import('fs/promises');
-  const path = await import('path');
+**규칙:**
 
-  // 상태 파일 경로 (권장: System State Root 활용)
-  const stateDir = process.env.GOONDAN_STATE_ROOT || '~/.goondan';
-  const stateFile = path.join(
-    stateDir,
-    'extensions',
-    api.extension.metadata?.name ?? 'unknown',
-    'state.json'
-  );
-
-  // 상태 로드
-  let persistedState: JsonObject = {};
-  try {
-    const content = await fs.readFile(stateFile, 'utf8');
-    persistedState = JSON.parse(content);
-  } catch {
-    // 파일 없음 - 초기 상태 사용
-  }
-
-  // 상태 저장 함수
-  async function saveState() {
-    await fs.mkdir(path.dirname(stateFile), { recursive: true });
-    await fs.writeFile(stateFile, JSON.stringify(persistedState, null, 2));
-  }
-
-  // Turn 종료 시 상태 저장
-  api.pipelines.mutate('turn.post', async (ctx) => {
-    persistedState.lastTurnAt = Date.now();
-    await saveState();
-    return ctx;
-  });
-}
-```
+1. Runtime은 인스턴스 초기화 시 디스크에 저장된 Extension 상태를 자동 복원해야 한다(MUST).
+2. Runtime은 Turn 종료 시(turn.post 파이프라인 완료 후) 변경된 Extension 상태를 디스크에 기록해야 한다(MUST).
+3. `setState()` 호출 시 Runtime은 변경 여부를 추적하고, 변경이 없으면 디스크 쓰기를 생략해야 한다(SHOULD).
+4. Extension 상태는 JSON 직렬화 가능한 값만 포함해야 한다(MUST). 함수, Symbol, 순환 참조 등은 허용되지 않는다.
+5. 인스턴스 pause 시 현재 상태를 디스크에 기록해야 하며(MUST), resume 시 복원해야 한다(MUST).
+6. Extension이 자체적으로 추가 영속 저장이 필요한 경우(예: 대용량 데이터, 외부 DB 연동), 별도 파일이나 외부 저장소를 직접 사용할 수 있다(MAY).
 
 ---
 
@@ -1163,6 +1184,63 @@ export async function register(api: ExtensionApi): Promise<void> {
   process.on('beforeExit', async () => {
     await connection.close();
   });
+}
+```
+
+### 10.5 에러 보고 및 호환성 검증
+
+#### 10.5.1 표준 오류 코드 (MUST)
+
+Extension 초기화/실행 오류는 다음 표준 오류 코드와 함께 보고해야 한다(MUST):
+
+| 오류 코드 | 설명 |
+|-----------|------|
+| `E_EXT_LOAD` | Extension 모듈 로드 실패 (entry 경로 오류, 모듈 형식 불일치) |
+| `E_EXT_INIT` | Extension register() 함수 실행 중 예외 |
+| `E_EXT_CONFIG` | Extension 구성(spec.config) 검증 실패 |
+| `E_EXT_COMPAT` | Extension 호환성 검증 실패 (apiVersion/capability 불일치) |
+
+#### 10.5.2 suggestion/helpUrl 포함 (SHOULD)
+
+Extension 오류 보고 시 사용자 복구를 돕는 `suggestion`과 관련 문서 `helpUrl`을 포함하는 것을 권장한다(SHOULD).
+
+```typescript
+// Extension 오류 보고 예시
+interface ExtensionError extends Error {
+  /** 표준 오류 코드 */
+  code: string;
+  /** 사용자 복구를 위한 제안 */
+  suggestion?: string;
+  /** 관련 문서 링크 */
+  helpUrl?: string;
+}
+```
+
+#### 10.5.3 호환성 검증 (SHOULD)
+
+Runtime은 Extension 로드 단계에서 다음 호환성 검증을 수행하는 것을 권장한다(SHOULD):
+
+- **capability 검증**: Extension이 요구하는 Runtime capability가 현재 Runtime에서 제공되는지 확인
+- **apiVersion 검증**: Extension의 apiVersion이 현재 Runtime이 지원하는 범위에 포함되는지 확인
+
+```typescript
+// 호환성 검증 예시
+function validateExtensionCompatibility(
+  extension: Resource<ExtensionSpec>,
+  runtimeCapabilities: string[],
+  supportedApiVersions: string[]
+): void {
+  const apiVersion = extension.apiVersion ?? 'agents.example.io/v1alpha1';
+  if (!supportedApiVersions.includes(apiVersion)) {
+    const error = new Error(
+      `Extension '${extension.metadata?.name}' requires apiVersion '${apiVersion}' which is not supported.`
+    );
+    Object.assign(error, {
+      code: 'E_EXT_COMPAT',
+      suggestion: `지원되는 apiVersion: ${supportedApiVersions.join(', ')}`,
+    });
+    throw error;
+  }
 }
 ```
 
@@ -1353,18 +1431,19 @@ interface MCPPrompt {
 export async function register(
   api: ExtensionApi<MCPState, MCPConfig>
 ): Promise<void> {
-  const state = api.extState();
+  api.state.set({
+    tools: [],
+    resources: [],
+    prompts: [],
+    connected: false,
+  });
+  const state = api.state.get();
   const config = api.extension.spec?.config;
 
   if (!config) {
     api.logger?.warn?.('MCP Extension: config is missing');
     return;
   }
-
-  state.tools = [];
-  state.resources = [];
-  state.prompts = [];
-  state.connected = false;
 
   // Stateful 모드: 초기화 시 연결
   if (config.attach.mode === 'stateful') {
@@ -1681,7 +1760,12 @@ interface SkillState {
 export async function register(
   api: ExtensionApi<SkillState, SkillConfig>
 ): Promise<void> {
-  const state = api.extState();
+  api.state.set({
+    catalog: [],
+    rootDir: process.cwd(),
+    openedSkills: new Map(),
+  });
+  const state = api.state.get();
   const config = api.extension.spec?.config;
 
   if (!config) {
@@ -1690,10 +1774,6 @@ export async function register(
   }
 
   const skillDirs = config.discovery.repoSkillDirs || ['.claude/skills'];
-
-  state.catalog = [];
-  state.rootDir = process.cwd();
-  state.openedSkills = new Map();
 
   // 초기화 시 스캔
   if (config.autoScan?.onInit !== false) {

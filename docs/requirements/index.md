@@ -1,4 +1,4 @@
-# Goondan: Agent Swarm Orchestrator 스펙 v0.10
+# Goondan: Agent Swarm Orchestrator 스펙 v0.11
 
 본 문서는 “멀티 에이전트 오케스트레이션과 컨텍스트 최적화를 중심으로 한 에이전트 스웜”을 선언형 Config Plane(= SwarmBundle), stateful long-running Runtime Plane, 그리고 런타임 내부 SwarmBundleManager가 관리하는 Changeset → SwarmBundleRef 메커니즘(구성+코드 변경 반영, Git 기반)으로 구현하기 위한 통합 요구사항을 정의한다.
 
@@ -34,7 +34,7 @@ AI 에이전트 개발은 단일 에이전트의 tool-using loop를 넘어 멀�
 
 ### 2.3 Stateful long-running 에이전트의 복잡성
 
-Turn.messages 누적, 컨텍스트 윈도우 관리, 인스턴스 수명주기(pause/resume/delete/GC) 정책이 없으면 운영 일관성이 깨진다.
+Turn 메시지 상태를 메모리 단일 배열로만 관리하면 메시지 단위 편집과 장애 복원 지점을 잃기 쉽다. `NextMessages = BaseMessages + SUM(Events)` 모델, 컨텍스트 윈도우 관리, 인스턴스 수명주기(pause/resume/delete/GC) 정책이 없으면 운영 일관성이 깨진다.
 
 ### 2.4 다양한 클라이언트 호출의 필요성
 
@@ -117,7 +117,7 @@ Model/Tool/Extension/Agent/Swarm/Connector/Connection/OAuthApp/ResourceType를 �
 
 ## 9. Runtime 실행 모델
 
-Runtime은 canonical event를 Turn으로 변환하여 AgentInstance 큐에 enqueue하고 FIFO로 직렬 실행한다. handoff는 도구 호출 기반 비동기 패턴으로 처리되며, 인스턴스 라이프사이클(pause/resume/terminate/delete/inspect), 코드 변경 반영 의미론(Safe Point 기반, hot-reload 금지), observability(traceId/token/latency) 요구사항을 포함한다.
+Runtime은 canonical event를 Turn으로 변환하여 AgentInstance 큐에 enqueue하고 FIFO로 직렬 실행한다. Turn 메시지 처리는 `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산되며, handoff는 도구 호출 기반 비동기 패턴으로 처리된다. 또한 인스턴스 라이프사이클(pause/resume/terminate/delete/inspect), 코드 변경 반영 의미론(Safe Point 기반, hot-reload 금지), observability(traceId/token/latency) 요구사항을 포함한다.
 
 자세한 본문: @09_runtime-model.md
 
@@ -125,7 +125,7 @@ Runtime은 canonical event를 Turn으로 변환하여 AgentInstance 큐에 enque
 
 ## 10. 워크스페이스 모델
 
-SwarmBundleRoot(정의), Instance State Root(실행 상태), System State Root(전역 상태)를 분리한다. 로그/메트릭/OAuth 저장소의 경로와 보안(at-rest encryption) 요구사항을 정의한다.
+SwarmBundleRoot(정의), Instance State Root(실행 상태), System State Root(전역 상태)를 분리한다. 특히 Agent 메시지 저장소는 `base.jsonl`/`events.jsonl` 이원화 모델을 따라야 하며, 로그/메트릭/OAuth 저장소의 경로와 보안(at-rest encryption) 요구사항을 정의한다.
 
 자세한 본문: @10_workspace-model.md
 
@@ -165,7 +165,7 @@ Skill, ToolSearch, 컨텍스트 compaction, handoff 같은 대표 패턴을 정�
 
 ## 15. 예상 사용 시나리오
 
-Slack 장기 스레드, OAuth 승인 재개, 동시 Changeset 충돌 복구, ToolSearch 도구 최적화, 인스턴스 pause/resume 등 운영 시나리오를 정리한다.
+Slack 장기 스레드, OAuth 승인 재개, 동시 Changeset 충돌 복구, ToolSearch 도구 최적화, 인스턴스 pause/resume, turn 중 장애 후 메시지 복원 시나리오를 정리한다.
 
 자세한 본문: @15_usage-scenarios.md
 
@@ -189,6 +189,8 @@ Instance → Turn → Step 실행 흐름과 핵심 파이프라인 포인트를 
 
 ## 변경 이력 및 정합성 검토
 
+- 2026-02-07: Turn 메시지 처리 모델을 `NextMessages = BaseMessages + SUM(Events)`로 전환. `base.jsonl`/`events.jsonl` 저장 구조, turn.post `(base, events)` 전달 및 최종 fold-commit 규칙 추가. 관련 요구사항/구현 스펙 동기화 완료.
+- 2026-02-07: 영향 스펙 동기화: `docs/specs/runtime.md`, `docs/specs/workspace.md`, `docs/specs/pipeline.md`, `docs/specs/api.md`, `docs/specs/extension.md`, `docs/specs/tool.md`, `docs/specs/bundle.md`, `docs/specs/resources.md` 업데이트.
 - 2026-02-07: `_improve-claude.md`, `_improve-codex.md` 반영.
 - 2026-02-07: `7.7 Connection` 요구사항 추가, `8` 패키징 요구사항 확장, 인스턴스 라이프사이클/동시성/observability/오류 UX 요구사항 강화.
 - 2026-02-07: `14~16` 섹션을 분할 파일로 독립.

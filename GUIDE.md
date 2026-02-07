@@ -260,7 +260,7 @@ Middleware A (전처리)
 | 포인트 | 타입 | 설명 |
 |--------|------|------|
 | `turn.pre` | Mutator | Turn 시작 전 |
-| `turn.post` | Mutator | Turn 종료 후 |
+| `turn.post` | Mutator | Turn 종료 훅 (`base/events` 전달, 추가 이벤트 발행 가능) |
 | `step.config` | Mutator | Step 설정 결정 |
 | `step.tools` | Mutator | Tool Catalog 구성 |
 | `step.blocks` | Mutator | 컨텍스트 블록 구성 |
@@ -269,6 +269,12 @@ Middleware A (전처리)
 | `toolCall.pre` | Mutator | 도구 호출 전 |
 | `toolCall.exec` | Middleware | 도구 실행 래핑 |
 | `toolCall.post` | Mutator | 도구 호출 후 |
+
+**Turn 메시지 상태 모델 (MUST):**
+- `NextMessages = BaseMessages + SUM(Events)`
+- turn 시작 시 `messages/base.jsonl` 로드
+- turn 진행 중 `messages/events.jsonl`에 메시지 이벤트 append
+- `turn.post` 훅 완료 후 fold 결과를 새 base로 저장하고 events 비움
 
 ---
 
@@ -1283,4 +1289,4 @@ gdn validate --format json
 ---
 
 **문서 버전**: v0.0.2
-**최종 수정**: 2026-02-06
+**최종 수정**: 2026-02-07

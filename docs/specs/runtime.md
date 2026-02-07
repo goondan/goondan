@@ -1,4 +1,4 @@
-# Goondan Runtime 실행 모델 스펙 (v0.9)
+# Goondan Runtime 실행 모델 스펙 (v0.10)
 
 본 문서는 `docs/requirements/index.md`(특히 05/09/11 섹션)를 기반으로 Runtime 실행 모델의 상세 구현 스펙을 정의한다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
 
@@ -113,7 +113,7 @@ interface SwarmInstance {
   metadata: JsonObject;
 }
 
-type SwarmInstanceStatus = 'active' | 'idle' | 'terminated';
+type SwarmInstanceStatus = 'active' | 'idle' | 'paused' | 'terminated';
 
 /**
  * SwarmBundleRef: 특정 SwarmBundle 스냅샷을 식별하는 불변 식별자
@@ -235,12 +235,15 @@ type AgentEventType =
  *
  * 규칙:
  * - MUST: 작업이 소진될 때까지 Step 반복 후 제어 반납
- * - MUST: Turn.messages에 LLM 응답 및 Tool 결과를 누적
+ * - MUST: NextMessages = BaseMessages + SUM(Events) 규칙으로 LLM 입력 메시지를 계산
  * - MUST: origin과 auth는 Turn 생애주기 동안 불변
  */
 interface Turn {
   /** Turn 고유 ID */
   readonly id: string;
+
+  /** 추적 ID (MUST: Turn마다 생성/보존, Step/ToolCall/Event 로그로 전파) */
+  readonly traceId: string;
 
   /** 소속된 AgentInstance 참조 */
   readonly agentInstance: AgentInstance;
@@ -254,8 +257,8 @@ interface Turn {
   /** 인증 컨텍스트 (불변) */
   readonly auth: TurnAuth;
 
-  /** 누적된 LLM 메시지 */
-  readonly messages: LlmMessage[];
+  /** Turn 메시지 상태 (base + events + 계산 결과) */
+  readonly messageState: TurnMessageState;
 
   /** 실행된 Step 목록 */
   readonly steps: Step[];
@@ -274,6 +277,22 @@ interface Turn {
 
   /** Turn 메타데이터 (확장용) */
   metadata: JsonObject;
+}
+
+/**
+ * Turn 메시지 상태
+ *
+ * 규칙:
+ * - MUST: nextMessages = fold(baseMessages, events)
+ * - MUST: events는 append order를 보존
+ */
+interface TurnMessageState {
+  /** Turn 시작 시 로드한 기준 메시지 */
+  baseMessages: LlmMessage[];
+  /** Turn 중 누적된 메시지 이벤트 */
+  events: MessageEvent[];
+  /** 현재 Step에서 사용할 계산 결과 */
+  nextMessages: LlmMessage[];
 }
 
 type TurnStatus =
@@ -435,8 +454,8 @@ interface EffectiveConfig {
  * LlmMessage: LLM과의 대화 메시지 단위
  *
  * 규칙:
- * - MUST: Turn.messages에 순서대로 누적
- * - MUST: 다음 Step의 입력 컨텍스트로 사용
+ * - MUST: 각 메시지는 id를 가져야 한다
+ * - MUST: MessageEvent(replace/remove)의 참조 대상으로 사용 가능해야 한다
  */
 type LlmMessage =
   | LlmSystemMessage
@@ -445,26 +464,70 @@ type LlmMessage =
   | LlmToolMessage;
 
 interface LlmSystemMessage {
+  readonly id: string;
   readonly role: 'system';
   readonly content: string;
 }
 
 interface LlmUserMessage {
+  readonly id: string;
   readonly role: 'user';
   readonly content: string;
 }
 
 interface LlmAssistantMessage {
+  readonly id: string;
   readonly role: 'assistant';
   readonly content?: string;
   readonly toolCalls?: ToolCall[];
 }
 
 interface LlmToolMessage {
+  readonly id: string;
   readonly role: 'tool';
   readonly toolCallId: string;
   readonly toolName: string;
   readonly output: JsonValue;
+}
+
+/**
+ * Turn 메시지 조작 이벤트
+ */
+type MessageEvent =
+  | SystemMessageEvent
+  | LlmMessageEvent
+  | ReplaceMessageEvent
+  | RemoveMessageEvent
+  | TruncateMessageEvent;
+
+interface BaseMessageEvent {
+  readonly seq: number;
+  readonly recordedAt: string;
+}
+
+interface SystemMessageEvent extends BaseMessageEvent {
+  readonly type: 'system_message';
+  readonly message: LlmSystemMessage;
+}
+
+interface LlmMessageEvent extends BaseMessageEvent {
+  readonly type: 'llm_message';
+  readonly message: LlmUserMessage | LlmAssistantMessage | LlmToolMessage;
+}
+
+interface ReplaceMessageEvent extends BaseMessageEvent {
+  readonly type: 'replace';
+  readonly targetId: string;
+  readonly message: LlmMessage;
+}
+
+interface RemoveMessageEvent extends BaseMessageEvent {
+  readonly type: 'remove';
+  readonly targetId: string;
+}
+
+interface TruncateMessageEvent extends BaseMessageEvent {
+  readonly type: 'truncate';
 }
 
 /**
@@ -617,6 +680,77 @@ interface SwarmInstanceManager {
    * @param instanceKey - 인스턴스 라우팅 키
    */
   terminate(instanceKey: string): Promise<void>;
+
+  /**
+   * SwarmInstance 상태 조회
+   *
+   * @param instanceKey - 인스턴스 라우팅 키
+   * @returns 인스턴스 상태 정보
+   */
+  inspect(instanceKey: string): Promise<SwarmInstanceInfo | undefined>;
+
+  /**
+   * SwarmInstance 일시정지
+   * - MUST: paused 상태에서는 새 Turn을 실행해서는 안 된다
+   *
+   * @param instanceKey - 인스턴스 라우팅 키
+   */
+  pause(instanceKey: string): Promise<void>;
+
+  /**
+   * SwarmInstance 처리 재개
+   * - MUST: 큐 적재 이벤트를 순서대로 재개해야 한다
+   *
+   * @param instanceKey - 인스턴스 라우팅 키
+   */
+  resume(instanceKey: string): Promise<void>;
+
+  /**
+   * SwarmInstance 상태 삭제
+   * - MUST: 인스턴스 상태를 제거하되 시스템 전역 상태(OAuth grant 등)는 보존한다
+   *
+   * @param instanceKey - 인스턴스 라우팅 키
+   */
+  delete(instanceKey: string): Promise<void>;
+
+  /**
+   * 전체 SwarmInstance 목록 조회
+   *
+   * @returns 인스턴스 정보 목록
+   */
+  list(): Promise<SwarmInstanceInfo[]>;
+}
+
+/**
+ * SwarmInstance 상태 정보 (inspect/list 용)
+ */
+interface SwarmInstanceInfo {
+  /** 인스턴스 고유 ID */
+  readonly id: string;
+
+  /** 라우팅 키 */
+  readonly instanceKey: string;
+
+  /** Swarm 참조 */
+  readonly swarmRef: ObjectRefLike;
+
+  /** 현재 활성 SwarmBundleRef */
+  readonly activeSwarmBundleRef: SwarmBundleRef;
+
+  /** 인스턴스 상태 */
+  readonly status: SwarmInstanceStatus;
+
+  /** 포함된 Agent 이름 목록 */
+  readonly agentNames: string[];
+
+  /** 생성 시각 */
+  readonly createdAt: Date;
+
+  /** 마지막 활동 시각 */
+  readonly lastActivityAt: Date;
+
+  /** 메타데이터 */
+  readonly metadata: JsonObject;
 }
 
 /**
@@ -736,7 +870,8 @@ async function createAgentInstance(
   agents/
     <agentName>/
       messages/
-        llm.jsonl           # LLM 메시지 로그 (append-only)
+        base.jsonl          # 기준 메시지 스냅샷 로그 (append-only)
+        events.jsonl        # Turn 메시지 이벤트 로그 (turn 단위)
       events/
         events.jsonl        # AgentInstance 이벤트 로그 (append-only)
 ```
@@ -909,20 +1044,29 @@ async function runTurn(
   agentInstance: AgentInstance,
   event: AgentEvent
 ): Promise<Turn> {
-  // 1. Turn 생성
+  // 1. Turn 생성 (MUST: traceId를 생성하여 추적 가능성 보장)
   const turn: Turn = {
     id: generateId(),
+    traceId: generateTraceId(), // MUST: Turn마다 traceId 생성
     agentInstance,
     inputEvent: event,
     origin: event.origin ?? {},
     auth: event.auth ?? {},
-    messages: [],
+    messageState: {
+      baseMessages: await loadMessageBase(agentInstance),
+      events: [],
+      nextMessages: [],
+    },
     steps: [],
     currentStepIndex: 0,
     status: 'pending',
     startedAt: new Date(),
     metadata: {},
   };
+  turn.messageState.nextMessages = foldMessageEvents(
+    turn.messageState.baseMessages,
+    turn.messageState.events
+  );
 
   agentInstance.currentTurn = turn;
   agentInstance.status = 'processing';
@@ -931,11 +1075,17 @@ async function runTurn(
     // 2. turn.pre 파이프라인 실행
     const turnContext = await runPipeline('turn.pre', { turn });
 
-    // 3. 초기 사용자 메시지 추가
+    // 3. 초기 사용자 메시지 이벤트 추가
     if (event.input) {
-      turn.messages.push({
-        role: 'user',
-        content: event.input,
+      await appendMessageEvent(turn, {
+        type: 'llm_message',
+        seq: nextMessageEventSeq(turn),
+        recordedAt: new Date().toISOString(),
+        message: {
+          id: generateMessageId(),
+          role: 'user',
+          content: event.input,
+        },
       });
     }
 
@@ -958,15 +1108,30 @@ async function runTurn(
       break;
     }
 
-    // 5. turn.post 파이프라인 실행
-    await runPipeline('turn.post', { turn });
+    // 5. turn.post 파이프라인 실행 (base, events 전달)
+    await runPipeline('turn.post', {
+      turn,
+      baseMessages: turn.messageState.baseMessages,
+      messageEvents: turn.messageState.events,
+    });
 
-    // 6. Turn 완료
+    // 6. Turn 메시지 상태 finalize
+    const finalizedBase = foldMessageEvents(
+      turn.messageState.baseMessages,
+      turn.messageState.events
+    );
+    await persistMessageBase(turn, finalizedBase);
+    await clearMessageEvents(turn);
+    turn.messageState.baseMessages = finalizedBase;
+    turn.messageState.events = [];
+    turn.messageState.nextMessages = finalizedBase;
+
+    // 7. Turn 완료
     turn.status = 'completed';
     turn.completedAt = new Date();
 
   } catch (error) {
-    // 7. 에러 처리
+    // 8. 에러 처리
     turn.status = 'failed';
     turn.completedAt = new Date();
     turn.metadata.error = serializeError(error);
@@ -978,7 +1143,7 @@ async function runTurn(
       data: { error: turn.metadata.error },
     });
   } finally {
-    // 8. 정리
+    // 9. 정리
     agentInstance.currentTurn = null;
     agentInstance.completedTurnCount++;
     agentInstance.lastActivityAt = new Date();
@@ -1058,7 +1223,7 @@ function getMaxStepsPerTurn(agentInstance: AgentInstance): number {
  * Step 실행 알고리즘
  *
  * 규칙:
- * - MUST: step.config -> step.tools -> step.blocks -> step.llmCall -> tool call -> step.post 순서
+ * - MUST: step.config -> step.tools -> step.blocks -> step.llmInput -> step.llmCall -> tool call -> step.post 순서
  * - MUST: Step 시작 시 SwarmBundleRef와 Effective Config 고정
  * - MUST: 각 파이프라인 포인트 실행
  */
@@ -1129,7 +1294,7 @@ async function runStep(turn: Turn): Promise<Step> {
     // ========================================
     step.status = 'blocks';
 
-    // 5.1 기본 블록 생성 (이전 messages, toolResults 등)
+    // 5.1 기본 블록 생성 (messageState.nextMessages, toolResults 등)
     const baseBlocks = buildContextBlocks(turn, step);
 
     // 5.2 step.blocks mutator 실행
@@ -1148,7 +1313,8 @@ async function runStep(turn: Turn): Promise<Step> {
     step.status = 'llmCall';
 
     // 6.1 LLM 요청 구성
-    const llmRequest = buildLlmRequest(step);
+    const llmInput = turn.messageState.nextMessages;
+    const llmRequest = buildLlmRequest(step, llmInput);
 
     // 6.2 step.llmCall middleware 실행 (onion wrapping)
     const llmContext = {
@@ -1184,14 +1350,11 @@ async function runStep(turn: Turn): Promise<Step> {
 
     step.llmResult = llmResult;
 
-    // 6.4 LLM 응답을 Turn.messages에 추가
-    turn.messages.push(llmResult.message);
-
-    // 6.5 LLM 메시지 로그 기록
-    await logLlmMessage(agentInstance, {
-      turnId: turn.id,
-      stepId: step.id,
-      stepIndex: step.index,
+    // 6.4 LLM 응답(system 제외)을 메시지 이벤트로 기록
+    await appendMessageEvent(turn, {
+      type: 'llm_message',
+      seq: nextMessageEventSeq(turn),
+      recordedAt: new Date().toISOString(),
       message: llmResult.message,
     });
 
@@ -1255,20 +1418,13 @@ async function runStep(turn: Turn): Promise<Step> {
           toolResult,
         });
 
-        // 7.4 Tool 결과를 Turn.messages에 추가
-        turn.messages.push({
-          role: 'tool',
-          toolCallId: toolResult.toolCallId,
-          toolName: toolResult.toolName,
-          output: toolResult.output ?? toolResult.error,
-        });
-
-        // 7.5 Tool 결과 로그 기록
-        await logLlmMessage(agentInstance, {
-          turnId: turn.id,
-          stepId: step.id,
-          stepIndex: step.index,
+        // 7.4 Tool 결과를 메시지 이벤트로 기록
+        await appendMessageEvent(turn, {
+          type: 'llm_message',
+          seq: nextMessageEventSeq(turn),
+          recordedAt: new Date().toISOString(),
           message: {
+            id: generateMessageId(),
             role: 'tool',
             toolCallId: toolResult.toolCallId,
             toolName: toolResult.toolName,
@@ -1354,170 +1510,178 @@ async function runStep(turn: Turn): Promise<Step> {
 
 ---
 
-## 7. Turn.messages 누적 규칙
+## 7. Turn 메시지 상태 모델 (Base + Events)
 
-### 7.1 메시지 누적 알고리즘
+### 7.1 계산 규칙
 
 ```typescript
 /**
- * Turn.messages 누적 규칙
+ * Turn 메시지 계산 공식
  *
- * 규칙:
- * - MUST: 각 Step의 LLM 응답을 순서대로 append
- * - MUST: 각 Tool 결과를 순서대로 append
- * - MUST: 다음 Step의 입력 컨텍스트로 사용
+ * MUST:
+ * - NextMessages = BaseMessages + SUM(Events)
+ * - SUM(Events)는 append order 기준 결정론적 fold
  */
-interface MessageAccumulator {
-  /**
-   * 메시지 추가
-   */
-  append(turn: Turn, message: LlmMessage): void;
-
-  /**
-   * 현재 메시지 목록 조회
-   */
-  getMessages(turn: Turn): readonly LlmMessage[];
-
-  /**
-   * LLM 요청용 메시지 배열 생성
-   */
-  buildLlmMessages(turn: Turn, systemPrompt: string): LlmMessage[];
+interface MessageStateManager {
+  loadBase(turn: Turn): Promise<LlmMessage[]>;
+  appendEvent(turn: Turn, event: MessageEvent): Promise<void>;
+  buildNextMessages(turn: Turn): LlmMessage[];
+  finalizeTurn(turn: Turn): Promise<LlmMessage[]>;
+  recover(turn: Turn): Promise<LlmMessage[]>;
 }
 
-/**
- * 메시지 누적 순서 예시
- */
-function demonstrateMessageAccumulation(): void {
-  // Turn 시작
-  const turn: Turn = { messages: [], /* ... */ };
+function foldMessageEvents(
+  baseMessages: readonly LlmMessage[],
+  events: readonly MessageEvent[]
+): LlmMessage[] {
+  let next = [...baseMessages];
 
-  // 1. 사용자 입력 (event.input)
-  turn.messages.push({
-    role: 'user',
-    content: '파일 목록을 보여줘',
-  });
-
-  // --- Step 0 ---
-
-  // 2. LLM 응답 (tool call 요청)
-  turn.messages.push({
-    role: 'assistant',
-    content: null,
-    toolCalls: [{
-      id: 'call_001',
-      name: 'file.list',
-      input: { path: '.' },
-    }],
-  });
-
-  // 3. Tool 결과
-  turn.messages.push({
-    role: 'tool',
-    toolCallId: 'call_001',
-    toolName: 'file.list',
-    output: { files: ['README.md', 'package.json'] },
-  });
-
-  // --- Step 1 ---
-
-  // 4. LLM 응답 (최종)
-  turn.messages.push({
-    role: 'assistant',
-    content: '현재 디렉토리에 README.md와 package.json 파일이 있습니다.',
-  });
-
-  // Turn 종료
-}
-
-/**
- * LLM 요청 메시지 빌드
- */
-function buildLlmMessages(turn: Turn, systemPrompt: string): LlmMessage[] {
-  const messages: LlmMessage[] = [];
-
-  // 1. 시스템 프롬프트
-  messages.push({
-    role: 'system',
-    content: systemPrompt,
-  });
-
-  // 2. Turn.messages 복사 (불변성 유지)
-  for (const msg of turn.messages) {
-    messages.push({ ...msg });
+  for (const event of events) {
+    switch (event.type) {
+      case 'system_message': {
+        const withoutSystem = next.filter((m) => m.role !== 'system');
+        next = [event.message, ...withoutSystem];
+        break;
+      }
+      case 'llm_message': {
+        next = [...next, event.message];
+        break;
+      }
+      case 'replace': {
+        next = next.map((m) => (m.id === event.targetId ? event.message : m));
+        break;
+      }
+      case 'remove': {
+        next = next.filter((m) => m.id !== event.targetId);
+        break;
+      }
+      case 'truncate': {
+        next = next.filter((m) => m.role === 'system');
+        break;
+      }
+    }
   }
 
-  return messages;
+  return next;
 }
 ```
 
-### 7.2 메시지 로그 포맷
+### 7.2 Turn 경계 처리 규칙
 
 ```typescript
 /**
- * LLM 메시지 로그 레코드 (JSONL 포맷)
+ * Turn 종료 처리
  *
- * 저장 경로: <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/messages/llm.jsonl
+ * 순서:
+ * 1) turn.post 훅 실행 (입력: baseMessages, messageEvents)
+ * 2) 훅이 추가 발행한 이벤트까지 포함하여 fold
+ * 3) base.jsonl에 최종 스냅샷 append
+ * 4) events.jsonl 비우기
  */
-interface LlmMessageLogRecord {
-  /** 레코드 타입 */
-  type: 'llm.message';
+async function finalizeTurnMessages(turn: Turn): Promise<void> {
+  await runPipeline('turn.post', {
+    turn,
+    baseMessages: turn.messageState.baseMessages,
+    messageEvents: turn.messageState.events,
+  });
 
-  /** 기록 시각 */
-  recordedAt: string; // ISO8601
+  const finalMessages = foldMessageEvents(
+    turn.messageState.baseMessages,
+    turn.messageState.events
+  );
+  await persistMessageBase(turn, finalMessages);
+  await clearMessageEvents(turn);
 
-  /** 인스턴스 ID */
-  instanceId: string;
-
-  /** 인스턴스 키 */
-  instanceKey: string;
-
-  /** 에이전트 이름 */
-  agentName: string;
-
-  /** Turn ID */
-  turnId: string;
-
-  /** Step ID (선택) */
-  stepId?: string;
-
-  /** Step 인덱스 (선택) */
-  stepIndex?: number;
-
-  /** 메시지 내용 */
-  message: LlmMessage;
+  turn.messageState.baseMessages = finalMessages;
+  turn.messageState.events = [];
+  turn.messageState.nextMessages = finalMessages;
 }
 
 /**
- * 메시지 로그 기록 함수
+ * 장애 복원
+ *
+ * MUST: events.jsonl이 남아 있으면 base + events를 재계산해 복원
  */
-async function logLlmMessage(
-  agentInstance: AgentInstance,
-  params: {
-    turnId: string;
-    stepId?: string;
-    stepIndex?: number;
-    message: LlmMessage;
-  }
-): Promise<void> {
-  const record: LlmMessageLogRecord = {
-    type: 'llm.message',
-    recordedAt: new Date().toISOString(),
-    instanceId: agentInstance.swarmInstance.id,
-    instanceKey: agentInstance.swarmInstance.instanceKey,
-    agentName: agentInstance.agentName,
-    turnId: params.turnId,
-    stepId: params.stepId,
-    stepIndex: params.stepIndex,
-    message: params.message,
-  };
+async function recoverMessageState(turn: Turn): Promise<void> {
+  const base = await loadMessageBase(turn.agentInstance);
+  const events = await loadMessageEvents(turn.agentInstance, turn.id);
+  turn.messageState.baseMessages = base;
+  turn.messageState.events = events;
+  turn.messageState.nextMessages = foldMessageEvents(base, events);
+}
+```
 
+### 7.3 메시지 저장 포맷
+
+```typescript
+/**
+ * 메시지 base 스냅샷 로그
+ *
+ * 저장 경로:
+ * <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/messages/base.jsonl
+ */
+interface MessageBaseLogRecord {
+  type: 'message.base';
+  recordedAt: string;
+  traceId: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId: string;
+  messages: LlmMessage[];
+  sourceEventCount?: number;
+}
+
+/**
+ * 메시지 이벤트 로그
+ *
+ * 저장 경로:
+ * <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/messages/events.jsonl
+ */
+interface MessageEventLogRecord {
+  type: 'message.event';
+  recordedAt: string;
+  traceId: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId: string;
+  seq: number;
+  eventType: MessageEvent['type'];
+  payload: JsonObject;
+  stepId?: string;
+}
+```
+
+### 7.4 이벤트 기록 헬퍼
+
+```typescript
+async function appendMessageEvent(turn: Turn, event: MessageEvent): Promise<void> {
+  const agentInstance = turn.agentInstance;
   const logPath = path.join(
     getInstanceStatePath(agentInstance),
     'messages',
-    'llm.jsonl'
+    'events.jsonl'
   );
 
-  await appendJsonl(logPath, record);
+  await appendJsonl(logPath, {
+    type: 'message.event',
+    recordedAt: event.recordedAt,
+    traceId: turn.traceId,
+    instanceId: agentInstance.swarmInstance.id,
+    instanceKey: agentInstance.swarmInstance.instanceKey,
+    agentName: agentInstance.agentName,
+    turnId: turn.id,
+    seq: event.seq,
+    eventType: event.type,
+    payload: serializeMessageEvent(event),
+  } satisfies MessageEventLogRecord);
+
+  turn.messageState.events.push(event);
+  turn.messageState.nextMessages = foldMessageEvents(
+    turn.messageState.baseMessages,
+    turn.messageState.events
+  );
 }
 ```
 
@@ -1702,6 +1866,8 @@ async function loadEffectiveConfig(
 /**
  * Identity 기반 배열 정규화
  *
+ * 대상 필드: `/spec/tools`, `/spec/extensions` (SHOULD)
+ *
  * 규칙:
  * - SHOULD: identity key 중복 시 last-wins
  * - SHOULD: 순서 변경으로 인한 상태 재생성 방지
@@ -1768,6 +1934,87 @@ async function determineActiveRefAtStepConfig(
   return currentActiveRef;
 }
 ```
+
+### 9.3 코드 변경 반영 의미론
+
+Changeset으로 소스코드(Tool/Extension/Connector entry 모듈)가 변경된 경우, 변경된 코드는 Safe Point(`step.config`)에서 새 SwarmBundleRef 활성화와 함께 반영된다.
+
+```typescript
+/**
+ * 코드 변경 반영 규칙
+ *
+ * 규칙:
+ * - MUST: Runtime은 Step 시작 시 활성화된 SwarmBundleRef 기준으로 entry 모듈을 resolve해야 한다
+ * - MUST NOT: Step 실행 중에는 entry 모듈을 동적으로 교체(hot-reload)해서는 안 된다
+ * - MUST: 코드 변경의 반영 단위는 Config 변경과 동일하게 Step 경계여야 한다
+ */
+
+/**
+ * Step 시작 시 entry 모듈 resolve (step.config 내부)
+ */
+async function resolveEntryModules(
+  swarmBundleRef: SwarmBundleRef,
+  effectiveConfig: EffectiveConfig
+): Promise<void> {
+  // 1. Tool entry 모듈 resolve
+  for (const tool of effectiveConfig.tools) {
+    if (tool.spec.entry) {
+      await resolveModulePath(swarmBundleRef, tool.spec.entry);
+    }
+  }
+
+  // 2. Extension entry 모듈 resolve
+  for (const ext of effectiveConfig.extensions) {
+    if (ext.spec.entry) {
+      await resolveModulePath(swarmBundleRef, ext.spec.entry);
+    }
+  }
+
+  // 이후 Step 종료까지 resolve된 모듈은 교체되지 않는다 (MUST NOT hot-reload)
+}
+```
+
+### 9.4 인스턴스 GC 정책
+
+TTL/idle 기반 자동 정리(GC)는 정책으로 제공하는 것을 권장한다(SHOULD).
+
+```typescript
+/**
+ * 인스턴스 GC 정책
+ *
+ * 규칙:
+ * - SHOULD: TTL/idle 기반 자동 정리(GC)를 정책으로 제공한다
+ * - SHOULD: GC 대상 인스턴스는 terminate 후 상태를 정리한다
+ */
+interface InstanceGcPolicy {
+  /** 인스턴스 최대 생존 시간(ms) (0이면 비활성화) */
+  ttlMs?: number;
+
+  /** 유휴 상태 최대 시간(ms) (0이면 비활성화) */
+  idleTimeoutMs?: number;
+
+  /** GC 검사 간격(ms) */
+  checkIntervalMs?: number;
+}
+```
+
+정책 설정 위치:
+
+```yaml
+kind: Swarm
+metadata:
+  name: default
+spec:
+  policy:
+    gc:
+      ttlMs: 3600000          # 1시간
+      idleTimeoutMs: 1800000  # 30분 유휴 시 정리
+      checkIntervalMs: 60000  # 1분마다 검사
+```
+
+### 9.5 운영 인터페이스 요구사항
+
+구현은 인스턴스 라이프사이클 연산(`list/inspect/pause/resume/terminate/delete`)을 운영 인터페이스로 제공해야 한다(MUST). CLI를 제공하는 구현은 위 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD). 실제 CLI 명령어 매핑은 `docs/specs/cli.md`를 참조한다.
 
 ---
 
@@ -2424,6 +2671,9 @@ interface AgentEventLogRecord {
   /** Agent 이름 */
   agentName: string;
 
+  /** 추적 ID (MUST: Turn에서 전파) */
+  traceId?: string;
+
   /** Turn ID (선택) */
   turnId?: string;
 
@@ -2783,12 +3033,15 @@ spec:
  * 규칙:
  * - MUST: 모든 Turn/Step 시작/종료를 구조화된 로그로 기록한다
  * - MUST: 에러 발생 시 context 정보(instanceKey, agentName, turnId, stepIndex)를 포함한다
+ * - MUST: Turn/Step/ToolCall 로그에 traceId를 포함한다
+ * - MUST: 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다
  * - SHOULD: 로그 레벨을 debug/info/warn/error로 구분한다
  */
 interface RuntimeLogEntry {
   timestamp: string;
   level: 'debug' | 'info' | 'warn' | 'error';
   event: string;
+  traceId?: string; // MUST: Turn에서 전파된 traceId
   context: {
     instanceKey?: string;
     swarmRef?: string;
@@ -2812,16 +3065,57 @@ Extension은 `api.events.emit()`을 통해 다음 메트릭 이벤트를 수집�
 
 | 이벤트 | 설명 | 포함 데이터 |
 |--------|------|------------|
-| `turn.started` | Turn 시작 | instanceKey, agentName, origin |
-| `turn.completed` | Turn 완료 | duration, stepCount, status |
-| `turn.failed` | Turn 실패 | error, duration |
-| `step.llmCall.started` | LLM 호출 시작 | model, messageCount |
-| `step.llmCall.completed` | LLM 호출 완료 | duration, tokenUsage |
-| `step.llmCall.failed` | LLM 호출 실패 | error, retryCount |
-| `step.toolCall.completed` | Tool 실행 완료 | toolName, duration |
-| `step.toolCall.failed` | Tool 실행 실패 | toolName, error |
+| `turn.started` | Turn 시작 | instanceKey, agentName, origin, traceId |
+| `turn.completed` | Turn 완료 | duration, stepCount, status, traceId |
+| `turn.failed` | Turn 실패 | error, duration, traceId |
+| `step.llmCall.started` | LLM 호출 시작 | model, messageCount, traceId |
+| `step.llmCall.completed` | LLM 호출 완료 | duration, tokenUsage, traceId |
+| `step.llmCall.failed` | LLM 호출 실패 | error, retryCount, traceId |
+| `step.toolCall.completed` | Tool 실행 완료 | toolName, duration, traceId |
+| `step.toolCall.failed` | Tool 실행 실패 | toolName, error, traceId |
 
-### 16.3 Token 사용량 추적
+### 16.3 메트릭 인터페이스
+
+```typescript
+/**
+ * Step/Turn 메트릭
+ *
+ * 규칙:
+ * - SHOULD: Runtime은 최소 latencyMs, toolCallCount, errorCount, tokenUsage를 기록한다
+ */
+interface StepMetrics {
+  /** Step 실행 시간(ms) */
+  latencyMs: number;
+
+  /** Tool 호출 횟수 */
+  toolCallCount: number;
+
+  /** 오류 횟수 */
+  errorCount: number;
+
+  /** 토큰 사용량 */
+  tokenUsage: TokenUsage;
+}
+
+interface TurnMetrics {
+  /** Turn 전체 실행 시간(ms) */
+  latencyMs: number;
+
+  /** Step 수 */
+  stepCount: number;
+
+  /** 총 Tool 호출 횟수 */
+  toolCallCount: number;
+
+  /** 총 오류 횟수 */
+  errorCount: number;
+
+  /** 총 토큰 사용량 */
+  tokenUsage: TokenUsage;
+}
+```
+
+### 16.4 Token 사용량 추적
 
 ```typescript
 /**
@@ -2838,6 +3132,63 @@ interface TokenUsage {
 }
 ```
 
+### 16.5 민감값 마스킹
+
+```typescript
+/**
+ * 민감값 마스킹 규칙
+ *
+ * 규칙:
+ * - MUST: access token, refresh token, secret 등 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다
+ * - SHOULD: 마스킹된 값은 앞 4자만 노출하고 나머지는 "****"로 대체한다
+ */
+function maskSensitiveValue(value: string): string {
+  if (value.length <= 4) {
+    return '****';
+  }
+  return value.slice(0, 4) + '****';
+}
+
+/** 민감 필드 키 패턴 */
+const SENSITIVE_KEY_PATTERNS = [
+  /token/i,
+  /secret/i,
+  /password/i,
+  /credential/i,
+  /api[_-]?key/i,
+];
+```
+
+### 16.6 Health Check
+
+```typescript
+/**
+ * Runtime 상태 점검(Health Check) 인터페이스
+ *
+ * 규칙:
+ * - SHOULD: Runtime은 상태 점검 인터페이스를 제공한다
+ */
+interface HealthCheckResult {
+  /** 전체 상태 */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+
+  /** 활성 인스턴스 수 */
+  activeInstances: number;
+
+  /** 현재 실행 중인 Turn 수 */
+  activeTurns: number;
+
+  /** 마지막 활동 시각 */
+  lastActivityAt?: string;
+
+  /** 구성 요소별 상태 */
+  components?: Record<string, {
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+  }>;
+}
+```
+
 ---
 
 ## 17. 구현 요구사항 요약
@@ -2848,16 +3199,24 @@ interface TokenUsage {
 |------|------|
 | 인스턴스 라우팅 | instanceKey로 동일 맥락을 같은 SwarmInstance로 라우팅 |
 | AgentInstance 이벤트 큐 | FIFO 순서로 이벤트 처리 |
-| Turn 메시지 누적 | LLM 응답 및 Tool 결과를 Turn.messages에 append |
-| Step 실행 순서 | step.config -> step.tools -> step.blocks -> step.llmCall -> toolCall -> step.post |
+| Turn traceId | Turn마다 traceId를 생성/보존하고 Step/ToolCall/Event 로그로 전파 |
+| Turn 메시지 모델 | `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산 |
+| Step 실행 순서 | step.config -> step.tools -> step.blocks -> step.llmInput -> step.llmCall -> toolCall -> step.post |
 | Effective Config 고정 | Step 시작 시 SwarmBundleRef와 Config 고정, 실행 중 변경 금지 |
+| 코드 변경 반영 | Step 시작 시 SwarmBundleRef 기준 entry 모듈 resolve, hot-reload 금지 |
 | Tool 오류 처리 | 예외를 전파하지 않고 ToolResult.output에 에러 정보 포함 |
 | Auth 보존 | 에이전트 간 handoff 시 turn.auth 변경 없이 전달 |
 | Auth 필수 검증 | subjectMode=user OAuthApp 사용 시 auth.subjects.user 필수 |
 | 파이프라인 포인트 | turn.pre/post, step.*, toolCall.*, workspace.* 제공 |
 | step.config 선행 | step.config는 step.tools보다 먼저 실행 |
 | Changeset 반영 시점 | 커밋된 changeset은 다음 Step의 step.config에서 활성화 |
-| LLM 메시지 로그 | append-only JSONL로 기록 |
+| 인스턴스 라이프사이클 | inspect/pause/resume/terminate/delete 연산 지원 |
+| pause 상태 Turn 금지 | paused 상태에서는 새 Turn을 실행해서는 안 된다 |
+| resume 큐 재개 | resume 이후 큐 적재 이벤트를 순서대로 재개 |
+| delete 전역 상태 보존 | delete 시 인스턴스 상태 제거, 시스템 전역 상태(OAuth grant 등) 보존 |
+| 운영 인터페이스 | 라이프사이클 연산을 운영 인터페이스(CLI 등)로 제공 |
+| 민감값 마스킹 | access token, refresh token, secret은 로그/메트릭에 평문 금지 |
+| 메시지 상태 로그 | `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록 |
 | 이벤트 로그 | Swarm/Agent 이벤트를 append-only JSONL로 기록 |
 
 ### 15.2 SHOULD 요구사항
@@ -2866,10 +3225,13 @@ interface TokenUsage {
 |------|------|
 | maxStepsPerTurn | 기본값 32, Swarm.policy로 설정 가능 |
 | Origin/Auth 채움 | Connector가 ingress 이벤트 변환 시 채움 |
-| Identity 기반 정규화 | tools/extensions 배열을 identity key로 정규화 |
+| Identity 기반 정규화 | /spec/tools, /spec/extensions 배열을 identity key로 정규화 |
 | Slack subject 형식 | global: "slack:team:\<team_id\>", user: "slack:user:\<team_id\>:\<user_id\>" |
 | step.llmError 처리 | LLM 오류 시 파이프라인 실행, 재시도 가능 |
 | 이벤트 로그 기록 | changeset 커밋/거부, Step 제한 초과 등 기록 |
+| GC 정책 | TTL/idle 기반 인스턴스 자동 정리 |
+| 메트릭 기록 | latencyMs, toolCallCount, errorCount, tokenUsage 기록 |
+| Health Check | Runtime 상태 점검 인터페이스 제공 |
 
 ### 15.3 MAY 요구사항
 
@@ -2901,6 +3263,14 @@ interface TokenUsage {
      │   Turn Start   │
      └───────────────┘
           │
+          │ load BaseMessages (base.jsonl)
+          ▼
+   ┌───────────────────────────────────────┐
+   │ Message State Init                    │
+   │  - BaseMessages loaded                │
+   │  - Events = []                        │
+   └───────────────────────────────────────┘
+          │
           │ turn.pre        (Mutator)
           ▼
    ┌───────────────────────────────────────┐
@@ -2926,6 +3296,7 @@ interface TokenUsage {
    ┌───────────────────────────────────────┐
    │ step.blocks     (Mutator)             │
    │  - build/transform Context Blocks     │
+   │  - compose Next = Base + SUM(Events)  │
    └───────────────────────────────────────┘
           │
           │ step.llmCall    (Middleware)
@@ -2958,6 +3329,14 @@ interface TokenUsage {
           └───────────┐             └─────────────┐
                       ▼                           ▼
                   (next Step)               turn.post (Mutator)
+                                                │
+                                                │ hooks receive (base, events)
+                                                │ hooks may emit events
+                                                ▼
+                                   fold: Base + SUM(Events)
+                                                │
+                                                ▼
+                                  persist base.jsonl + clear events.jsonl
                                                 │
                                                 ▼
                                              Turn End

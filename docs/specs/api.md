@@ -1,4 +1,4 @@
-# Goondan Runtime/SDK API 스펙 (v0.9)
+# Goondan Runtime/SDK API 스펙 (v0.11)
 
 본 문서는 `docs/requirements/index.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/requirements/06_config-spec.md` 및 `docs/spec_bundle.md`를 따른다.
 
@@ -98,7 +98,7 @@ type SwarmResource = Resource<SwarmSpec>;
 interface ToolCall {
   id: string;
   name: string;
-  arguments: JsonObject;
+  args: JsonObject;
 }
 
 /**
@@ -114,6 +114,7 @@ type LlmMessage =
  * 시스템 메시지 - LLM에게 지시/컨텍스트 제공
  */
 interface SystemMessage {
+  id: string;
   role: 'system';
   content: string;
 }
@@ -122,6 +123,7 @@ interface SystemMessage {
  * 사용자 메시지 - 사용자 입력
  */
 interface UserMessage {
+  id: string;
   role: 'user';
   content: string;
   /** 멀티모달 콘텐츠 (선택) */
@@ -139,6 +141,7 @@ interface MessageAttachment {
  * 어시스턴트 메시지 - LLM 응답
  */
 interface AssistantMessage {
+  id: string;
   role: 'assistant';
   content?: string;
   /** tool call 요청 목록 (선택) */
@@ -149,22 +152,32 @@ interface AssistantMessage {
  * Tool 결과 메시지
  */
 interface ToolMessage {
+  id: string;
   role: 'tool';
   toolCallId: string;
   toolName: string;
   output: JsonValue;
 }
 
+type MessageEvent =
+  | { type: 'system_message'; seq: number; message: SystemMessage }
+  | { type: 'llm_message'; seq: number; message: UserMessage | AssistantMessage | ToolMessage }
+  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
+  | { type: 'remove'; seq: number; targetId: string }
+  | { type: 'truncate'; seq: number };
+
 // 사용 예시
 const messages: LlmMessage[] = [
-  { role: 'system', content: '너는 도움이 되는 AI 어시스턴트다.' },
-  { role: 'user', content: '파일 목록을 보여줘' },
+  { id: 'msg-sys-1', role: 'system', content: '너는 도움이 되는 AI 어시스턴트다.' },
+  { id: 'msg-user-1', role: 'user', content: '파일 목록을 보여줘' },
   {
+    id: 'msg-asst-1',
     role: 'assistant',
     content: '파일 목록을 조회하겠습니다.',
-    toolCalls: [{ id: 'call_1', name: 'file.list', arguments: { path: '.' } }]
+    toolCalls: [{ id: 'call_1', name: 'file.list', args: { path: '.' } }]
   },
   {
+    id: 'msg-tool-1',
     role: 'tool',
     toolCallId: 'call_1',
     toolName: 'file.list',
@@ -181,8 +194,14 @@ const messages: LlmMessage[] = [
  */
 interface Turn {
   id: string;
-  /** Turn 내 누적 LLM 메시지 배열 */
-  messages: LlmMessage[];
+  /** 분산 추적용 Trace ID */
+  traceId: string;
+  /** Turn 메시지 상태 (NextMessages = BaseMessages + SUM(Events)) */
+  messageState: {
+    baseMessages: LlmMessage[];
+    events: MessageEvent[];
+    nextMessages: LlmMessage[];
+  };
   /** Tool 실행 결과 (Step별 누적) */
   toolResults: ToolResult[];
   /** Turn 시작 시간 */
@@ -279,8 +298,7 @@ export async function register(api: ExtensionApi): Promise<void>;
 // 사용 예시
 export async function register(api: ExtensionApi<MyState, MyConfig>): Promise<void> {
   // 상태 초기화
-  const state = api.extState();
-  state.initialized = true;
+  api.setState({ ...api.getState(), initialized: true });
 
   // 파이프라인 등록
   api.pipelines.mutate('step.blocks', async (ctx) => {
@@ -317,17 +335,20 @@ interface ExtensionApi<State = JsonObject, Config = JsonObject> {
   /** 이벤트 버스 */
   events: EventBus;
 
-  /** SwarmBundle Changeset API */
-  swarmBundle: SwarmBundleApi;
+  /** SwarmBundle Changeset API (선택 - Runtime capability에 따라 제공) */
+  swarmBundle?: SwarmBundleApi;
 
-  /** Live Config API */
-  liveConfig: LiveConfigApi;
+  /** Live Config API (선택 - Runtime capability에 따라 제공) */
+  liveConfig?: LiveConfigApi;
 
   /** OAuth API */
   oauth: OAuthApi;
 
-  /** 확장별 상태 저장소 */
-  extState: () => State;
+  /** 확장별 상태 조회 (인스턴스별 격리, 자동 영속화) */
+  getState: () => State;
+
+  /** 확장별 상태 저장 (Turn 종료 시 Runtime이 디스크에 자동 기록) */
+  setState: (next: State) => void;
 
   /** 로거 */
   logger?: Console;
@@ -415,7 +436,7 @@ api.pipelines.wrap('step.llmCall', async (ctx, next) => {
 type PipelinePoint =
   // Turn 레벨
   | 'turn.pre'          // Turn 시작 전 (Mutator)
-  | 'turn.post'         // Turn 종료 후 (Mutator)
+  | 'turn.post'         // Turn 종료 후 (base/events 전달, Mutator)
   // Step 레벨
   | 'step.pre'          // Step 시작 전 (Mutator)
   | 'step.config'       // SwarmBundleRef 활성화 + Config 로드 (Mutator)
@@ -460,6 +481,10 @@ interface TurnContext {
   swarm: Resource<SwarmSpec>;
   agent: Resource<AgentSpec>;
   turn: Turn;
+  /** turn.post에서 제공되는 기준 메시지 스냅샷 */
+  baseMessages?: LlmMessage[];
+  /** turn.post에서 제공되는 메시지 이벤트 뷰 */
+  messageEvents?: MessageEvent[];
   effectiveConfig: EffectiveConfig;
 }
 
@@ -656,7 +681,7 @@ interface CommitChangesetInput {
 }
 
 interface CommitChangesetResult {
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
   changesetId: string;
   baseRef: string;
   newRef?: string;       // status === 'ok' 인 경우
@@ -734,19 +759,33 @@ await ctx.liveConfig.proposePatch({
 });
 ```
 
-### 2.9 extState 상세
+### 2.9 getState/setState 상세
 
 ```ts
 /**
  * 확장별 상태 저장소
- * AgentInstance 생명주기 동안 유지되는 상태
+ * SwarmInstance별로 격리되며 Runtime이 자동 영속화
+ * Extension identity에 귀속되며 reconcile 규칙을 따른다
+ *
+ * 영속화 규칙:
+ * - 인스턴스 초기화 시 디스크에서 자동 복원(MUST)
+ * - Turn 종료 시 변경된 상태를 디스크에 자동 기록(MUST)
+ * - 저장 경로: <instanceStateRoot>/extensions/<extensionName>/state.json
  */
 interface ExtensionApi<State = JsonObject, Config = JsonObject> {
   /**
-   * 확장별 상태 저장소 접근
-   * 반환된 객체는 참조로 유지되어 직접 수정 가능
+   * 확장별 상태 조회
+   * 현재 상태의 스냅샷을 반환
+   * 인스턴스 재시작 시 디스크에서 복원된 상태가 반환됨
    */
-  extState: () => State;
+  getState: () => State;
+
+  /**
+   * 확장별 상태 저장
+   * 새 상태로 교체 (변경 감지 가능)
+   * JSON 직렬화 가능한 값만 허용(MUST)
+   */
+  setState: (next: State) => void;
 }
 
 // 사용 예시
@@ -759,14 +798,23 @@ interface MyExtensionState {
 export async function register(
   api: ExtensionApi<MyExtensionState, MyConfig>
 ): Promise<void> {
-  // 상태 초기화
-  const state = api.extState();
-  state.processedSteps = 0;
-  state.catalog = [];
+  // 인스턴스 재시작 시 이전 상태가 자동 복원됨
+  const existing = api.getState();
+  if (!existing.processedSteps) {
+    // 최초 실행: 초기 상태 설정
+    api.setState({
+      processedSteps: 0,
+      catalog: []
+    });
+  }
 
   api.pipelines.mutate('step.post', async (ctx) => {
-    // 상태 업데이트
-    state.processedSteps++;
+    // 상태 업데이트 — Turn 종료 시 자동으로 디스크에 기록됨
+    const state = api.getState();
+    api.setState({
+      ...state,
+      processedSteps: state.processedSteps + 1
+    });
     return ctx;
   });
 }
@@ -946,6 +994,10 @@ interface ToolResult {
     name: string;
     message: string;
     code?: string;
+    /** 사용자에게 제시할 해결 제안 (선택) */
+    suggestion?: string;
+    /** 관련 도움말 URL (선택) */
+    helpUrl?: string;
   };
 }
 
@@ -957,7 +1009,9 @@ const errorResult: ToolResult = {
   error: {
     name: 'Error',
     message: '파일을 찾을 수 없습니다: /nonexistent',
-    code: 'ENOENT'
+    code: 'ENOENT',
+    suggestion: '파일 경로를 확인하세요',
+    helpUrl: 'https://docs.goondan.io/errors/ENOENT'
   }
 };
 ```
@@ -1266,7 +1320,7 @@ interface CommitChangesetInput {
 
 interface CommitChangesetResult {
   /** 결과 상태 */
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
 
   /** Changeset 식별자 */
   changesetId: string;
@@ -1314,7 +1368,35 @@ const rejectedResult: CommitChangesetResult = {
     message: 'goondan.yaml 파일은 변경이 허용되지 않습니다.'
   }
 };
+
+// 충돌 응답 예시 (baseRef가 현재 HEAD와 불일치)
+const conflictResult: CommitChangesetConflict = {
+  status: 'conflict',
+  changesetId: 'cs-000123',
+  baseRef: 'git:3d2a...9f',
+  currentHeadRef: 'git:5e8f...b2',
+  conflicts: ['prompts/planner.system.md'],
+  suggestedAction: '기존 changeset에서 충돌 파일을 수정한 뒤 다시 commitChangeset을 시도하세요'
+};
 ```
+
+**CommitChangesetConflict variant:**
+
+```ts
+/**
+ * Changeset 충돌 (baseRef와 현재 HEAD가 불일치)
+ */
+interface CommitChangesetConflict {
+  status: 'conflict';
+  changesetId: string;
+  baseRef: string;
+  /** 현재 HEAD Ref */
+  currentHeadRef: string;
+  /** 충돌 파일 목록 */
+  conflicts: string[];
+  /** 권장 조치 (선택) */
+  suggestedAction?: string;
+}
 
 ### 5.3 ChangesetPolicy 검증
 
@@ -1771,6 +1853,11 @@ interface ModelSpec {
   name: string;
   endpoint?: string;
   options?: JsonObject;
+  capabilities?: {
+    streaming?: boolean;
+    toolCalling?: boolean;
+    [key: string]: boolean | undefined;
+  };
 }
 
 // Tool Spec
@@ -1821,12 +1908,15 @@ interface HookSpec {
   id?: string;
   point: PipelinePoint;
   priority?: number;
-  action: {
-    toolCall?: {
-      tool: string;
-      input: Record<string, JsonValue | { expr: string }>;
-    };
-  };
+  action: HookAction;
+}
+
+// Hook Action (스크립트 실행 기술자)
+interface HookAction {
+  runtime: 'node' | 'deno' | 'python';
+  entry: string;
+  export: string;
+  input: Record<string, JsonValue | { expr: string }>;
 }
 
 // Swarm Spec
@@ -1835,6 +1925,20 @@ interface SwarmSpec {
   agents: ObjectRefLike[];
   policy?: {
     maxStepsPerTurn?: number;
+    queueMode?: 'serial';
+    lifecycle?: {
+      autoPauseIdleSeconds?: number;
+      ttlSeconds?: number;
+      gcGraceSeconds?: number;
+    };
+    retry?: {
+      maxRetries?: number;
+      backoffMs?: number;
+    };
+    timeout?: {
+      stepTimeoutMs?: number;
+      turnTimeoutMs?: number;
+    };
     changesets?: {
       enabled?: boolean;
       applyAt?: string[];
@@ -1846,14 +1950,29 @@ interface SwarmSpec {
   };
 }
 
-// Connector Spec
+// Connector Spec (프로토콜 어댑터 정의)
 interface ConnectorSpec {
   type: string;
+  runtime: 'node' | 'deno' | 'python';
+  entry: string;
+  triggers: Array<{
+    name: string;
+    event: string;
+    handler: string;
+  }>;
+}
+
+// Connection Spec (배포 바인딩 정의)
+interface ConnectionSpec {
+  connectorRef: ObjectRefLike;
   auth?: {
     oauthAppRef?: ObjectRefLike;
     staticToken?: ValueSource;
   };
-  ingress?: IngressRule[];
+  ingress?: {
+    rules: IngressRule[];
+  };
+  verify?: JsonObject;
   egress?: {
     updatePolicy?: {
       mode: string;
@@ -1916,6 +2035,7 @@ interface EffectiveConfig {
   tools: Map<string, Resource<ToolSpec>>;
   extensions: Map<string, Resource<ExtensionSpec>>;
   connectors: Map<string, Resource<ConnectorSpec>>;
+  connections: Map<string, Resource<ConnectionSpec>>;
   oauthApps: Map<string, Resource<OAuthAppSpec>>;
   revision: number;
   swarmBundleRef: string;
@@ -1926,6 +2046,18 @@ interface EffectiveConfig {
 
 ## 변경 이력
 
+- v0.10 (2026-02-07): 요구사항 정합성 보강
+  - CommitChangesetResult에 'conflict' 상태 및 CommitChangesetConflict variant 추가
+  - ConnectorSpec에서 auth/ingress/egress 분리, ConnectionSpec 신규 정의
+  - EffectiveConfig에 connections 맵 추가
+  - HookAction을 스크립트 실행 기술자 형식으로 변경
+  - ModelSpec에 capabilities 필드 추가
+  - SwarmSpec.policy에 queueMode, lifecycle, retry, timeout 추가
+  - Turn에 traceId 필드 추가
+  - ToolResult.error에 suggestion, helpUrl 필드 추가
+  - ToolCall.arguments → args 필드명 변경
+  - ExtensionApi: extState() → getState()/setState() 패턴 변경
+  - ExtensionApi: swarmBundle, liveConfig를 선택 속성(?)으로 변경
 - v0.9 (2026-02-05): 전체 API 스펙 대폭 보강
   - 공통 타입 상세화 (JsonObject, ObjectRefLike, Resource, LlmMessage)
   - Extension API 전체 인터페이스 상세화

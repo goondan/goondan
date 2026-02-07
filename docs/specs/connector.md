@@ -8,27 +8,28 @@
 
 ## 1. 개요
 
-Connector는 외부 채널 프로토콜의 **순수 구현 패키지**이다. 채널별 이벤트 수신/송신 프로토콜과 Trigger Handler를 정의하되, 인증/라우팅/이그레스 등 배포 환경에 종속적인 바인딩은 포함하지 않는다.
+Connector는 외부 채널 프로토콜의 **구현 패키지**이다. 채널별 이벤트 수신/송신 프로토콜과 Trigger Handler를 정의하고, Connection이 제공한 서명 시크릿을 사용하여 프로토콜 수준의 서명 검증을 수행한다. 인증 자격 증명이나 라우팅 등 배포 환경에 종속적인 바인딩은 포함하지 않는다.
 
-배포 시점의 인증, 라우팅 규칙(Ingress Rules), Egress 설정은 별도의 **Connection** 리소스가 담당한다.
+배포 시점의 인증 정보 제공과 ingress 라우팅 규칙은 별도의 **Connection** 리소스가 담당한다.
 
 ### 1.1 핵심 책임
 
 1. **프로토콜 구현**: 외부 채널(Slack, CLI, Telegram, GitHub, Webhook 등)의 이벤트 수신/송신 프로토콜 정의
 2. **Trigger Handler**: 커스텀 이벤트 처리 로직(Webhook, Cron, Queue 등) 제공
+3. **서명 검증**: Connection이 제공한 인증 정보(서명 시크릿 등)를 사용하여 inbound 요청의 서명 검증
 
 ### 1.2 Connection이 담당하는 영역
 
 Connection 리소스는 다음 책임을 가진다. 상세는 [`docs/specs/connection.md`](./connection.md)를 참조한다.
 
 1. **connectorRef**: 사용할 Connector 참조
-2. **인증 컨텍스트 설정**: Turn의 `origin`과 `auth` 정보를 채워 OAuth 통합 지원
+2. **인증 정보 제공**: OAuth/Static Token 인증과 서명 검증용 시크릿 제공
 3. **Ingress Rules**: 외부 이벤트를 필터링/라우팅하는 규칙
-4. **Egress**: AgentInstance의 응답을 외부 채널로 전송 (진행상황 업데이트, 최종 응답)
 
 ### 1.3 설계 원칙
 
-- Connector는 프로토콜 구현만을 포함하며, 배포 환경 설정(auth, rules, egress)을 포함하지 않는다(MUST).
+- Connector는 인증 정보(자격 증명)를 자체적으로 보유하지 않되, Connection이 제공한 서명 시크릿을 사용하여 프로토콜 수준의 서명 검증을 수행한다(MUST).
+- Connector는 배포 환경 설정(auth, rules)을 포함하지 않는다(MUST).
 - Connector는 에이전트 실행 모델(Instance/Turn/Step)을 직접 제어하지 않는다(MUST).
 - 하나의 Connector에 여러 Connection을 바인딩할 수 있다(MAY). 동일 프로토콜을 다른 인증/라우팅으로 재사용 가능.
 - 각 canonical event는 독립적인 Turn으로 처리된다(MUST).
@@ -88,8 +89,8 @@ interface TriggerConfig {
 | `runtime` / `entry` | O | - |
 | `triggers` | O | - |
 | `auth` | - | O |
-| `rules` (구 ingress) | - | O |
-| `egress` | - | O |
+| `verify` | - | O |
+| `ingress.rules` | - | O |
 | `connectorRef` | - | O |
 
 > Connection 리소스의 상세 스키마는 [`docs/specs/connection.md`](./connection.md)를 참조한다.
@@ -100,29 +101,21 @@ interface TriggerConfig {
 
 인증 설정은 **Connection** 리소스의 `auth` 필드에서 관리한다. Connector 자체는 인증 정보를 포함하지 않는다.
 
-상세 인증 모드(OAuthApp 기반, Static Token 기반, ValueSource 패턴)는 [`docs/specs/connection.md` 3절](./connection.md#3-인증-모드)을 참조한다.
+상세 인증 모드(OAuthApp 기반, Static Token 기반, ValueSource 패턴)는 [`docs/specs/connection.md` 4절](./connection.md#4-인증-모드)을 참조한다.
 
 ---
 
 ## 4. 라우팅 규칙 (Connection으로 이전)
 
-이벤트 필터링 및 라우팅 규칙은 **Connection** 리소스의 `rules` 필드에서 관리한다. 기존 `ingress` 개념이 `rules`로 이전되었다.
+이벤트 필터링 및 라우팅 규칙은 **Connection** 리소스의 `ingress.rules` 필드에서 관리한다.
 
-상세 규칙(Match 조건, Route 설정, JSONPath 해석)은 [`docs/specs/connection.md` 4절](./connection.md#4-connection-rules)을 참조한다.
-
----
-
-## 5. Egress 규칙 (Connection으로 이전)
-
-Egress 설정(UpdatePolicy, Progress vs Final)은 **Connection** 리소스의 `egress` 필드에서 관리한다.
-
-상세 Egress 설정은 [`docs/specs/connection.md` 5절](./connection.md#5-egress-규칙)을 참조한다.
+상세 규칙(Match 조건, Route 설정, JSONPath 해석)은 [`docs/specs/connection.md` 5절](./connection.md#5-ingress-라우팅-규칙)을 참조한다.
 
 ---
 
-## 6. Trigger Handler 시스템
+## 5. Trigger Handler 시스템
 
-### 6.1 Handler 해석 및 로딩 규칙
+### 5.1 Handler 해석 및 로딩 규칙
 
 Connector가 `spec.runtime`, `spec.entry`와 `triggers`를 사용하는 경우, Runtime은 다음 규칙을 따른다.
 
@@ -143,7 +136,7 @@ spec:
 3. 각 trigger는 자신의 `handler`에 해당하는 함수 레퍼런스를 통해 호출된다(MUST).
 4. 트리거 간 상태 공유 여부는 Connector 구현자가 결정한다(MAY).
 
-### 6.2 Handler Export 검증
+### 5.2 Handler Export 검증
 
 ```ts
 import type { TriggerEvent, TriggerContext, Resource } from '@goondan/core';
@@ -174,9 +167,9 @@ export async function onCron(
 
 ---
 
-## 7. Trigger Execution Model
+## 6. Trigger Execution Model
 
-### 7.1 실행 인터페이스
+### 6.1 실행 인터페이스
 
 Trigger handler 호출 시 Runtime은 다음 정보를 주입해야 한다(MUST).
 
@@ -206,6 +199,17 @@ interface TriggerContext {
     getAccessToken: (request: OAuthTokenRequest) => Promise<OAuthTokenResult>;
   };
 
+  /** 서명 검증 정보 (Connection의 verify 블록이 설정된 경우) */
+  verify?: {
+    /** webhook 서명 검증 설정 */
+    webhook?: {
+      /** 서명 검증 프로바이더 (예: slack, github, stripe) */
+      provider: string;
+      /** 서명 시크릿 (Connection의 verify.webhook.signingSecret에서 해석된 값) */
+      signingSecret: string;
+    };
+  };
+
   /** LiveConfig 제안 (선택) */
   liveConfig?: {
     proposePatch: (patch: LiveConfigPatch) => Promise<void>;
@@ -219,7 +223,7 @@ interface TriggerContext {
 }
 ```
 
-### 7.2 Canonical Event
+### 6.2 Canonical Event
 
 Trigger handler는 외부 이벤트를 canonical event로 변환하여 `ctx.emit(...)`으로 Runtime에 전달한다.
 
@@ -248,7 +252,16 @@ interface TurnAuth {
 }
 ```
 
-### 7.3 Canonical Event Flow
+### 6.3 서명 검증 규칙
+
+Connection이 `verify` 블록을 설정한 경우, Connector는 다음 규칙을 따라야 한다.
+
+1. Connector는 Connection이 제공한 서명 시크릿(`ctx.verify.webhook.signingSecret`)을 사용하여 inbound 요청의 서명을 검증해야 한다(MUST).
+2. 서명 검증 실패 시 Connector는 canonical event를 emit하지 않고 Turn 생성을 거부해야 한다(MUST).
+3. 서명 검증 실패 시 Connector는 실패 사유를 `ctx.logger`로 기록해야 한다(SHOULD).
+4. `ctx.verify`가 제공되지 않은 경우(Connection에 verify 블록이 없는 경우), 서명 검증을 건너뛸 수 있다(MAY).
+
+### 6.4 Canonical Event Flow
 
 ```
 [외부 이벤트]
@@ -274,11 +287,11 @@ interface TurnAuth {
 
 ---
 
-## 8. ConnectorAdapter 인터페이스
+## 7. ConnectorAdapter 인터페이스
 
 Runtime과 Connector 간의 표준 인터페이스이다.
 
-### 8.1 TypeScript 인터페이스
+### 7.1 TypeScript 인터페이스
 
 ```ts
 interface ConnectorAdapter {
@@ -307,7 +320,7 @@ interface ConnectorSendInput {
 }
 ```
 
-### 8.2 Factory 함수 패턴
+### 7.2 Factory 함수 패턴
 
 Connector 구현은 factory 함수를 통해 생성된다. `connectionConfig`는 배포 바인딩 정보를 포함한다.
 
@@ -318,6 +331,13 @@ interface ConnectorOptions {
   };
   connectorConfig: Resource<ConnectorSpec>;
   connectionConfig: Resource<ConnectionSpec>;
+  /** 서명 검증 정보 (Connection의 verify 블록에서 해석) */
+  verify?: {
+    webhook?: {
+      provider: string;
+      signingSecret: string;
+    };
+  };
   logger?: Console;
 }
 
@@ -328,9 +348,9 @@ type ConnectorFactory = (options: ConnectorOptions) => ConnectorAdapter;
 
 ---
 
-## 9. CLI Connector 구현 예시
+## 8. CLI Connector 구현 예시
 
-### 9.1 YAML 정의
+### 8.1 YAML 정의
 
 Connector와 Connection을 분리하여 정의한다.
 
@@ -352,14 +372,15 @@ metadata:
   name: cli-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.instanceKey"
+          inputFrom: "$.text"
 ```
 
-### 9.2 TypeScript 구현
+### 8.2 TypeScript 구현
 
 ```ts
 import * as readline from 'readline';
@@ -390,7 +411,7 @@ interface CliConnectorAdapter {
 export function createCliConnector(options: CliConnectorOptions): CliConnectorAdapter {
   const { runtime, connectionConfig, logger } = options;
   const connectionSpec = connectionConfig.spec;
-  const rules = connectionSpec?.rules ?? [];
+  const rules = connectionSpec?.ingress?.rules ?? [];
 
   async function handleEvent(payload: JsonObject): Promise<void> {
     const text = String(payload.text || '');
@@ -482,9 +503,9 @@ function readPath(payload: JsonObject, expr?: string): unknown {
 
 ---
 
-## 10. Slack Connector 구현 예시
+## 9. Slack Connector 구현 예시
 
-### 10.1 YAML 정의
+### 9.1 YAML 정의
 
 Connector와 Connection을 분리하여 정의한다.
 
@@ -510,27 +531,30 @@ spec:
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
 
-  rules:
-    - match:
-        command: "/agent"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-    - match:
-        eventType: "app_mention"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+  ingress:
+    rules:
+      - match:
+          command: "/agent"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
+      - match:
+          eventType: "app_mention"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+  verify:
+    webhook:
+      provider: slack
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
 ```
 
-### 10.2 turn.auth.subjects 설정 규칙
+### 9.2 turn.auth.subjects 설정 규칙
 
 Slack Connector는 Connection의 rules를 통해 이벤트를 Turn으로 변환할 때, 다음과 같이 `turn.auth.subjects`를 설정해야 한다(SHOULD).
 
@@ -556,7 +580,7 @@ turn:
       user: "slack:user:T111:U234567"
 ```
 
-### 10.3 TypeScript 구현 (개요)
+### 9.3 TypeScript 구현 (개요)
 
 ```ts
 import type { JsonObject, ObjectRefLike, Resource } from '@goondan/core';
@@ -591,11 +615,7 @@ interface SlackConnectorOptions {
 export function createSlackConnector(options: SlackConnectorOptions) {
   const { runtime, connectorConfig, connectionConfig, logger } = options;
   const connectionSpec = connectionConfig.spec;
-  const rules = connectionSpec?.rules ?? [];
-  const egressConfig = connectionSpec?.egress;
-
-  // 디바운스 상태 관리
-  const pendingUpdates = new Map<string, NodeJS.Timeout>();
+  const rules = connectionSpec?.ingress?.rules ?? [];
 
   async function handleEvent(payload: JsonObject): Promise<void> {
     const eventValue = payload.event;
@@ -680,26 +700,6 @@ export function createSlackConnector(options: SlackConnectorOptions) {
       return { ok: false };
     }
 
-    // 디바운스 처리
-    const debounceMs = egressConfig?.updatePolicy?.debounceMs ?? 0;
-    const debounceKey = `${channel}:${threadTs ?? ''}`;
-
-    if (debounceMs > 0 && input.kind === 'progress') {
-      const existing = pendingUpdates.get(debounceKey);
-      if (existing) {
-        clearTimeout(existing);
-      }
-
-      return new Promise((resolve) => {
-        const timeout = setTimeout(async () => {
-          pendingUpdates.delete(debounceKey);
-          const result = await sendToSlack(channel, threadTs, input.text);
-          resolve(result);
-        }, debounceMs);
-        pendingUpdates.set(debounceKey, timeout);
-      });
-    }
-
     return sendToSlack(channel, threadTs, input.text);
   }
 
@@ -732,9 +732,9 @@ function readPath(payload: JsonObject, expr?: string): unknown {
 
 ---
 
-## 11. Custom Connector with Triggers
+## 10. Custom Connector with Triggers
 
-### 11.1 YAML 정의
+### 10.1 YAML 정의
 
 Connector는 프로토콜과 Trigger만 정의하고, Connection에서 라우팅을 설정한다.
 
@@ -761,14 +761,15 @@ metadata:
   name: webhook-default
 spec:
   connectorRef: { kind: Connector, name: custom-webhook }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.requestId"
-        inputFrom: "$.body.message"
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.requestId"
+          inputFrom: "$.body.message"
 ```
 
-### 11.2 TypeScript 구현
+### 10.2 TypeScript 구현
 
 ```ts
 // ./connectors/webhook/index.ts
@@ -785,7 +786,7 @@ export async function onWebhook(
 ): Promise<void> {
   const payload = event.payload;
   const connectionSpec = connection.spec;
-  const rules = connectionSpec?.rules ?? [];
+  const rules = connectionSpec?.ingress?.rules ?? [];
 
   for (const rule of rules) {
     const route = rule.route;
@@ -858,9 +859,9 @@ function readPath(payload: JsonObject, expr?: string): unknown {
 
 ---
 
-## 12. Health Check
+## 11. Health Check
 
-### 12.1 Connector 상태 확인
+### 11.1 Connector 상태 확인
 
 ```typescript
 /**
@@ -869,7 +870,7 @@ function readPath(payload: JsonObject, expr?: string): unknown {
  * 규칙:
  * - SHOULD: Connector는 외부 서비스 연결 상태를 확인하는 healthCheck를 구현할 수 있다
  * - SHOULD: healthCheck는 주기적으로 호출되며, 상태를 반환한다
- * - MUST: healthCheck 실패 시 해당 Connector를 통한 egress를 일시 중단할 수 있다
+ * - MUST: healthCheck 실패 시 해당 Connector를 통한 이벤트 수신/송신을 일시 중단할 수 있다
  */
 interface ConnectorHealthCheck {
   /** 상태 확인 주기(ms) (기본: 30000) */
@@ -892,7 +893,7 @@ interface ConnectorHealth {
 }
 ```
 
-### 12.2 Connector YAML에서 Health Check 설정
+### 11.2 Connector YAML에서 Health Check 설정
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -909,9 +910,9 @@ spec:
 
 ---
 
-## 13. Reconnection 정책
+## 12. Reconnection 정책
 
-### 13.1 연결 끊김 시 재연결
+### 12.1 연결 끊김 시 재연결
 
 ```typescript
 /**
@@ -941,7 +942,7 @@ interface ReconnectionPolicy {
 }
 ```
 
-### 13.2 Connector YAML에서 Reconnection 설정
+### 12.2 Connector YAML에서 Reconnection 설정
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -959,11 +960,11 @@ spec:
 
 ---
 
-## 14. Validation 포인트 요약
+## 13. Validation 포인트 요약
 
 Connector와 Connection의 검증을 분리한다.
 
-### 14.1 Connector Validation
+### 13.1 Connector Validation
 
 Runtime/Validator는 Connector 리소스에 대해 다음 규칙을 검증해야 한다.
 
@@ -975,25 +976,23 @@ Runtime/Validator는 Connector 리소스에 대해 다음 규칙을 검증해야
 | `spec.triggers[].handler` | entry 모듈의 export 함수명 | MUST |
 | `spec.triggers[].handler` | 모듈 한정자 포함 금지 | MUST |
 
-### 14.2 Connection Validation
+### 13.2 Connection Validation
 
-Connection 리소스의 검증 규칙은 [`docs/specs/connection.md` 14절](./connection.md#14-validation-포인트-요약)을 참조한다.
+Connection 리소스의 검증 규칙은 [`docs/specs/connection.md` 9절](./connection.md#9-validation-규칙-요약)을 참조한다.
 
 | 항목 | 규칙 | 수준 |
 |------|------|------|
 | `spec.connectorRef` | 유효한 Connector 참조, 필수 | MUST |
 | `spec.auth` | oauthAppRef와 staticToken 중 하나만 허용 | MUST |
-| `spec.rules` | 최소 1개의 규칙 필요 | MUST |
-| `spec.rules[].route.swarmRef` | 유효한 Swarm 참조 | MUST |
-| `spec.rules[].route.instanceKeyFrom` | 필수 | MUST |
-| `spec.rules[].route.inputFrom` | 필수 | MUST |
-| `spec.egress.updatePolicy.mode` | 유효한 모드 | MUST |
+| `spec.ingress.rules` | 선택. 있으면 배열 형식 | MAY |
+| `spec.ingress.rules[].route.swarmRef` | 유효한 Swarm 참조 | MUST |
+| `spec.verify.webhook.signingSecret` | 설정된 경우 유효한 ValueSource | MUST |
 
 ---
 
-## 15. 참고 문서
+## 14. 참고 문서
 
-- `docs/specs/connection.md` - Connection 리소스 스펙 (auth, rules, egress)
+- `docs/specs/connection.md` - Connection 리소스 스펙 (auth, verify, ingress rules)
 - `docs/specs/resources.md` - Config Plane 리소스 정의 스펙
 - `docs/requirements/05_core-concepts.md` - Connector 핵심 개념
 - `docs/requirements/07_config-resources.md` - Connector 리소스 정의

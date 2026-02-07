@@ -25,19 +25,19 @@
 
 ### 구현 스펙 문서 (docs/specs/)
 - docs/specs/cli.md : CLI 도구(gdn) 스펙 (명령어, 옵션, 패키지 관리, 인스턴스 관리)
-- docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, OAuth API)
+- docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, Connection, OAuth API)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
 - docs/specs/bundle.md : Bundle YAML 스펙 (리소스 정의, 검증 규칙)
 - docs/specs/bundle_package.md : Bundle Package 스펙 (레지스트리 기반 패키징/참조, CLI 명령어)
-- docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존)
+- docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존, 코드 변경 반영, GC)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
-- docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합)
-- docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴)
-- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 구현체, Trigger Handler)
-- docs/specs/connection.md : Connection 시스템 스펙 (인증, 라우팅 규칙, Egress 바인딩)
+- docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합, Handoff 패턴)
+- docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴, getState/setState)
+- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 구현체, Trigger Handler, 서명 검증)
+- docs/specs/connection.md : Connection 시스템 스펙 (인증, Ingress 라우팅 규칙, 서명 검증 시크릿)
 - docs/specs/oauth.md : OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
-- docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point)
-- docs/specs/workspace.md : Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마)
+- docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point, Conflict)
+- docs/specs/workspace.md : Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마, Metrics, Lifecycle)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
@@ -63,3 +63,4 @@
 - 스펙 문서(docs/specs/*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
+- Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함)

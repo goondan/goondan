@@ -12,8 +12,8 @@ Connection은 Connector(프로토콜 패키지)와 Swarm(에이전트 집합) �
 
 1. **Connector 참조**: 어떤 프로토콜 구현체(Connector)를 사용할지 지정
 2. **인증 설정**: 해당 배포에 필요한 OAuth 또는 Static Token 인증 구성
-3. **라우팅 규칙**: 외부 이벤트를 어떤 Swarm/Instance/Agent로 전달할지 정의
-4. **Egress 설정**: 응답 업데이트 정책(replace, updateInThread, append 등) 구성
+3. **서명 검증 시크릿 제공**: Connector가 inbound 서명 검증에 사용할 시크릿 제공
+4. **라우팅 규칙**: 외부 이벤트를 어떤 Swarm/Instance/Agent로 전달할지 정의
 
 ### 1.2 Connector와 Connection의 분리
 
@@ -21,8 +21,8 @@ Goondan은 Connector와 Connection을 분리하여, Kubernetes의 Service와 Dep
 
 | 리소스 | 역할 | 비유 |
 |--------|------|------|
-| **Connector** | 프로토콜 구현체 (패키지 배포 단위). `type`, `runtime`, `entry`, `triggers`만 보유 | Service (인터페이스) |
-| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `auth`, `rules`, `egress`를 설정 | Deployment (인스턴스 설정) |
+| **Connector** | 프로토콜 구현체 (패키지 배포 단위). `type`, `runtime`, `entry`, `triggers`만 보유. Connection이 제공한 서명 시크릿으로 inbound 서명 검증 수행 | Service (인터페이스) |
+| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `auth`, `verify`, `ingress.rules`를 설정 | Deployment (인스턴스 설정) |
 
 이 분리를 통해:
 - 하나의 Connector를 여러 Connection에서 재사용할 수 있다 (예: 동일한 Slack Connector를 서로 다른 팀/채널/Swarm에 바인딩).
@@ -32,7 +32,7 @@ Goondan은 Connector와 Connection을 분리하여, Kubernetes의 Service와 Dep
 ### 1.3 설계 원칙
 
 - Connection은 반드시 하나의 Connector를 참조해야 한다(MUST).
-- Connection의 `rules`는 Connector의 기존 `ingress`를 대체한다. Connector에 직접 `ingress`가 있더라도 Connection의 `rules`가 우선한다(MUST).
+- Connection의 `ingress.rules`는 이벤트 라우팅 규칙을 정의한다. Connector에 직접 라우팅 설정이 있더라도 Connection의 `ingress.rules`가 우선한다(MUST).
 - 하나의 Connector에 여러 Connection을 바인딩할 수 있다(MAY).
 
 ---
@@ -64,14 +64,19 @@ spec:
         # 또는
         secretRef: { ref: "Secret/<name>", key: "<key>" }
 
-  # 선택: 라우팅 규칙
-  rules:
-    - match: {}           # 선택: 매칭 조건
-      route: {}           # 필수: 라우팅 설정
+  # 선택: 서명 검증 시크릿
+  verify:
+    webhook:
+      provider: <provider-name>
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/<name>", key: "<key>" }
 
-  # 선택: Egress 설정
-  egress:
-    updatePolicy: {}
+  # 선택: Ingress 라우팅 규칙
+  ingress:
+    rules:
+      - match: {}           # 선택: 매칭 조건
+        route: {}           # 필수: 라우팅 설정
 ```
 
 ### 2.2 ConnectionSpec TypeScript 인터페이스
@@ -79,10 +84,10 @@ spec:
 ```ts
 import type { Resource } from '../resource.js';
 import type { ObjectRefLike } from '../object-ref.js';
+import type { ValueSource } from '../value-source.js';
 import type {
   ConnectorAuth,
   IngressRule,
-  EgressConfig,
 } from './connector.js';
 
 /**
@@ -93,10 +98,32 @@ interface ConnectionSpec {
   connectorRef: ObjectRefLike;
   /** 인증 설정 (ConnectorAuth 재사용) */
   auth?: ConnectorAuth;
+  /** 서명 검증 시크릿 설정 */
+  verify?: VerifyConfig;
+  /** Ingress 라우팅 규칙 */
+  ingress?: IngressConfig;
+}
+
+/**
+ * 서명 검증 설정
+ * auth(OAuth/Token 인증)와 독립적으로 설정 가능
+ */
+interface VerifyConfig {
+  /** Webhook 서명 검증 설정 */
+  webhook?: {
+    /** 서명 검증 프로바이더 (예: slack, github, stripe) */
+    provider: string;
+    /** 서명 시크릿 (ValueSource 패턴) */
+    signingSecret: ValueSource;
+  };
+}
+
+/**
+ * Ingress 설정
+ */
+interface IngressConfig {
   /** 라우팅 규칙 (IngressRule과 동일 구조) */
   rules?: ConnectionRule[];
-  /** Egress 설정 */
-  egress?: EgressConfig;
 }
 
 /**
@@ -165,18 +192,20 @@ spec:
   connectorRef: { kind: Connector, name: slack }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
-  rules:
-    - match:
-        command: "/agent"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+  ingress:
+    rules:
+      - match:
+          command: "/agent"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 ```
 
 규칙:
 1. Runtime은 OAuthApp 참조를 해석하여 토큰 조회 인터페이스를 제공해야 한다(SHOULD).
 2. 토큰이 없거나 만료된 경우, 승인 플로우를 트리거할 수 있다(MAY).
+3. OAuth를 사용하는 Connection은 Turn 생성 시 `turn.auth.subjects`를 채워야 한다(MUST). subjectMode에 맞는 키(global 또는 user)가 반드시 포함되어야 한다.
 
 ### 4.2 Static Token 기반 모드
 
@@ -192,11 +221,12 @@ spec:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.message.chat.id"
+          inputFrom: "$.message.text"
 ```
 
 규칙:
@@ -254,22 +284,23 @@ type ConnectorAuth =
 
 ---
 
-## 5. 라우팅 규칙 (Rules)
+## 5. Ingress 라우팅 규칙
 
-`rules`는 외부 이벤트를 어떤 Swarm/Instance/Agent로 전달할지 정의하는 규칙 배열이다. 구조적으로 Connector의 `ingress`와 동일하며, `ConnectionRule`은 `IngressRule`의 타입 별칭이다.
+`ingress.rules`는 외부 이벤트를 어떤 Swarm/Instance/Agent로 전달할지 정의하는 규칙 배열이다. `ConnectionRule`은 `IngressRule`의 타입 별칭이다.
 
 ### 5.1 Match 조건
 
 `match` 블록은 외부 이벤트를 필터링하는 조건을 정의한다.
 
 ```yaml
-rules:
-  - match:
-      command: "/swarm"        # 명령어 매칭
-      eventType: "message"     # 이벤트 타입 매칭
-      channel: "C123456"       # 특정 채널 매칭
-    route:
-      # ...
+ingress:
+  rules:
+    - match:
+        command: "/swarm"        # 명령어 매칭
+        eventType: "message"     # 이벤트 타입 매칭
+        channel: "C123456"       # 특정 채널 매칭
+      route:
+        # ...
 ```
 
 `match`가 생략되면 모든 이벤트가 해당 규칙으로 라우팅된다.
@@ -342,68 +373,90 @@ Connection의 `instanceKeyFrom`, `inputFrom` 등에서 사용되는 JSONPath 간
 
 ---
 
-## 6. Egress 설정
+## 6. 서명 검증 (Verify)
 
-Egress는 에이전트의 응답을 외부 채널로 전송할 때의 정책을 정의한다.
+`verify` 블록은 Connector가 inbound 요청의 서명을 검증할 때 사용할 시크릿을 정의한다. `auth`(OAuth/Token 인증)와 독립적으로 설정할 수 있다.
 
-### 6.1 UpdatePolicy
+### 6.1 Webhook 서명 검증
 
 ```yaml
-egress:
-  updatePolicy:
-    mode: updateInThread   # replace | updateInThread | append
-    debounceMs: 1500       # 선택: 디바운스 시간(ms)
+verify:
+  webhook:
+    provider: slack            # 서명 검증 프로바이더
+    signingSecret:
+      valueFrom:
+        secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
 ```
 
 ```ts
-interface EgressConfig {
-  /** 업데이트 정책 */
-  updatePolicy?: UpdatePolicy;
-}
-
-interface UpdatePolicy {
-  /** 업데이트 모드 */
-  mode: 'replace' | 'updateInThread' | 'append';
-  /** 디바운스 시간 (밀리초) */
-  debounceMs?: number;
+interface VerifyConfig {
+  /** Webhook 서명 검증 설정 */
+  webhook?: {
+    /** 서명 검증 프로바이더 (예: slack, github, stripe) */
+    provider: string;
+    /** 서명 시크릿 (ValueSource 패턴) */
+    signingSecret: ValueSource;
+  };
 }
 ```
-
-| Mode | 설명 |
-|------|------|
-| `replace` | 기존 메시지를 새 메시지로 교체. 최신 응답만 표시할 때 사용 |
-| `updateInThread` | 동일 스레드에 메시지 업데이트/추가. Slack 스레드 등에 적합 |
-| `append` | 새 메시지를 추가만 함. 모든 업데이트를 별도 메시지로 표시 |
-
-### 6.2 Progress vs Final
-
-Connector의 `send` 메서드는 `kind` 파라미터로 진행상황과 최종 응답을 구분한다.
-
-```ts
-interface ConnectorSendInput {
-  text: string;
-  origin?: JsonObject;
-  auth?: JsonObject;
-  metadata?: JsonObject;
-  kind?: 'progress' | 'final';
-}
-```
-
-| kind | 설명 |
-|------|------|
-| `progress` | Step 진행 중 중간 응답. `debounceMs`가 적용됨 |
-| `final` | Turn 완료 후 최종 응답. 디바운스 없이 즉시 전송 |
 
 규칙:
-1. `kind`가 생략되면 `final`로 처리한다(SHOULD).
-2. `progress` 메시지에는 `debounceMs`가 적용되어, 짧은 간격의 중간 업데이트를 병합할 수 있다(SHOULD).
-3. `final` 메시지는 디바운스를 무시하고 즉시 전송한다(MUST).
+1. `verify.webhook.signingSecret`은 ValueSource 패턴을 따른다(MUST).
+2. Connection은 Connector가 서명 검증에 사용할 인증 정보(서명 시크릿 등)를 제공해야 한다(MUST).
+3. 서명 검증 실패 시 Connector는 canonical event를 emit하지 않고 Turn 생성을 거부해야 한다(MUST).
+4. `verify`는 `auth`와 독립적으로 설정할 수 있다. `auth` 없이 `verify`만 설정하거나, `verify` 없이 `auth`만 설정할 수 있다(MAY).
+
+### 6.2 auth와 verify의 분리
+
+| 블록 | 용도 | 예시 |
+|------|------|------|
+| `auth` | OAuth/Static Token 인증. Turn의 인증 컨텍스트 제공 | Slack Bot Token, Telegram Bot Token |
+| `verify` | Inbound 서명 검증. 요청 무결성 확인 | Slack Signing Secret, GitHub Webhook Secret |
+
+두 블록은 서로 독립적이다:
+- `auth`만 설정: 인증은 있지만 서명 검증 없음 (예: CLI Connector)
+- `verify`만 설정: 서명 검증만 수행하고 별도 인증 없음 (예: 공개 webhook)
+- 둘 다 설정: 인증과 서명 검증 모두 수행 (예: Slack Bot)
+- 둘 다 없음: 인증/검증 없는 단순 연결 (예: 로컬 개발용 CLI)
 
 ---
 
-## 7. 예시
+## 7. Runtime 동작 규칙
 
-### 7.1 CLI Connection (가장 단순한 구성)
+### 7.1 turn.auth.subjects 규칙
+
+OAuth를 사용하는 Connection(`auth.oauthAppRef`가 설정된 경우)은 Turn 생성 시 `turn.auth.subjects`를 채워야 한다(MUST). subjectMode에 맞는 키(global 또는 user)가 반드시 포함되어야 한다.
+
+```yaml
+# subjectMode=global 예시
+turn:
+  auth:
+    actor:
+      type: "user"
+      id: "slack:U234567"
+    subjects:
+      global: "slack:team:T111"
+
+# subjectMode=user 예시
+turn:
+  auth:
+    actor:
+      type: "user"
+      id: "slack:U234567"
+    subjects:
+      global: "slack:team:T111"
+      user: "slack:user:T111:U234567"
+```
+
+### 7.2 독립 Turn 처리
+
+하나의 trigger가 여러 canonical event를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST). 각 Turn은 고유한 `traceId`를 가지며, 서로 다른 SwarmInstance에 전달될 수 있다.
+
+---
+
+## 8. 예시
+
+### 8.1 CLI Connection (가장 단순한 구성)
 
 인증이 필요 없는 CLI Connector를 기본 Swarm에 바인딩하는 최소 구성이다.
 
@@ -425,16 +478,17 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.instanceKey"
+          inputFrom: "$.text"
 ```
 
-### 7.2 Slack Connection (OAuthApp)
+### 8.2 Slack Connection (OAuthApp)
 
-OAuthApp을 통한 인증으로 Slack Connector를 Swarm에 바인딩하는 구성이다. 여러 규칙으로 명령어/이벤트를 구분하고, Egress 정책을 포함한다.
+OAuthApp을 통한 인증으로 Slack Connector를 Swarm에 바인딩하는 구성이다. 여러 규칙으로 명령어/이벤트를 구분하고, webhook 서명 검증을 포함한다.
 
 ```yaml
 # Connector 정의
@@ -485,30 +539,33 @@ spec:
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
 
-  rules:
-    # /agent 명령어 매칭
-    - match:
-        command: "/agent"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+  verify:
+    webhook:
+      provider: slack
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
 
-    # app_mention 이벤트 매칭
-    - match:
-        eventType: "app_mention"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+  ingress:
+    rules:
+      # /agent 명령어 매칭
+      - match:
+          command: "/agent"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+      # app_mention 이벤트 매칭
+      - match:
+          eventType: "app_mention"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 ```
 
-### 7.3 Telegram Connection (Static Token)
+### 8.3 Telegram Connection (Static Token)
 
 환경변수를 통한 Static Token 인증으로 Telegram Connector를 바인딩하는 구성이다. 여러 명령어에 대해 서로 다른 라우팅을 설정한다.
 
@@ -536,37 +593,34 @@ spec:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
 
-  rules:
-    # /start 명령어 매칭 - planner 에이전트로 라우팅
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-        agentName: "planner"
+  ingress:
+    rules:
+      # /start 명령어 매칭 - planner 에이전트로 라우팅
+      - match:
+          command: "/start"
+        route:
+          swarmRef: { kind: Swarm, name: coding-swarm }
+          instanceKeyFrom: "$.message.chat.id"
+          inputFrom: "$.message.text"
+          agentName: "planner"
 
-    # /code 명령어 매칭 - coder 에이전트로 라우팅
-    - match:
-        command: "/code"
-      route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-        agentName: "coder"
+      # /code 명령어 매칭 - coder 에이전트로 라우팅
+      - match:
+          command: "/code"
+        route:
+          swarmRef: { kind: Swarm, name: coding-swarm }
+          instanceKeyFrom: "$.message.chat.id"
+          inputFrom: "$.message.text"
+          agentName: "coder"
 
-    # 기본 라우팅 (매칭 없는 모든 메시지)
-    - route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-
-  egress:
-    updatePolicy:
-      mode: append
+      # 기본 라우팅 (매칭 없는 모든 메시지)
+      - route:
+          swarmRef: { kind: Swarm, name: coding-swarm }
+          instanceKeyFrom: "$.message.chat.id"
+          inputFrom: "$.message.text"
 ```
 
-### 7.4 동일 Connector에 여러 Connection 바인딩
+### 8.4 동일 Connector에 여러 Connection 바인딩
 
 하나의 Slack Connector를 팀별로 서로 다른 Connection으로 분리하는 구성이다.
 
@@ -590,13 +644,14 @@ spec:
   connectorRef: { kind: Connector, name: slack }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
-  rules:
-    - match:
-        channel: "C-DEV-CHANNEL"
-      route:
-        swarmRef: { kind: Swarm, name: dev-swarm }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+  ingress:
+    rules:
+      - match:
+          channel: "C-DEV-CHANNEL"
+        route:
+          swarmRef: { kind: Swarm, name: dev-swarm }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 
 ---
 
@@ -609,21 +664,19 @@ spec:
   connectorRef: { kind: Connector, name: slack }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
-  rules:
-    - match:
-        channel: "C-OPS-CHANNEL"
-      route:
-        swarmRef: { kind: Swarm, name: ops-swarm }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-  egress:
-    updatePolicy:
-      mode: replace
+  ingress:
+    rules:
+      - match:
+          channel: "C-OPS-CHANNEL"
+        route:
+          swarmRef: { kind: Swarm, name: ops-swarm }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
 ```
 
 ---
 
-## 8. Validation 규칙 요약
+## 9. Validation 규칙 요약
 
 Runtime/Validator는 다음 규칙을 검증해야 한다.
 
@@ -633,28 +686,31 @@ Runtime/Validator는 다음 규칙을 검증해야 한다.
 | `spec.auth` | `oauthAppRef`와 `staticToken` 중 하나만 허용 | MUST |
 | `spec.auth.oauthAppRef` | 유효한 OAuthApp 참조 | MUST |
 | `spec.auth.staticToken` | 유효한 ValueSource | MUST |
-| `spec.rules` | 선택. 있으면 배열 형식 | MAY |
-| `spec.rules[].route` | 필수 | MUST |
-| `spec.rules[].route.swarmRef` | 유효한 Swarm 참조 | MUST |
-| `spec.rules[].route.instanceKeyFrom` | JSONPath 표현식 (선택) | SHOULD |
-| `spec.rules[].route.inputFrom` | JSONPath 표현식 (선택) | SHOULD |
-| `spec.rules[].route.agentName` | 해당 Swarm의 agents에 포함된 에이전트 이름 | SHOULD |
-| `spec.egress.updatePolicy.mode` | `replace`, `updateInThread`, `append` 중 하나 | MUST |
-| `spec.egress.updatePolicy.debounceMs` | 0 이상의 정수 | SHOULD |
+| `spec.verify.webhook.provider` | 설정된 경우 비어있지 않은 문자열 | MUST |
+| `spec.verify.webhook.signingSecret` | 설정된 경우 유효한 ValueSource | MUST |
+| `spec.ingress.rules` | 선택. 있으면 배열 형식 | MAY |
+| `spec.ingress.rules[].route` | 필수 | MUST |
+| `spec.ingress.rules[].route.swarmRef` | 유효한 Swarm 참조 | MUST |
+| `spec.ingress.rules[].route.instanceKeyFrom` | JSONPath 표현식 (선택) | SHOULD |
+| `spec.ingress.rules[].route.inputFrom` | JSONPath 표현식 (선택) | SHOULD |
+| `spec.ingress.rules[].route.agentName` | 해당 Swarm의 agents에 포함된 에이전트 이름 | SHOULD |
 
 ### 추가 검증 규칙
 
 1. `connectorRef`가 참조하는 Connector 리소스가 Bundle 내에 존재해야 한다(MUST).
 2. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다(MUST).
-3. `rules[].route.swarmRef`가 참조하는 Swarm 리소스가 Bundle 내에 존재해야 한다(MUST).
-4. `rules[].route.agentName`이 지정된 경우, 해당 에이전트가 참조된 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
-5. `auth`가 생략된 경우, 연결된 Connector의 `type`이 인증을 필요로 하지 않는 타입인지 확인한다(SHOULD). CLI 등 인증이 불필요한 Connector는 `auth` 생략이 허용된다.
+3. `auth`와 `verify`는 독립적으로 설정할 수 있다. 둘 다 설정하거나 하나만 설정할 수 있다(MAY).
+4. `ingress.rules[].route.swarmRef`가 참조하는 Swarm 리소스가 Bundle 내에 존재해야 한다(MUST).
+5. `ingress.rules[].route.agentName`이 지정된 경우, 해당 에이전트가 참조된 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
+6. `auth`가 생략된 경우, 연결된 Connector의 `type`이 인증을 필요로 하지 않는 타입인지 확인한다(SHOULD). CLI 등 인증이 불필요한 Connector는 `auth` 생략이 허용된다.
+7. OAuth를 사용하는 Connection은 Turn 생성 시 `turn.auth.subjects`를 채워야 한다(MUST).
+8. 하나의 trigger가 여러 canonical event를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
 
 ---
 
-## 9. 참고 문서
+## 10. 참고 문서
 
-- `docs/specs/connector.md` - Connector 시스템 스펙 (프로토콜 패키지, Trigger Handler, ConnectorAdapter)
+- `docs/specs/connector.md` - Connector 시스템 스펙 (프로토콜 패키지, Trigger Handler, 서명 검증, ConnectorAdapter)
 - `docs/specs/resources.md` - Config Plane 리소스 정의 스펙 (ObjectRef, Selector, ValueSource 등)
 - `docs/specs/runtime.md` - Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅)
 - `docs/specs/oauth.md` - OAuth 시스템 스펙 (OAuthApp, OAuthStore, Token 관리)

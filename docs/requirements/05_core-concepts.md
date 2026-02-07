@@ -12,8 +12,10 @@
 1. AgentInstance 이벤트 큐는 FIFO 직렬 처리여야 한다(MUST).
 2. Step 시작 후 종료 전까지 Effective Config와 SwarmBundleRef는 고정되어야 한다(MUST).
 3. Changeset 커밋으로 생성된 SwarmBundleRef는 Safe Point(최소 `step.config`)에서만 활성화되어야 한다(MUST).
-4. Runtime은 각 Step의 LLM 응답/Tool 결과를 `Turn.messages`에 누적하고 다음 Step 입력으로 사용해야 한다(MUST).
-5. Turn은 추적 가능성을 위해 `traceId`를 가져야 하며, Step/ToolCall/Event 로그로 전파되어야 한다(SHOULD).
+4. Runtime은 Turn 메시지를 `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산해야 하며, 각 Step의 LLM 입력은 항상 이 계산 결과를 사용해야 한다(MUST).
+5. `BaseMessages`는 turn 시작 시 디스크(`base.jsonl`)에서 로드된 기준 메시지 집합이고, `Events`는 turn 중 append되는 메시지 조작 이벤트 집합이어야 한다(MUST).
+6. Turn 종료 시 Runtime은 최종 `BaseMessages + SUM(Events)`를 새로운 base로 저장하고, 적용된 `Events`를 비워야 한다(MUST).
+7. Turn은 추적 가능성을 위해 `traceId`를 가져야 하며, Step/ToolCall/Event 로그로 전파되어야 한다(SHOULD).
 
 ### 5.2 Tool
 

@@ -15,7 +15,7 @@ packages/cli/
     commands/
       index.ts        # 명령어 모듈 export
       init.ts         # gdn init 명령어 구현
-      run.ts          # gdn run 명령어 구현 (Swarm 실행, Connection 감지→커넥터 디스패치, 대화형 모드 폴백, SwarmBundleRef 전환/세대 관리, 자동 의존성 설치, processConnectorTurn 커넥터 콜백 export)
+      run.ts          # gdn run 명령어 구현 (Swarm 실행, Connection 감지→커넥터 디스패치, 대화형 모드 폴백, SwarmBundleRef 전환/세대 관리, 자동 의존성 설치, processConnectorTurn 커넥터 콜백 export, WorkspaceManager 기반 인스턴스 이벤트 로깅)
       validate.ts     # gdn validate 명령어 구현 (Bundle 검증)
       package/        # gdn package 명령어 그룹 (AGENTS.md 참조)
         index.ts      # 패키지 명령어 그룹 등록
@@ -31,9 +31,10 @@ packages/cli/
         info.ts       # gdn package info
         cache.ts      # gdn package cache (info, clean)
       instance/       # gdn instance 명령어 그룹 (AGENTS.md 참조)
-        index.ts      # 인스턴스 명령어 그룹 등록
-        list.ts       # gdn instance list
-        inspect.ts    # gdn instance inspect
+        index.ts      # 인스턴스 명령어 그룹 등록 (utils re-export 포함)
+        utils.ts      # 공유 유틸리티 (type guards, path/JSONL/formatting, Core 재활용)
+        list.ts       # gdn instance list (--json 지원)
+        inspect.ts    # gdn instance inspect (--json 지원)
         delete.ts     # gdn instance delete
         resume.ts     # gdn instance resume
       logs.ts         # gdn logs - 로그 조회 (JSONL 파싱, 필터링, 실시간 스트리밍)
@@ -42,7 +43,7 @@ packages/cli/
       doctor.ts       # gdn doctor - 환경 진단 (Node.js, pnpm, API 키, 의존성 확인)
     runtime/            # gdn run 런타임 구현체 (AGENTS.md 참조)
       index.ts          # 모든 구현체 re-export
-      types.ts          # 공유 타입 (RuntimeContext, RevisionState, ProcessConnectorTurnResult)
+      types.ts          # 공유 타입 (RuntimeContext에 WorkspaceManager/SwarmEventLogger/instanceId 포함, RevisionState, ProcessConnectorTurnResult)
       bundle-loader-impl.ts  # BundleLoadResult 기반 BundleLoader 구현
       llm-caller-impl.ts     # AI SDK 기반 LLM 호출 구현 (anthropic/openai/google)
       tool-executor-impl.ts  # Tool entry 모듈 동적 로드/실행 구현 (ref 세대별 격리/정리 포함)

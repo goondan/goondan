@@ -9,13 +9,16 @@
 import { Command } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
-import * as crypto from "node:crypto";
 import chalk from "chalk";
 import ora from "ora";
 import { info, success, error as logError } from "../../utils/logger.js";
-import { loadConfig, expandPath } from "../../utils/config.js";
+import { loadConfig } from "../../utils/config.js";
 import { confirm, isPromptCancelled } from "../../utils/prompt.js";
+import {
+  getGoondanHomeSync,
+  findInstancePath,
+  getInstanceBasicInfo,
+} from "./utils.js";
 
 /**
  * Delete command options
@@ -23,74 +26,6 @@ import { confirm, isPromptCancelled } from "../../utils/prompt.js";
 export interface DeleteOptions {
   /** Skip confirmation prompt */
   force: boolean;
-}
-
-/**
- * Generate workspace ID from SwarmBundle root path
- */
-function generateWorkspaceId(swarmBundleRoot: string): string {
-  const normalized = path.resolve(swarmBundleRoot);
-  const hash = crypto.createHash("sha256").update(normalized).digest("hex");
-  return hash.slice(0, 12);
-}
-
-/**
- * Get the Goondan home directory
- */
-function getGoondanHome(stateRoot?: string): string {
-  if (stateRoot) {
-    return path.resolve(expandPath(stateRoot));
-  }
-  if (process.env.GOONDAN_STATE_ROOT) {
-    return path.resolve(expandPath(process.env.GOONDAN_STATE_ROOT));
-  }
-  return path.join(os.homedir(), ".goondan");
-}
-
-/**
- * Find instance path by ID (searches all workspaces)
- */
-function findInstancePath(
-  instancesRoot: string,
-  instanceId: string
-): { instancePath: string; workspaceId: string } | null {
-  if (!fs.existsSync(instancesRoot)) {
-    return null;
-  }
-
-  // First try current workspace
-  const currentWorkspaceId = generateWorkspaceId(process.cwd());
-  const currentWorkspacePath = path.join(instancesRoot, currentWorkspaceId);
-  const currentInstancePath = path.join(currentWorkspacePath, instanceId);
-
-  if (fs.existsSync(currentInstancePath)) {
-    return { instancePath: currentInstancePath, workspaceId: currentWorkspaceId };
-  }
-
-  // Search all workspaces
-  const workspaceIds = fs.readdirSync(instancesRoot);
-
-  for (const workspaceId of workspaceIds) {
-    const workspacePath = path.join(instancesRoot, workspaceId);
-
-    try {
-      const stat = fs.statSync(workspacePath);
-
-      if (!stat.isDirectory()) {
-        continue;
-      }
-
-      const instancePath = path.join(workspacePath, instanceId);
-
-      if (fs.existsSync(instancePath)) {
-        return { instancePath, workspaceId };
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -117,75 +52,17 @@ function deleteDirectory(dirPath: string): void {
 }
 
 /**
- * Get instance info for confirmation prompt
- */
-function getInstanceInfo(instancePath: string): {
-  swarmName: string;
-  agentCount: number;
-} | null {
-  const swarmEventsPath = path.join(instancePath, "swarm", "events", "events.jsonl");
-
-  if (!fs.existsSync(swarmEventsPath)) {
-    return null;
-  }
-
-  // Read first line to get swarm name
-  const content = fs.readFileSync(swarmEventsPath, "utf-8");
-  const firstLine = content.split("\n")[0];
-
-  if (!firstLine) {
-    return null;
-  }
-
-  try {
-    const event: unknown = JSON.parse(firstLine);
-
-    if (
-      event !== null &&
-      typeof event === "object" &&
-      "swarmName" in event &&
-      typeof (event as Record<string, unknown>).swarmName === "string"
-    ) {
-      // Count agents
-      const agentsPath = path.join(instancePath, "agents");
-      let agentCount = 0;
-
-      if (fs.existsSync(agentsPath)) {
-        try {
-          const agents = fs.readdirSync(agentsPath);
-          agentCount = agents.filter((name) => {
-            const agentPath = path.join(agentsPath, name);
-            return fs.statSync(agentPath).isDirectory();
-          }).length;
-        } catch {
-          // Ignore errors
-        }
-      }
-
-      return {
-        swarmName: (event as Record<string, unknown>).swarmName as string,
-        agentCount,
-      };
-    }
-  } catch {
-    // Ignore parse errors
-  }
-
-  return null;
-}
-
-/**
  * Execute the delete command
  */
 async function executeDelete(
   instanceId: string,
-  options: DeleteOptions
+  options: DeleteOptions,
 ): Promise<void> {
   const spinner = ora();
 
   try {
     const config = await loadConfig();
-    const goondanHome = getGoondanHome(config.stateRoot);
+    const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
     const found = findInstancePath(instancesRoot, instanceId);
@@ -198,7 +75,7 @@ async function executeDelete(
     }
 
     // Get instance info for confirmation
-    const instanceInfo = getInstanceInfo(found.instancePath);
+    const instanceInfo = getInstanceBasicInfo(found.instancePath);
 
     // Confirm deletion unless --force is specified
     if (!options.force) {
@@ -214,7 +91,7 @@ async function executeDelete(
 
       const confirmed = await confirm(
         `Are you sure you want to delete instance "${instanceId}"?`,
-        { initial: false }
+        { initial: false },
       );
 
       if (!confirmed) {
@@ -272,7 +149,7 @@ export function createDeleteCommand(): Command {
     .option("-f, --force", "Skip confirmation prompt", false)
     .action(async (instanceId: string, options: Record<string, unknown>) => {
       const deleteOptions: DeleteOptions = {
-        force: options.force === true,
+        force: options["force"] === true,
       };
 
       await executeDelete(instanceId, deleteOptions);

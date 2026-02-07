@@ -1178,7 +1178,7 @@ spec:
 
 ### 6.6 Connector
 
-Connector는 외부 채널과의 통신 프로토콜(타입)을 정의한다. 인증, 라우팅(ingress), 응답(egress) 설정은 Connection 리소스에서 관리한다.
+Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 실행 패키지를 정의한다. 인증, 라우팅(ingress), 서명 검증 시크릿은 Connection 리소스에서 관리한다.
 
 #### TypeScript 인터페이스
 
@@ -1187,26 +1187,54 @@ Connector는 외부 채널과의 통신 프로토콜(타입)을 정의한다. �
  * Connector 리소스 스펙
  */
 interface ConnectorSpec {
-  /** Connector 타입 (slack, cli, github, custom 등) */
-  type: string;
-  /** 런타임 환경 (custom 타입용) */
-  runtime?: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 (custom 타입용) */
-  entry?: string;
-  /** Trigger 핸들러 목록 (custom 타입용) */
-  triggers?: TriggerConfig[];
+  /** 런타임 환경 */
+  runtime: 'node';
+  /** 엔트리 파일 경로 (단일 default export) */
+  entry: string;
+  /** Trigger 프로토콜 선언 목록 */
+  triggers: TriggerDeclaration[];
+  /** 커넥터가 emit할 수 있는 이벤트 스키마 */
+  events?: EventSchema[];
 }
 
 /**
- * Trigger 설정
+ * Trigger 프로토콜 선언
  */
-interface TriggerConfig {
-  /** 트리거 식별자 (선택) */
-  name?: string;
-  /** canonical event 타입 매핑 (선택) */
-  event?: string;
-  /** 핸들러 함수 이름 */
-  handler: string;
+type TriggerDeclaration =
+  | HttpTrigger
+  | CronTrigger
+  | CliTrigger;
+
+interface HttpTrigger {
+  type: 'http';
+  endpoint: {
+    path: string;
+    method: 'POST' | 'GET' | 'PUT' | 'DELETE';
+  };
+}
+
+interface CronTrigger {
+  type: 'cron';
+  schedule: string;
+}
+
+interface CliTrigger {
+  type: 'cli';
+}
+
+/**
+ * 이벤트 스키마 선언
+ */
+interface EventSchema {
+  /** 이벤트 이름 */
+  name: string;
+  /** 이벤트 속성 타입 선언 */
+  properties?: Record<string, EventPropertyType>;
+}
+
+interface EventPropertyType {
+  type: 'string' | 'number' | 'boolean';
+  optional?: boolean;
 }
 
 type ConnectorResource = Resource<ConnectorSpec>;
@@ -1215,13 +1243,29 @@ type ConnectorResource = Resource<ConnectorSpec>;
 #### YAML 예시
 
 ```yaml
-# Slack Connector
+# Slack Connector (HTTP trigger + events 스키마)
 apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
   name: slack
 spec:
-  type: slack
+  runtime: node
+  entry: "./connectors/slack/index.ts"
+  triggers:
+    - type: http
+      endpoint:
+        path: /webhook/slack/events
+        method: POST
+  events:
+    - name: app_mention
+      properties:
+        channel_id: { type: string }
+        ts: { type: string }
+        thread_ts: { type: string, optional: true }
+    - name: message.im
+      properties:
+        channel_id: { type: string }
+        ts: { type: string }
 
 ---
 # CLI Connector
@@ -1230,43 +1274,47 @@ kind: Connector
 metadata:
   name: cli
 spec:
-  type: cli
+  runtime: node
+  entry: "./connectors/cli/index.ts"
+  triggers:
+    - type: cli
+  events:
+    - name: user_input
 
 ---
-# Custom Connector (Trigger Handler 사용)
+# Cron Connector
 apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
-  name: custom-webhook
+  name: daily-reporter
 spec:
-  type: custom
   runtime: node
-  entry: "./connectors/webhook/index.js"
-
+  entry: "./connectors/daily-reporter/index.ts"
   triggers:
-    - name: webhook
-      event: webhook.received
-      handler: onWebhook
-    - name: cron
-      event: cron.triggered
-      handler: onCron
+    - type: cron
+      schedule: "0 9 * * MON-FRI"
+  events:
+    - name: daily_report
+      properties:
+        scheduled_at: { type: string }
 ```
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `type` | MUST | string | 비어있지 않은 문자열 |
-| `runtime` | MAY | enum | custom 타입에서 필수 |
-| `entry` | MAY | string | custom 타입에서 필수 |
-| `triggers[].name` | MAY | string | 트리거 식별자 |
-| `triggers[].event` | MAY | string | canonical event 타입 매핑 |
-| `triggers[].handler` | MAY | string | entry 모듈의 export 함수명 |
+| `runtime` | MUST | string | `"node"` |
+| `entry` | MUST | string | 유효한 파일 경로 |
+| `triggers` | MUST | array | 최소 1개 이상의 trigger 선언 |
+| `triggers[].type` | MUST | string | `"http"`, `"cron"`, `"cli"` 중 하나 |
+| `triggers[].endpoint.path` | MUST (http) | string | `/`로 시작 |
+| `triggers[].endpoint.method` | MUST (http) | string | HTTP 메서드 |
+| `triggers[].schedule` | MUST (cron) | string | 유효한 cron 표현식 |
+| `events[].name` | MUST | string | Connector 내 고유 |
 
 **추가 검증 규칙:**
-- `type=custom`인 경우 `runtime`과 `entry`가 필수 (MUST).
-- `triggers[].handler`는 모듈 한정자(`exports.`, 파일 경로)를 포함해서는 안 된다 (MUST).
-- 지정된 handler export가 존재하지 않으면 구성 로드 단계에서 오류 (MUST).
+- Entry 모듈에 단일 default export 함수가 존재해야 한다 (MUST).
+- `events[].name`은 Connector 내에서 고유해야 한다 (MUST).
 
 ---
 
@@ -1644,7 +1692,7 @@ interface MaterializeContext {
 
 ### 6.10 Connection
 
-Connection은 Connector와 Swarm 사이의 바인딩을 정의한다. 인증, 라우팅 규칙(ingress), 응답 설정(egress)을 포함한다.
+Connection은 Connector와 Agent 사이의 배포 바인딩을 정의한다. 인증 설정, ConnectorEvent 기반 라우팅 규칙(ingress), 서명 검증 시크릿을 포함한다.
 
 #### TypeScript 인터페이스
 
@@ -1658,17 +1706,17 @@ interface ConnectionSpec {
   /** 인증 설정 */
   auth?: ConnectorAuth;
   /** 인바운드 라우팅 규칙 */
-  ingress?: ConnectionIngress;
+  ingress?: IngressConfig;
   /** 서명 검증 설정 */
   verify?: ConnectionVerify;
 }
 
 /**
- * Connection 인바운드 설정
+ * Ingress 설정
  */
-interface ConnectionIngress {
-  /** 라우팅 규칙 목록 */
-  rules: ConnectionRule[];
+interface IngressConfig {
+  /** 라우팅 규칙 */
+  rules?: IngressRule[];
 }
 
 /**
@@ -1677,17 +1725,10 @@ interface ConnectionIngress {
 interface ConnectionVerify {
   /** Webhook 서명 검증 */
   webhook?: {
-    /** 서명 검증 provider (예: "slack", "github") */
-    provider: string;
-    /** 서명 시크릿 */
+    /** 서명 시크릿 (ValueSource 패턴) */
     signingSecret: ValueSource;
   };
 }
-
-/**
- * Connection 라우팅 규칙 (IngressRule과 동일 구조)
- */
-type ConnectionRule = IngressRule;
 
 /**
  * Connector 인증 설정
@@ -1697,7 +1738,7 @@ type ConnectorAuth =
   | { oauthAppRef?: never; staticToken: ValueSource };
 
 /**
- * Ingress 규칙
+ * Ingress 라우팅 규칙
  */
 interface IngressRule {
   /** 매칭 조건 */
@@ -1706,22 +1747,23 @@ interface IngressRule {
   route: IngressRoute;
 }
 
+/**
+ * 이벤트 매칭 조건
+ * Connector의 events 스키마를 기반으로 매칭
+ */
 interface IngressMatch {
-  /** 명령어 매칭 (예: "/swarm") */
-  command?: string;
-  /** 이벤트 타입 매칭 */
-  eventType?: string;
-  /** 채널 매칭 */
-  channel?: string;
+  /** ConnectorEvent.name과 매칭할 이벤트 이름 */
+  event?: string;
+  /** ConnectorEvent.properties 값과 매칭할 키-값 쌍 */
+  properties?: Record<string, string | number | boolean>;
 }
 
+/**
+ * 라우팅 설정
+ */
 interface IngressRoute {
-  /** 대상 Swarm */
-  swarmRef: ObjectRefLike;
-  /** instanceKey 추출 표현식 (JSONPath) */
-  instanceKeyFrom?: string;
-  /** 입력 텍스트 추출 표현식 (JSONPath) */
-  inputFrom?: string;
+  /** 대상 Agent (선택, 생략 시 Swarm entrypoint로 라우팅) */
+  agentRef?: ObjectRefLike;
 }
 
 type ConnectionResource = Resource<ConnectionSpec>;
@@ -1739,17 +1781,14 @@ spec:
   connectorRef: { kind: Connector, name: cli }
   ingress:
     rules:
-      - route:
-          swarmRef: { kind: Swarm, name: default }
-          instanceKeyFrom: "$.instanceKey"
-          inputFrom: "$.text"
+      - route: {}  # entrypoint Agent로 라우팅
 
 ---
 # Slack Connection with auth + verify
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
-  name: slack-to-default
+  name: slack-main
 spec:
   connectorRef: { kind: Connector, name: slack }
   auth:
@@ -1757,14 +1796,14 @@ spec:
   ingress:
     rules:
       - match:
-          command: "/agent"
+          event: app_mention
         route:
-          swarmRef: { kind: Swarm, name: default }
-          instanceKeyFrom: "$.event.thread_ts"
-          inputFrom: "$.event.text"
+          agentRef: { kind: Agent, name: planner }
+      - match:
+          event: message.im
+        route: {}  # entrypoint로 라우팅
   verify:
     webhook:
-      provider: slack
       signingSecret:
         valueFrom:
           secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
@@ -1774,19 +1813,18 @@ spec:
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
-  name: telegram-to-default
+  name: telegram-main
 spec:
   connectorRef: { kind: Connector, name: telegram }
   auth:
     staticToken:
       valueFrom:
-        secretRef: { ref: "Secret/telegram-bot", key: "token" }
+        env: "TELEGRAM_BOT_TOKEN"
   ingress:
     rules:
-      - route:
-          swarmRef: { kind: Swarm, name: default }
-          instanceKeyFrom: "$.chat.id"
-          inputFrom: "$.message.text"
+      - match:
+          event: message
+        route: {}  # entrypoint로 라우팅
 ```
 
 #### Validation 규칙
@@ -1797,17 +1835,17 @@ spec:
 | `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
 | `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
 | `auth` | MUST | - | oauthAppRef와 staticToken은 동시에 존재할 수 없음 |
-| `ingress.rules` | MAY | array | ConnectionRule 배열 |
-| `ingress.rules[].route.swarmRef` | MUST | ObjectRef | 유효한 Swarm 참조 |
-| `verify.webhook.provider` | MAY | string | 서명 검증 provider |
+| `ingress.rules` | MAY | array | IngressRule 배열 |
+| `ingress.rules[].match.event` | SHOULD | string | Connector의 events[].name에 선언된 이름 |
+| `ingress.rules[].route.agentRef` | MAY | ObjectRefLike | 유효한 Agent 참조 |
 | `verify.webhook.signingSecret` | MAY | ValueSource | 서명 시크릿 |
 
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
 - `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
-- `ingress.rules[].route.swarmRef`는 유효한 Swarm 리소스를 참조해야 한다 (MUST).
-- Connection은 Connector가 서명 검증에 사용할 인증 정보(서명 시크릿 등)를 제공해야 한다 (MUST).
-- 서명 검증 실패 시 Connector는 Turn을 생성해서는 안 된다 (MUST).
+- `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 Swarm의 `agents` 배열에 포함되어야 한다 (SHOULD).
+- Connection은 Connector가 서명 검증에 사용할 시크릿을 제공해야 한다 (MUST).
+- 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다 (MUST).
 
 ---
 
@@ -1911,12 +1949,13 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 | Agent | changesets.allowed는 Swarm 범위 내 | MUST |
 | Swarm | entrypoint, agents 필수 | MUST |
 | Swarm | entrypoint는 agents에 포함 | MUST |
-| Connector | type 필수 | MUST |
-| Connector | custom 타입에서 runtime, entry 필수 | MUST |
+| Connector | runtime, entry 필수 | MUST |
+| Connector | triggers 최소 1개 프로토콜 선언 | MUST |
+| Connector | events[].name Connector 내 고유 | MUST |
 | Connection | connectorRef 필수 | MUST |
 | Connection | oauthAppRef와 staticToken 동시 불가 | MUST |
-| Connection | ingress.rules[].route.swarmRef 유효한 Swarm 참조 | MUST |
-| Connection | verify.webhook 서명 검증 정보 제공 | MUST |
+| Connection | ingress.rules[].match.event는 Connector events에 선언된 이름 | SHOULD |
+| Connection | verify.webhook 서명 검증 시크릿 제공 | MUST |
 | OAuthApp | flow, subjectMode 필수 | MUST |
 | OAuthApp | authorizationCode 시 authorizationUrl, callbackPath 필수 | MUST |
 | OAuthApp | deviceCode 미지원 시 거부 | MUST |

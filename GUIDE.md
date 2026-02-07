@@ -398,7 +398,7 @@ spec:
 
 ### 4.4 Connector & Connection 정의
 
-Connector는 외부 채널의 타입을 정의하고, Connection은 Connector와 Swarm 사이의 라우팅 규칙을 정의합니다.
+Connector는 외부 프로토콜 이벤트를 수신하여 정규화된 ConnectorEvent를 발행하고, Connection은 Connector와 Agent 사이의 라우팅 규칙을 정의합니다.
 
 **CLI Connector (가장 단순한 형태):**
 
@@ -408,7 +408,12 @@ kind: Connector
 metadata:
   name: cli
 spec:
-  type: cli
+  runtime: node
+  entry: "./connectors/cli/index.ts"
+  triggers:
+    - type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -418,11 +423,9 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}  # entrypoint Agent로 라우팅
 ```
 
 **Telegram Connector:**
@@ -433,7 +436,17 @@ kind: Connector
 metadata:
   name: telegram
 spec:
-  type: telegram
+  runtime: node
+  entry: "./connectors/telegram/index.ts"
+  triggers:
+    - type: http
+      endpoint:
+        path: /webhook/telegram
+        method: POST
+  events:
+    - name: message
+      properties:
+        chat_id: { type: string }
 
 ---
 
@@ -447,21 +460,11 @@ spec:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
-  rules:
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+  ingress:
+    rules:
+      - match:
+          event: message
+        route: {}  # entrypoint Agent로 라우팅
 ```
 
 ### 4.5 Tool 정의
@@ -564,7 +567,12 @@ kind: Connector
 metadata:
   name: cli
 spec:
-  type: cli
+  runtime: node
+  entry: "./connectors/cli/index.ts"
+  triggers:
+    - type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -575,11 +583,9 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}  # entrypoint Agent로 라우팅
 ```
 
 ---
@@ -878,11 +884,14 @@ interface ExtensionApi {
 
 ### 7.1 Connector의 책임
 
-Connector는 다음 세 가지를 담당합니다:
+Connector는 다음을 담당합니다:
 
-1. **Ingress**: 외부 이벤트를 수신하여 Runtime에 전달
-2. **Egress**: Agent의 응답을 외부 채널로 전송
-3. **인증**: Turn의 인증 컨텍스트 설정
+1. **프로토콜 수신 선언**: 어떤 방식(HTTP, cron, CLI)으로 이벤트를 수신할지 선언
+2. **이벤트 스키마 선언**: emit할 수 있는 이벤트의 이름과 속성 타입 선언
+3. **이벤트 정규화**: 외부 페이로드를 ConnectorEvent로 변환
+4. **서명 검증**: Connection이 제공한 시크릿으로 inbound 요청 검증
+
+> 응답 전송은 Tool을 통해 처리합니다. Connector는 이벤트 수신/정규화에만 집중합니다.
 
 ### 7.2 디렉토리 구조
 
@@ -892,34 +901,49 @@ my-project/
 └── connectors/
     └── webhook/
         ├── connector.yaml  # Connector 리소스 정의
-        └── index.ts        # Trigger Handler 구현
+        └── index.ts        # Entry Function (단일 default export)
 ```
 
-### 7.3 Trigger Handler 작성
+### 7.3 Entry Function 작성
 
 ```typescript
 // connectors/webhook/index.ts
-import type { TriggerEvent, TriggerContext, JsonObject } from '@goondan/core';
+import type { ConnectorContext } from '@goondan/core';
 
 /**
- * Webhook 이벤트 핸들러
- * Connector의 spec.triggers[].handler 이름과 일치해야 합니다.
+ * Connector Entry Function
+ * 단일 default export로 제공합니다.
  */
-export async function onWebhook(
-  event: TriggerEvent,
-  connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
-  const payload = event.payload;
+export default async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, verify, logger } = context;
 
-  // canonical event로 변환하여 Runtime에 전달
-  await ctx.emit({
-    type: 'message',
-    instanceKey: String(payload.sessionId),
-    input: String(payload.message),
-    origin: {
-      channel: 'webhook',
-      userId: String(payload.userId),
+  if (event.type !== "connector.trigger") return;
+  if (event.trigger.type !== "http") return;
+
+  const req = event.trigger.payload.request;
+
+  // 서명 검증
+  const signingSecret = verify?.webhook?.signingSecret;
+  if (signingSecret) {
+    const isValid = await verifySignature(req, signingSecret);
+    if (!isValid) {
+      logger.warn("서명 검증 실패");
+      return;
+    }
+  }
+
+  // ConnectorEvent 발행
+  const body = req.body;
+  await emit({
+    type: "connector.event",
+    name: "webhook_received",
+    message: { type: "text", text: String(body.message) },
+    properties: {
+      session_id: String(body.sessionId),
+    },
+    auth: {
+      actor: { id: `webhook:${body.userId}` },
+      subjects: { global: "webhook:default" },
     },
   });
 }
@@ -933,11 +957,17 @@ kind: Connector
 metadata:
   name: custom-webhook
 spec:
-  type: custom
   runtime: node
   entry: "./connectors/webhook/index.ts"
   triggers:
-    - handler: onWebhook
+    - type: http
+      endpoint:
+        path: /webhook/custom
+        method: POST
+  events:
+    - name: webhook_received
+      properties:
+        session_id: { type: string }
 ```
 
 ### 7.5 Connection 정의
@@ -949,31 +979,18 @@ metadata:
   name: webhook-to-swarm
 spec:
   connectorRef: { kind: Connector, name: custom-webhook }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.payload.sessionId"
-        inputFrom: "$.payload.message"
+  ingress:
+    rules:
+      - match:
+          event: webhook_received
+        route:
+          agentRef: { kind: Agent, name: handler }
+  verify:
+    webhook:
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/webhook-secret", key: "signing_secret" }
 ```
-
-### 7.6 Egress 설정
-
-응답 전송 방식을 설정할 수 있습니다:
-
-```yaml
-# Connection 내 egress 설정
-spec:
-  egress:
-    updatePolicy:
-      mode: replace          # replace | updateInThread | newMessage
-      debounceMs: 1500       # 디바운스 시간 (밀리초)
-```
-
-| 모드 | 설명 |
-|------|------|
-| `replace` | 이전 메시지를 교체 (기본) |
-| `updateInThread` | 스레드 내에서 업데이트 |
-| `newMessage` | 새 메시지로 전송 |
 
 ---
 
@@ -1091,7 +1108,7 @@ gdn run
 Telegram 봇을 통해 원격으로 코딩 작업을 수행하는 멀티 에이전트 스웜입니다.
 
 **구성**: Planner/Coder/Reviewer 3개 에이전트, Telegram Connector + Connection
-**학습 포인트**: 외부 채널 연동, Connection 라우팅 규칙/Egress, Static Token 인증
+**학습 포인트**: 외부 채널 연동, ConnectorEvent 기반 라우팅, Static Token 인증
 
 ```bash
 cd packages/sample/sample-2-telegram-coder

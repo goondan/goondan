@@ -1,6 +1,6 @@
-# Goondan Runtime/SDK API 스펙 (v0.11)
+# Goondan Runtime/SDK API 스펙 (v0.12)
 
-본 문서는 `docs/requirements/index.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/requirements/06_config-spec.md` 및 `docs/spec_bundle.md`를 따른다.
+본 문서는 `docs/requirements/index.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/requirements/06_config-spec.md` 및 `docs/specs/bundle.md`를 따른다.
 
 ---
 
@@ -1040,198 +1040,211 @@ function limitErrorMessage(message: string, limit: number = 1000): string {
 
 ## 4. Connector API
 
-Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance로 라우팅하고, 진행상황 업데이트와 완료 보고를 같은 맥락으로 송신한다.
+Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 역할을 한다. 응답 전송은 Tool을 통해 처리하며, Connector는 이벤트 수신과 정규화에만 집중한다.
 
-### 4.1 ConnectorAdapter 인터페이스
+### 4.1 ConnectorEntryFunction
+
+Connector entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
 
 ```ts
 /**
- * Connector 어댑터 인터페이스
+ * Connector Entry Function
+ * 단일 default export로 제공
  */
-interface ConnectorAdapter {
-  /**
-   * 외부 이벤트 처리
-   * ingress 규칙에 따라 Swarm으로 라우팅
-   */
-  handleEvent(payload: JsonObject): Promise<void>;
-
-  /**
-   * 응답 송신 (선택)
-   * 에이전트 응답을 외부 채널로 전송
-   */
-  send?(input: ConnectorSendInput): Promise<unknown>;
-}
-
-interface ConnectorSendInput {
-  /** 응답 텍스트 */
-  text: string;
-
-  /** 호출 맥락 정보 */
-  origin?: JsonObject;
-
-  /** 인증 컨텍스트 */
-  auth?: JsonObject;
-
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-
-  /** 응답 종류 */
-  kind?: 'progress' | 'final';
-}
+type ConnectorEntryFunction = (
+  context: ConnectorContext
+) => Promise<void>;
 ```
 
-### 4.2 Runtime handleEvent 입력 구조
+### 4.2 ConnectorContext
+
+Entry 함수에 전달되는 컨텍스트. Connection마다 한 번씩 호출된다.
 
 ```ts
-/**
- * Runtime이 받는 이벤트 입력
- */
-interface RuntimeEventInput {
-  /** 대상 Swarm 참조 */
-  swarmRef: ObjectRefLike;
+interface ConnectorContext {
+  /** 트리거 이벤트 정보 */
+  event: ConnectorTriggerEvent;
 
-  /** 인스턴스 식별 키 */
-  instanceKey: string;
+  /** 현재 Connection 리소스 */
+  connection: Resource<ConnectionSpec>;
 
-  /** 대상 Agent 이름 (선택, 기본: entrypoint) */
-  agentName?: string;
+  /** Connector 리소스 */
+  connector: Resource<ConnectorSpec>;
 
-  /** 입력 텍스트 */
-  input: string;
+  /** ConnectorEvent 발행 */
+  emit: (event: ConnectorEvent) => Promise<void>;
 
-  /** 호출 맥락 정보 */
-  origin?: JsonObject;
+  /** 로깅 */
+  logger: Console;
 
-  /** 인증 컨텍스트 */
-  auth?: {
-    actor: {
-      type: 'user' | 'service' | 'system';
-      id: string;
-      display?: string;
-    };
-    subjects: {
-      global?: string;
-      user?: string;
-    };
+  /** OAuth 토큰 접근 (Connection의 OAuthApp 기반 모드인 경우) */
+  oauth?: {
+    getAccessToken: (request: OAuthTokenRequest) => Promise<OAuthTokenResult>;
   };
 
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
+  /** 서명 검증 정보 (Connection의 verify 블록에서 해석) */
+  verify?: {
+    webhook?: {
+      /** 서명 시크릿 (Connection의 verify.webhook.signingSecret에서 해석된 값) */
+      signingSecret: string;
+    };
+  };
 }
-
-// 사용 예시
-await runtime.handleEvent({
-  swarmRef: { kind: 'Swarm', name: 'default' },
-  instanceKey: '1700000000.000100',
-  input: '안녕하세요',
-  origin: {
-    connector: 'slack-main',
-    channel: 'C123',
-    threadTs: '1700000000.000100'
-  },
-  auth: {
-    actor: {
-      type: 'user',
-      id: 'slack:U234567',
-      display: 'alice'
-    },
-    subjects: {
-      global: 'slack:team:T111',
-      user: 'slack:user:T111:U234567'
-    }
-  }
-});
 ```
 
-### 4.3 TriggerHandler 시그니처
+### 4.3 ConnectorTriggerEvent
+
+트리거 프로토콜별 페이로드를 캡슐화한다.
 
 ```ts
-/**
- * Connector Trigger Handler
- * 외부 시스템 이벤트를 canonical event로 변환
- */
-type TriggerHandler = (
-  event: TriggerEvent,
-  connection: JsonObject,
-  ctx: TriggerContext
-) => Promise<void>;
-
-/**
- * Trigger 입력 이벤트
- */
-interface TriggerEvent {
-  type: 'webhook' | 'cron' | 'queue' | 'custom';
-  payload: JsonObject;
-  headers?: Record<string, string>;
+interface ConnectorTriggerEvent {
+  type: 'connector.trigger';
+  trigger: TriggerPayload;
   timestamp: string;
 }
 
-/**
- * Trigger 실행 컨텍스트
- */
-interface TriggerContext {
-  /**
-   * Canonical event 발행
-   * Runtime 내부 이벤트 큐에 enqueue
-   */
-  emit(event: CanonicalEvent): void;
+type TriggerPayload =
+  | HttpTriggerPayload
+  | CronTriggerPayload
+  | CliTriggerPayload;
 
-  /** 로거 */
-  logger: Console;
-
-  /** OAuth API */
-  oauth: OAuthApi;
-
-  /** Live Config 제안 API */
-  liveConfig: LiveConfigApi;
+interface HttpTriggerPayload {
+  type: 'http';
+  payload: {
+    request: {
+      method: string;
+      path: string;
+      headers: Record<string, string>;
+      body: JsonObject;
+      rawBody?: string;
+    };
+  };
 }
 
-/**
- * Canonical Event
- * Connector가 Runtime으로 전달하는 표준 이벤트
- */
-interface CanonicalEvent {
-  type: string;
-  swarmRef: ObjectRefLike;
-  instanceKey: string;
-  agentName?: string;
-  input: string;
-  origin?: JsonObject;
-  auth?: JsonObject;
-  metadata?: JsonObject;
+interface CronTriggerPayload {
+  type: 'cron';
+  payload: {
+    schedule: string;
+    scheduledAt: string;
+  };
 }
 
-// 사용 예시: Slack Connector Trigger Handler
-export async function handleSlackEvent(
-  event: TriggerEvent,
-  connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
-  const payload = event.payload;
-  const slackEvent = payload.event;
+interface CliTriggerPayload {
+  type: 'cli';
+  payload: {
+    text: string;
+    instanceKey?: string;
+  };
+}
+```
 
-  if (slackEvent?.type !== 'message') return;
+### 4.4 ConnectorEvent
 
-  ctx.emit({
-    type: 'message',
-    swarmRef: { kind: 'Swarm', name: 'default' },
-    instanceKey: slackEvent.thread_ts || slackEvent.ts,
-    input: slackEvent.text,
-    origin: {
-      connector: 'slack',
-      channel: slackEvent.channel,
-      threadTs: slackEvent.thread_ts || slackEvent.ts
+Entry 함수가 `ctx.emit()`으로 발행하는 정규화된 이벤트이다.
+
+```ts
+/**
+ * ConnectorEvent 메시지 (멀티모달)
+ */
+type ConnectorEventMessage =
+  | { type: "text"; text: string }
+  | { type: "image"; image: string }
+  | { type: "file"; data: string; mediaType: string };
+
+/**
+ * ConnectorEvent
+ * Connector가 Runtime으로 전달하는 정규화된 이벤트
+ */
+interface ConnectorEvent {
+  /** 이벤트 타입 (고정) */
+  type: "connector.event";
+
+  /** 이벤트 이름 (connector의 events[]에 선언된 이름) */
+  name: string;
+
+  /** 멀티모달 입력 메시지 */
+  message: ConnectorEventMessage;
+
+  /** 이벤트 속성 (events[].properties에 선언된 키-값) */
+  properties?: JsonObject;
+
+  /** 인증 컨텍스트 */
+  auth?: {
+    actor: { id: string; name?: string };
+    subjects: { global?: string; user?: string };
+  };
+}
+```
+
+### 4.5 Runtime handleEvent 입력 구조
+
+Runtime은 ConnectorEvent를 수신하여 Connection의 ingress rules에 따라 Agent로 라우팅한다.
+
+```ts
+/**
+ * Runtime이 ConnectorEvent를 처리할 때의 내부 입력 구조
+ */
+interface RuntimeEventInput {
+  /** 발신 Connection 참조 */
+  connectionRef: ObjectRefLike;
+
+  /** ConnectorEvent */
+  event: ConnectorEvent;
+
+  /** 대상 Agent 참조 (ingress rule의 route.agentRef에서 해석) */
+  agentRef?: ObjectRefLike;
+}
+```
+
+### 4.6 사용 예시: Slack Connector Entry Function
+
+```ts
+// ./connectors/slack/index.ts
+import type { ConnectorContext } from '@goondan/core';
+
+export default async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, verify, logger } = context;
+
+  if (event.type !== "connector.trigger") return;
+  if (event.trigger.type !== "http") return;
+
+  const req = event.trigger.payload.request;
+
+  // 서명 검증
+  const signingSecret = verify?.webhook?.signingSecret;
+  if (signingSecret) {
+    const isValid = await verifySlackSignature(req, signingSecret);
+    if (!isValid) {
+      logger.warn("Slack 서명 검증 실패");
+      return;
+    }
+  }
+
+  // 이벤트 파싱 및 emit
+  const body = req.body;
+  const slackEvent = body.event;
+  if (!slackEvent || typeof slackEvent !== "object") return;
+
+  const eventType = typeof slackEvent.type === "string" ? slackEvent.type : "";
+  const userId = typeof slackEvent.user === "string" ? slackEvent.user : "";
+  const teamId = typeof body.team_id === "string" ? body.team_id : "";
+  const text = typeof slackEvent.text === "string" ? slackEvent.text : "";
+
+  await emit({
+    type: "connector.event",
+    name: eventType === "app_mention" ? "app_mention" : "message.im",
+    message: { type: "text", text },
+    properties: {
+      channel_id: typeof slackEvent.channel === "string" ? slackEvent.channel : "",
+      ts: typeof slackEvent.ts === "string" ? slackEvent.ts : "",
     },
     auth: {
-      actor: {
-        type: 'user',
-        id: `slack:${slackEvent.user}`,
-      },
+      actor: { id: `slack:${userId}` },
       subjects: {
-        global: `slack:team:${payload.team_id}`,
-        user: `slack:user:${payload.team_id}:${slackEvent.user}`
-      }
-    }
+        global: `slack:team:${teamId}`,
+        user: `slack:user:${teamId}:${userId}`,
+      },
+    },
   });
 }
 ```
@@ -1950,48 +1963,51 @@ interface SwarmSpec {
   };
 }
 
-// Connector Spec (프로토콜 어댑터 정의)
+// Connector Spec (프로토콜 선언 + 이벤트 스키마)
 interface ConnectorSpec {
-  type: string;
-  runtime: 'node' | 'deno' | 'python';
+  runtime: 'node';
   entry: string;
-  triggers: Array<{
-    name: string;
-    event: string;
-    handler: string;
-  }>;
+  triggers: TriggerDeclaration[];
+  events?: EventSchema[];
+}
+
+type TriggerDeclaration =
+  | { type: 'http'; endpoint: { path: string; method: string } }
+  | { type: 'cron'; schedule: string }
+  | { type: 'cli' };
+
+interface EventSchema {
+  name: string;
+  properties?: Record<string, { type: 'string' | 'number' | 'boolean'; optional?: boolean }>;
 }
 
 // Connection Spec (배포 바인딩 정의)
 interface ConnectionSpec {
   connectorRef: ObjectRefLike;
-  auth?: {
-    oauthAppRef?: ObjectRefLike;
-    staticToken?: ValueSource;
-  };
+  auth?: ConnectorAuth;
   ingress?: {
     rules: IngressRule[];
   };
-  verify?: JsonObject;
-  egress?: {
-    updatePolicy?: {
-      mode: string;
-      debounceMs?: number;
+  verify?: {
+    webhook?: {
+      signingSecret: ValueSource;
     };
   };
 }
 
 // Ingress Rule
 interface IngressRule {
-  match?: {
-    command?: string;
-    [key: string]: JsonValue | undefined;
-  };
-  route: {
-    swarmRef: ObjectRefLike;
-    instanceKeyFrom: string;
-    inputFrom: string;
-  };
+  match?: IngressMatch;
+  route: IngressRoute;
+}
+
+interface IngressMatch {
+  event?: string;
+  properties?: Record<string, string | number | boolean>;
+}
+
+interface IngressRoute {
+  agentRef?: ObjectRefLike;
 }
 
 // OAuthApp Spec
@@ -2046,6 +2062,12 @@ interface EffectiveConfig {
 
 ## 변경 이력
 
+- v0.12 (2026-02-08): Connector/Connection API 대규모 리팩터링
+  - §4.1 ConnectorAdapter 삭제 → ConnectorEntryFunction (단일 default export)
+  - §4.2 RuntimeEventInput 리팩터 (swarmRef/instanceKey → connectionRef + ConnectorEvent 기반)
+  - §4.3 TriggerHandler/CanonicalEvent 삭제 → ConnectorContext/ConnectorTriggerEvent/ConnectorEvent
+  - 부록: ConnectorSpec에서 type 제거, triggers를 프로토콜 선언으로, events 스키마 추가
+  - 부록: ConnectionSpec에서 egress 제거, verify에서 provider 제거, IngressMatch를 event/properties로, IngressRoute를 agentRef로 변경
 - v0.10 (2026-02-07): 요구사항 정합성 보강
   - CommitChangesetResult에 'conflict' 상태 및 CommitChangesetConflict variant 추가
   - ConnectorSpec에서 auth/ingress/egress 분리, ConnectionSpec 신규 정의

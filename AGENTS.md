@@ -18,8 +18,10 @@
 ## 주요 파일 목록
 - GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
 - IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
-- docs/requirements/index.md : 요구사항 문서(요약 인덱스, 예시/시나리오/기대효과 통합)
+- docs/requirements/index.md : 요구사항 문서 메인 인덱스(요약/변경 이력/분할 문서 링크)
 - docs/requirements/*.md : 요구사항 분할 본문
+- .agents/skills/* : 저장소 로컬 에이전트 스킬 번들 (SKILL.md 기반 절차/스크립트/레퍼런스)
+- .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
 ### 구현 스펙 문서 (docs/specs/)
 - docs/specs/cli.md : CLI 도구(gdn) 스펙 (명령어, 옵션, 패키지 관리, 인스턴스 관리)

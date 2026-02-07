@@ -205,7 +205,7 @@ spec:
 
 ### 7.6 Connector
 
-Connector는 외부 시스템 프로토콜 구현과 trigger handler를 정의한다. Connector는 Connection으로부터 제공받은 인증 정보를 사용하여 inbound 서명 검증을 수행한다. 인증 정보 자체와 ingress 라우팅 규칙은 Connection에서 정의한다.
+Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 실행 패키지를 정의한다. entry 모듈은 단일 default export 함수를 제공한다. 인증 정보와 ingress 라우팅 규칙은 Connection에서 정의한다.
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -213,25 +213,35 @@ kind: Connector
 metadata:
   name: slack
 spec:
-  type: slack
   runtime: node
-  entry: "./connectors/slack/index.js"
+  entry: "./connectors/slack/index.ts"
   triggers:
-    - name: webhook
-      event: webhook.received
-      handler: onWebhook
+    - type: http
+      endpoint:
+        path: /webhook/slack/events
+        method: POST
+  events:
+    - name: app_mention
+      properties:
+        channel_id: { type: string }
+        ts: { type: string }
+    - name: message.im
+      properties:
+        channel_id: { type: string }
 ```
 
 규칙:
 
-1. `spec.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
-2. `triggers[].handler`는 entry 모듈 export와 일치해야 하며, 없으면 로드 단계에서 거부해야 한다(MUST).
-3. trigger handler는 외부 이벤트를 직접 AgentInstance에 전달하지 않고 `ctx.emit(canonicalEvent)`로 전달해야 한다(MUST).
-4. Connector는 Connection이 제공한 서명 시크릿/인증 정보를 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
+1. `spec.runtime`과 `spec.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
+2. entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
+3. `triggers`는 최소 1개 이상의 프로토콜 선언(`http`/`cron`/`cli`)을 포함해야 한다(MUST).
+4. entry 함수는 ConnectorEvent를 `ctx.emit(...)`으로 Runtime에 전달해야 한다(MUST).
+5. Connector는 Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
+6. `events[].name`은 Connector 내에서 고유해야 한다(MUST).
 
 ### 7.7 Connection
 
-Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스다. 인증 정보 제공과 ingress 라우팅 규칙을 담당한다.
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스다. 인증 정보 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -247,15 +257,15 @@ spec:
   ingress:
     rules:
       - match:
-          command: "/swarm"
+          event: app_mention
         route:
-          swarmRef: { kind: Swarm, name: default }
-          instanceKeyFrom: "$.event.thread_ts"
-          inputFrom: "$.event.text"
+          agentRef: { kind: Agent, name: planner }
+      - match:
+          event: message.im
+        route: {}  # entrypoint Agent로 라우팅
 
   verify:
     webhook:
-      provider: slack
       signingSecret:
         valueFrom:
           secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
@@ -273,22 +283,23 @@ spec:
   auth:
     staticToken:
       valueFrom:
-        secretRef: { ref: "Secret/telegram-bot", key: "token" }
+        env: "TELEGRAM_BOT_TOKEN"
   ingress:
     rules:
-      - route:
-          swarmRef: { kind: Swarm, name: default }
-          instanceKeyFrom: "$.chat.id"
-          inputFrom: "$.message.text"
+      - match:
+          event: message
+        route: {}
 ```
 
 규칙:
 
 1. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다(MUST).
-2. Connection은 Connector가 서명 검증에 사용할 인증 정보(서명 시크릿 등)를 제공해야 한다(MUST).
-3. 서명 검증 실패 시 Connector는 Turn을 생성해서는 안 된다(MUST).
+2. Connection은 Connector가 서명 검증에 사용할 시크릿을 제공해야 한다(MUST).
+3. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
 4. OAuth를 사용하는 Connection은 Turn 생성 시 필요한 `turn.auth.subjects` 키를 채워야 한다(MUST).
-5. 하나의 trigger가 여러 canonical event를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
+5. 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
+6. `ingress.rules[].match.event`는 Connector의 `events[].name`에 선언된 이름과 일치해야 한다(SHOULD).
+7. `ingress.rules[].route.agentRef`가 생략되면 Swarm의 entrypoint Agent로 라우팅한다(MUST).
 
 ### 7.8 ResourceType / ExtensionHandler
 

@@ -33,7 +33,7 @@
 - docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
 - docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합, Handoff 패턴)
 - docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴, getState/setState)
-- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 구현체, Trigger Handler, 서명 검증)
+- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 수신 선언, 이벤트 스키마, 단일 default export, ConnectorEvent 발행)
 - docs/specs/connection.md : Connection 시스템 스펙 (인증, Ingress 라우팅 규칙, 서명 검증 시크릿)
 - docs/specs/oauth.md : OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
 - docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point, Conflict)

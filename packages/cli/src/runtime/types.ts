@@ -9,6 +9,8 @@ import type {
   TurnRunner,
   SwarmInstanceManager,
   AgentInstance,
+  WorkspaceManager,
+  SwarmEventLogger,
 } from "@goondan/core";
 import type { BundleLoadResult } from "@goondan/core";
 import type { RevisionedToolExecutor } from "./tool-executor-impl.js";
@@ -32,12 +34,17 @@ export interface RuntimeContext {
   swarmName: string;
   entrypointAgent: string;
   instanceKey: string;
+  instanceId: string;
   bundleRootDir: string;
   configPath: string;
   currentBundle: BundleLoadResult;
   revisionState: RevisionState;
   /** AgentInstance 캐시 (cacheKey -> AgentInstance) */
   agentInstances: Map<string, AgentInstance>;
+  /** WorkspaceManager 인스턴스 (인스턴스 상태 저장용) */
+  workspaceManager: WorkspaceManager;
+  /** Swarm 이벤트 로거 */
+  swarmEventLogger: SwarmEventLogger;
 }
 
 /**

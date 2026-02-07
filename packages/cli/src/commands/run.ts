@@ -29,6 +29,8 @@ import {
   createSwarmBundleApi,
   resolveGoondanHome,
   generateWorkspaceId,
+  generateInstanceId,
+  WorkspaceManager,
 } from "@goondan/core";
 import type {
   TurnRunner,
@@ -624,6 +626,12 @@ async function processInput(
   const turnRef = acquireTurnRef(ctx.revisionState);
   ctx.toolExecutor.beginTurn(turnRef);
 
+  const agentName = ctx.entrypointAgent;
+  const agentEventLogger = ctx.workspaceManager.createAgentEventLogger(
+    ctx.instanceId,
+    agentName,
+  );
+
   try {
     // SwarmInstance 조회 또는 생성
     const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
@@ -634,15 +642,15 @@ async function processInput(
     swarmInstance.activeSwarmBundleRef = turnRef;
 
     // AgentInstance 조회 또는 생성
-    let agentInstance = ctx.agentInstances.get(ctx.entrypointAgent);
+    let agentInstance = ctx.agentInstances.get(agentName);
     if (!agentInstance) {
       agentInstance = createAgentInstance(
         swarmInstance,
-        `Agent/${ctx.entrypointAgent}`
+        `Agent/${agentName}`
       );
-      ctx.agentInstances.set(ctx.entrypointAgent, agentInstance);
+      ctx.agentInstances.set(agentName, agentInstance);
       // SwarmInstance에도 등록
-      swarmInstance.agents.set(ctx.entrypointAgent, {
+      swarmInstance.agents.set(agentName, {
         id: agentInstance.id,
         agentName: agentInstance.agentName,
       });
@@ -651,14 +659,35 @@ async function processInput(
     // AgentEvent 생성
     const event = createAgentEvent("user.input", input);
 
+    // Turn 시작 이벤트 로깅
+    const turnId = `turn-${Date.now()}`;
+    await agentEventLogger.log({
+      kind: "turn.started",
+      instanceId: ctx.instanceId,
+      instanceKey: ctx.instanceKey,
+      agentName,
+      turnId,
+    });
+
     // Turn 실행
     const turn = await ctx.turnRunner.run(agentInstance, event);
 
-    // 결과 출력
+    // 결과 출력 및 이벤트 로깅
     if (turn.status === "completed") {
       const response = extractAssistantResponse(turn);
       console.log(chalk.green("Agent:"), response);
       displayUsage(turn);
+
+      await agentEventLogger.log({
+        kind: "turn.completed",
+        instanceId: ctx.instanceId,
+        instanceKey: ctx.instanceKey,
+        agentName,
+        turnId,
+        data: {
+          stepCount: turn.steps.length,
+        },
+      });
     } else if (turn.status === "failed") {
       const errorMeta = turn.metadata["error"];
       if (isObjectWithKey(errorMeta, "message")) {
@@ -666,6 +695,19 @@ async function processInput(
       } else {
         logError("Turn failed with unknown error");
       }
+
+      await agentEventLogger.log({
+        kind: "turn.error",
+        instanceId: ctx.instanceId,
+        instanceKey: ctx.instanceKey,
+        agentName,
+        turnId,
+        data: {
+          error: isObjectWithKey(errorMeta, "message")
+            ? String(errorMeta.message)
+            : "Unknown error",
+        },
+      });
     }
   } finally {
     ctx.toolExecutor.endTurn(turnRef);
@@ -688,6 +730,13 @@ export async function processConnectorTurn(
   const turnRef = acquireTurnRef(ctx.revisionState);
   ctx.toolExecutor.beginTurn(turnRef);
 
+  const agentName = options.agentName ?? ctx.entrypointAgent;
+  const agentEventLogger = ctx.workspaceManager.createAgentEventLogger(
+    ctx.instanceId,
+    agentName,
+  );
+  const turnId = `turn-${Date.now()}`;
+
   try {
     const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
       `Swarm/${ctx.swarmName}`,
@@ -696,7 +745,6 @@ export async function processConnectorTurn(
     );
     swarmInstance.activeSwarmBundleRef = turnRef;
 
-    const agentName = options.agentName ?? ctx.entrypointAgent;
     const cacheKey = `${options.instanceKey}::${agentName}`;
 
     let agentInstance = ctx.agentInstances.get(cacheKey);
@@ -710,12 +758,32 @@ export async function processConnectorTurn(
         id: agentInstance.id,
         agentName: agentInstance.agentName,
       });
+
+      // 새 agent 생성 시 인스턴스 디렉터리 초기화
+      await ctx.workspaceManager.initializeInstanceState(ctx.instanceId, [agentName]);
     }
+
+    // Turn 시작 이벤트 로깅
+    await agentEventLogger.log({
+      kind: "turn.started",
+      instanceId: ctx.instanceId,
+      instanceKey: options.instanceKey,
+      agentName,
+      turnId,
+    });
 
     const event = createAgentEvent("user.input", options.input);
     const turn = await ctx.turnRunner.run(agentInstance, event);
 
     if (turn.status === "completed") {
+      await agentEventLogger.log({
+        kind: "turn.completed",
+        instanceId: ctx.instanceId,
+        instanceKey: options.instanceKey,
+        agentName,
+        turnId,
+        data: { stepCount: turn.steps.length },
+      });
       return { response: extractAssistantResponse(turn), status: "completed" };
     }
 
@@ -723,6 +791,16 @@ export async function processConnectorTurn(
     const msg = isObjectWithKey(errorMeta, "message")
       ? String(errorMeta.message)
       : "Unknown error";
+
+    await agentEventLogger.log({
+      kind: "turn.error",
+      instanceId: ctx.instanceId,
+      instanceKey: options.instanceKey,
+      agentName,
+      turnId,
+      data: { error: msg },
+    });
+
     return { response: `Error: ${msg}`, status: "failed" };
   } finally {
     ctx.toolExecutor.endTurn(turnRef);
@@ -775,6 +853,19 @@ async function initializeRuntime(
 
   const core = createRuntimeCore(result, bundleRootDir, swarmName, toolExecutor);
 
+  // WorkspaceManager 생성 및 인스턴스 상태 초기화
+  const workspaceManager = WorkspaceManager.create({
+    swarmBundleRoot: bundleRootDir,
+  });
+
+  const instanceId = generateInstanceId(swarmName, instanceKey);
+
+  // 인스턴스 디렉터리 초기화 (entrypoint agent 포함)
+  await workspaceManager.initializeInstanceState(instanceId, [core.entrypointAgent]);
+
+  // SwarmEventLogger 생성
+  const swarmEventLogger = workspaceManager.createSwarmEventLogger(instanceId);
+
   return {
     turnRunner: core.turnRunner,
     toolExecutor,
@@ -782,11 +873,14 @@ async function initializeRuntime(
     swarmName,
     entrypointAgent: core.entrypointAgent,
     instanceKey,
+    instanceId,
     bundleRootDir,
     configPath,
     currentBundle: result,
     revisionState,
     agentInstances: new Map(),
+    workspaceManager,
+    swarmEventLogger,
   };
 }
 
@@ -1015,9 +1109,33 @@ async function executeRun(options: RunOptions): Promise<void> {
     runtimeCtx = ctx;
     spinner.succeed("Runtime initialized");
 
+    // Swarm lifecycle 이벤트 로깅
+    await ctx.swarmEventLogger.log({
+      kind: "swarm.created",
+      instanceId: ctx.instanceId,
+      instanceKey: ctx.instanceKey,
+      swarmName: ctx.swarmName,
+    });
+
+    await ctx.swarmEventLogger.log({
+      kind: "agent.created",
+      instanceId: ctx.instanceId,
+      instanceKey: ctx.instanceKey,
+      swarmName: ctx.swarmName,
+      agentName: ctx.entrypointAgent,
+    });
+
+    await ctx.swarmEventLogger.log({
+      kind: "swarm.started",
+      instanceId: ctx.instanceId,
+      instanceKey: ctx.instanceKey,
+      swarmName: ctx.swarmName,
+    });
+
     // Show starting message
     console.log(chalk.bold.green(`Starting Swarm: ${options.swarm}`));
     console.log(chalk.dim(`  Entrypoint: ${ctx.entrypointAgent}`));
+    console.log(chalk.dim(`  Instance: ${ctx.instanceId}`));
     console.log();
 
     // Handle initial input
@@ -1128,6 +1246,20 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     process.exitCode = ExitCode.ERROR;
   } finally {
+    // Swarm 종료 이벤트 로깅
+    if (runtimeCtx) {
+      try {
+        await runtimeCtx.swarmEventLogger.log({
+          kind: "swarm.stopped",
+          instanceId: runtimeCtx.instanceId,
+          instanceKey: runtimeCtx.instanceKey,
+          swarmName: runtimeCtx.swarmName,
+        });
+      } catch {
+        // 로깅 실패는 무시
+      }
+    }
+
     if (runtimeCtx && isRevisionedToolExecutor(runtimeCtx.toolExecutor)) {
       await runtimeCtx.toolExecutor.dispose();
     }

@@ -9,11 +9,17 @@
 import { Command } from "commander";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
-import * as crypto from "node:crypto";
 import chalk from "chalk";
 import { info, error as logError } from "../../utils/logger.js";
-import { loadConfig, expandPath } from "../../utils/config.js";
+import { loadConfig } from "../../utils/config.js";
+import {
+  getGoondanHomeSync,
+  generateWorkspaceId,
+  getInstanceInfo,
+  formatDate,
+  formatStatus,
+} from "./utils.js";
+import type { InstanceInfo } from "./utils.js";
 
 /**
  * List command options
@@ -25,231 +31,8 @@ export interface ListOptions {
   limit: number;
   /** Show all instances (including other workspaces) */
   all: boolean;
-}
-
-/**
- * Instance summary info
- */
-interface InstanceInfo {
-  instanceId: string;
-  swarmName: string;
-  status: "active" | "idle" | "completed";
-  createdAt: Date;
-  turns: number;
-  workspaceId: string;
-}
-
-/**
- * Swarm event log record structure
- */
-interface SwarmEventRecord {
-  type: "swarm.event";
-  recordedAt: string;
-  kind: string;
-  instanceId: string;
-  instanceKey: string;
-  swarmName: string;
-  agentName?: string;
-  data?: Record<string, unknown>;
-}
-
-/**
- * Type guard for SwarmEventRecord
- */
-function isSwarmEventRecord(value: unknown): value is SwarmEventRecord {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    record.type === "swarm.event" &&
-    typeof record.recordedAt === "string" &&
-    typeof record.kind === "string" &&
-    typeof record.instanceId === "string" &&
-    typeof record.swarmName === "string"
-  );
-}
-
-/**
- * Generate workspace ID from SwarmBundle root path
- */
-function generateWorkspaceId(swarmBundleRoot: string): string {
-  const normalized = path.resolve(swarmBundleRoot);
-  const hash = crypto.createHash("sha256").update(normalized).digest("hex");
-  return hash.slice(0, 12);
-}
-
-/**
- * Get the Goondan home directory
- */
-function getGoondanHome(stateRoot?: string): string {
-  if (stateRoot) {
-    return path.resolve(expandPath(stateRoot));
-  }
-  if (process.env.GOONDAN_STATE_ROOT) {
-    return path.resolve(expandPath(process.env.GOONDAN_STATE_ROOT));
-  }
-  return path.join(os.homedir(), ".goondan");
-}
-
-/**
- * Read JSONL file and parse records
- */
-function readJsonlFile<T>(
-  filePath: string,
-  guard: (value: unknown) => value is T
-): T[] {
-  if (!fs.existsSync(filePath)) {
-    return [];
-  }
-
-  const content = fs.readFileSync(filePath, "utf-8");
-  const records: T[] = [];
-
-  for (const line of content.split("\n")) {
-    if (line.trim()) {
-      try {
-        const parsed: unknown = JSON.parse(line);
-        if (guard(parsed)) {
-          records.push(parsed);
-        }
-      } catch {
-        // Skip malformed lines
-      }
-    }
-  }
-
-  return records;
-}
-
-/**
- * Count turn events in swarm event log
- */
-function countTurns(eventsPath: string): number {
-  // Read agent event logs to count turn.completed events
-  const agentsDir = path.dirname(path.dirname(eventsPath));
-  const agentsPath = path.join(agentsDir, "agents");
-
-  if (!fs.existsSync(agentsPath)) {
-    return 0;
-  }
-
-  let turnCount = 0;
-
-  try {
-    const agents = fs.readdirSync(agentsPath);
-
-    for (const agent of agents) {
-      const agentEventsPath = path.join(
-        agentsPath,
-        agent,
-        "events",
-        "events.jsonl"
-      );
-
-      if (fs.existsSync(agentEventsPath)) {
-        const content = fs.readFileSync(agentEventsPath, "utf-8");
-
-        for (const line of content.split("\n")) {
-          if (line.includes('"turn.completed"') || line.includes('"turn.started"')) {
-            turnCount++;
-          }
-        }
-      }
-    }
-  } catch {
-    // Ignore errors reading agent directories
-  }
-
-  // Divide by 2 since we counted both started and completed
-  return Math.ceil(turnCount / 2);
-}
-
-/**
- * Get instance info from instance directory
- */
-function getInstanceInfo(
-  instancePath: string,
-  instanceId: string,
-  workspaceId: string
-): InstanceInfo | null {
-  const swarmEventsPath = path.join(instancePath, "swarm", "events", "events.jsonl");
-
-  if (!fs.existsSync(swarmEventsPath)) {
-    return null;
-  }
-
-  const events = readJsonlFile(swarmEventsPath, isSwarmEventRecord);
-
-  if (events.length === 0) {
-    return null;
-  }
-
-  // Find the first event to get swarm name and creation time
-  const firstEvent = events[0];
-  if (!firstEvent) {
-    return null;
-  }
-
-  // Find the last event to determine status
-  const lastEvent = events[events.length - 1];
-
-  // Determine status based on last event
-  let status: "active" | "idle" | "completed" = "idle";
-
-  if (lastEvent) {
-    if (lastEvent.kind === "swarm.stopped") {
-      status = "completed";
-    } else if (lastEvent.kind === "swarm.started" || lastEvent.kind.startsWith("agent.")) {
-      // Check if the last event was recent (within 5 minutes)
-      const lastEventTime = new Date(lastEvent.recordedAt).getTime();
-      const now = Date.now();
-      const fiveMinutes = 5 * 60 * 1000;
-
-      if (now - lastEventTime < fiveMinutes) {
-        status = "active";
-      }
-    }
-  }
-
-  const turns = countTurns(swarmEventsPath);
-
-  return {
-    instanceId,
-    swarmName: firstEvent.swarmName,
-    status,
-    createdAt: new Date(firstEvent.recordedAt),
-    turns,
-    workspaceId,
-  };
-}
-
-/**
- * Format date for display
- */
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
-
-/**
- * Format status with color
- */
-function formatStatus(status: "active" | "idle" | "completed"): string {
-  switch (status) {
-    case "active":
-      return chalk.green(status);
-    case "idle":
-      return chalk.yellow(status);
-    case "completed":
-      return chalk.gray(status);
-  }
+  /** JSON output */
+  json: boolean;
 }
 
 /**
@@ -258,11 +41,15 @@ function formatStatus(status: "active" | "idle" | "completed"): string {
 async function executeList(options: ListOptions): Promise<void> {
   try {
     const config = await loadConfig();
-    const goondanHome = getGoondanHome(config.stateRoot);
+    const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
     if (!fs.existsSync(instancesRoot)) {
-      info("No instances found.");
+      if (options.json) {
+        console.log(JSON.stringify([]));
+      } else {
+        info("No instances found.");
+      }
       return;
     }
 
@@ -270,7 +57,17 @@ async function executeList(options: ListOptions): Promise<void> {
     const currentWorkspaceId = generateWorkspaceId(process.cwd());
 
     // List workspace directories
-    const workspaceIds = fs.readdirSync(instancesRoot);
+    let workspaceIds: string[];
+    try {
+      workspaceIds = fs.readdirSync(instancesRoot);
+    } catch {
+      if (options.json) {
+        console.log(JSON.stringify([]));
+      } else {
+        info("No instances found.");
+      }
+      return;
+    }
 
     for (const workspaceId of workspaceIds) {
       // Skip other workspaces unless --all is specified
@@ -279,20 +76,33 @@ async function executeList(options: ListOptions): Promise<void> {
       }
 
       const workspacePath = path.join(instancesRoot, workspaceId);
-      const stat = fs.statSync(workspacePath);
 
-      if (!stat.isDirectory()) {
+      try {
+        const stat = fs.statSync(workspacePath);
+        if (!stat.isDirectory()) {
+          continue;
+        }
+      } catch {
         continue;
       }
 
       // List instance directories
-      const instanceIds = fs.readdirSync(workspacePath);
+      let instanceIds: string[];
+      try {
+        instanceIds = fs.readdirSync(workspacePath);
+      } catch {
+        continue;
+      }
 
       for (const instanceId of instanceIds) {
         const instancePath = path.join(workspacePath, instanceId);
-        const instanceStat = fs.statSync(instancePath);
 
-        if (!instanceStat.isDirectory()) {
+        try {
+          const instanceStat = fs.statSync(instancePath);
+          if (!instanceStat.isDirectory()) {
+            continue;
+          }
+        } catch {
           continue;
         }
 
@@ -310,7 +120,9 @@ async function executeList(options: ListOptions): Promise<void> {
     }
 
     if (instances.length === 0) {
-      if (options.swarm) {
+      if (options.json) {
+        console.log(JSON.stringify([]));
+      } else if (options.swarm) {
         info(`No instances found for swarm "${options.swarm}".`);
       } else {
         info("No instances found.");
@@ -324,14 +136,28 @@ async function executeList(options: ListOptions): Promise<void> {
     // Apply limit
     const limitedInstances = instances.slice(0, options.limit);
 
+    // JSON output
+    if (options.json) {
+      const jsonOutput = limitedInstances.map((i) => ({
+        instanceId: i.instanceId,
+        swarmName: i.swarmName,
+        status: i.status,
+        createdAt: i.createdAt.toISOString(),
+        turns: i.turns,
+        workspaceId: i.workspaceId,
+      }));
+      console.log(JSON.stringify(jsonOutput, null, 2));
+      return;
+    }
+
     // Calculate column widths
     const idWidth = Math.max(
       11, // "INSTANCE ID".length
-      ...limitedInstances.map((i) => i.instanceId.length)
+      ...limitedInstances.map((i) => i.instanceId.length),
     );
     const swarmWidth = Math.max(
       5, // "SWARM".length
-      ...limitedInstances.map((i) => i.swarmName.length)
+      ...limitedInstances.map((i) => i.swarmName.length),
     );
 
     // Print header
@@ -341,18 +167,22 @@ async function executeList(options: ListOptions): Promise<void> {
           `${"SWARM".padEnd(swarmWidth)}  ` +
           `${"STATUS".padEnd(10)}  ` +
           `${"CREATED".padEnd(19)}  ` +
-          `${"TURNS".padStart(5)}`
-      )
+          `${"TURNS".padStart(5)}`,
+      ),
     );
 
     // Print instances
     for (const instance of limitedInstances) {
+      // chalk 색상 코드의 길이를 보정한 패딩
+      const statusStr = formatStatus(instance.status);
+      const statusPadding = statusStr.length - instance.status.length;
+
       console.log(
         `${instance.instanceId.padEnd(idWidth)}  ` +
           `${instance.swarmName.padEnd(swarmWidth)}  ` +
-          `${formatStatus(instance.status).padEnd(10 + (instance.status === "active" ? 9 : instance.status === "idle" ? 9 : 5))}  ` +
+          `${statusStr.padEnd(10 + statusPadding)}  ` +
           `${formatDate(instance.createdAt).padEnd(19)}  ` +
-          `${String(instance.turns).padStart(5)}`
+          `${String(instance.turns).padStart(5)}`,
       );
     }
 
@@ -379,11 +209,13 @@ export function createListCommand(): Command {
     .option("-s, --swarm <name>", "Filter by Swarm name")
     .option("-n, --limit <n>", "Maximum number of instances to show", (v) => parseInt(v, 10), 20)
     .option("-a, --all", "Show all instances (including other workspaces)", false)
+    .option("--json", "Output in JSON format", false)
     .action(async (options: Record<string, unknown>) => {
       const listOptions: ListOptions = {
-        swarm: options.swarm as string | undefined,
-        limit: typeof options.limit === "number" ? options.limit : 20,
-        all: options.all === true,
+        swarm: typeof options["swarm"] === "string" ? options["swarm"] : undefined,
+        limit: typeof options["limit"] === "number" ? options["limit"] : 20,
+        all: options["all"] === true,
+        json: options["json"] === true,
       };
 
       await executeList(listOptions);

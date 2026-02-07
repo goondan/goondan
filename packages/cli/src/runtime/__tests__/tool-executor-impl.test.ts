@@ -151,6 +151,41 @@ describe("ToolExecutorImpl", () => {
       expect(result.toolCallId).toBe("call-3");
     });
 
+    it("handlers 객체 내부에서 핸들러를 찾아야 한다", async () => {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-handlers-"));
+      const entryPath = path.join(tempRoot, "tool.js");
+
+      await fs.writeFile(
+        entryPath,
+        [
+          "export const handlers = {",
+          "  'delegate.toAgent': async (ctx, input) => {",
+          "    return { delegated: true, agentName: input.agentName };",
+          "  },",
+          "};",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const step = createMockStep([{ name: "delegate.toAgent", toolEntry: entryPath }], "default");
+      const toolCall: ToolCall = {
+        id: "call-handlers",
+        name: "delegate.toAgent",
+        input: { agentName: "coder", task: "test" },
+      };
+
+      const result = await executor.execute(toolCall, step);
+
+      expect(result.error).toBeUndefined();
+      expect(result.output).toEqual({
+        delegated: true,
+        agentName: "coder",
+      });
+
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    });
+
     it("핸들러를 (ctx, input) 순서로 호출해야 한다", async () => {
       const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-order-"));
       const entryPath = path.join(tempRoot, "tool.js");
@@ -255,6 +290,54 @@ describe("ToolExecutorImpl", () => {
         ok: true,
         ref: "git:cccccccccccccccccccccccccccccccccccccccc",
         echo: "hello",
+      });
+
+      await isolated.dispose();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    });
+
+    it("워커에서 handlers 객체 내부 핸들러를 찾아야 한다", async () => {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-tool-handlers-worker-"));
+      const entryPath = path.join(tempRoot, "tool.js");
+
+      await fs.writeFile(
+        entryPath,
+        [
+          "export const handlers = {",
+          "  'delegate.toAgent': async (ctx, input) => {",
+          "    return { delegated: true, agentName: input.agentName };",
+          "  },",
+          "};",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const isolated = createToolExecutorImpl({
+        bundleRootDir: tempRoot,
+        isolateByRevision: true,
+        maxActiveGenerations: 2,
+      });
+
+      isolated.beginTurn("git:handlers-test");
+
+      const step = createMockStep(
+        [{ name: "delegate.toAgent", toolEntry: entryPath }],
+        "git:handlers-test",
+      );
+      const toolCall: ToolCall = {
+        id: "call-handlers-worker",
+        name: "delegate.toAgent",
+        input: { agentName: "coder", task: "test" },
+      };
+
+      const result = await isolated.execute(toolCall, step);
+      isolated.endTurn("git:handlers-test");
+
+      expect(result.error).toBeUndefined();
+      expect(result.output).toEqual({
+        delegated: true,
+        agentName: "coder",
       });
 
       await isolated.dispose();

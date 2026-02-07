@@ -276,9 +276,6 @@ spec:
         inputFrom: "$.text"
 ```
 
-Connector의 trigger handler는 런타임 엔트리 모듈에서 export된 함수로 지정한다. 예를 들어, 트리거 핸들러로 `fooBarBaz`를 지정하면, 해당 함수가 엔트리 모듈에서 export되어야 한다.  
-`triggers[].handler` MUST be the name of an exported function from `spec.runtime.entry`, and MUST NOT include module qualifiers such as `exports.` or file paths.
-
 규칙:
 
 1. `spec.auth.oauthAppRef`와 `spec.auth.staticToken`은 동시에 존재할 수 없다(MUST).

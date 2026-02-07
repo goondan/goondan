@@ -15,6 +15,8 @@ Goondan 요구사항 스펙 문서 폴더입니다.
 - `12_tool-spec-runtime.md` - Tool 스펙(런타임 관점) (§12)
 - `13_extension-interface.md` - Extension 실행 인터페이스 (§13)
 - `appendix_a_diagram.md` - 실행 모델 및 훅 위치 다이어그램
+- `_improve-claude.md` - 요구사항 개선 리뷰 보고서(Claude 작성)
+- `_improve-codex.md` - 요구사항 개선 리뷰 보고서(Codex 작성)
 
 ## 수정 시 주의사항
 

@@ -41,4 +41,27 @@ export type { ListOptions } from "./list.js";
 export type { DeleteOptions } from "./delete.js";
 export type { ResumeOptions } from "./resume.js";
 
+// Export utils for reuse
+export {
+  getGoondanHomeSync,
+  getGoondanHome,
+  findInstancePath,
+  readJsonlFile,
+  countJsonlLines,
+  formatDate,
+  formatStatus,
+  getInstanceInfo,
+  getInstanceBasicInfo,
+  isSwarmEventRecord,
+  isAgentEventRecord,
+  determineInstanceStatus,
+  countTurns,
+} from "./utils.js";
+export type {
+  SwarmEventRecord,
+  AgentEventRecord,
+  InstanceStatus,
+  InstanceInfo,
+} from "./utils.js";
+
 export default createInstanceCommand;

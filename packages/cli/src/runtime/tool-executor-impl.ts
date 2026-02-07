@@ -311,6 +311,19 @@ function findHandler(mod, exportName) {
     return mod[lastSegment];
   }
 
+  if (isRecord(mod.handlers)) {
+    const handlersObj = mod.handlers;
+    if (isHandler(handlersObj[exportName])) {
+      return handlersObj[exportName];
+    }
+    if (isHandler(handlersObj[camelCase])) {
+      return handlersObj[camelCase];
+    }
+    if (lastSegment && isHandler(handlersObj[lastSegment])) {
+      return handlersObj[lastSegment];
+    }
+  }
+
   if (isHandler(mod.default)) {
     return mod.default;
   }
@@ -325,6 +338,18 @@ function findHandler(mod, exportName) {
     }
     if (lastSegment && isHandler(defaultObj[lastSegment])) {
       return defaultObj[lastSegment];
+    }
+    if (isRecord(defaultObj.handlers)) {
+      const defaultHandlers = defaultObj.handlers;
+      if (isHandler(defaultHandlers[exportName])) {
+        return defaultHandlers[exportName];
+      }
+      if (isHandler(defaultHandlers[camelCase])) {
+        return defaultHandlers[camelCase];
+      }
+      if (lastSegment && isHandler(defaultHandlers[lastSegment])) {
+        return defaultHandlers[lastSegment];
+      }
     }
   }
 
@@ -678,6 +703,27 @@ function findHandler(
     }
   }
 
+  // handlers 객체 내부 탐색 (export const handlers = { ... } 패턴)
+  const handlersExport = mod["handlers"];
+  if (isRecord(handlersExport)) {
+    const handlersExact = handlersExport[exportName];
+    if (isToolHandlerFn(handlersExact)) {
+      return handlersExact;
+    }
+
+    const handlersCamelCase = handlersExport[camelCase];
+    if (isToolHandlerFn(handlersCamelCase)) {
+      return handlersCamelCase;
+    }
+
+    if (lastSegment) {
+      const handlersSegment = handlersExport[lastSegment];
+      if (isToolHandlerFn(handlersSegment)) {
+        return handlersSegment;
+      }
+    }
+  }
+
   const defaultExport = mod["default"];
   if (isToolHandlerFn(defaultExport)) {
     return defaultExport;
@@ -698,6 +744,27 @@ function findHandler(
       const defaultSegment = defaultExport[lastSegment];
       if (isToolHandlerFn(defaultSegment)) {
         return defaultSegment;
+      }
+    }
+
+    // default.handlers 객체 내부 탐색
+    const defaultHandlers = defaultExport["handlers"];
+    if (isRecord(defaultHandlers)) {
+      const defaultHandlersExact = defaultHandlers[exportName];
+      if (isToolHandlerFn(defaultHandlersExact)) {
+        return defaultHandlersExact;
+      }
+
+      const defaultHandlersCamelCase = defaultHandlers[camelCase];
+      if (isToolHandlerFn(defaultHandlersCamelCase)) {
+        return defaultHandlersCamelCase;
+      }
+
+      if (lastSegment) {
+        const defaultHandlersSegment = defaultHandlers[lastSegment];
+        if (isToolHandlerFn(defaultHandlersSegment)) {
+          return defaultHandlersSegment;
+        }
       }
     }
   }

@@ -1,4 +1,4 @@
-# Goondan Config Plane 리소스 정의 스펙 (v0.9)
+# Goondan Config Plane 리소스 정의 스펙 (v0.10)
 
 본 문서는 `docs/requirements/06_config-spec.md`(리소스 공통 형식, ObjectRef, Selector+Overrides, ValueSource)와 `docs/requirements/07_config-resources.md`(각 리소스 Kind별 정의)를 기반으로 Config Plane 리소스의 상세 스키마, TypeScript 인터페이스, 검증 규칙을 정의한다.
 
@@ -150,6 +150,8 @@ interface ObjectRef {
   kind: string;
   /** 리소스 이름 */
   name: string;
+  /** 패키지 이름 (선택, Bundle Package 간 참조 시 사용) */
+  package?: string;
 }
 
 /**
@@ -188,6 +190,12 @@ tools:
   - apiVersion: agents.example.io/v1alpha1
     kind: Tool
     name: fileRead
+
+# 패키지 참조 (다른 Bundle Package의 리소스 참조)
+tools:
+  - kind: Tool
+    name: fileRead
+    package: core-tools
 ```
 
 ### 규칙
@@ -196,6 +204,7 @@ tools:
 2. 객체형 참조는 MUST `kind`와 `name` 필드를 포함해야 한다.
 3. `apiVersion`은 MAY 생략할 수 있으며, 생략 시 현재 문서의 apiVersion을 사용한다.
 4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
+5. `package`는 MAY Bundle Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다 (SHOULD).
 
 ---
 
@@ -455,6 +464,20 @@ interface ModelSpec {
   endpoint?: string;
   /** 제공자별 추가 옵션 (선택) */
   options?: Record<string, unknown>;
+  /** 모델 기능 선언 (선택) */
+  capabilities?: ModelCapabilities;
+}
+
+/**
+ * 모델 기능 선언
+ */
+interface ModelCapabilities {
+  /** 스트리밍 응답 지원 여부 */
+  streaming?: boolean;
+  /** Tool Calling 지원 여부 */
+  toolCalling?: boolean;
+  /** 확장 가능한 기능 플래그 */
+  [key: string]: boolean | undefined;
 }
 
 type ModelResource = Resource<ModelSpec>;
@@ -475,6 +498,9 @@ spec:
   endpoint: "https://api.openai.com/v1"
   options:
     organization: "org-xxxxx"
+  capabilities:
+    streaming: true
+    toolCalling: true
 
 ---
 apiVersion: agents.example.io/v1alpha1
@@ -486,6 +512,9 @@ metadata:
 spec:
   provider: anthropic
   name: claude-sonnet-4-5
+  capabilities:
+    streaming: true
+    toolCalling: true
 ```
 
 #### Validation 규칙
@@ -496,6 +525,10 @@ spec:
 | `name` | MUST | string | 비어있지 않은 문자열 |
 | `endpoint` | MAY | string | 유효한 URL 형식 |
 | `options` | MAY | object | 임의의 키-값 쌍 |
+| `capabilities` | MAY | object | 모델 기능 플래그 (streaming, toolCalling 등) |
+
+**추가 검증 규칙:**
+- Agent가 요구하는 capability(`toolCalling`, `streaming` 등)를 모델이 선언하지 않은 경우, Runtime은 로드 단계에서 거부해야 한다 (MUST).
 
 ---
 
@@ -851,20 +884,32 @@ type PipelinePoint =
   | 'workspace.repoAvailable'
   | 'workspace.worktreeMounted';
 
+/**
+ * Hook 액션 - 스크립트 실행 기술자
+ * toolCall 스키마를 직접 사용해서는 안 된다(MUST NOT).
+ * 필요 시 스크립트 핸들러 내에서 표준 API를 통해 도구를 간접 호출할 수 있다.
+ */
 interface HookAction {
-  /** Tool 호출 액션 */
-  toolCall?: {
-    /** 호출할 도구 이름 */
-    tool: string;
-    /** 입력 파라미터 (정적 값 또는 표현식) */
-    input: Record<string, unknown | ExprValue>;
-  };
+  /** 런타임 환경 */
+  runtime: 'node' | 'python' | 'deno';
+  /** 엔트리 파일 경로 (Bundle Root 기준) */
+  entry: string;
+  /** export 함수 이름 */
+  export: string;
+  /** 입력 파라미터 (정적 값 또는 표현식) */
+  input?: Record<string, unknown | ExprValue>;
 }
 
 interface ExprValue {
   /** JSONPath 표현식 */
   expr: string;
 }
+
+/**
+ * turn.post 표현식 컨텍스트:
+ * - $.baseMessages: turn 시작 기준 메시지 배열
+ * - $.messageEvents: turn 중 누적 메시지 이벤트 배열
+ */
 
 /**
  * Agent 수준 Changeset 정책
@@ -926,20 +971,23 @@ spec:
       point: turn.post
       priority: 0
       action:
-        toolCall:
-          tool: slack.postMessage
-          input:
-            channel: { expr: "$.turn.origin.channel" }
-            threadTs: { expr: "$.turn.origin.threadTs" }
-            text: { expr: "$.turn.summary" }
+        runtime: node
+        entry: "./hooks/notify-summary.js"
+        export: default
+        input:
+          channel: { expr: "$.turn.origin.channel" }
+          threadTs: { expr: "$.turn.origin.threadTs" }
+          text: { expr: "$.turn.summary" }
+          systemPrompt: { expr: "$.baseMessages[0].content" }
 
     - point: step.llmError
       priority: 10
       action:
-        toolCall:
-          tool: log.error
-          input:
-            error: { expr: "$.error.message" }
+        runtime: node
+        entry: "./hooks/log-error.js"
+        export: default
+        input:
+          error: { expr: "$.error.message" }
 
   changesets:
     allowed:
@@ -962,7 +1010,10 @@ spec:
 | `extensions` | MAY | array | ObjectRef 또는 Selector 배열 |
 | `hooks[].point` | MUST | enum | 유효한 PipelinePoint |
 | `hooks[].priority` | MAY | number | 정수, 기본값 0 |
-| `hooks[].action.toolCall.tool` | MUST | string | 도구 이름 |
+| `hooks[].action.runtime` | MUST | enum | `"node"`, `"python"`, `"deno"` 중 하나 |
+| `hooks[].action.entry` | MUST | string | 엔트리 파일 경로 |
+| `hooks[].action.export` | MUST | string | export 함수 이름 |
+| `hooks[].action.input` | MAY | object | 입력 파라미터 (정적 값 또는 expr) |
 | `changesets.allowed.files` | MAY | string[] | glob 패턴 배열 |
 
 **추가 검증 규칙:**
@@ -996,10 +1047,26 @@ interface SwarmSpec {
 interface SwarmPolicy {
   /** Turn당 최대 Step 수 */
   maxStepsPerTurn?: number;
+  /** 큐 처리 모드 (기본: serial) */
+  queueMode?: 'serial';
+  /** 인스턴스 라이프사이클 정책 */
+  lifecycle?: SwarmLifecyclePolicy;
   /** Changeset 정책 */
   changesets?: SwarmChangesetPolicy;
   /** Live Config 정책 */
   liveConfig?: LiveConfigPolicy;
+}
+
+/**
+ * 인스턴스 라이프사이클 정책
+ */
+interface SwarmLifecyclePolicy {
+  /** 유휴 시 자동 일시정지까지의 시간 (초) */
+  autoPauseIdleSeconds?: number;
+  /** 인스턴스 최대 수명 (초) */
+  ttlSeconds?: number;
+  /** GC 유예 기간 (초) */
+  gcGraceSeconds?: number;
 }
 
 /**
@@ -1058,6 +1125,11 @@ spec:
 
   policy:
     maxStepsPerTurn: 32
+    queueMode: serial
+    lifecycle:
+      autoPauseIdleSeconds: 3600
+      ttlSeconds: 604800
+      gcGraceSeconds: 86400
 
     changesets:
       enabled: true
@@ -1088,12 +1160,18 @@ spec:
 | `entrypoint` | MUST | ObjectRef | 유효한 Agent 참조 |
 | `agents` | MUST | array | 최소 1개 이상의 Agent 참조 |
 | `policy.maxStepsPerTurn` | MAY | number | 양의 정수, 기본값 32 |
+| `policy.queueMode` | MAY | enum | `"serial"`, 기본값 serial |
+| `policy.lifecycle.autoPauseIdleSeconds` | MAY | number | 양의 정수 (초) |
+| `policy.lifecycle.ttlSeconds` | MAY | number | 양의 정수 (초) |
+| `policy.lifecycle.gcGraceSeconds` | MAY | number | 양의 정수 (초) |
 | `policy.changesets.enabled` | MAY | boolean | 기본값 false |
 | `policy.changesets.applyAt` | MAY | array | PipelinePoint 배열 |
 | `policy.changesets.allowed.files` | MAY | array | glob 패턴 배열 |
 
 **추가 검증 규칙:**
 - `entrypoint`는 `agents` 배열에 포함되어야 한다 (MUST).
+- `policy.queueMode`는 기본 `serial`이며, AgentInstance 큐는 FIFO 직렬 처리되어야 한다 (MUST).
+- `policy.lifecycle`가 설정되면 Runtime은 pause/resume/terminate/delete/GC 정책에 반영해야 한다 (SHOULD).
 - `changesets.applyAt`에는 `step.config`가 포함되어야 한다 (SHOULD).
 
 ---
@@ -1123,6 +1201,10 @@ interface ConnectorSpec {
  * Trigger 설정
  */
 interface TriggerConfig {
+  /** 트리거 식별자 (선택) */
+  name?: string;
+  /** canonical event 타입 매핑 (선택) */
+  event?: string;
   /** 핸들러 함수 이름 */
   handler: string;
 }
@@ -1162,8 +1244,12 @@ spec:
   entry: "./connectors/webhook/index.js"
 
   triggers:
-    - handler: onWebhook
-    - handler: onCron
+    - name: webhook
+      event: webhook.received
+      handler: onWebhook
+    - name: cron
+      event: cron.triggered
+      handler: onCron
 ```
 
 #### Validation 규칙
@@ -1173,6 +1259,8 @@ spec:
 | `type` | MUST | string | 비어있지 않은 문자열 |
 | `runtime` | MAY | enum | custom 타입에서 필수 |
 | `entry` | MAY | string | custom 타입에서 필수 |
+| `triggers[].name` | MAY | string | 트리거 식별자 |
+| `triggers[].event` | MAY | string | canonical event 타입 매핑 |
 | `triggers[].handler` | MAY | string | entry 모듈의 export 함수명 |
 
 **추가 검증 규칙:**
@@ -1569,10 +1657,31 @@ interface ConnectionSpec {
   connectorRef: ObjectRefLike;
   /** 인증 설정 */
   auth?: ConnectorAuth;
-  /** 라우팅 규칙 (ingress) */
-  rules?: ConnectionRule[];
-  /** Egress 설정 */
-  egress?: EgressConfig;
+  /** 인바운드 라우팅 규칙 */
+  ingress?: ConnectionIngress;
+  /** 서명 검증 설정 */
+  verify?: ConnectionVerify;
+}
+
+/**
+ * Connection 인바운드 설정
+ */
+interface ConnectionIngress {
+  /** 라우팅 규칙 목록 */
+  rules: ConnectionRule[];
+}
+
+/**
+ * Connection 서명 검증 설정
+ */
+interface ConnectionVerify {
+  /** Webhook 서명 검증 */
+  webhook?: {
+    /** 서명 검증 provider (예: "slack", "github") */
+    provider: string;
+    /** 서명 시크릿 */
+    signingSecret: ValueSource;
+  };
 }
 
 /**
@@ -1615,21 +1724,6 @@ interface IngressRoute {
   inputFrom?: string;
 }
 
-/**
- * Egress 설정
- */
-interface EgressConfig {
-  /** 업데이트 정책 */
-  updatePolicy?: UpdatePolicy;
-}
-
-interface UpdatePolicy {
-  /** 업데이트 모드 */
-  mode: 'replace' | 'updateInThread' | 'newMessage';
-  /** 디바운스 시간 (밀리초) */
-  debounceMs?: number;
-}
-
 type ConnectionResource = Resource<ConnectionSpec>;
 ```
 
@@ -1643,14 +1737,15 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.instanceKey"
+          inputFrom: "$.text"
 
 ---
-# Slack Connection with auth + egress
+# Slack Connection with auth + verify
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
@@ -1659,17 +1754,39 @@ spec:
   connectorRef: { kind: Connector, name: slack }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
-  rules:
-    - match:
-        command: "/agent"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+  ingress:
+    rules:
+      - match:
+          command: "/agent"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
+  verify:
+    webhook:
+      provider: slack
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
+
+---
+# Telegram Connection (Static Token)
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: telegram-to-default
+spec:
+  connectorRef: { kind: Connector, name: telegram }
+  auth:
+    staticToken:
+      valueFrom:
+        secretRef: { ref: "Secret/telegram-bot", key: "token" }
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.chat.id"
+          inputFrom: "$.message.text"
 ```
 
 #### Validation 규칙
@@ -1680,14 +1797,17 @@ spec:
 | `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
 | `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
 | `auth` | MUST | - | oauthAppRef와 staticToken은 동시에 존재할 수 없음 |
-| `rules` | MAY | array | ConnectionRule 배열 |
-| `rules[].route.swarmRef` | MUST | ObjectRef | 유효한 Swarm 참조 |
-| `egress.updatePolicy.mode` | MAY | enum | 유효한 모드 |
+| `ingress.rules` | MAY | array | ConnectionRule 배열 |
+| `ingress.rules[].route.swarmRef` | MUST | ObjectRef | 유효한 Swarm 참조 |
+| `verify.webhook.provider` | MAY | string | 서명 검증 provider |
+| `verify.webhook.signingSecret` | MAY | ValueSource | 서명 시크릿 |
 
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
 - `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
-- `rules[].route.swarmRef`는 유효한 Swarm 리소스를 참조해야 한다 (MUST).
+- `ingress.rules[].route.swarmRef`는 유효한 Swarm 리소스를 참조해야 한다 (MUST).
+- Connection은 Connector가 서명 검증에 사용할 인증 정보(서명 시크릿 등)를 제공해야 한다 (MUST).
+- 서명 검증 실패 시 Connector는 Turn을 생성해서는 안 된다 (MUST).
 
 ---
 
@@ -1781,6 +1901,7 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 | Kind | 규칙 | 수준 |
 |------|------|------|
 | Model | provider, name 필수 | MUST |
+| Model | Agent 요구 capability와 Model 선언 capability 매칭 | MUST |
 | Tool | entry, exports 필수 | MUST |
 | Tool | exports 최소 1개 | MUST |
 | Tool | auth.scopes는 OAuthApp.scopes 부분집합 | MUST |
@@ -1794,7 +1915,8 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 | Connector | custom 타입에서 runtime, entry 필수 | MUST |
 | Connection | connectorRef 필수 | MUST |
 | Connection | oauthAppRef와 staticToken 동시 불가 | MUST |
-| Connection | rules[].route.swarmRef 유효한 Swarm 참조 | MUST |
+| Connection | ingress.rules[].route.swarmRef 유효한 Swarm 참조 | MUST |
+| Connection | verify.webhook 서명 검증 정보 제공 | MUST |
 | OAuthApp | flow, subjectMode 필수 | MUST |
 | OAuthApp | authorizationCode 시 authorizationUrl, callbackPath 필수 | MUST |
 | OAuthApp | deviceCode 미지원 시 거부 | MUST |

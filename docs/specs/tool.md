@@ -1,4 +1,4 @@
-# Goondan Tool 시스템 구현 스펙 (v0.8)
+# Goondan Tool 시스템 구현 스펙 (v0.9)
 
 본 문서는 Goondan의 Tool 시스템을 정의한다. Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이며, Runtime 컨텍스트 및 이벤트 시스템에 접근할 수 있다.
 
@@ -286,8 +286,12 @@ interface Turn {
   instanceId: string;
   agentName: string;
 
-  /** Turn 내 누적 메시지 */
-  messages: LlmMessage[];
+  /** Turn 메시지 상태 */
+  messageState: {
+    baseMessages: LlmMessage[];
+    events: MessageEvent[];
+    nextMessages: LlmMessage[];
+  };
 
   /** Turn 내 누적 tool 결과 */
   toolResults: Map<string, ToolResult>;
@@ -306,6 +310,13 @@ interface Turn {
   /** Turn 메타데이터 */
   metadata?: JsonObject;
 }
+
+type MessageEvent =
+  | { type: 'system_message'; seq: number; message: LlmMessage }
+  | { type: 'llm_message'; seq: number; message: LlmMessage }
+  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
+  | { type: 'remove'; seq: number; targetId: string }
+  | { type: 'truncate'; seq: number };
 
 interface Step {
   id: string;
@@ -348,7 +359,7 @@ LLM 응답에 tool_calls 포함
 └─────────────────────────────┘
            │
            ▼
-    ToolResult → Turn.messages
+    ToolResult → emit `llm_message` event (messages/events.jsonl)
 ```
 
 ### 5.2 ToolCall 구조
@@ -362,7 +373,7 @@ interface ToolCall {
   name: string;
 
   /** LLM이 전달한 인자 (JSON) */
-  arguments: JsonObject;
+  args: JsonObject;
 }
 ```
 
@@ -397,7 +408,7 @@ interface ToolCallExecContext {
 export async function register(api: ExtensionApi): Promise<void> {
   // toolCall.pre: 입력 검증/변환
   api.pipelines.mutate('toolCall.pre', async (ctx) => {
-    api.logger?.debug?.(`Tool 호출: ${ctx.toolCall.name}`, ctx.toolCall.arguments);
+    api.logger?.debug?.(`Tool 호출: ${ctx.toolCall.name}`, ctx.toolCall.args);
     return ctx;
   });
 
@@ -425,6 +436,75 @@ export async function register(api: ExtensionApi): Promise<void> {
     }
     return ctx;
   });
+}
+```
+
+---
+
+## 5A. Tool Call 허용 범위
+
+### 5A.1 허용 범위 규칙
+
+| 규칙 | 수준 | 설명 |
+|------|------|------|
+| Catalog 기반 허용 | MUST | Tool call의 기본 허용 범위는 현재 Step의 Tool Catalog여야 한다 |
+| Catalog 외 거부 | MUST | Tool Catalog에 없는 도구 호출은 명시적 정책이 없는 한 거부해야 한다 |
+| Registry 직접 호출 | MAY | Tool Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다 |
+| 거부 결과 반환 | MUST | 거부 시 구조화된 ToolResult를 반환해야 한다 |
+
+### 5A.2 거부 시 반환 형식
+
+```typescript
+// Catalog에 없는 도구 호출 거부 시
+const rejectedResult: ToolResult = {
+  status: 'error',
+  error: {
+    message: `Tool '${toolCall.name}' is not available in the current Tool Catalog.`,
+    name: 'ToolNotInCatalogError',
+    code: 'E_TOOL_NOT_IN_CATALOG',
+    suggestion: 'Agent 구성의 spec.tools에 해당 도구를 추가하거나, step.tools 파이프라인에서 동적으로 등록하세요.',
+  },
+};
+```
+
+---
+
+## 5B. Handoff 도구 패턴
+
+Agent 간 제어 이전(Handoff)을 Tool call로 구현하는 패턴이다.
+
+### 5B.1 Handoff 규칙
+
+| 규칙 | 수준 | 설명 |
+|------|------|------|
+| 대상+입력 포함 | MUST | Handoff 요청은 대상 agent와 입력을 포함해야 한다 |
+| 비동기 제출 | SHOULD | 비동기 제출 모델(`status: 'pending'`)을 지원하는 것이 권장된다 |
+| 컨텍스트 보존 | MUST | 원래 Agent의 Turn/Auth/Trace 컨텍스트를 보존해야 한다 |
+| 기본 구현체 | SHOULD | 기본 handoff 구현체를 packages/base에서 제공하는 것이 권장된다 |
+
+### 5B.2 Handoff ToolCall 구조
+
+```typescript
+// Handoff tool call 예시
+interface HandoffInput {
+  /** 대상 Agent 이름 */
+  targetAgent: string;
+  /** 대상 Agent에 전달할 입력 */
+  input: string;
+  /** 추가 메타데이터 */
+  metadata?: JsonObject;
+}
+
+// Handoff 결과
+interface HandoffResult {
+  /** 제출 상태 */
+  status: 'ok' | 'pending';
+  /** 대상 Agent 이름 */
+  targetAgent: string;
+  /** 비동기 제출 시 핸들 */
+  handle?: string;
+  /** 결과 메시지 */
+  message?: string;
 }
 ```
 
@@ -458,6 +538,12 @@ interface ToolError {
 
   /** 오류 코드 */
   code?: string;
+
+  /** 사용자 복구를 위한 제안 (SHOULD) */
+  suggestion?: string;
+
+  /** 관련 문서 링크 (SHOULD) */
+  helpUrl?: string;
 }
 ```
 
@@ -529,10 +615,14 @@ export const handlers: Record<string, ToolHandler> = {
   "error": {
     "message": "요청 실패: 채널을 찾을 수 없습니다 (channel_not_found)",
     "name": "SlackApiError",
-    "code": "E_CHANNEL_NOT_FOUND"
+    "code": "E_CHANNEL_NOT_FOUND",
+    "suggestion": "채널 ID를 확인하거나 slack.listChannels를 호출하여 유효한 채널 목록을 조회하세요.",
+    "helpUrl": "https://api.slack.com/methods/chat.postMessage#errors"
   }
 }
 ```
+
+> **참고**: `suggestion`과 `helpUrl`은 SHOULD 수준이며, 사용자가 오류로부터 복구할 수 있도록 돕는 필드이다.
 
 ### 7.2 오류 메시지 제한 구현
 
@@ -1096,6 +1186,50 @@ export const handlers: Record<string, ToolHandler> = {
 };
 ```
 
+### 11.3 SwarmBundle Commit 결과 타입
+
+Changeset commit 결과는 다음 status 값 중 하나를 반환해야 한다(MUST):
+
+```typescript
+type ChangesetCommitResult =
+  | {
+      status: 'ok';
+      changesetId: string;
+      baseRef: string;
+      newRef: string;
+      summary: {
+        filesChanged: string[];
+        filesAdded: string[];
+        filesDeleted: string[];
+      };
+    }
+  | {
+      status: 'rejected';
+      changesetId: string;
+      reason: 'policy_violation' | 'invalid_files';
+      message: string;
+      violations?: string[];
+    }
+  | {
+      status: 'conflict';
+      changesetId: string;
+      baseRef: string;
+      /** 충돌 파일 목록 (MUST) */
+      conflictFiles: string[];
+      /** 복구 힌트 (MUST) */
+      recoveryHint: string;
+      message: string;
+    }
+  | {
+      status: 'failed';
+      changesetId: string;
+      error: {
+        code: string;
+        message: string;
+      };
+    };
+```
+
 ---
 
 ## 12. 검증 및 디버깅
@@ -1121,7 +1255,7 @@ export async function register(api: ExtensionApi): Promise<void> {
 
     console.log('[Tool] 호출:', {
       name: toolCall.name,
-      arguments: toolCall.arguments,
+      args: toolCall.args,
       turnId: ctx.turn.id,
       stepIndex: ctx.step.index,
     });

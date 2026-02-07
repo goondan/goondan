@@ -59,6 +59,41 @@ turn:
 2. commit 충돌 시 `status="conflict"`와 충돌 상세를 반환해야 하며, 충돌 정보를 숨겨서는 안 된다(MUST).
 3. Runtime은 충돌 상세를 통해 에이전트가 후속 Step에서 스스로 복구할 수 있게 해야 한다(SHOULD).
 
+#### 9.2.2 Turn 메시지 상태 모델(Base + Events)
+
+Turn의 LLM 입력 메시지는 다음 규칙으로 계산되어야 한다(MUST).
+
+```text
+NextMessages = BaseMessages + SUM(Events)
+```
+
+- `BaseMessages`: turn 시작 시점에 로드된 기준 메시지 집합(`base.jsonl`)
+- `Events`: turn 동안 append되는 메시지 조작 이벤트 집합(`events.jsonl`)
+
+Turn 라이프사이클 규칙:
+
+1. turn 시작 시 Runtime은 `BaseMessages`를 로드하고 이를 초기 LLM 입력으로 사용해야 한다(MUST).
+2. turn 진행 중 발생하는 메시지 변경은 직접 배열 수정이 아니라 이벤트 append로 기록해야 한다(MUST).
+3. turn 종료 단계(`turn.post`)에서는 Hook에 `(base, events)`를 전달해야 하며, Hook은 추가 이벤트를 발행할 수 있어야 한다(MUST).
+4. turn 종료 Hook이 모두 끝난 뒤 Runtime은 `BaseMessages + SUM(Events)`를 새 base로 저장해야 한다(MUST).
+5. 새 base 저장이 완료되면 적용된 `Events`를 비워야 한다(MUST).
+
+메시지 이벤트 종류와 의미:
+
+1. `system_message`: system 메시지를 교체하며, 기존 system 메시지가 없으면 추가한다(MUST).
+2. `llm_message`: system을 제외한 메시지를 append한다(MUST).
+3. `replace`: 특정 `message.id`의 내용을 교체한다(MUST).
+4. `remove`: 특정 `message.id`를 제거한다(MUST).
+5. `truncate`: system 메시지를 제외한 모든 메시지를 제거한다(MUST).
+
+적용/복원 규칙:
+
+1. `SUM(Events)`는 기록 순서(append order)대로 결정론적으로 적용되어야 한다(MUST).
+2. `system_message`는 단일 슬롯으로 취급되어야 하며, 여러 이벤트가 있을 때 마지막 이벤트 결과가 최종 system 메시지가 되어야 한다(MUST).
+3. `replace`/`remove` 대상 id가 존재하지 않는 경우 Runtime은 turn 전체를 즉시 실패시키지 않고 구조화된 경고 이벤트를 남겨야 한다(SHOULD).
+4. Runtime 재시작 시 미처리 `Events`가 남아 있으면 `BaseMessages + SUM(Events)`를 재계산해 turn 상태를 복원해야 한다(MUST).
+5. 메시지 id는 turn 범위에서 고유해야 하며, `replace`/`remove`의 참조 키로 사용되어야 한다(MUST).
+
 ### 9.3 Step 실행과 도구 호출 처리
 
 Step은 다음 순서를 따른다.
@@ -66,9 +101,15 @@ Step은 다음 순서를 따른다.
 1. `step.config`: activeSwarmRef 확정, Effective Config 로드/조립
 2. `step.tools`: Tool Catalog 구성
 3. `step.blocks`: Context Blocks 구성
-4. `step.llmCall`: LLM 호출
-5. tool call 처리(동기 실행 또는 비동기 제출)
-6. `step.post`: 결과 반영 후 종료
+4. `step.llmInput`: `BaseMessages + SUM(Events)` 계산 결과로 LLM 입력 메시지 구성
+5. `step.llmCall`: LLM 호출
+6. tool call 처리(동기 실행 또는 비동기 제출)
+7. `step.post`: 결과 반영 후 종료
+
+추가 규칙:
+
+1. LLM 출력 메시지(system 제외)는 `llm_message` 이벤트로 기록되어야 한다(MUST).
+2. 메시지 편집/삭제/요약은 in-memory 메시지 배열 직접 수정이 아니라 `replace`/`remove`/`truncate` 이벤트로 기록되어야 한다(MUST).
 
 ### 9.4 Changeset/SwarmBundleRef 적용 의미론
 

@@ -19,3 +19,7 @@ Agent가 ToolSearch로 필요한 도구를 탐색한 뒤 다음 Step에서 Catal
 ### 15.5 인스턴스 pause/resume 운영
 
 운영자가 장기 실행 인스턴스를 pause하면 새 Turn 실행이 멈춘다. 이후 resume 시 큐 적재 이벤트를 FIFO 순서로 재개해 일관성을 유지한다.
+
+### 15.6 Turn 중 장애 발생 후 메시지 복원
+
+Turn 실행 중 프로세스가 비정상 종료되어도, Runtime은 마지막 `base.jsonl`과 잔존 `events.jsonl`을 다시 읽어 `NextMessages = BaseMessages + SUM(Events)`를 재계산한다. 이후 `turn.post` 재진입 또는 정책 기반 복구 절차를 수행해 메시지 상태를 일관되게 마무리한다.

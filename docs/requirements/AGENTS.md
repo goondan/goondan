@@ -29,6 +29,7 @@ Goondan 요구사항 스펙 문서 폴더입니다.
 4. **연관 문서 동기화**: 요구사항 수정 시 `docs/specs/*.md`, `/GUIDE.md` 반영 필요 여부를 검토하고 기록합니다.
 5. **구현 검증**: 요구사항 변경 후 `packages/core`, `packages/cli`, `packages/base` 구현 정합성을 확인합니다.
 6. **품질 점검**: 섹션 번호 누락, 깨진 참조, 오래된 버전 표기(v0.x) 불일치를 점검합니다.
+7. **메시지 상태 모델 일관성**: Turn 메시지 규칙은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 유지하며, `base.jsonl`/`events.jsonl` 저장 규칙과 함께 검토합니다.
 
 ## 참고
 

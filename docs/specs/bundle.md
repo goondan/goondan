@@ -1,4 +1,4 @@
-# Goondan Bundle YAML 스펙 (v0.9)
+# Goondan Bundle YAML 스펙 (v0.10)
 
 본 문서는 `docs/requirements/index.md`(특히 6/7)의 구성 스펙을 YAML 관점에서 구체화한 문서이다. 런타임/툴링/검증기는 본 문서를 기준으로 구조를 해석한다.
 
@@ -152,6 +152,9 @@ ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 
 # 3. 객체형 형식 (apiVersion 생략)
 { kind: Kind, name: name }
+
+# 4. 패키지 참조 형식 (Bundle Package 간 참조)
+{ kind: Kind, name: name, package: package-name }
 ```
 
 ### 2.2 문자열 축약 형식 해석 규칙
@@ -195,7 +198,8 @@ tools:
 
 1. `kind`와 `name`은 필수이다(MUST).
 2. `apiVersion` 생략 시 현재 문서의 apiVersion 또는 기본값(`agents.example.io/v1alpha1`)을 사용한다(SHOULD).
-3. 객체 내 추가 필드는 무시한다(SHOULD).
+3. `package`는 Bundle Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다(SHOULD).
+4. `package` 외의 추가 필드는 무시한다(SHOULD).
 
 ### 2.4 apiVersion 생략 시 기본값 결정
 
@@ -562,6 +566,10 @@ spec:
     organization: "org-abc123"
     timeout: 30000
     maxRetries: 3
+
+  capabilities:                        # 모델 기능 선언 (선택)
+    streaming: true
+    toolCalling: true
 ```
 
 #### 5.1.1 Model 필드 상세
@@ -572,6 +580,7 @@ spec:
 | `spec.name` | Y | string | 모델 식별자. 예: `gpt-5`, `claude-sonnet-4-5`, `gemini-2.0-pro` |
 | `spec.endpoint` | N | string | 커스텀 API 엔드포인트 URL |
 | `spec.options` | N | object | provider별 추가 옵션 |
+| `spec.capabilities` | N | object | 모델 기능 플래그 (`streaming`, `toolCalling` 등) |
 
 #### 5.1.2 지원 provider 목록
 
@@ -595,6 +604,9 @@ spec:
   name: gpt-5
   options:
     organization: "org-abc123"
+  capabilities:
+    streaming: true
+    toolCalling: true
 
 ---
 
@@ -605,6 +617,9 @@ metadata:
 spec:
   provider: anthropic
   name: claude-sonnet-4-5
+  capabilities:
+    streaming: true
+    toolCalling: true
 
 ---
 
@@ -1014,12 +1029,13 @@ spec:
       point: turn.post
       priority: 0
       action:
-        toolCall:
-          tool: slack.postMessage
-          input:
-            channel: { expr: "$.turn.origin.channel" }
-            threadTs: { expr: "$.turn.origin.threadTs" }
-            text: { expr: "$.turn.summary" }
+        runtime: node
+        entry: "./hooks/notify-summary.js"
+        export: default
+        input:
+          channel: { expr: "$.turn.origin.channel" }
+          threadTs: { expr: "$.turn.origin.threadTs" }
+          text: { expr: "$.turn.summary" }
 
   # Changeset 정책 (선택)
   changesets:
@@ -1071,20 +1087,23 @@ hooks:
   - id: unique-hook-id               # 선택: identity key (권장)
     point: turn.post                 # 필수: 파이프라인 포인트
     priority: 0                      # 선택: 실행 순서 (낮을수록 먼저, 기본: 0)
-    action:                          # 필수: 실행할 액션
-      toolCall:                      # toolCall 액션
-        tool: slack.postMessage      # 호출할 도구
-        input:                       # 입력 값 (템플릿 지원)
-          channel: { expr: "$.turn.origin.channel" }
-          text: "Turn 완료!"
+    action:                          # 필수: 스크립트 실행 기술자
+      runtime: node                  # 런타임 환경
+      entry: "./hooks/notify.js"     # 엔트리 파일 경로
+      export: default                # export 함수 이름
+      input:                         # 입력 값 (템플릿 지원)
+        channel: { expr: "$.turn.origin.channel" }
+        text: "Turn 완료!"
 ```
+
+**중요**: `hooks[].action`은 스크립트 실행 기술자여야 하며, 직접 `toolCall` 스키마를 사용해서는 안 된다(MUST NOT). 필요 시 스크립트 핸들러 내에서 표준 API를 통해 도구를 간접 호출할 수 있다.
 
 ##### 지원 파이프라인 포인트
 
 | 카테고리 | 포인트 | 타입 | 설명 |
 |----------|--------|------|------|
 | Turn | `turn.pre` | Mutator | Turn 시작 전 |
-| Turn | `turn.post` | Mutator | Turn 완료 후 |
+| Turn | `turn.post` | Mutator | Turn 종료 훅 (`base/events` 전달) |
 | Step | `step.pre` | Mutator | Step 시작 전 |
 | Step | `step.config` | Mutator | Config 로드/적용 |
 | Step | `step.tools` | Mutator | Tool Catalog 구성 |
@@ -1105,14 +1124,16 @@ hooks:
 | `hooks[].id` | N | string | - | Hook identity key (reconcile용) |
 | `hooks[].point` | Y | string | - | 파이프라인 포인트 |
 | `hooks[].priority` | N | number | 0 | 실행 순서 (낮을수록 먼저) |
-| `hooks[].action` | Y | object | - | 실행할 액션 |
+| `hooks[].action` | Y | object | - | 스크립트 실행 기술자 |
 
-##### action.toolCall 필드
+##### action 필드 (스크립트 실행 기술자)
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
-| `action.toolCall.tool` | Y | string | 호출할 도구 이름 |
-| `action.toolCall.input` | Y | object | 도구 입력 값 |
+| `action.runtime` | Y | string | 런타임 환경 (`node`, `python`, `deno`) |
+| `action.entry` | Y | string | 엔트리 파일 경로 (Bundle root 기준) |
+| `action.export` | Y | string | export 함수 이름 |
+| `action.input` | N | object | 입력 파라미터 (정적 값 또는 expr) |
 
 ##### input 템플릿 표현식
 
@@ -1128,6 +1149,8 @@ input:
   # $.turn         - 현재 Turn 객체
   # $.turn.origin  - Turn 호출 맥락
   # $.turn.auth    - Turn 인증 컨텍스트
+  # $.baseMessages - turn 시작 기준 메시지 스냅샷 (turn.post)
+  # $.messageEvents - turn 중 누적 메시지 이벤트 (turn.post)
   # $.turn.summary - Turn 요약 (turn.post에서만)
   # $.step         - 현재 Step 객체
   # $.agent        - 현재 Agent 정의
@@ -1229,6 +1252,11 @@ spec:
     maxStepsPerTurn: 32
     maxTurnsPerInstance: 1000
     timeoutMs: 300000
+    queueMode: serial                    # 큐 처리 모드 (기본: serial)
+    lifecycle:                           # 인스턴스 라이프사이클 정책 (선택)
+      autoPauseIdleSeconds: 3600         # 유휴 시 자동 일시정지 (초)
+      ttlSeconds: 604800                 # 인스턴스 최대 수명 (초)
+      gcGraceSeconds: 86400              # GC 유예 기간 (초)
 
     # Changeset 정책
     changesets:
@@ -1269,6 +1297,11 @@ spec:
 | `policy.maxStepsPerTurn` | N | number | 32 | Turn 당 최대 Step 수 |
 | `policy.maxTurnsPerInstance` | N | number | - | Instance 당 최대 Turn 수 |
 | `policy.timeoutMs` | N | number | 300000 | Turn 타임아웃 (ms) |
+| `policy.queueMode` | N | string | `serial` | 큐 처리 모드 |
+| `policy.lifecycle` | N | object | - | 인스턴스 라이프사이클 정책 |
+| `policy.lifecycle.autoPauseIdleSeconds` | N | number | - | 유휴 시 자동 일시정지 (초) |
+| `policy.lifecycle.ttlSeconds` | N | number | - | 인스턴스 최대 수명 (초) |
+| `policy.lifecycle.gcGraceSeconds` | N | number | - | GC 유예 기간 (초) |
 | `policy.changesets` | N | object | - | Changeset 정책 |
 | `policy.liveConfig` | N | object | - | Live Config 정책 |
 
@@ -1324,45 +1357,16 @@ policy:
 
 ### 5.6 Connector
 
-Connector는 외부 채널 이벤트를 수신하여 SwarmInstance/AgentInstance로 라우팅하고, 진행상황 업데이트와 완료 보고를 같은 맥락으로 송신한다.
+Connector는 외부 채널 프로토콜 구현과 trigger handler를 정의한다. Connector는 Connection으로부터 제공받은 인증 정보를 사용하여 inbound 서명 검증을 수행한다. 인증 정보 자체와 ingress 라우팅 규칙은 Connection 리소스에서 정의한다.
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
-  name: slack-main
+  name: slack
 spec:
   # 필수 필드
   type: slack                         # slack | telegram | cli | webhook | custom
-
-  # 인증 설정 (선택, oauthAppRef와 staticToken 중 택일)
-  auth:
-    # OAuth 기반
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-
-    # 또는 Static Token 기반
-    # staticToken:
-    #   valueFrom:
-    #     secretRef: { ref: "Secret/slack-bot-token", key: "bot_token" }
-
-  # ingress 설정 (필수)
-  ingress:
-    - match:
-        command: "/swarm"              # 명령어 매칭
-        # channel: "C123456"           # 채널 매칭 (선택)
-        # user: "U123456"              # 사용자 매칭 (선택)
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-        agentRef: { kind: Agent, name: planner }    # 선택: 특정 Agent로 라우팅
-
-  # egress 설정 (선택)
-  egress:
-    updatePolicy:
-      mode: updateInThread             # updateInThread | newMessage | edit
-      debounceMs: 1500
-      maxUpdatesPerTurn: 10
 
   # 커스텀 Connector용 런타임 설정 (선택)
   runtime: node
@@ -1370,27 +1374,157 @@ spec:
 
   # triggers 설정 (선택, 커스텀 Connector용)
   triggers:
-    - handler: onWebhook
-      config:
-        path: "/webhook/slack"
-    - handler: onCron
-      config:
-        schedule: "0 9 * * 1-5"
+    - name: webhook
+      event: webhook.received
+      handler: onWebhook
+    - name: cron
+      event: cron.triggered
+      handler: onCron
 ```
 
 #### 5.6.1 Connector 필드 상세
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
-| `spec.type` | Y | string | Connector 유형 |
-| `spec.auth` | N | object | 인증 설정 |
-| `spec.ingress` | Y | array | 인바운드 라우팅 규칙 |
-| `spec.egress` | N | object | 아웃바운드 정책 |
-| `spec.runtime` | N | string | 커스텀 런타임 |
-| `spec.entry` | N | string | 커스텀 엔트리 |
-| `spec.triggers` | N | array | 트리거 핸들러 |
+| `spec.type` | Y | string | Connector 유형 (`slack`, `telegram`, `cli`, `webhook`, `custom`) |
+| `spec.runtime` | N | string | 커스텀 런타임 (`node`, `python`, `deno`). custom 타입에서 필수 |
+| `spec.entry` | N | string | 커스텀 엔트리 파일 경로. custom 타입에서 필수 |
+| `spec.triggers` | N | array | 트리거 핸들러 목록 |
 
-#### 5.6.2 auth 설정
+#### 5.6.2 triggers 설정 상세
+
+커스텀 Connector에서 외부 이벤트를 수신하는 트리거를 정의한다.
+
+```yaml
+spec:
+  type: custom
+  runtime: node
+  entry: "./connectors/custom/index.ts"
+
+  triggers:
+    - name: webhook                    # 트리거 식별자 (선택)
+      event: webhook.received          # canonical event 타입 매핑 (선택)
+      handler: onWebhook               # 엔트리 모듈의 export 함수명
+
+    - name: cron
+      event: cron.triggered
+      handler: onCron
+
+    - name: queue
+      event: queue.message
+      handler: onQueue
+```
+
+##### triggers[] 필드
+
+| 필드 | 필수 | 타입 | 설명 |
+|------|------|------|------|
+| `name` | N | string | 트리거 식별자 |
+| `event` | N | string | canonical event 타입 매핑 |
+| `handler` | Y | string | 엔트리 모듈의 export 함수명 |
+
+**규칙(MUST)**:
+
+1. `handler`는 `spec.entry` 모듈에서 export된 함수 이름이어야 한다.
+2. 모듈 한정자(`exports.`, 파일 경로 등)를 포함해서는 안 된다.
+3. handler export가 존재하지 않으면 구성 로드 단계에서 오류로 처리한다.
+4. trigger handler는 canonical event를 `ctx.emit(...)`으로 Runtime에 전달해야 한다.
+5. Connector는 Connection이 제공한 서명 시크릿/인증 정보를 사용하여 inbound 요청의 서명 검증을 수행해야 한다.
+
+#### 5.6.3 Connector 예시
+
+```yaml
+# Slack Connector (프로토콜만 정의, auth/ingress는 Connection에서)
+kind: Connector
+metadata:
+  name: slack
+spec:
+  type: slack
+
+---
+
+# CLI Connector
+kind: Connector
+metadata:
+  name: cli
+spec:
+  type: cli
+
+---
+
+# Telegram Connector
+kind: Connector
+metadata:
+  name: telegram
+spec:
+  type: telegram
+
+---
+
+# Custom Webhook Connector
+kind: Connector
+metadata:
+  name: github-webhook
+spec:
+  type: custom
+  runtime: node
+  entry: "./connectors/github/index.ts"
+  triggers:
+    - name: pull-request
+      event: pull_request
+      handler: onPullRequest
+    - name: issue-comment
+      event: issue_comment
+      handler: onIssueComment
+```
+
+### 5.7 Connection
+
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스다. 인증 정보 제공, ingress 라우팅 규칙, 서명 검증 설정을 담당한다.
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Connection
+metadata:
+  name: slack-main
+spec:
+  # 필수: 참조할 Connector
+  connectorRef: { kind: Connector, name: slack }
+
+  # 인증 설정 (선택, oauthAppRef와 staticToken 중 택일)
+  auth:
+    oauthAppRef: { kind: OAuthApp, name: slack-bot }
+
+  # ingress 라우팅 규칙
+  ingress:
+    rules:
+      - match:
+          command: "/swarm"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
+
+  # 서명 검증 설정 (선택)
+  verify:
+    webhook:
+      provider: slack
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
+```
+
+#### 5.7.1 Connection 필드 상세
+
+| 필드 | 필수 | 타입 | 설명 |
+|------|------|------|------|
+| `spec.connectorRef` | Y | ObjectRef | 참조할 Connector |
+| `spec.auth` | N | object | 인증 설정 (oauthAppRef 또는 staticToken) |
+| `spec.ingress` | N | object | 인바운드 라우팅 설정 |
+| `spec.ingress.rules` | N | array | 라우팅 규칙 목록 |
+| `spec.verify` | N | object | 서명 검증 설정 |
+
+#### 5.7.2 auth 설정
 
 두 모드는 **동시에 활성화될 수 없다**(MUST).
 
@@ -1410,231 +1544,146 @@ auth:
       secretRef: { ref: "Secret/slack-bot-token", key: "bot_token" }
 ```
 
-```yaml
-# 검증 오류: 두 모드 동시 사용
-auth:
-  oauthAppRef: { kind: OAuthApp, name: slack-bot }
-  staticToken:                         # ERROR
-    valueFrom:
-      env: "SLACK_TOKEN"
-```
-
-#### 5.6.3 ingress 설정 상세
+#### 5.7.3 ingress.rules 설정 상세
 
 ```yaml
 ingress:
-  - match:                            # 매칭 조건 (선택)
-      command: "/swarm"               # 명령어 시작 문자열
-      channel: "C123456"              # 특정 채널만
-      user: "U123456"                 # 특정 사용자만
-      type: "message"                 # 이벤트 타입
-      pattern: "^agent\\s+"           # 정규식 패턴 (선택)
+  rules:
+    - match:                            # 매칭 조건 (선택)
+        command: "/swarm"               # 명령어 시작 문자열
+        eventType: "message"            # 이벤트 타입
+        channel: "C123456"              # 특정 채널만
 
-    route:                            # 라우팅 설정 (필수)
-      swarmRef: { kind: Swarm, name: default }
-      instanceKeyFrom: "$.event.thread_ts"    # JSONPath 표현식
-      inputFrom: "$.event.text"               # JSONPath 표현식
-      agentRef: { kind: Agent, name: planner } # 선택: 특정 Agent
-
-    transform:                        # 변환 설정 (선택)
-      stripCommand: true              # 명령어 제거
-      normalizeWhitespace: true       # 공백 정규화
+      route:                            # 라우팅 설정 (필수)
+        swarmRef: { kind: Swarm, name: default }
+        instanceKeyFrom: "$.event.thread_ts"    # JSONPath 표현식
+        inputFrom: "$.event.text"               # JSONPath 표현식
 ```
 
-##### ingress[].match 필드
+##### ingress.rules[].match 필드
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
 | `match.command` | N | string | 명령어 접두사 (예: "/swarm") |
+| `match.eventType` | N | string | 이벤트 타입 필터 |
 | `match.channel` | N | string | 채널 ID 필터 |
-| `match.user` | N | string | 사용자 ID 필터 |
-| `match.type` | N | string | 이벤트 타입 필터 |
-| `match.pattern` | N | string | 정규식 패턴 |
 
-##### ingress[].route 필드
+##### ingress.rules[].route 필드
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
 | `route.swarmRef` | Y | ObjectRef | 대상 Swarm |
-| `route.instanceKeyFrom` | Y | string | Instance 키 추출 JSONPath |
-| `route.inputFrom` | Y | string | 입력 텍스트 추출 JSONPath |
-| `route.agentRef` | N | ObjectRef | 특정 Agent로 라우팅 |
+| `route.instanceKeyFrom` | N | string | Instance 키 추출 JSONPath |
+| `route.inputFrom` | N | string | 입력 텍스트 추출 JSONPath |
 
-#### 5.6.4 egress 설정 상세
+#### 5.7.4 verify 설정 상세
 
-```yaml
-egress:
-  updatePolicy:
-    mode: updateInThread              # 응답 모드
-    debounceMs: 1500                  # 디바운스 간격
-    maxUpdatesPerTurn: 10             # Turn 당 최대 업데이트 수
-
-  format:                             # 출력 포맷 (선택)
-    useMarkdown: true
-    maxLength: 4000
-    truncationSuffix: "..."
-```
-
-##### egress.updatePolicy 필드
-
-| 필드 | 필수 | 타입 | 기본값 | 설명 |
-|------|------|------|--------|------|
-| `mode` | N | string | `updateInThread` | 응답 모드 |
-| `debounceMs` | N | number | 1500 | 업데이트 디바운스 (ms) |
-| `maxUpdatesPerTurn` | N | number | - | Turn 당 최대 업데이트 |
-
-##### egress.updatePolicy.mode 옵션
-
-| 모드 | 설명 |
-|------|------|
-| `updateInThread` | 동일 스레드에 업데이트 메시지 추가 |
-| `newMessage` | 새 메시지로 응답 |
-| `edit` | 기존 메시지 수정 |
-| `ephemeral` | 일시적 메시지 (발신자에게만 표시) |
-
-#### 5.6.5 triggers 설정 상세
-
-커스텀 Connector에서 외부 이벤트를 수신하는 트리거를 정의한다.
+Connection은 Connector가 서명 검증에 사용할 인증 정보를 제공한다.
 
 ```yaml
-spec:
-  type: custom
-  runtime: node
-  entry: "./connectors/custom/index.ts"
-
-  triggers:
-    - handler: onWebhook              # 엔트리 모듈의 export 함수명
-      config:
-        path: "/webhook/custom"
-        method: "POST"
-        secret:
-          valueFrom:
-            secretRef: { ref: "Secret/webhook", key: "secret" }
-
-    - handler: onCron
-      config:
-        schedule: "0 9 * * 1-5"       # cron 표현식
-        timezone: "Asia/Seoul"
-
-    - handler: onQueue
-      config:
-        queue: "agent-tasks"
+verify:
+  webhook:
+    provider: slack                    # 서명 검증 provider
+    signingSecret:
+      valueFrom:
+        secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
 ```
-
-##### triggers[] 필드
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
-| `handler` | Y | string | 엔트리 모듈의 export 함수명 |
-| `config` | N | object | 트리거별 설정 |
+| `verify.webhook.provider` | N | string | 서명 검증 provider (예: "slack", "github") |
+| `verify.webhook.signingSecret` | N | ValueSource | 서명 시크릿 |
 
 **규칙(MUST)**:
 
-1. `handler`는 `spec.entry` 모듈에서 export된 함수 이름이어야 한다.
-2. 모듈 한정자(`exports.`, 파일 경로 등)를 포함해서는 안 된다.
-3. handler export가 존재하지 않으면 구성 로드 단계에서 오류로 처리한다.
-4. trigger handler는 canonical event를 `ctx.emit(...)`으로 Runtime에 전달해야 한다.
+1. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다.
+2. Connection은 Connector가 서명 검증에 사용할 인증 정보(서명 시크릿 등)를 제공해야 한다.
+3. 서명 검증 실패 시 Connector는 Turn을 생성해서는 안 된다.
+4. OAuth를 사용하는 Connection은 Turn 생성 시 필요한 `turn.auth.subjects` 키를 채워야 한다.
 
-#### 5.6.6 Connector 예시
+#### 5.7.5 Connection 예시
 
 ```yaml
-# Slack Connector (OAuth)
-kind: Connector
+# Slack Connection (OAuth + verify)
+kind: Connection
 metadata:
   name: slack-main
 spec:
-  type: slack
+  connectorRef: { kind: Connector, name: slack }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
   ingress:
-    - match:
-        command: "/agent"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+    rules:
+      - match:
+          command: "/agent"
+        route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.event.thread_ts"
+          inputFrom: "$.event.text"
+  verify:
+    webhook:
+      provider: slack
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
 
 ---
 
-# Slack Connector (Static Token)
-kind: Connector
+# CLI Connection
+kind: Connection
 metadata:
-  name: slack-static
+  name: cli-to-default
 spec:
-  type: slack
+  connectorRef: { kind: Connector, name: cli }
+  ingress:
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.instanceKey"
+          inputFrom: "$.text"
+
+---
+
+# Telegram Connection (Static Token)
+kind: Connection
+metadata:
+  name: telegram-main
+spec:
+  connectorRef: { kind: Connector, name: telegram }
   auth:
     staticToken:
       valueFrom:
-        secretRef: { ref: "Secret/slack-token", key: "bot_token" }
+        secretRef: { ref: "Secret/telegram-bot", key: "token" }
   ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.event.thread_ts"
-        inputFrom: "$.event.text"
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.chat.id"
+          inputFrom: "$.message.text"
 
 ---
 
-# CLI Connector
-kind: Connector
+# GitHub Webhook Connection
+kind: Connection
 metadata:
-  name: cli
+  name: github-to-review
 spec:
-  type: cli
+  connectorRef: { kind: Connector, name: github-webhook }
   ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
-
----
-
-# Telegram Connector
-kind: Connector
-metadata:
-  name: telegram
-spec:
-  type: telegram
-  auth:
-    staticToken:
-      valueFrom:
-        env: "TELEGRAM_BOT_TOKEN"
-  ingress:
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-
----
-
-# Custom Webhook Connector
-kind: Connector
-metadata:
-  name: github-webhook
-spec:
-  type: custom
-  runtime: node
-  entry: "./connectors/github/index.ts"
-  triggers:
-    - handler: onPullRequest
-      config:
-        events: ["pull_request.opened", "pull_request.synchronize"]
-    - handler: onIssueComment
-      config:
-        events: ["issue_comment.created"]
-  ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: code-review }
-        instanceKeyFrom: "$.pull_request.number"
-        inputFrom: "$.comment.body"
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: code-review }
+          instanceKeyFrom: "$.pull_request.number"
+          inputFrom: "$.comment.body"
+  verify:
+    webhook:
+      provider: github
+      signingSecret:
+        valueFrom:
+          secretRef: { ref: "Secret/github-webhook", key: "secret" }
 ```
 
-### 5.7 OAuthApp
+### 5.8 OAuthApp
 
 OAuthApp은 외부 시스템 OAuth 인증을 위한 클라이언트 및 엔드포인트를 정의한다.
 
@@ -1675,7 +1724,7 @@ spec:
       teamId: "T12345"                # 특정 팀 제한 (선택)
 ```
 
-#### 5.7.1 OAuthApp 필드 상세
+#### 5.8.1 OAuthApp 필드 상세
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
@@ -1688,7 +1737,7 @@ spec:
 | `spec.redirect` | Y | object | 리디렉션 설정 |
 | `spec.options` | N | object | 공급자별 옵션 |
 
-#### 5.7.2 flow 별 요구사항
+#### 5.8.2 flow 별 요구사항
 
 ##### authorizationCode (필수 지원)
 
@@ -1730,7 +1779,7 @@ spec:
     - "user"
 ```
 
-#### 5.7.3 subjectMode 상세
+#### 5.8.3 subjectMode 상세
 
 ```yaml
 subjectMode: global    # 전역 토큰 (워크스페이스/팀 단위)
@@ -1748,7 +1797,7 @@ subjectMode: user      # 사용자별 토큰
 1. `subjectMode`에 해당하는 키가 `turn.auth.subjects`에 없으면 오류로 처리한다.
 2. 전역 토큰과 사용자별 토큰이 의미적으로 다르면 별도 OAuthApp으로 분리한다(SHOULD).
 
-#### 5.7.4 endpoints 상세
+#### 5.8.4 endpoints 상세
 
 ```yaml
 endpoints:
@@ -1769,7 +1818,7 @@ endpoints:
   userInfoUrl: "https://provider.example/userinfo"
 ```
 
-#### 5.7.5 OAuthApp 예시
+#### 5.8.5 OAuthApp 예시
 
 ```yaml
 # Slack Bot (전역 토큰)
@@ -1856,7 +1905,7 @@ spec:
       prompt: "consent"
 ```
 
-### 5.8 ResourceType / ExtensionHandler
+### 5.9 ResourceType / ExtensionHandler
 
 ResourceType과 ExtensionHandler는 사용자 정의 kind의 등록, 검증, 기본값, 런타임 변환을 지원한다.
 
@@ -1910,7 +1959,7 @@ spec:
     - materialize                     # 런타임 변환 함수
 ```
 
-#### 5.8.1 ResourceType 필드 상세
+#### 5.9.1 ResourceType 필드 상세
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
@@ -1922,7 +1971,7 @@ spec:
 | `spec.versions` | Y | array | 버전 정의 |
 | `spec.handlerRef` | Y | ObjectRef | 처리 핸들러 참조 |
 
-#### 5.8.2 versions[] 필드 상세
+#### 5.9.2 versions[] 필드 상세
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
@@ -1931,7 +1980,7 @@ spec:
 | `versions[].storage` | Y | boolean | 저장소 버전 여부 (하나만 true) |
 | `versions[].schema` | N | object | OpenAPI v3 스키마 |
 
-#### 5.8.3 ExtensionHandler 필드 상세
+#### 5.9.3 ExtensionHandler 필드 상세
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
@@ -1939,7 +1988,7 @@ spec:
 | `spec.entry` | Y | string | 엔트리 파일 경로 |
 | `spec.exports` | Y | string[] | 제공 함수 목록 |
 
-#### 5.8.4 Handler exports 함수
+#### 5.9.4 Handler exports 함수
 
 | 함수 | 설명 |
 |------|------|
@@ -1947,7 +1996,7 @@ spec:
 | `default` | 기본값 적용. 누락된 필드에 기본값 설정 |
 | `materialize` | 런타임 변환. 리소스를 실행 가능한 형태로 변환 |
 
-#### 5.8.5 사용자 정의 리소스 예시
+#### 5.9.5 사용자 정의 리소스 예시
 
 ```yaml
 # ResourceType 정의
@@ -2024,6 +2073,7 @@ spec:
 | spec.name | Y |
 | spec.endpoint | N |
 | spec.options | N |
+| spec.capabilities | N |
 
 #### Tool
 
@@ -2064,18 +2114,30 @@ spec:
 | spec.entrypoint | Y |
 | spec.agents | Y (최소 1개) |
 | spec.policy | N |
+| spec.policy.queueMode | N (기본: serial) |
+| spec.policy.lifecycle | N |
 
 #### Connector
 
 | 필드 | 필수 |
 |------|------|
 | spec.type | Y |
-| spec.ingress | Y (최소 1개) |
-| spec.ingress[].route.swarmRef | Y |
-| spec.ingress[].route.instanceKeyFrom | Y |
-| spec.ingress[].route.inputFrom | Y |
+| spec.runtime | N (custom 타입에서 Y) |
+| spec.entry | N (custom 타입에서 Y) |
+| spec.triggers | N |
+| spec.triggers[].handler | Y |
+| spec.triggers[].name | N |
+| spec.triggers[].event | N |
+
+#### Connection
+
+| 필드 | 필수 |
+|------|------|
+| spec.connectorRef | Y |
 | spec.auth | N |
-| spec.egress | N |
+| spec.ingress.rules | N |
+| spec.ingress.rules[].route.swarmRef | Y |
+| spec.verify | N |
 
 #### OAuthApp
 
@@ -2104,7 +2166,7 @@ spec:
 |--------|---------------|------|
 | ValueSource | value, valueFrom | 둘 중 하나만 존재 |
 | ValueSource.valueFrom | env, secretRef | 둘 중 하나만 존재 |
-| Connector.auth | oauthAppRef, staticToken | 둘 중 하나만 존재 |
+| Connection.auth | oauthAppRef, staticToken | 둘 중 하나만 존재 |
 | Agent.prompts | system, systemRef | 둘 중 하나 필수 |
 
 ### 6.6 특수 검증 규칙
@@ -2125,8 +2187,18 @@ flow: deviceCode
 
 ```yaml
 triggers:
-  - handler: onWebhook
+  - name: webhook
+    event: webhook.received
+    handler: onWebhook
 # 검증: handler가 entry 모듈의 export 함수명인지 확인
+```
+
+#### Connection 검증
+
+```yaml
+# Connection.auth: oauthAppRef와 staticToken 동시 불가
+# Connection.verify: 서명 검증 정보 제공
+# Connection.ingress.rules[].route.swarmRef: 유효한 Swarm 참조
 ```
 
 #### Agent changesets 검증
@@ -2219,11 +2291,20 @@ metadata:
   name: cli
 spec:
   type: cli
+
+---
+
+kind: Connection
+metadata:
+  name: cli-to-default
+spec:
+  connectorRef: { kind: Connector, name: cli }
   ingress:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+    rules:
+      - route:
+          swarmRef: { kind: Swarm, name: default }
+          instanceKeyFrom: "$.instanceKey"
+          inputFrom: "$.text"
 ```
 
 ### 7.2 멀티 에이전트 구성
@@ -2339,6 +2420,7 @@ inputFrom: "$.event.text"
 input:
   channel: { expr: "$.turn.origin.channel" }
   text: { expr: "$.turn.summary" }
+  firstSystem: { expr: "$.baseMessages[0].content" }
 ```
 
 ## 부록 B. Glob 패턴

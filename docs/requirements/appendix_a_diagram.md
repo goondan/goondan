@@ -16,6 +16,14 @@
      │   Turn Start   │
      └───────────────┘
           │
+          │ load BaseMessages (base.jsonl)
+          ▼
+   ┌───────────────────────────────────────┐
+   │ Message State Init                    │
+   │  - BaseMessages loaded                │
+   │  - Events = []                        │
+   └───────────────────────────────────────┘
+          │
           │ turn.pre        (Mutator)
           ▼
    ┌───────────────────────────────────────┐
@@ -41,6 +49,7 @@
    ┌───────────────────────────────────────┐
    │ step.blocks     (Mutator)             │
    │  - build/transform Context Blocks     │
+   │  - compose Next = Base + SUM(Events)  │
    └───────────────────────────────────────┘
           │
           │ step.llmCall    (Middleware)
@@ -73,6 +82,14 @@
           └───────────┐             └─────────────┐
                       ▼                           ▼
                   (next Step)               turn.post (Mutator)
+                                                │
+                                                │ hooks receive (base, events)
+                                                │ hooks may emit events
+                                                ▼
+                                   fold: Base + SUM(Events)
+                                                │
+                                                ▼
+                                  persist base.jsonl + clear events.jsonl
                                                 │
                                                 ▼
                                              Turn End

@@ -34,12 +34,14 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 - sliding window
 - turn 요약(compaction)
 - 중요 메시지 pinning
+- `truncate` + 요약 `llm_message` 재주입
 
 규칙:
 
-1. 원본 대화 로그는 손실 없이 Message Log에 유지되어야 한다(MUST).
+1. 메시지 상태는 `base + events` 구조를 유지해야 하며, compaction도 이벤트(`replace`/`remove`/`truncate`)로 표현되어야 한다(MUST).
 2. LLM 입력용 축약본은 블록/메시지 형태로 분리해 주입해야 한다(SHOULD).
 3. 축약 과정은 traceId 기준으로 추적 가능해야 한다(SHOULD).
+4. turn 종료 시 최종 `base + SUM(events)`가 새 base로 커밋되어 다음 turn의 시작점이 되어야 한다(MUST).
 
 ### 14.4 Handoff 패턴(도구 호출 기반)
 

@@ -19,6 +19,16 @@ Runtime은 최소 다음 포인트를 제공해야 한다(MUST).
 2. `step.llmError`는 LLM 호출 실패 시 실행되어야 한다(MUST).
 3. LLM 재시도 여부는 정책에 따라 결정할 수 있다(MAY).
 
+#### 11.2.1 Turn 메시지 상태 계약
+
+Turn 포인트는 다음 메시지 상태 계약을 따라야 한다.
+
+1. `turn.pre` 시점 컨텍스트에는 turn 시작 기준 `base` 메시지가 포함되어야 한다(MUST).
+2. `turn.post` 시점 Hook 입력에는 `(base, events)`가 모두 포함되어야 한다(MUST).
+3. `turn.post` Hook은 추가 메시지 이벤트를 발행할 수 있어야 한다(MUST).
+4. Runtime은 모든 `turn.post` Hook 종료 후에만 `base + SUM(events)`를 base에 반영해야 한다(MUST).
+5. `turn.post` Hook 단계에서 오류가 발생하면 복원을 위해 해당 turn의 `events`를 유지해야 한다(SHOULD).
+
 ### 11.3 실행 순서와 확장 순서
 
 1. Mutator 포인트는 extension 등록 순서대로 실행되어야 한다(MUST).

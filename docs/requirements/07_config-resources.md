@@ -214,8 +214,8 @@ metadata:
   name: slack
 spec:
   type: slack
-  runtime:
-    entry: "./connectors/slack/index.js"
+  runtime: node
+  entry: "./connectors/slack/index.js"
   triggers:
     - name: webhook
       event: webhook.received
@@ -224,7 +224,7 @@ spec:
 
 규칙:
 
-1. `spec.runtime.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
+1. `spec.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
 2. `triggers[].handler`는 entry 모듈 export와 일치해야 하며, 없으면 로드 단계에서 거부해야 한다(MUST).
 3. trigger handler는 외부 이벤트를 직접 AgentInstance에 전달하지 않고 `ctx.emit(canonicalEvent)`로 전달해야 한다(MUST).
 4. Connector는 Connection이 제공한 서명 시크릿/인증 정보를 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).

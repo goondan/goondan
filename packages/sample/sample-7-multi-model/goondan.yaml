@@ -119,7 +119,6 @@ metadata:
   name: cli-to-multi-model-swarm
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: multi-model-swarm }
   ingress:
     rules:
       - route: {}

@@ -39,8 +39,8 @@ spec:
     # 커스텀 프롬프트 사용
     systemRef: "./prompts/custom.system.md"
   tools:
-    # coding-swarm 패키지의 도구 참조
-    - { kind: Tool, name: file-toolkit }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -70,7 +70,6 @@ metadata:
   name: cli-to-custom-swarm
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: custom-swarm }
   ingress:
     rules:
       - route: {}

@@ -88,7 +88,6 @@ metadata:
   name: cli-to-web-research
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: web-research-swarm }
   ingress:
     rules:
       - route: {}

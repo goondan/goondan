@@ -132,8 +132,6 @@ spec:
 
   policy:
     maxStepsPerTurn: 16
-    maxTurnsPerInstance: 100
-    timeoutMs: 300000
 
     # Swarm 레벨 Changeset 정책: 최대 허용 범위
     changesets:
@@ -149,29 +147,11 @@ spec:
 ---
 
 apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-  labels:
-    tier: base
-    category: interactive
-spec:
-  runtime: node
-  entry: "../../base/src/connectors/cli/index.ts"
-  triggers:
-    - type: cli
-  events:
-    - name: user_input
-
----
-
-apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: cli-to-default
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  swarmRef: { kind: Swarm, name: default }
+  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
   ingress:
     rules:
       - route: {}

@@ -46,37 +46,6 @@ spec:
 
 ---
 
-# Alternative: Turn-based compaction
-# apiVersion: agents.example.io/v1alpha1
-# kind: Extension
-# metadata:
-#   name: compaction-turn
-# spec:
-#   runtime: node
-#   entry: "./extensions/compaction/index.ts"
-#   config:
-#     strategy: turn
-#     maxTurns: 20
-#     preserveRecent: 5
-#     enableLogging: true
-
----
-
-# Alternative: Sliding window compaction
-# apiVersion: agents.example.io/v1alpha1
-# kind: Extension
-# metadata:
-#   name: compaction-sliding
-# spec:
-#   runtime: node
-#   entry: "./extensions/compaction/index.ts"
-#   config:
-#     strategy: sliding
-#     windowSize: 10
-#     enableLogging: true
-
----
-
 apiVersion: agents.example.io/v1alpha1
 kind: Agent
 metadata:
@@ -106,29 +75,11 @@ spec:
 ---
 
 apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-  labels:
-    tier: base
-    category: interactive
-spec:
-  runtime: node
-  entry: "../../base/src/connectors/cli/index.ts"
-  triggers:
-    - type: cli
-  events:
-    - name: user_input
-
----
-
-apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: cli-to-compaction-demo
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  swarmRef: { kind: Swarm, name: compaction-demo }
+  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
   ingress:
     rules:
       - route: {}

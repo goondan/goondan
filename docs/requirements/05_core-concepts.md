@@ -49,6 +49,11 @@ MCP 연동은 MCP 서버의 tool/resource/prompt를 런타임에 연결하는 Ex
 
 Connector는 외부 채널 이벤트를 canonical event로 정규화하는 프로토콜 어댑터다. Connector는 실행 모델(Instance/Turn/Step)을 직접 제어하지 않는다. Connector는 Connection으로부터 제공받은 인증 정보를 사용하여 inbound 서명 검증 등 프로토콜 수준의 인증을 수행한다.
 
+Connector의 이벤트 수신 방식은 두 가지로 구분된다.
+
+1. **Runtime 관리 trigger**: Runtime이 이벤트를 수신하여 Connector에 전달한다 (`http`, `cron`, `cli`).
+2. **Custom trigger**: Connector가 자체적으로 이벤트 소스를 관리한다 (`custom`). 예: Telegram 롱 폴링, Discord WebSocket, MQTT 구독 등. Runtime은 Entry 함수를 한 번 호출하고, 함수가 직접 이벤트 수신 루프를 실행한다. Runtime은 `AbortSignal`을 통해 종료를 요청한다.
+
 #### 5.4.2 Connection
 
 Connection은 Connector를 특정 배포 환경에 바인딩하는 리소스다. 인증 정보(OAuth/Static Token/서명 시크릿)를 제공하고, ingress 라우팅 규칙을 정의한다. 하나의 Connector를 여러 Connection이 서로 다른 인증/라우팅으로 재사용할 수 있다.

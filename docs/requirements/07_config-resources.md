@@ -234,10 +234,11 @@ spec:
 
 1. `spec.runtime`과 `spec.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
 2. entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
-3. `triggers`는 최소 1개 이상의 프로토콜 선언(`http`/`cron`/`cli`)을 포함해야 한다(MUST).
+3. `triggers`는 최소 1개 이상의 프로토콜 선언(`http`/`cron`/`cli`/`custom`)을 포함해야 한다(MUST).
 4. entry 함수는 ConnectorEvent를 `ctx.emit(...)`으로 Runtime에 전달해야 한다(MUST).
 5. Connector는 Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
 6. `events[].name`은 Connector 내에서 고유해야 한다(MUST).
+7. `custom` trigger의 경우 Runtime은 entry 함수를 한 번 호출하고, 함수가 자체적으로 이벤트 소스를 관리하도록 허용해야 한다(MUST). Runtime은 `AbortSignal`을 통해 종료를 요청해야 한다(MUST).
 
 ### 7.7 Connection
 

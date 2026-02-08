@@ -43,6 +43,15 @@ turn:
 3. `instanceKey` 규칙으로 SwarmInstance를 조회/생성한다.
 4. event를 Turn 입력으로 변환하여 AgentInstance 큐에 enqueue한다.
 
+#### 9.1.3 Custom Trigger 실행 모델
+
+`custom` trigger를 선언한 Connector에 대해 Runtime은 다음 규칙을 따라야 한다.
+
+1. Runtime은 Connection마다 entry 함수를 한 번 호출해야 하며, 함수가 자체적으로 이벤트 수신 루프를 실행하도록 허용해야 한다(MUST).
+2. Runtime은 `ConnectorTriggerEvent.trigger.payload.signal`로 `AbortSignal`을 제공해야 하며, 종료가 필요할 때 이를 abort해야 한다(MUST).
+3. entry 함수가 예기치 않게 종료(reject)되면 Runtime은 Swarm의 retry 정책에 따라 재시작할 수 있다(MAY).
+4. Custom trigger의 entry 함수가 반환(resolve)되면 Runtime은 해당 Connection의 이벤트 수신이 정상 종료된 것으로 간주해야 한다(MUST).
+
 ### 9.2 이벤트 큐, 동시성, Turn 실행
 
 규칙:

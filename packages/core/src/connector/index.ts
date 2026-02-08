@@ -20,6 +20,7 @@ export type {
   HttpTriggerPayload,
   CronTriggerPayload,
   CliTriggerPayload,
+  CustomTriggerPayload,
   OAuthTokenRequest,
   OAuthTokenResult,
 } from './types.js';

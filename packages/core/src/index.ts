@@ -191,6 +191,7 @@ export type {
   HttpTriggerPayload,
   CronTriggerPayload,
   CliTriggerPayload,
+  CustomTriggerPayload,
   OAuthTokenRequest as ConnectorOAuthTokenRequest,
   OAuthTokenResult as ConnectorOAuthTokenResult,
   // Options types

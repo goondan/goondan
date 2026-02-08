@@ -9,6 +9,7 @@ spec:
   runtime: node
   entry: "./connectors/telegram/index.js"
   triggers:
+    - type: custom
     - type: http
       endpoint:
         path: /telegram/webhook

@@ -1203,7 +1203,8 @@ interface ConnectorSpec {
 type TriggerDeclaration =
   | HttpTrigger
   | CronTrigger
-  | CliTrigger;
+  | CliTrigger
+  | CustomTrigger;
 
 interface HttpTrigger {
   type: 'http';
@@ -1220,6 +1221,11 @@ interface CronTrigger {
 
 interface CliTrigger {
   type: 'cli';
+}
+
+/** Connector가 자체적으로 이벤트 소스를 관리 (롱 폴링, WebSocket 등) */
+interface CustomTrigger {
+  type: 'custom';
 }
 
 /**
@@ -1306,7 +1312,7 @@ spec:
 | `runtime` | MUST | string | `"node"` |
 | `entry` | MUST | string | 유효한 파일 경로 |
 | `triggers` | MUST | array | 최소 1개 이상의 trigger 선언 |
-| `triggers[].type` | MUST | string | `"http"`, `"cron"`, `"cli"` 중 하나 |
+| `triggers[].type` | MUST | string | `"http"`, `"cron"`, `"cli"`, `"custom"` 중 하나 |
 | `triggers[].endpoint.path` | MUST (http) | string | `/`로 시작 |
 | `triggers[].endpoint.method` | MUST (http) | string | HTTP 메서드 |
 | `triggers[].schedule` | MUST (cron) | string | 유효한 cron 표현식 |

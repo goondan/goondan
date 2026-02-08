@@ -31,7 +31,8 @@ export interface ConnectorSpec {
 export type TriggerDeclaration =
   | HttpTrigger
   | CronTrigger
-  | CliTrigger;
+  | CliTrigger
+  | CustomTrigger;
 
 /**
  * HTTP Trigger
@@ -63,6 +64,18 @@ export interface CronTrigger {
  */
 export interface CliTrigger {
   type: 'cli';
+}
+
+/**
+ * Custom Trigger
+ * Connector가 자체적으로 이벤트 소스를 관리한다.
+ * 예: Telegram 롱 폴링, Discord WebSocket, MQTT 구독 등.
+ * Runtime은 Entry 함수를 한 번 호출하고 AbortSignal로 종료를 요청한다.
+ *
+ * @see /docs/specs/connector.md - 3.4 Custom Trigger
+ */
+export interface CustomTrigger {
+  type: 'custom';
 }
 
 /**

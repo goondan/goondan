@@ -439,6 +439,7 @@ spec:
   runtime: node
   entry: "./connectors/telegram/index.ts"
   triggers:
+    - type: custom
     - type: http
       endpoint:
         path: /webhook/telegram

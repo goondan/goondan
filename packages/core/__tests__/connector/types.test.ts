@@ -180,6 +180,38 @@ describe('Connector 시스템 타입 (v1.0)', () => {
 
       expect(event.trigger.type).toBe('cli');
     });
+
+    it('custom trigger payload를 지원한다', () => {
+      const controller = new AbortController();
+      const trigger: TriggerPayload = {
+        type: 'custom',
+        payload: { signal: controller.signal },
+      };
+
+      const event: ConnectorTriggerEvent = {
+        type: 'connector.trigger',
+        trigger,
+        timestamp: new Date().toISOString(),
+      };
+
+      expect(event.trigger.type).toBe('custom');
+      if (event.trigger.type === 'custom') {
+        expect(event.trigger.payload.signal).toBe(controller.signal);
+        expect(event.trigger.payload.signal.aborted).toBe(false);
+      }
+    });
+
+    it('custom trigger의 AbortSignal로 종료를 요청할 수 있다', () => {
+      const controller = new AbortController();
+      const trigger: TriggerPayload = {
+        type: 'custom',
+        payload: { signal: controller.signal },
+      };
+
+      expect(trigger.payload.signal.aborted).toBe(false);
+      controller.abort();
+      expect(trigger.payload.signal.aborted).toBe(true);
+    });
   });
 
   describe('ConnectorContext 인터페이스', () => {

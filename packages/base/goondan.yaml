@@ -3,7 +3,7 @@ apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
   name: "@goondan/base"
-  version: "0.0.2"
+  version: "0.0.3"
   annotations:
     description: "Goondan 기본 Tool, Extension, Connector 번들"
 spec:

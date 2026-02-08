@@ -223,18 +223,26 @@ interface OpenChangesetHint {
 
 ### 4.5 Git worktree 생성 규칙
 
-1. **경로 규칙**: workdir은 System State Root 하위에 생성한다(MUST).
+1. **경로 규칙**: worktreeDir은 System State Root 하위에 생성한다(MUST).
    ```
    <goondanHome>/worktrees/<workspaceId>/changesets/<changesetId>/
    ```
 
-2. **중첩 금지**: workdir은 `<changesetId>/` 디렉터리 자체이며, 그 하위에 `workdir/` 같은 추가 중첩 디렉터리를 두지 않는다(MUST NOT).
+2. **bundleOffset 적용**: SwarmBundleRoot가 Git 루트의 하위 디렉터리일 때(모노레포), `workdir`은 `worktreeDir + bundleOffset`이다(MUST).
+   ```
+   worktreeDir = <goondanHome>/worktrees/<workspaceId>/changesets/<changesetId>/
+   bundleOffset = git root → SwarmBundleRoot 상대 경로 (예: "packages/my-swarm")
+   workdir = worktreeDir + bundleOffset (예: .../changesets/<id>/packages/my-swarm/)
+   ```
+   SwarmBundleRoot가 Git 루트와 동일하면 `bundleOffset = ""`이고 `workdir == worktreeDir`이다.
 
-3. **SwarmBundleRoot 분리**: workdir은 SwarmBundleRoot 하위에 생성되어서는 안 된다(MUST NOT).
+3. **중첩 금지**: worktreeDir은 `<changesetId>/` 디렉터리 자체이며, 그 하위에 `workdir/` 같은 추가 중첩 디렉터리를 두지 않는다(MUST NOT).
 
-4. **쓰기 가능**: workdir은 쓰기 가능해야 한다(MUST).
+4. **SwarmBundleRoot 분리**: worktreeDir은 SwarmBundleRoot 하위에 생성되어서는 안 된다(MUST NOT).
 
-5. **기준 Ref 초기화**: workdir은 baseRef의 콘텐츠로 초기화되어야 한다(MUST).
+5. **쓰기 가능**: workdir은 쓰기 가능해야 한다(MUST).
+
+6. **기준 Ref 초기화**: workdir은 baseRef의 콘텐츠로 초기화되어야 한다(MUST).
 
 ### 4.6 Git 명령어 예시
 
@@ -416,12 +424,25 @@ interface CommitError {
 
 ### 5.8 Git commit 생성 규칙
 
-1. **변경 감지**: worktree에서 `git status`로 변경된 파일을 감지한다.
-2. **정책 검증**: 변경된 파일이 ChangesetPolicy의 allowed.files와 일치하는지 검사한다.
-3. **스테이징**: 정책을 통과하면 모든 변경 사항을 스테이징한다.
-4. **커밋 생성**: Git commit을 생성한다.
-5. **Ref 업데이트**: SwarmBundleRoot의 활성 브랜치에 변경 사항을 반영한다.
-6. **정리**: worktree를 제거한다.
+1. **변경 감지**: worktreeDir에서 `git status`로 변경된 파일을 감지한다.
+2. **bundleOffset 필터**: bundleOffset이 있으면 offset 하위 파일만 필터링하고, 경로에서 offset prefix를 제거한다(MUST).
+3. **정책 검증**: offset이 제거된 상대 경로가 ChangesetPolicy의 allowed.files와 일치하는지 검사한다.
+4. **스테이징**: 정책을 통과하면 bundleOffset 범위의 변경 사항만 스테이징한다(MUST). bundleOffset이 없으면 전체 스테이징.
+5. **커밋 생성**: Git commit을 생성한다.
+6. **Ref 업데이트**: SwarmBundleRoot의 활성 브랜치에 변경 사항을 반영한다.
+7. **정리**: worktree를 제거한다.
+
+### 5.8.1 모노레포 지원
+
+SwarmBundleRoot가 Git 루트의 하위 디렉터리일 때(모노레포), commitChangeset은 다음 규칙을 따른다.
+
+1. **bundleOffset 계산**: `git rev-parse --show-toplevel`로 Git 루트를 구하고, SwarmBundleRoot와의 상대 경로를 bundleOffset으로 사용한다(MUST).
+2. **변경 파일 필터링**: `git status` 결과에서 bundleOffset prefix가 있는 파일만 대상으로 한다(MUST). bundleOffset 외부의 변경은 무시된다.
+3. **경로 스트립**: 필터링된 파일 경로에서 bundleOffset prefix를 제거한 상대 경로로 policy 검증 및 summary를 생성한다(MUST).
+4. **스테이징 범위**: `git add -A -- <bundleOffset>`으로 bundleOffset 하위만 스테이징한다(MUST).
+5. **Edge Cases**:
+   - SwarmBundleRoot == Git 루트: bundleOffset = "", 기존 동작과 동일
+   - Git 저장소가 아닌 프로젝트: bundleOffset = "", 기존 동작과 동일
 
 ### 5.9 Git 명령어 예시
 

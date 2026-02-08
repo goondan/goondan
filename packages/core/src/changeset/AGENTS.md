@@ -45,18 +45,31 @@ changeset/
 
 ```
 1. openChangeset()
-   - Git worktree 생성
+   - bundleOffset 계산 (git root → SwarmBundleRoot 상대경로)
+   - Git worktree 생성 (worktreeDir = goondanHome/worktrees/.../changesetId)
+   - workdir = worktreeDir + bundleOffset (모노레포 지원)
    - changesetId, baseRef, workdir 반환
 
 2. LLM이 workdir에서 파일 수정
 
 3. commitChangeset()
-   - 변경된 파일 감지 (git status)
-   - ChangesetPolicy 검증
+   - worktreeDir에서 변경된 파일 감지 (git status)
+   - bundleOffset 내 파일만 필터링 & 경로 스트립
+   - ChangesetPolicy 검증 (offset 제거된 상대경로)
+   - bundleOffset 범위만 스테이징
    - Git commit 생성
    - SwarmBundleRoot에 병합
    - worktree 정리
 ```
+
+## 모노레포 지원 (bundleOffset)
+
+SwarmBundleRoot가 Git 루트의 하위 디렉터리일 때:
+- `bundleOffset`: git root → SwarmBundleRoot 상대경로 (예: "packages/my-swarm")
+- `worktreeDir`: git worktree 루트 경로 (전체 monorepo 복사)
+- `workdir`: worktreeDir + bundleOffset (tool이 파일을 쓰는 위치)
+- commitChangeset은 bundleOffset 하위 변경만 감지/스테이징
+- SwarmBundleRoot == git root이면 bundleOffset = "", 기존 동작과 동일
 
 ## 구현 규칙
 
@@ -65,6 +78,7 @@ changeset/
 3. **정책 우선**: 정책 위반 시 거부 (rejected)
 4. **단일 작성자**: SwarmBundleRoot 변경은 Manager만 수행
 5. **병렬 정본 금지**: Git 외에 별도 상태 파일 금지
+6. **bundleOffset**: 모노레포 환경에서 symlink를 resolve하여 정확한 상대경로 계산 (fs.realpath)
 
 ## 테스트
 

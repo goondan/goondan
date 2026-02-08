@@ -471,7 +471,7 @@ describe('SwarmBundleManager', () => {
       await manager.discardChangeset(changesetId);
     });
 
-    it('workdir 경로 형식이 올바라야 한다', async () => {
+    it('workdir 경로 형식이 올바라야 한다 (SwarmBundleRoot == git root)', async () => {
       const manager = new SwarmBundleManagerImpl({
         swarmBundleRoot: repoDir,
         goondanHome,
@@ -480,11 +480,214 @@ describe('SwarmBundleManager', () => {
 
       const { workdir, changesetId } = await manager.openChangeset();
 
-      // <goondanHome>/worktrees/<workspaceId>/changesets/<changesetId>/
+      // bundleOffset이 ""이므로 workdir == worktreeDir
       const expectedPattern = path.join(goondanHome, 'worktrees', workspaceId, 'changesets', changesetId);
       expect(workdir).toBe(expectedPattern);
 
       await manager.discardChangeset(changesetId);
+    });
+  });
+
+  describe('bundleOffset (모노레포 지원)', () => {
+    let monorepoRoot: string;
+    let subProjectDir: string;
+    const bundleOffsetPath = 'packages/my-swarm';
+
+    beforeEach(async () => {
+      // 모노레포 구조 생성: git root 하위에 packages/my-swarm 디렉터리
+      monorepoRoot = path.join(tempDir, 'monorepo');
+      subProjectDir = path.join(monorepoRoot, bundleOffsetPath);
+
+      await fs.mkdir(subProjectDir, { recursive: true });
+
+      // Git 레포지토리 초기화 (monorepo root에서)
+      await execGit(monorepoRoot, ['init']);
+      await execGit(monorepoRoot, ['config', 'user.email', 'test@example.com']);
+      await execGit(monorepoRoot, ['config', 'user.name', 'Test User']);
+
+      // 모노레포 루트 파일
+      await fs.writeFile(path.join(monorepoRoot, 'package.json'), '{"name": "monorepo"}');
+
+      // 서브 프로젝트 파일
+      await fs.mkdir(path.join(subProjectDir, 'prompts'), { recursive: true });
+      await fs.writeFile(path.join(subProjectDir, 'goondan.yaml'), 'kind: Swarm\nname: test');
+      await fs.writeFile(path.join(subProjectDir, 'prompts', 'system.md'), '# System Prompt');
+
+      await execGit(monorepoRoot, ['add', '.']);
+      await execGit(monorepoRoot, ['commit', '-m', 'Initial monorepo commit']);
+    });
+
+    it('SwarmBundleRoot가 하위 디렉터리이면 workdir에 bundleOffset이 포함되어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const result = await manager.openChangeset();
+
+      // workdir은 worktreeDir + bundleOffset
+      const worktreeDir = path.join(goondanHome, 'worktrees', workspaceId, 'changesets', result.changesetId);
+      expect(result.workdir).toBe(path.join(worktreeDir, bundleOffsetPath));
+
+      // workdir에 SwarmBundle 파일이 존재해야 한다
+      const goondanYamlExists = await fs.access(path.join(result.workdir, 'goondan.yaml')).then(() => true).catch(() => false);
+      expect(goondanYamlExists).toBe(true);
+
+      const systemMdExists = await fs.access(path.join(result.workdir, 'prompts', 'system.md')).then(() => true).catch(() => false);
+      expect(systemMdExists).toBe(true);
+
+      await manager.discardChangeset(result.changesetId);
+    });
+
+    it('SwarmBundleRoot == git root이면 workdir == worktreeDir이어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: monorepoRoot,
+        goondanHome,
+        workspaceId,
+      });
+
+      const result = await manager.openChangeset();
+
+      const worktreeDir = path.join(goondanHome, 'worktrees', workspaceId, 'changesets', result.changesetId);
+      expect(result.workdir).toBe(worktreeDir);
+
+      await manager.discardChangeset(result.changesetId);
+    });
+
+    it('모노레포에서 파일 수정 후 commit하면 올바른 경로에 반영되어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const { changesetId, workdir } = await manager.openChangeset();
+
+      // workdir(= worktreeDir + bundleOffset) 내에서 파일 수정
+      await fs.writeFile(path.join(workdir, 'prompts', 'system.md'), '# Updated System Prompt');
+
+      const result = await manager.commitChangeset({
+        changesetId,
+        message: 'Update system prompt in monorepo',
+      });
+
+      expect(result.status).toBe('ok');
+      expect(result.summary?.filesChanged).toContain('prompts/system.md');
+
+      // SwarmBundleRoot에 변경 사항이 반영되었는지 확인
+      const content = await fs.readFile(path.join(subProjectDir, 'prompts', 'system.md'), 'utf-8');
+      expect(content).toBe('# Updated System Prompt');
+    });
+
+    it('모노레포에서 새 파일 추가 후 commit하면 filesAdded에 올바른 경로로 포함되어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const { changesetId, workdir } = await manager.openChangeset();
+
+      // workdir 내에서 새 파일 추가
+      await fs.writeFile(path.join(workdir, 'prompts', 'new-prompt.md'), '# New Prompt');
+
+      const result = await manager.commitChangeset({ changesetId });
+
+      expect(result.status).toBe('ok');
+      expect(result.summary?.filesAdded).toContain('prompts/new-prompt.md');
+    });
+
+    it('모노레포에서 bundleOffset 외부 변경은 무시되어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const { changesetId, workdir, baseRef } = await manager.openChangeset();
+
+      // worktreeDir 루트에 있는 (bundleOffset 외부) 파일을 수정
+      const worktreeDir = path.join(goondanHome, 'worktrees', workspaceId, 'changesets', changesetId);
+      await fs.writeFile(path.join(worktreeDir, 'package.json'), '{"name": "modified-monorepo"}');
+
+      const result = await manager.commitChangeset({ changesetId });
+
+      // bundleOffset 내부에 변경이 없으므로 "변경 없음" 처리
+      expect(result.status).toBe('ok');
+      expect(result.newRef).toBe(baseRef);
+      expect(result.summary?.filesChanged).toHaveLength(0);
+      expect(result.summary?.filesAdded).toHaveLength(0);
+    });
+
+    it('모노레포에서 ChangesetPolicy 검증은 offset 제거된 상대 경로로 수행되어야 한다', async () => {
+      const swarmPolicy: ChangesetPolicy = {
+        enabled: true,
+        allowed: { files: ['prompts/**'] },
+      };
+
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+        swarmPolicy,
+      });
+
+      const { changesetId, workdir } = await manager.openChangeset();
+
+      // 허용되지 않은 파일 수정 (goondan.yaml은 prompts/** 패턴에 안 맞음)
+      await fs.writeFile(path.join(workdir, 'goondan.yaml'), 'kind: Swarm\nname: modified');
+
+      const result = await manager.commitChangeset({ changesetId });
+
+      expect(result.status).toBe('rejected');
+      expect(result.error?.code).toBe('POLICY_VIOLATION');
+      // 경로가 bundleOffset 없이 'goondan.yaml'로 보고되어야 함
+      expect(result.error?.violatedFiles).toContain('goondan.yaml');
+    });
+
+    it('모노레포에서 허용된 파일만 수정하면 정상 commit되어야 한다', async () => {
+      const swarmPolicy: ChangesetPolicy = {
+        enabled: true,
+        allowed: { files: ['prompts/**'] },
+      };
+
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+        swarmPolicy,
+      });
+
+      const { changesetId, workdir } = await manager.openChangeset();
+
+      // 허용된 파일 수정
+      await fs.writeFile(path.join(workdir, 'prompts', 'system.md'), '# Updated');
+
+      const result = await manager.commitChangeset({ changesetId });
+
+      expect(result.status).toBe('ok');
+      expect(result.summary?.filesChanged).toContain('prompts/system.md');
+    });
+
+    it('commit 후 activeRef가 업데이트되어야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: subProjectDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const initialRef = await manager.getActiveRef();
+      const { changesetId, workdir } = await manager.openChangeset();
+
+      await fs.writeFile(path.join(workdir, 'prompts', 'system.md'), '# Updated in monorepo');
+
+      const result = await manager.commitChangeset({ changesetId });
+      const newRef = await manager.getActiveRef();
+
+      expect(result.status).toBe('ok');
+      expect(newRef).not.toBe(initialRef);
+      expect(newRef).toBe(result.newRef);
     });
   });
 });

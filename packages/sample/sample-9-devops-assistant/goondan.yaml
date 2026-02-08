@@ -93,7 +93,6 @@ metadata:
   name: cli-to-devops
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: devops-swarm }
   ingress:
     rules:
       - route: {}

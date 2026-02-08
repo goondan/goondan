@@ -58,9 +58,8 @@ spec:
   prompts:
     systemRef: "./prompts/coder.system.md"
   tools:
-    - { kind: Tool, name: file-read }
-    - { kind: Tool, name: file-write }
-    - { kind: Tool, name: bash }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
+    - { kind: Tool, name: bash, package: "@goondan/base" }
 
 ---
 
@@ -79,60 +78,9 @@ spec:
   prompts:
     systemRef: "./prompts/reviewer.system.md"
   tools:
-    - { kind: Tool, name: file-read }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
 
 ---
-
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: file-read
-  labels:
-    tier: base
-    category: filesystem
-spec:
-  runtime: node
-  entry: "./tools/file-read/index.ts"
-  exports:
-    - name: file.read
-      description: "파일 내용을 읽습니다."
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-            description: "읽을 파일 경로"
-        required: ["path"]
-
----
-
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: file-write
-  labels:
-    tier: base
-    category: filesystem
-spec:
-  runtime: node
-  entry: "./tools/file-write/index.ts"
-  exports:
-    - name: file.write
-      description: "파일에 내용을 씁니다."
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-            description: "쓸 파일 경로"
-          content:
-            type: string
-            description: "파일에 쓸 내용"
-        required: ["path", "content"]
-
----
-
-# Tool/bash는 @goondan/base 패키지에서 자동 로드됨
 
 apiVersion: agents.example.io/v1alpha1
 kind: Swarm
@@ -146,8 +94,6 @@ spec:
     - { kind: Agent, name: reviewer }
   policy:
     maxStepsPerTurn: 32
-    maxTurnsPerInstance: 100
-    timeoutMs: 600000
 
 ---
 
@@ -158,7 +104,6 @@ metadata:
   name: telegram-to-coding-swarm
 spec:
   connectorRef: { kind: Connector, name: telegram, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: coding-swarm }
   auth:
     staticToken:
       valueFrom:

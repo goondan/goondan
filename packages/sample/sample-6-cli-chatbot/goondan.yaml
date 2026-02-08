@@ -54,7 +54,6 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: default }
   ingress:
     rules:
       - route: {}

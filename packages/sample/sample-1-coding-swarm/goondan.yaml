@@ -25,65 +25,6 @@ spec:
 
 ---
 
-# File Tool - 파일 읽기/쓰기 도구
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: file-toolkit
-  labels:
-    tier: base
-    category: filesystem
-spec:
-  runtime: node
-  entry: "./tools/file/index.ts"
-  errorMessageLimit: 2000
-  exports:
-    - name: file.read
-      description: "지정된 경로의 파일 내용을 읽어 반환합니다."
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-            description: "읽을 파일의 경로"
-        required:
-          - path
-        additionalProperties: false
-
-    - name: file.write
-      description: "지정된 경로에 파일을 생성하거나 덮어씁니다."
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-            description: "쓸 파일의 경로"
-          content:
-            type: string
-            description: "파일에 쓸 내용"
-        required:
-          - path
-          - content
-        additionalProperties: false
-
-    - name: file.list
-      description: "지정된 디렉토리의 파일 목록을 반환합니다."
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-            description: "목록을 조회할 디렉토리 경로"
-          recursive:
-            type: boolean
-            description: "하위 디렉토리까지 재귀적으로 조회할지 여부"
-            default: false
-        required:
-          - path
-        additionalProperties: false
-
----
-
 # Planner Agent - 작업 계획 수립
 apiVersion: agents.example.io/v1alpha1
 kind: Agent
@@ -100,7 +41,7 @@ spec:
   prompts:
     systemRef: "./prompts/planner.system.md"
   tools:
-    - { kind: Tool, name: file-toolkit }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
     - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
@@ -121,7 +62,8 @@ spec:
   prompts:
     systemRef: "./prompts/coder.system.md"
   tools:
-    - { kind: Tool, name: file-toolkit }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
+    - { kind: Tool, name: bash, package: "@goondan/base" }
     - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
@@ -142,7 +84,7 @@ spec:
   prompts:
     systemRef: "./prompts/reviewer.system.md"
   tools:
-    - { kind: Tool, name: file-toolkit }
+    - { kind: Tool, name: file-system, package: "@goondan/base" }
     - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
@@ -171,7 +113,6 @@ metadata:
   name: cli-to-coding-swarm
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  swarmRef: { kind: Swarm, name: coding-swarm }
   ingress:
     rules:
       - route: {}

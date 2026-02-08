@@ -128,9 +128,10 @@ export interface CommitChangesetResult {
    * 처리 결과 상태
    * - ok: 성공적으로 커밋됨
    * - rejected: ChangesetPolicy 위반으로 거부됨
+   * - conflict: baseRef와 현재 HEAD가 불일치
    * - failed: 기타 오류로 실패함
    */
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
 
   /**
    * Changeset ID
@@ -153,7 +154,7 @@ export interface CommitChangesetResult {
   summary?: CommitSummary;
 
   /**
-   * 오류 정보 (status가 rejected 또는 failed인 경우)
+   * 오류 정보 (status가 rejected, conflict, failed인 경우)
    */
   error?: CommitError;
 }
@@ -196,6 +197,11 @@ export interface CommitError {
    * 위반된 파일 목록 (rejected인 경우)
    */
   violatedFiles?: string[];
+
+  /**
+   * 충돌 파일 목록 (conflict인 경우)
+   */
+  conflictingFiles?: string[];
 }
 
 // ============================================================
@@ -380,7 +386,11 @@ export interface ChangesetEventRecord {
   /**
    * 이벤트 종류
    */
-  kind: 'changeset.committed' | 'changeset.rejected' | 'changeset.failed';
+  kind:
+    | 'changeset.committed'
+    | 'changeset.rejected'
+    | 'changeset.conflict'
+    | 'changeset.failed';
 
   /**
    * 기록 시간 (ISO8601)
@@ -424,7 +434,7 @@ export interface ChangesetEventRecord {
     changesetId: string;
     baseRef: SwarmBundleRef;
     newRef?: SwarmBundleRef;
-    status: 'ok' | 'rejected' | 'failed';
+    status: 'ok' | 'rejected' | 'conflict' | 'failed';
     summary?: CommitSummary;
     error?: CommitError;
   };

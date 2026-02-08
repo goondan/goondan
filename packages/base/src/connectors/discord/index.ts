@@ -1,25 +1,19 @@
 /**
- * Discord Connector 구현
+ * Discord Connector 구현 (v1.0)
  *
- * Discord Gateway/Webhook 이벤트를 처리하여 canonical event로 변환하고,
- * 에이전트 응답을 Discord 채널로 전송한다.
+ * Discord Gateway/Webhook 이벤트를 처리하여 ConnectorEvent로 변환하고 emit한다.
+ * 단일 default export 패턴을 따른다.
  *
- * @see /docs/specs/connector.md
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
  * @packageDocumentation
  */
 
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-  ConnectorTurnAuth,
-} from '@goondan/core/connector';
-import type { JsonObject } from '@goondan/core';
-
-/**
- * TurnAuth 타입 별칭
- */
-type TurnAuth = ConnectorTurnAuth;
+  ConnectorContext,
+  ConnectorEvent,
+  HttpTriggerPayload,
+} from '@goondan/core';
+import { createPublicKey, verify as verifySignature } from 'node:crypto';
 
 // ============================================================================
 // Types
@@ -85,6 +79,11 @@ export interface DiscordApiResponse {
   code?: number;
 }
 
+const DISCORD_ED25519_PUBLIC_KEY_DER_PREFIX = Buffer.from(
+  '302a300506032b6570032100',
+  'hex',
+);
+
 // ============================================================================
 // Type Guards and Parsers
 // ============================================================================
@@ -108,6 +107,140 @@ function isString(value: unknown): value is string {
  */
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean';
+}
+
+/**
+ * HttpTriggerPayload 타입 가드
+ */
+function isHttpTrigger(trigger: { type: string }): trigger is HttpTriggerPayload {
+  return trigger.type === 'http';
+}
+
+/**
+ * hex 문자열 타입 가드
+ */
+function isHexString(value: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(value);
+}
+
+/**
+ * 헤더 키를 대소문자 구분 없이 조회한다.
+ */
+function getHeaderValue(
+  headers: Record<string, string>,
+  headerName: string,
+): string | undefined {
+  const direct = headers[headerName];
+  if (isString(direct)) {
+    return direct;
+  }
+
+  const normalizedHeaderName = headerName.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedHeaderName && isString(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * 요청 본문을 서명 검증용 문자열로 직렬화한다.
+ */
+function getRequestRawBody(request: HttpTriggerPayload['payload']['request']): string | undefined {
+  if (isString(request.rawBody)) {
+    return request.rawBody;
+  }
+
+  try {
+    return JSON.stringify(request.body);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Discord 공개키(hex)를 Node KeyObject로 변환한다.
+ */
+function createDiscordPublicKey(signingSecret: string) {
+  if (signingSecret.length !== 64 || !isHexString(signingSecret)) {
+    return undefined;
+  }
+
+  const rawPublicKey = Buffer.from(signingSecret, 'hex');
+  const derKey = Buffer.concat([
+    DISCORD_ED25519_PUBLIC_KEY_DER_PREFIX,
+    rawPublicKey,
+  ]);
+
+  try {
+    return createPublicKey({
+      key: derKey,
+      format: 'der',
+      type: 'spki',
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Discord 요청 서명을 검증한다.
+ */
+function verifyDiscordRequest(
+  request: HttpTriggerPayload['payload']['request'],
+  signingSecret: string,
+): boolean {
+  const signature = getHeaderValue(request.headers, 'x-signature-ed25519');
+  const timestamp = getHeaderValue(request.headers, 'x-signature-timestamp');
+
+  if (!signature || !timestamp) {
+    return false;
+  }
+
+  if (signature.length !== 128 || !isHexString(signature)) {
+    return false;
+  }
+
+  const rawBody = getRequestRawBody(request);
+  if (rawBody === undefined) {
+    return false;
+  }
+
+  const publicKey = createDiscordPublicKey(signingSecret);
+  if (!publicKey) {
+    return false;
+  }
+
+  const message = Buffer.from(`${timestamp}${rawBody}`, 'utf8');
+  const signatureBytes = Buffer.from(signature, 'hex');
+  return verifySignature(null, message, publicKey, signatureBytes);
+}
+
+/**
+ * Connection verify 설정이 있을 때 Discord 서명을 검증한다.
+ *
+ * 검증 실패 시 emit을 중단해야 한다.
+ */
+function runVerifyHook(
+  context: ConnectorContext,
+  request: HttpTriggerPayload['payload']['request'],
+): boolean {
+  const signingSecret = context.verify?.webhook?.signingSecret;
+
+  if (!signingSecret) {
+    return true;
+  }
+
+  const verified = verifyDiscordRequest(request, signingSecret);
+  if (verified) {
+    context.logger.debug('[Discord] Signature verification passed');
+    return true;
+  }
+
+  context.logger.warn('[Discord] Signature verification failed');
+  return false;
 }
 
 /**
@@ -245,211 +378,111 @@ function parseDiscordPayload(obj: unknown): DiscordMessagePayload | undefined {
 }
 
 // ============================================================================
-// Trigger Handler
+// Connector Entry Function (단일 default export)
 // ============================================================================
 
 /**
- * Discord 메시지 이벤트를 처리하는 트리거 핸들러
+ * Discord Connector Entry Function
  *
- * @param event - 트리거 이벤트
- * @param _connection - 연결 설정 (현재 미사용)
- * @param ctx - 트리거 컨텍스트
+ * Discord Webhook으로부터 이벤트를 받아
+ * ConnectorEvent로 변환하여 emit한다.
  */
-export async function onDiscordMessage(
-  event: TriggerEvent,
-  _connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
+const discordConnector = async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, logger } = context;
+
+  // connector.trigger 이벤트만 처리
+  if (event.type !== 'connector.trigger') {
+    return;
+  }
+
+  const trigger = event.trigger;
+
+  // HTTP trigger만 처리
+  if (!isHttpTrigger(trigger)) {
+    logger.debug('[Discord] Not an HTTP trigger, skipping');
+    return;
+  }
+
+  const requestBody = trigger.payload.request.body;
+
+  // verify.webhook.signingSecret이 제공된 경우 서명 검증
+  if (!runVerifyHook(context, trigger.payload.request)) {
+    return;
+  }
+
   // 페이로드 파싱
-  const payload = parseDiscordPayload(event.payload);
+  const payload = parseDiscordPayload(requestBody);
   if (!payload) {
-    ctx.logger.warn('[Discord] Invalid payload received');
+    logger.warn('[Discord] Invalid payload received');
     return;
   }
 
   // MESSAGE_CREATE 이벤트만 처리
   if (payload.t !== 'MESSAGE_CREATE') {
-    ctx.logger.debug(`[Discord] Ignoring event type: ${payload.t ?? 'unknown'}`);
+    logger.debug(`[Discord] Ignoring event type: ${payload.t ?? 'unknown'}`);
     return;
   }
 
   const messageData = payload.d;
   if (!messageData) {
-    ctx.logger.warn('[Discord] No message data in payload');
+    logger.warn('[Discord] No message data in payload');
     return;
   }
 
   // 봇 메시지 무시 (무한 루프 방지)
   if (messageData.author.bot) {
-    ctx.logger.debug('[Discord] Ignoring bot message');
+    logger.debug('[Discord] Ignoring bot message');
     return;
   }
 
   // 빈 메시지 무시
   if (!messageData.content.trim()) {
-    ctx.logger.debug('[Discord] Empty message content, skipping');
+    logger.debug('[Discord] Empty message content, skipping');
     return;
   }
 
   const userId = messageData.author.id;
   const channelId = messageData.channel_id;
   const guildId = messageData.guild_id ?? '';
+  const displayName = messageData.author.global_name ?? messageData.author.username;
 
-  // Connector 설정
-  const connector = ctx.connector;
-  const connectorName = connector.metadata?.name ?? 'discord';
-  const ingressRules = connector.spec?.ingress ?? [];
-
-  // Ingress 규칙 매칭
-  for (const rule of ingressRules) {
-    const match = rule.match ?? {};
-    const route = rule.route;
-
-    if (!route?.swarmRef) {
-      ctx.logger.warn('[Discord] No swarmRef in route');
-      continue;
-    }
-
-    // channel 매칭
-    if (match.channel && channelId !== match.channel) {
-      continue;
-    }
-
-    // eventType 매칭
-    if (match.eventType && match.eventType !== 'MESSAGE_CREATE') {
-      continue;
-    }
-
-    // instanceKey 추출 (guild:channel 또는 channel)
-    const instanceKey = extractInstanceKey(messageData);
-
-    // TurnAuth 생성
-    const auth = createTurnAuth(messageData, guildId);
-
-    // Origin 정보 생성
-    const origin = createOrigin(messageData, connectorName);
-
-    // metadata 생성
-    const metadata = buildMetadata(messageData);
-
-    // Canonical event 생성
-    const canonicalEvent: CanonicalEvent = {
-      type: 'MESSAGE_CREATE',
-      swarmRef: route.swarmRef,
-      instanceKey,
-      input: messageData.content,
-      origin,
-      auth,
-    };
-
-    // metadata가 있으면 추가
-    if (Object.keys(metadata).length > 0) {
-      canonicalEvent.metadata = metadata;
-    }
-
-    // agentName이 지정된 경우 추가
-    if (route.agentName) {
-      canonicalEvent.agentName = route.agentName;
-    }
-
-    // Canonical event 발행
-    await ctx.emit(canonicalEvent);
-
-    ctx.logger.info(
-      `[Discord] Emitted canonical event: channel=${channelId}, ` +
-      `user=${userId}, guild=${guildId || 'DM'}`
-    );
-    return;
-  }
-
-  ctx.logger.debug('[Discord] No matching ingress rule for message');
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * instanceKey를 추출한다.
- * guild_id가 있으면 guild:channel, 없으면 dm:channel
- *
- * @param data - Discord 메시지 데이터
- * @returns instanceKey
- */
-function extractInstanceKey(data: DiscordMessageData): string {
-  if (data.guild_id) {
-    return `discord:${data.guild_id}:${data.channel_id}`;
-  }
-  return `discord:dm:${data.channel_id}`;
-}
-
-/**
- * TurnAuth를 생성한다.
- *
- * @param data - Discord 메시지 데이터
- * @param guildId - 길드 ID
- * @returns TurnAuth 객체
- */
-function createTurnAuth(data: DiscordMessageData, guildId: string): TurnAuth {
-  const displayName = data.author.global_name ?? data.author.username;
-
-  return {
-    actor: {
-      type: 'user',
-      id: `discord:${data.author.id}`,
-      display: displayName,
+  // ConnectorEvent 생성 및 발행
+  const connectorEvent: ConnectorEvent = {
+    type: 'connector.event',
+    name: 'discord.message',
+    message: {
+      type: 'text',
+      text: messageData.content,
     },
-    subjects: {
-      global: guildId ? `discord:guild:${guildId}` : `discord:dm:${data.channel_id}`,
-      user: `discord:user:${data.author.id}`,
+    properties: {
+      channelId,
+      guildId,
+      userId,
+      username: messageData.author.username,
+      messageId: messageData.id,
+      timestamp: messageData.timestamp,
+    },
+    auth: {
+      actor: {
+        id: `discord:${userId}`,
+        name: displayName,
+      },
+      subjects: {
+        global: guildId ? `discord:guild:${guildId}` : `discord:dm:${channelId}`,
+        user: `discord:user:${userId}`,
+      },
     },
   };
-}
 
-/**
- * Origin 정보를 생성한다.
- *
- * @param data - Discord 메시지 데이터
- * @param connectorName - Connector 이름
- * @returns Origin 객체
- */
-function createOrigin(data: DiscordMessageData, connectorName: string): JsonObject {
-  const origin: JsonObject = {
-    connector: connectorName,
-    channelId: data.channel_id,
-    messageId: data.id,
-    userId: data.author.id,
-    username: data.author.username,
-    timestamp: data.timestamp,
-  };
+  await emit(connectorEvent);
 
-  if (data.guild_id !== undefined) {
-    origin['guildId'] = data.guild_id;
-  }
+  logger.info(
+    `[Discord] Emitted connector event: name=discord.message, ` +
+    `channel=${channelId}, user=${userId}, guild=${guildId || 'DM'}`
+  );
+};
 
-  return origin;
-}
-
-/**
- * metadata 정보를 생성한다.
- *
- * @param data - Discord 메시지 데이터
- * @returns metadata 객체
- */
-function buildMetadata(data: DiscordMessageData): JsonObject {
-  const metadata: JsonObject = {};
-
-  if (data.mentions && data.mentions.length > 0) {
-    metadata['mentionCount'] = data.mentions.length;
-  }
-
-  if (data.referenced_message) {
-    metadata['isReply'] = true;
-    metadata['referencedMessageId'] = data.referenced_message.id;
-  }
-
-  return metadata;
-}
+export default discordConnector;
 
 // ============================================================================
 // Discord API Helpers (Egress용)

@@ -44,6 +44,15 @@ interface DependencyRef {
   filePath?: string;
 }
 
+function isSafePackageRelativePath(pathValue: string): boolean {
+  if (path.isAbsolute(pathValue)) {
+    return false;
+  }
+
+  const normalized = pathValue.replace(/\\/g, '/');
+  return !normalized.split('/').includes('..');
+}
+
 /**
  * Bundle 로드 결과
  */
@@ -95,15 +104,16 @@ function parseDependencyRef(ref: string): DependencyRef {
   }
 
   // @scope/name@version 또는 @scope/name 또는 name@version 또는 name
-  const versionMatch = ref.match(/^(.+?)@(\d+\.\d+\.\d+.*)$/);
-  let nameWithScope: string;
+  const atIndex = ref.lastIndexOf('@');
+  let nameWithScope = ref;
   let version: string | null = null;
-
-  if (versionMatch && versionMatch[1] && versionMatch[2]) {
-    nameWithScope = versionMatch[1];
-    version = versionMatch[2];
-  } else {
-    nameWithScope = ref;
+  if (atIndex > 0) {
+    const parsedName = ref.slice(0, atIndex);
+    const parsedVersion = ref.slice(atIndex + 1);
+    if (parsedName.length > 0 && parsedVersion.length > 0) {
+      nameWithScope = parsedName;
+      version = parsedVersion;
+    }
   }
 
   // @scope/name 또는 name
@@ -120,6 +130,111 @@ function parseDependencyRef(ref: string): DependencyRef {
 
   const fullName = scope ? `${scope}/${name}` : name;
   return { scope, name, version, fullName };
+}
+
+interface ParsedSemver {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+type ParsedRequirement =
+  | { type: 'latest' }
+  | { type: 'exact'; version: ParsedSemver }
+  | { type: 'caret'; version: ParsedSemver }
+  | { type: 'tilde'; version: ParsedSemver };
+
+function parseSemver(version: string): ParsedSemver | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/.exec(version);
+  if (!match) {
+    return null;
+  }
+
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch)) {
+    return null;
+  }
+
+  return { major, minor, patch };
+}
+
+function parseRequirement(input: string): ParsedRequirement | null {
+  if (input === 'latest') {
+    return { type: 'latest' };
+  }
+
+  const operator = input.charAt(0);
+  if (operator === '^' || operator === '~') {
+    const version = parseSemver(input.slice(1));
+    if (!version) {
+      return null;
+    }
+    return operator === '^'
+      ? { type: 'caret', version }
+      : { type: 'tilde', version };
+  }
+
+  const exact = parseSemver(input);
+  if (!exact) {
+    return null;
+  }
+  return { type: 'exact', version: exact };
+}
+
+function compareSemver(a: ParsedSemver, b: ParsedSemver): number {
+  if (a.major !== b.major) {
+    return a.major - b.major;
+  }
+  if (a.minor !== b.minor) {
+    return a.minor - b.minor;
+  }
+  return a.patch - b.patch;
+}
+
+function satisfiesRequirement(
+  requirement: Exclude<ParsedRequirement, { type: 'latest' }>,
+  version: ParsedSemver
+): boolean {
+  if (requirement.type === 'exact') {
+    return compareSemver(version, requirement.version) === 0;
+  }
+
+  const cmp = compareSemver(version, requirement.version);
+  if (cmp < 0) {
+    return false;
+  }
+
+  if (requirement.type === 'caret') {
+    return version.major === requirement.version.major;
+  }
+
+  return (
+    version.major === requirement.version.major &&
+    version.minor === requirement.version.minor
+  );
+}
+
+function isVersionRequirementCompatible(a: string, b: string): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  const parsedA = parseRequirement(a);
+  const parsedB = parseRequirement(b);
+  if (!parsedA || !parsedB) {
+    return false;
+  }
+
+  if (parsedA.type === 'latest' || parsedB.type === 'latest') {
+    return true;
+  }
+
+  return (
+    satisfiesRequirement(parsedA, parsedB.version) ||
+    satisfiesRequirement(parsedB, parsedA.version)
+  );
 }
 
 /**
@@ -237,6 +352,7 @@ async function loadDependencyResources(
   projectDir: string,
   dependencies: string[],
   loadedPackages: Set<string>,
+  versionRequirements: Map<string, string[]>,
   errors: (BundleError | ParseError | ValidationError | ReferenceError)[],
   sources: string[]
 ): Promise<Resource[]> {
@@ -244,6 +360,33 @@ async function loadDependencyResources(
 
   for (const dep of dependencies) {
     const depRef = parseDependencyRef(dep);
+
+    if (!depRef.filePath) {
+      const requirement = depRef.version ?? 'latest';
+      const existingRequirements = versionRequirements.get(depRef.fullName) ?? [];
+      const hasConflict = existingRequirements.some(
+        (existing) => !isVersionRequirementCompatible(existing, requirement)
+      );
+
+      if (hasConflict) {
+        const versions = Array.from(
+          new Set([...existingRequirements, requirement])
+        );
+        errors.push(
+          new BundleError(
+            `Version conflict for ${depRef.fullName}: ${versions.join(', ')}`
+          )
+        );
+        continue;
+      }
+
+      if (!existingRequirements.includes(requirement)) {
+        versionRequirements.set(depRef.fullName, [
+          ...existingRequirements,
+          requirement,
+        ]);
+      }
+    }
 
     // 패키지 경로 확인
     let resolvedPackagePath = resolvePackagePath(projectDir, depRef);
@@ -283,6 +426,32 @@ async function loadDependencyResources(
       continue;
     }
 
+    const invalidDistPath = manifest.spec.dist?.find(
+      (distPath) =>
+        typeof distPath !== 'string' || !isSafePackageRelativePath(distPath)
+    );
+    if (invalidDistPath) {
+      errors.push(
+        new BundleError(
+          `Unsafe package path in ${dep}: spec.dist contains "${invalidDistPath}" (absolute path and ".." are not allowed)`
+        )
+      );
+      continue;
+    }
+
+    const invalidResourcePath = manifest.spec.resources?.find(
+      (resourcePath) =>
+        typeof resourcePath !== 'string' || !isSafePackageRelativePath(resourcePath)
+    );
+    if (invalidResourcePath) {
+      errors.push(
+        new BundleError(
+          `Unsafe package path in ${dep}: spec.resources contains "${invalidResourcePath}" (absolute path and ".." are not allowed)`
+        )
+      );
+      continue;
+    }
+
     // 재귀적으로 하위 의존성 로드
     // file:/workspace dep의 하위 의존성은 해당 패키지 디렉토리 기준으로 해석
     if (manifest.spec.dependencies && manifest.spec.dependencies.length > 0) {
@@ -291,6 +460,7 @@ async function loadDependencyResources(
         subProjectDir,
         manifest.spec.dependencies,
         loadedPackages,
+        versionRequirements,
         errors,
         sources
       );
@@ -304,33 +474,62 @@ async function loadDependencyResources(
       const distDir = path.join(resolvedPackagePath, distPath);
 
       for (const resourcePath of manifest.spec.resources) {
+        if (!isSafePackageRelativePath(resourcePath)) {
+          errors.push(
+            new BundleError(
+              `Unsafe package path in ${dep}: resource "${resourcePath}" is not allowed`
+            )
+          );
+          continue;
+        }
+
         const fullResourcePath = path.join(distDir, resourcePath);
 
         try {
           const content = await fs.promises.readFile(fullResourcePath, 'utf-8');
           const parsed = parseMultiDocument(content, fullResourcePath);
 
+          const safeResources: Resource[] = [];
+
           // entry 경로를 패키지 dist 기준으로 조정
           for (const resource of parsed) {
+            let resourceRejected = false;
+
             if (resource.spec && typeof resource.spec === 'object' && !Array.isArray(resource.spec)) {
               const spec = resource.spec;
               if ('entry' in spec && typeof spec.entry === 'string') {
-                // entry가 상대 경로이면 dist 기준 절대 경로로 변환
                 const entry = spec.entry;
-                if (entry.startsWith('./') || entry.startsWith('../')) {
+
+                if (!isSafePackageRelativePath(entry)) {
+                  errors.push(
+                    new BundleError(
+                      `Unsafe package path in ${dep}: spec.entry "${entry}" is not allowed`
+                    )
+                  );
+                  resourceRejected = true;
+                }
+
+                // entry가 상대 경로이면 dist 기준 절대 경로로 변환
+                if (entry.startsWith('./')) {
                   spec.entry = path.join(distDir, entry);
                 }
               }
             }
+
+            if (resourceRejected) {
+              continue;
+            }
+
             // 패키지 출처 메타데이터 추가
             if (!resource.metadata.annotations) {
               resource.metadata.annotations = {};
             }
             resource.metadata.annotations['goondan.io/package'] = manifest.metadata.name;
             resource.metadata.annotations['goondan.io/package-version'] = manifest.metadata.version;
+            safeResources.push(resource);
           }
 
-          resources.push(...parsed);
+          resources.push(...safeResources);
           sources.push(fullResourcePath);
         } catch (err) {
           if (err instanceof ParseError) {
@@ -510,10 +709,12 @@ export async function loadBundleFromDirectory(
 
   if (manifest && manifest.spec.dependencies && manifest.spec.dependencies.length > 0) {
     const loadedPackages = new Set<string>();
+    const versionRequirements = new Map<string, string[]>();
     const depResources = await loadDependencyResources(
       dirPath,
       manifest.spec.dependencies,
       loadedPackages,
+      versionRequirements,
       errors,
       allSources
     );

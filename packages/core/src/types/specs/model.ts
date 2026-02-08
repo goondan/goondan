@@ -17,6 +17,20 @@ export interface ModelSpec {
   endpoint?: string;
   /** 제공자별 추가 옵션 (선택) */
   options?: Record<string, unknown>;
+  /** 모델 기능 선언 (선택) */
+  capabilities?: ModelCapabilities;
+}
+
+/**
+ * 모델 기능 선언
+ */
+export interface ModelCapabilities {
+  /** 스트리밍 응답 지원 여부 */
+  streaming?: boolean;
+  /** Tool Calling 지원 여부 */
+  toolCalling?: boolean;
+  /** 확장 가능한 기능 플래그 */
+  [key: string]: boolean | undefined;
 }
 
 /**

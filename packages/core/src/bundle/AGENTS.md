@@ -69,17 +69,18 @@ bundle/
 
 ## Kind별 검증 규칙
 
-| Kind | 필수 필드 |
-|------|----------|
-| Model | spec.provider, spec.id |
-| Tool | spec.handler |
-| Extension | spec.handler |
-| Agent | spec.model, spec.instructions |
-| Swarm | spec.rootAgent |
-| Connector | spec.handler |
-| OAuthApp | spec.provider, spec.clientId, spec.authorizationEndpoint, spec.tokenEndpoint |
-| ResourceType | spec.group, spec.version, spec.kind |
-| ExtensionHandler | spec.runtime, spec.entry |
+| Kind | 필수 필드 | 추가 검증 |
+|------|----------|----------|
+| Model | spec.provider, spec.name | - |
+| Tool | spec.runtime, spec.entry, spec.exports (min 1) | runtime ∈ {node, python, deno}, exports[].name/description/parameters 필수 |
+| Extension | spec.runtime, spec.entry | runtime ∈ {node, python, deno} |
+| Agent | spec.modelConfig.modelRef, spec.prompts (system xor systemRef) | system/systemRef 상호 배타 |
+| Swarm | spec.entrypoint, spec.agents (min 1) | policy.maxStepsPerTurn > 0, queueMode = 'serial', lifecycle 양수 검증 |
+| Connector | spec.runtime (='node'), spec.entry, spec.triggers (min 1) | http: endpoint.path ('/'로 시작), endpoint.method; cron: schedule; events 이름 유일성 |
+| Connection | spec.connectorRef | auth.oauthAppRef/staticToken 상호 배타 |
+| OAuthApp | spec.provider, spec.flow, spec.subjectMode, spec.scopes (min 1) | authorizationCode: endpoints.authorizationUrl, redirect.callbackPath |
+| ResourceType | spec.group, spec.names, spec.versions (min 1), spec.handlerRef | - |
+| ExtensionHandler | spec.runtime, spec.entry, spec.exports (min 1) | - |
 
 ## 개발 규칙
 
@@ -94,7 +95,7 @@ bundle/
 테스트 파일 위치: `packages/core/__tests__/bundle/`
 - errors.test.ts (8 tests)
 - parser.test.ts (11 tests)
-- validator.test.ts (43 tests)
-- resolver.test.ts (11 tests)
+- validator.test.ts (54 tests) - Connector(triggers/events), Swarm(queueMode/lifecycle) 검증 포함
+- resolver.test.ts (14 tests)
 - loader.test.ts (17 tests)
 - index.test.ts (21 tests)

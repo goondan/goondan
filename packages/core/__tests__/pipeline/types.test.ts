@@ -33,6 +33,7 @@ describe('Pipeline 타입', () => {
         'step.config',
         'step.tools',
         'step.blocks',
+        'step.llmInput',
         'step.llmCall',
         'step.llmError',
         'step.post',
@@ -46,7 +47,7 @@ describe('Pipeline 타입', () => {
       ];
 
       expect(PIPELINE_POINTS).toEqual(expectedPoints);
-      expect(PIPELINE_POINTS.length).toBe(14);
+      expect(PIPELINE_POINTS.length).toBe(15);
     });
   });
 
@@ -59,6 +60,7 @@ describe('Pipeline 타입', () => {
         'step.config',
         'step.tools',
         'step.blocks',
+        'step.llmInput',
         'step.llmError',
         'step.post',
         'toolCall.pre',
@@ -68,7 +70,7 @@ describe('Pipeline 타입', () => {
       ];
 
       expect(MUTATOR_POINTS).toEqual(expectedMutatorPoints);
-      expect(MUTATOR_POINTS.length).toBe(12);
+      expect(MUTATOR_POINTS.length).toBe(13);
     });
   });
 
@@ -105,6 +107,7 @@ describe('Pipeline 타입', () => {
     it('유효한 MutatorPoint에 대해 true를 반환해야 한다', () => {
       expect(isMutatorPoint('turn.pre')).toBe(true);
       expect(isMutatorPoint('step.tools')).toBe(true);
+      expect(isMutatorPoint('step.llmInput')).toBe(true);
       expect(isMutatorPoint('toolCall.post')).toBe(true);
     });
 

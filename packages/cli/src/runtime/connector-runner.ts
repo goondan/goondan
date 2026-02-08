@@ -12,7 +12,7 @@ import type { BundleLoadResult } from "@goondan/core";
 import type { Resource } from "@goondan/core";
 import type { IngressRule, IngressMatch, IngressRoute } from "@goondan/core";
 import type { ValueSource } from "@goondan/core";
-import { resolveValueSource } from "@goondan/core";
+import { resolveValueSource, isObjectRefLike } from "@goondan/core";
 import type { ValueSourceContext } from "@goondan/core";
 
 /**
@@ -44,12 +44,19 @@ export function isObjectWithKey<K extends string>(
 }
 
 /**
+ * plain object 타입 가드
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Resource<unknown>에서 spec을 Record<string, unknown>으로 안전하게 추출
  */
 function getSpec(resource: Resource): Record<string, unknown> {
   const spec = resource.spec;
-  if (typeof spec === "object" && spec !== null && !Array.isArray(spec)) {
-    return spec as Record<string, unknown>;
+  if (isPlainObject(spec)) {
+    return spec;
   }
   return {};
 }
@@ -134,8 +141,9 @@ export function extractStaticToken(connectionResource: Resource): string | null 
   const tokenSource = auth.staticToken;
   if (!isValueSource(tokenSource)) return null;
 
+  const envRecord: Record<string, string | undefined> = { ...process.env };
   const ctx: ValueSourceContext = {
-    env: process.env as Record<string, string | undefined>,
+    env: envRecord,
     secrets: {},
   };
 
@@ -147,32 +155,41 @@ export function extractStaticToken(connectionResource: Resource): string | null 
 }
 
 /**
- * Connection rules를 IngressRule[]로 변환 (type-safe)
+ * Connection의 ingress.rules를 IngressRule[]로 변환 (type-safe)
  */
 export function toIngressRules(connectionResource: Resource): IngressRule[] {
   const spec = getSpec(connectionResource);
-  const rawRules = spec["rules"];
-  if (!Array.isArray(rawRules)) return [];
+
+  // 새 스펙: ingress.rules 경로
+  const ingress = spec["ingress"];
+  let rawRules: unknown[] | undefined;
+  if (isObjectWithKey(ingress, "rules") && Array.isArray(ingress.rules)) {
+    rawRules = ingress.rules;
+  }
+
+  // 레거시 호환: spec.rules 직접 경로
+  if (!rawRules && Array.isArray(spec["rules"])) {
+    rawRules = spec["rules"];
+  }
+
+  if (!rawRules) return [];
 
   const rules: IngressRule[] = [];
 
   for (const raw of rawRules) {
     if (!isObjectWithKey(raw, "route")) continue;
     const rawRoute = raw.route;
-    if (!isObjectWithKey(rawRoute, "swarmRef")) continue;
 
-    const route: IngressRoute = {
-      swarmRef: rawRoute.swarmRef as import("@goondan/core").ObjectRefLike,
-    };
+    const route: IngressRoute = {};
 
-    if (isObjectWithKey(rawRoute, "instanceKeyFrom") && typeof rawRoute.instanceKeyFrom === "string") {
-      route.instanceKeyFrom = rawRoute.instanceKeyFrom;
-    }
-    if (isObjectWithKey(rawRoute, "inputFrom") && typeof rawRoute.inputFrom === "string") {
-      route.inputFrom = rawRoute.inputFrom;
-    }
-    if (isObjectWithKey(rawRoute, "agentName") && typeof rawRoute.agentName === "string") {
-      route.agentName = rawRoute.agentName;
+    // 새 스펙: agentRef (ObjectRefLike)
+    if (isObjectWithKey(rawRoute, "agentRef")) {
+      const agentRef = rawRoute.agentRef;
+      if (typeof agentRef === "string") {
+        route.agentRef = agentRef;
+      } else if (isObjectRefLike(agentRef)) {
+        route.agentRef = agentRef;
+      }
     }
 
     const rule: IngressRule = { route };
@@ -180,14 +197,21 @@ export function toIngressRules(connectionResource: Resource): IngressRule[] {
     if (isObjectWithKey(raw, "match") && typeof raw.match === "object" && raw.match !== null) {
       const rawMatch = raw.match;
       const match: IngressMatch = {};
-      if (isObjectWithKey(rawMatch, "command") && typeof rawMatch.command === "string") {
-        match.command = rawMatch.command;
+      if (isObjectWithKey(rawMatch, "event") && typeof rawMatch.event === "string") {
+        match.event = rawMatch.event;
       }
-      if (isObjectWithKey(rawMatch, "eventType") && typeof rawMatch.eventType === "string") {
-        match.eventType = rawMatch.eventType;
-      }
-      if (isObjectWithKey(rawMatch, "channel") && typeof rawMatch.channel === "string") {
-        match.channel = rawMatch.channel;
+      if (isObjectWithKey(rawMatch, "properties") && isPlainObject(rawMatch.properties)) {
+        const propsObj = rawMatch.properties;
+        const props: Record<string, string | number | boolean> = {};
+        for (const key of Object.keys(propsObj)) {
+          const value = propsObj[key];
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            props[key] = value;
+          }
+        }
+        if (Object.keys(props).length > 0) {
+          match.properties = props;
+        }
       }
       rule.match = match;
     }

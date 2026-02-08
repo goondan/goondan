@@ -1,85 +1,62 @@
 /**
- * Ingress 라우팅 로직
- * @see /docs/specs/connector.md - 4. Ingress 규칙
+ * Ingress 라우팅 로직 (v1.0)
+ * @see /docs/specs/connection.md - 5. Ingress 라우팅 규칙
+ *
+ * ConnectorEvent의 name과 properties를 기반으로 IngressRule 매칭을 수행한다.
  */
 
-import type { IngressRule, IngressMatch } from '../types/specs/connector.js';
-import type { JsonObject } from '../types/index.js';
-import type { CanonicalEvent, TurnAuth } from './types.js';
-import { readJsonPath } from './jsonpath.js';
+import type { IngressRule, IngressMatch } from '../types/specs/connection.js';
+import type { ConnectorEvent } from './types.js';
 
 /**
- * Ingress 매칭 클래스
- * 외부 이벤트가 IngressRule의 match 조건에 부합하는지 검사한다.
+ * IngressMatcher
+ * ConnectorEvent가 IngressRule의 match 조건에 부합하는지 검사한다.
  */
 export class IngressMatcher {
   /**
-   * match 조건과 payload를 비교한다.
+   * match 조건과 ConnectorEvent를 비교한다.
    *
    * @param match - IngressMatch 조건
-   * @param payload - 외부 이벤트 페이로드
+   * @param event - ConnectorEvent
    * @returns 매칭 여부
    */
-  match(match: IngressMatch, payload: JsonObject): boolean {
-    // command 매칭
-    if (match.command !== undefined) {
-      const payloadCommand = this.extractValue(payload, 'command');
-      if (payloadCommand !== match.command) {
+  match(match: IngressMatch, event: ConnectorEvent): boolean {
+    // event 이름 매칭
+    if (match.event !== undefined) {
+      if (event.name !== match.event) {
         return false;
       }
     }
 
-    // eventType 매칭
-    if (match.eventType !== undefined) {
-      const payloadType = this.extractValue(payload, 'type');
-      if (payloadType !== match.eventType) {
+    // properties 매칭 (AND 조건)
+    if (match.properties !== undefined) {
+      const eventProps = event.properties;
+      if (!eventProps) {
         return false;
       }
-    }
 
-    // channel 매칭
-    if (match.channel !== undefined) {
-      const payloadChannel = this.extractValue(payload, 'channel');
-      if (payloadChannel !== match.channel) {
-        return false;
+      for (const [key, value] of Object.entries(match.properties)) {
+        const eventValue = eventProps[key];
+        // 값 비교 (문자열, 숫자, boolean)
+        if (eventValue !== value) {
+          return false;
+        }
       }
     }
 
     return true;
   }
-
-  /**
-   * 페이로드에서 값을 추출한다.
-   * 최상위와 event 하위 모두 검색한다.
-   */
-  private extractValue(payload: JsonObject, key: string): unknown {
-    // 최상위에서 먼저 검색
-    if (key in payload) {
-      return payload[key];
-    }
-
-    // event 하위에서 검색 (Slack 등 중첩 구조 지원)
-    const event = payload['event'];
-    if (event !== null && typeof event === 'object' && !Array.isArray(event)) {
-      const eventRecord: Record<string, unknown> = event as Record<string, unknown>;
-      if (key in eventRecord) {
-        return eventRecord[key];
-      }
-    }
-
-    return undefined;
-  }
 }
 
 /**
- * IngressRule이 payload에 매칭되는지 검사한다.
+ * IngressRule이 ConnectorEvent에 매칭되는지 검사한다.
  *
  * @param rule - Ingress 규칙
- * @param payload - 외부 이벤트 페이로드
+ * @param event - ConnectorEvent
  * @returns 매칭 여부
  */
-export function matchIngressRule(rule: IngressRule, payload: JsonObject): boolean {
-  // match가 없거나 빈 객체면 모든 이벤트 매칭
+export function matchIngressRule(rule: IngressRule, event: ConnectorEvent): boolean {
+  // match가 없거나 빈 객체면 모든 이벤트 매칭 (catch-all)
   if (!rule.match) {
     return true;
   }
@@ -90,102 +67,25 @@ export function matchIngressRule(rule: IngressRule, payload: JsonObject): boolea
   }
 
   const matcher = new IngressMatcher();
-  return matcher.match(rule.match, payload);
+  return matcher.match(rule.match, event);
 }
 
 /**
  * 매칭되는 첫 번째 규칙을 찾아 반환한다.
+ * 규칙 배열은 순서대로 평가하며, 첫 번째 매칭되는 규칙이 적용된다(MUST).
  *
  * @param rules - Ingress 규칙 배열
- * @param payload - 외부 이벤트 페이로드
+ * @param event - ConnectorEvent
  * @returns 매칭된 규칙 또는 null
  */
 export function routeEvent(
   rules: IngressRule[],
-  payload: JsonObject
+  event: ConnectorEvent
 ): IngressRule | null {
   for (const rule of rules) {
-    if (matchIngressRule(rule, payload)) {
+    if (matchIngressRule(rule, event)) {
       return rule;
     }
   }
   return null;
-}
-
-/**
- * CanonicalEvent 생성 옵션
- */
-export interface CreateCanonicalEventOptions {
-  /** 이벤트 타입 */
-  type: string;
-  /** Connector 이름 */
-  connectorName: string;
-  /** 기본 instanceKey (JSONPath 추출 실패 시 사용) */
-  defaultInstanceKey?: string;
-  /** origin 정보 */
-  origin?: JsonObject;
-  /** auth 정보 */
-  auth?: TurnAuth;
-  /** 메타데이터 */
-  metadata?: JsonObject;
-}
-
-/**
- * IngressRule과 payload로부터 CanonicalEvent를 생성한다.
- *
- * @param rule - Ingress 규칙
- * @param payload - 외부 이벤트 페이로드
- * @param options - 생성 옵션
- * @returns CanonicalEvent
- */
-export function createCanonicalEventFromIngress(
-  rule: IngressRule,
-  payload: JsonObject,
-  options: CreateCanonicalEventOptions
-): CanonicalEvent {
-  const { route } = rule;
-
-  // instanceKey 추출
-  let instanceKey: string;
-  if (route.instanceKeyFrom) {
-    const extracted = readJsonPath(payload, route.instanceKeyFrom);
-    instanceKey = extracted !== undefined ? String(extracted) : (options.defaultInstanceKey ?? 'default');
-  } else {
-    instanceKey = options.defaultInstanceKey ?? 'default';
-  }
-
-  // input 추출
-  let input: string;
-  if (route.inputFrom) {
-    const extracted = readJsonPath(payload, route.inputFrom);
-    input = extracted !== undefined ? String(extracted) : '';
-  } else {
-    input = '';
-  }
-
-  const event: CanonicalEvent = {
-    type: options.type,
-    swarmRef: route.swarmRef,
-    instanceKey,
-    input,
-  };
-
-  // 선택 필드 추가
-  if (route.agentName) {
-    event.agentName = route.agentName;
-  }
-
-  if (options.origin) {
-    event.origin = options.origin;
-  }
-
-  if (options.auth) {
-    event.auth = options.auth;
-  }
-
-  if (options.metadata) {
-    event.metadata = options.metadata;
-  }
-
-  return event;
 }

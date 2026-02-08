@@ -40,16 +40,19 @@ function createMessages(count: number): ExtLlmMessage[] {
   const messages: ExtLlmMessage[] = [];
 
   messages.push({
+    id: 'msg-sys-0',
     role: 'system',
     content: 'You are a helpful assistant.',
   });
 
   for (let i = 0; i < count; i++) {
     messages.push({
+      id: `msg-user-${i}`,
       role: 'user',
       content: `User message ${i + 1}: ${'x'.repeat(100)}`,
     });
     messages.push({
+      id: `msg-asst-${i}`,
       role: 'assistant',
       content: `Assistant response ${i + 1}: ${'y'.repeat(100)}`,
     });
@@ -64,7 +67,11 @@ function createTurnContext(messages: ExtLlmMessage[]): ExtTurnContext {
     turn: {
       id: 'turn-1',
       input: 'test input',
-      messages,
+      messageState: {
+        baseMessages: messages,
+        events: [],
+        nextMessages: messages,
+      },
       toolResults: [],
     },
     swarm: {
@@ -99,6 +106,7 @@ function createTurnContext(messages: ExtLlmMessage[]): ExtTurnContext {
       oauthApps: new Map(),
       revision: 1,
       swarmBundleRef: 'git:HEAD',
+      connections: new Map(),
     },
   };
 }
@@ -150,7 +158,7 @@ describe('Compaction Extension', () => {
       await register(api);
 
       // Check state was initialized
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(0);
       expect(state.summaries).toEqual([]);
     });
@@ -171,7 +179,7 @@ describe('Compaction Extension', () => {
 
       await register(api);
 
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(0);
     });
 
@@ -191,7 +199,7 @@ describe('Compaction Extension', () => {
 
       await register(api);
 
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(0);
     });
 
@@ -262,12 +270,12 @@ describe('Compaction Extension', () => {
       const tools = toolRegistry.list();
       const toolNames = tools.map((t) => t.name);
 
-      expect(toolNames).toContain('compaction.getStatus');
-      expect(toolNames).toContain('compaction.getSummaries');
-      expect(toolNames).toContain('compaction.forceCompact');
+      expect(toolNames).toContain('compaction.get-status');
+      expect(toolNames).toContain('compaction.get-summaries');
+      expect(toolNames).toContain('compaction.force-compact');
     });
 
-    it('getStatus should return current state', async () => {
+    it('get-status should return current state', async () => {
       const extension = createExtensionResource({
         strategy: 'token',
         maxTokens: 8000,
@@ -283,7 +291,7 @@ describe('Compaction Extension', () => {
 
       await register(api);
 
-      const statusTool = toolRegistry.get('compaction.getStatus');
+      const statusTool = toolRegistry.get('compaction.get-status');
       expect(statusTool).toBeDefined();
 
       const result = await statusTool!.handler(createStepContext([]) as never, {});
@@ -364,10 +372,10 @@ describe('Compaction Extension', () => {
       const result = await pipelineRegistry.runMutators('turn.pre', ctx);
 
       // Should have compacted
-      expect(result.turn.messages.length).toBeLessThan(messages.length);
+      expect(result.turn.messageState.nextMessages.length).toBeLessThan(messages.length);
 
       // State should be updated
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(1);
     });
 
@@ -393,9 +401,9 @@ describe('Compaction Extension', () => {
       const result = await pipelineRegistry.runMutators('turn.pre', ctx);
 
       // Should not have compacted
-      expect(result.turn.messages.length).toBe(messages.length);
+      expect(result.turn.messageState.nextMessages.length).toBe(messages.length);
 
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(0);
     });
 
@@ -460,9 +468,9 @@ describe('Compaction Extension', () => {
       const result = await pipelineRegistry.runMutators('turn.pre', ctx);
 
       // Should have compacted
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(1);
-      expect(result.turn.messages.length).toBeLessThan(messages.length);
+      expect(result.turn.messageState.nextMessages.length).toBeLessThan(messages.length);
     });
   });
 
@@ -488,11 +496,11 @@ describe('Compaction Extension', () => {
 
       const result = await pipelineRegistry.runMutators('turn.pre', ctx);
 
-      const state = api.extState();
+      const state = api.getState()!;
       expect(state.compactionCount).toBe(1);
 
       // Count non-system messages (should be window + summary)
-      const nonSystemCount = result.turn.messages.filter(
+      const nonSystemCount = result.turn.messageState.nextMessages.filter(
         (m) => m.role !== 'system'
       ).length;
       expect(nonSystemCount).toBe(7); // 6 window + 1 summary

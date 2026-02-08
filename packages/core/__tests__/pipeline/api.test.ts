@@ -50,6 +50,7 @@ describe('PipelineApi', () => {
       api.mutate('step.config', stepHandler);
       api.mutate('step.tools', stepHandler);
       api.mutate('step.blocks', stepHandler);
+      api.mutate('step.llmInput', stepHandler);
       api.mutate('step.llmError', stepHandler);
       api.mutate('step.post', stepHandler);
 
@@ -65,6 +66,7 @@ describe('PipelineApi', () => {
       expect(registry.getMutatorEntries('step.config').length).toBe(1);
       expect(registry.getMutatorEntries('step.tools').length).toBe(1);
       expect(registry.getMutatorEntries('step.blocks').length).toBe(1);
+      expect(registry.getMutatorEntries('step.llmInput').length).toBe(1);
       expect(registry.getMutatorEntries('step.llmError').length).toBe(1);
       expect(registry.getMutatorEntries('step.post').length).toBe(1);
       expect(registry.getMutatorEntries('toolCall.pre').length).toBe(1);

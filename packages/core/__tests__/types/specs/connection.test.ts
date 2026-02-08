@@ -1,16 +1,21 @@
 /**
- * Connection Spec 타입 테스트
+ * Connection Spec 타입 테스트 (v1.0)
+ * @see /docs/specs/connection.md
  * @see /docs/specs/resources.md - 6.10 Connection
  */
 import { describe, it, expect } from 'vitest';
 import type {
   ConnectionSpec,
-  ConnectionRule,
+  ConnectorAuth,
+  ConnectionVerify,
+  IngressConfig,
+  IngressRule,
+  IngressMatch,
+  IngressRoute,
   ConnectionResource,
 } from '../../../src/types/specs/connection.js';
-import type { Resource } from '../../../src/types/resource.js';
 
-describe('ConnectionSpec', () => {
+describe('ConnectionSpec (v1.0)', () => {
   it('connectorRef는 필수이다', () => {
     const spec: ConnectionSpec = {
       connectorRef: { kind: 'Connector', name: 'cli' },
@@ -27,158 +32,238 @@ describe('ConnectionSpec', () => {
     expect(spec.connectorRef).toBe('Connector/cli');
   });
 
-  it('auth는 선택적이다', () => {
-    const withOAuth: ConnectionSpec = {
-      connectorRef: { kind: 'Connector', name: 'slack' },
-      auth: {
+  describe('ConnectorAuth', () => {
+    it('oauthAppRef로 OAuth 인증을 설정할 수 있다', () => {
+      const auth: ConnectorAuth = {
         oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
-      },
-    };
+      };
 
-    expect(withOAuth.auth).toBeDefined();
+      expect(auth.oauthAppRef?.kind).toBe('OAuthApp');
+      expect(auth.oauthAppRef?.name).toBe('slack-bot');
+    });
 
-    const withStaticToken: ConnectionSpec = {
-      connectorRef: { kind: 'Connector', name: 'telegram' },
-      auth: {
+    it('staticToken으로 정적 토큰을 설정할 수 있다', () => {
+      const auth: ConnectorAuth = {
         staticToken: {
           valueFrom: { env: 'TELEGRAM_BOT_TOKEN' },
         },
-      },
-    };
+      };
 
-    expect(withStaticToken.auth).toBeDefined();
-  });
+      expect(auth.staticToken?.valueFrom?.env).toBe('TELEGRAM_BOT_TOKEN');
+    });
 
-  it('rules는 선택적이다', () => {
-    const spec: ConnectionSpec = {
-      connectorRef: { kind: 'Connector', name: 'cli' },
-      rules: [
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-            instanceKeyFrom: '$.instanceKey',
-            inputFrom: '$.text',
+    it('staticToken에 secretRef를 사용할 수 있다', () => {
+      const auth: ConnectorAuth = {
+        staticToken: {
+          valueFrom: {
+            secretRef: {
+              ref: 'Secret/slack-bot-token',
+              key: 'bot_token',
+            },
           },
         },
-      ],
-    };
+      };
 
-    expect(spec.rules).toHaveLength(1);
-    expect(spec.rules?.[0]?.route.swarmRef).toEqual({ kind: 'Swarm', name: 'default' });
+      expect(auth.staticToken?.valueFrom?.secretRef?.ref).toBe(
+        'Secret/slack-bot-token'
+      );
+    });
   });
 
-  it('rules에 match 조건을 설정할 수 있다', () => {
-    const rule: ConnectionRule = {
-      match: { command: '/start', eventType: 'message' },
-      route: {
-        swarmRef: { kind: 'Swarm', name: 'coding-swarm' },
-        instanceKeyFrom: '$.message.chat.id',
-        inputFrom: '$.message.text',
-        agentName: 'planner',
-      },
-    };
-
-    expect(rule.match?.command).toBe('/start');
-    expect(rule.route.agentName).toBe('planner');
-  });
-
-  it('egress는 선택적이다', () => {
-    const spec: ConnectionSpec = {
-      connectorRef: { kind: 'Connector', name: 'cli' },
-      egress: {
-        updatePolicy: {
-          mode: 'replace',
+  describe('ConnectionVerify', () => {
+    it('webhook 서명 검증 시크릿을 설정할 수 있다', () => {
+      const verify: ConnectionVerify = {
+        webhook: {
+          signingSecret: {
+            valueFrom: {
+              secretRef: { ref: 'Secret/slack-webhook', key: 'signing_secret' },
+            },
+          },
         },
-      },
-    };
+      };
 
-    expect(spec.egress?.updatePolicy?.mode).toBe('replace');
+      expect(verify.webhook?.signingSecret.valueFrom?.secretRef?.ref).toBe(
+        'Secret/slack-webhook'
+      );
+    });
   });
 
-  it('egress에 debounceMs를 설정할 수 있다', () => {
-    const spec: ConnectionSpec = {
-      connectorRef: { kind: 'Connector', name: 'slack' },
-      egress: {
-        updatePolicy: {
-          mode: 'updateInThread',
-          debounceMs: 1500,
-        },
-      },
-    };
-
-    expect(spec.egress?.updatePolicy?.debounceMs).toBe(1500);
-  });
-});
-
-describe('ConnectionResource', () => {
-  it('Resource<ConnectionSpec> 타입을 가진다', () => {
-    const resource: ConnectionResource = {
-      apiVersion: 'agents.example.io/v1alpha1',
-      kind: 'Connection',
-      metadata: { name: 'cli-to-default' },
-      spec: {
-        connectorRef: { kind: 'Connector', name: 'cli' },
+  describe('IngressConfig', () => {
+    it('rules 배열을 포함한다', () => {
+      const ingress: IngressConfig = {
         rules: [
           {
-            route: {
-              swarmRef: { kind: 'Swarm', name: 'default' },
-              instanceKeyFrom: '$.instanceKey',
-              inputFrom: '$.text',
-            },
+            match: { event: 'app_mention' },
+            route: { agentRef: { kind: 'Agent', name: 'planner' } },
           },
         ],
-      },
-    };
+      };
 
-    expect(resource.kind).toBe('Connection');
-    expect(resource.spec.connectorRef).toEqual({ kind: 'Connector', name: 'cli' });
-    expect(resource.spec.rules).toHaveLength(1);
+      expect(ingress.rules).toHaveLength(1);
+    });
   });
 
-  it('전체 필드를 가진 Connection 리소스를 정의할 수 있다', () => {
-    const resource: ConnectionResource = {
-      apiVersion: 'agents.example.io/v1alpha1',
-      kind: 'Connection',
-      metadata: {
-        name: 'telegram-to-coding-swarm',
-        labels: { tier: 'production' },
-      },
-      spec: {
-        connectorRef: { kind: 'Connector', name: 'telegram' },
-        auth: {
-          staticToken: {
-            valueFrom: { env: 'TELEGRAM_BOT_TOKEN' },
-          },
-        },
-        rules: [
-          {
-            match: { command: '/start' },
-            route: {
-              swarmRef: { kind: 'Swarm', name: 'coding-swarm' },
-              instanceKeyFrom: '$.message.chat.id',
-              inputFrom: '$.message.text',
-            },
-          },
-          {
-            route: {
-              swarmRef: { kind: 'Swarm', name: 'coding-swarm' },
-              instanceKeyFrom: '$.message.chat.id',
-              inputFrom: '$.message.text',
-            },
-          },
-        ],
-        egress: {
-          updatePolicy: {
-            mode: 'updateInThread',
-            debounceMs: 1500,
-          },
-        },
-      },
-    };
+  describe('IngressRule', () => {
+    it('route는 필수이다', () => {
+      const rule: IngressRule = {
+        route: {},
+      };
 
-    expect(resource.metadata.labels?.tier).toBe('production');
-    expect(resource.spec.auth).toBeDefined();
-    expect(resource.spec.rules).toHaveLength(2);
-    expect(resource.spec.egress?.updatePolicy?.mode).toBe('updateInThread');
+      expect(rule.route).toBeDefined();
+      expect(rule.route.agentRef).toBeUndefined();
+    });
+
+    it('match로 이벤트 이름 조건을 지정할 수 있다', () => {
+      const rule: IngressRule = {
+        match: { event: 'app_mention' },
+        route: { agentRef: { kind: 'Agent', name: 'planner' } },
+      };
+
+      expect(rule.match?.event).toBe('app_mention');
+    });
+
+    it('match에 properties 조건을 지정할 수 있다', () => {
+      const match: IngressMatch = {
+        event: 'app_mention',
+        properties: {
+          channel_id: 'C-DEV-CHANNEL',
+        },
+      };
+
+      expect(match.event).toBe('app_mention');
+      expect(match.properties?.['channel_id']).toBe('C-DEV-CHANNEL');
+    });
+
+    it('route에 agentRef를 지정할 수 있다', () => {
+      const route: IngressRoute = {
+        agentRef: { kind: 'Agent', name: 'planner' },
+      };
+
+      expect(route.agentRef).toEqual({ kind: 'Agent', name: 'planner' });
+    });
+
+    it('route에 agentRef를 생략하면 entrypoint로 라우팅된다', () => {
+      const route: IngressRoute = {};
+
+      expect(route.agentRef).toBeUndefined();
+    });
+  });
+
+  describe('ConnectionResource', () => {
+    it('CLI Connection (가장 단순한 구성)을 정의할 수 있다', () => {
+      const resource: ConnectionResource = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'cli-to-default' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'cli' },
+          ingress: {
+            rules: [
+              { route: {} },
+            ],
+          },
+        },
+      };
+
+      expect(resource.kind).toBe('Connection');
+      expect(resource.spec.connectorRef).toEqual({ kind: 'Connector', name: 'cli' });
+      expect(resource.spec.ingress?.rules).toHaveLength(1);
+    });
+
+    it('Slack Connection (OAuth + verify)를 정의할 수 있다', () => {
+      const resource: ConnectionResource = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-main' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack' },
+          auth: {
+            oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
+          },
+          verify: {
+            webhook: {
+              signingSecret: {
+                valueFrom: {
+                  secretRef: { ref: 'Secret/slack-webhook', key: 'signing_secret' },
+                },
+              },
+            },
+          },
+          ingress: {
+            rules: [
+              {
+                match: { event: 'app_mention' },
+                route: { agentRef: { kind: 'Agent', name: 'planner' } },
+              },
+              {
+                match: { event: 'message.im' },
+                route: {},
+              },
+            ],
+          },
+        },
+      };
+
+      expect(resource.spec.auth?.oauthAppRef?.name).toBe('slack-bot');
+      expect(resource.spec.verify?.webhook?.signingSecret).toBeDefined();
+      expect(resource.spec.ingress?.rules).toHaveLength(2);
+    });
+
+    it('Telegram Connection (Static Token)을 정의할 수 있다', () => {
+      const resource: ConnectionResource = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'telegram-main' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'telegram' },
+          auth: {
+            staticToken: {
+              valueFrom: { env: 'TELEGRAM_BOT_TOKEN' },
+            },
+          },
+          ingress: {
+            rules: [
+              {
+                match: { event: 'message' },
+                route: { agentRef: { kind: 'Agent', name: 'planner' } },
+              },
+              { route: {} },
+            ],
+          },
+        },
+      };
+
+      expect(resource.spec.auth?.staticToken?.valueFrom?.env).toBe('TELEGRAM_BOT_TOKEN');
+      expect(resource.spec.ingress?.rules).toHaveLength(2);
+    });
+
+    it('properties 매칭을 사용하는 Connection을 정의할 수 있다', () => {
+      const resource: ConnectionResource = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'slack-dev-team' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'slack' },
+          auth: {
+            oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
+          },
+          ingress: {
+            rules: [
+              {
+                match: {
+                  event: 'app_mention',
+                  properties: { channel_id: 'C-DEV-CHANNEL' },
+                },
+                route: { agentRef: { kind: 'Agent', name: 'dev-agent' } },
+              },
+            ],
+          },
+        },
+      };
+
+      expect(resource.spec.ingress?.rules?.[0]?.match?.properties?.['channel_id']).toBe(
+        'C-DEV-CHANNEL'
+      );
+    });
   });
 });

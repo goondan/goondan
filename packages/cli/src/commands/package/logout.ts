@@ -29,7 +29,7 @@ export interface LogoutOptions {
 /**
  * Default registry URL
  */
-const DEFAULT_REGISTRY = "https://goondan-registry.yechanny.workers.dev";
+const DEFAULT_REGISTRY = "https://registry.goondan.io";
 
 /**
  * Execute the logout command

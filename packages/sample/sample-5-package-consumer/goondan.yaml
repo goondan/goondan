@@ -50,27 +50,12 @@ spec:
 
 ---
 
-# CLI Connector
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-spec:
-  type: cli
-
----
-
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: cli-to-custom-swarm
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: custom-swarm }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
-  egress:
-    updatePolicy:
-      mode: replace
+  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  ingress:
+    rules:
+      - route: {}

@@ -122,6 +122,7 @@ export const tokenStrategy: CompactionStrategyHandler = {
 
     // Create summary message
     const summaryMessage: ExtUserMessage = {
+      id: `msg-summary-${Date.now()}`,
       role: 'user',
       content: `[Previous conversation summary]: ${summaryText}`,
     };

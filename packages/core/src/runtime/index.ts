@@ -20,12 +20,26 @@ export type {
   LlmUserMessage,
   LlmAssistantMessage,
   LlmToolMessage,
+  MessageAttachment,
   LlmResult,
   ToolCall,
   ToolResult,
   ContextBlock,
   ToolCatalogItem,
   AgentEvent,
+  MessageEvent,
+  SystemMessageEvent,
+  LlmMessageEvent,
+  ReplaceEvent,
+  RemoveEvent,
+  TruncateEvent,
+  TurnMessageState,
+  TokenUsage,
+  StepMetrics,
+  TurnMetrics,
+  RuntimeLogEntry,
+  HealthCheckResult,
+  InstanceGcPolicy,
 } from './types.js';
 
 export {
@@ -33,22 +47,58 @@ export {
   isLlmUserMessage,
   isLlmAssistantMessage,
   isLlmToolMessage,
+  isSystemMessageEvent,
+  isLlmMessageEvent,
+  isReplaceMessageEvent,
+  isRemoveMessageEvent,
+  isTruncateMessageEvent,
+  computeNextMessages,
+  createTurnMessageState,
+  maskSensitiveValue,
+  isSensitiveKey,
+  maskSensitiveFields,
   createToolCall,
   createToolResult,
   createAgentEvent,
 } from './types.js';
 
 // SwarmInstance
-export type { SwarmInstance, SwarmInstanceManager } from './swarm-instance.js';
-export { createSwarmInstance, createSwarmInstanceManager } from './swarm-instance.js';
+export type {
+  SwarmInstance,
+  SwarmInstanceManager,
+  SwarmInstanceInfo,
+  InstanceMetadataStatus,
+  SwarmInstanceLifecycleHooks,
+  SwarmInstanceManagerOptions,
+} from './swarm-instance.js';
+export { createSwarmInstance, createSwarmInstanceManager, toSwarmInstanceInfo } from './swarm-instance.js';
 
 // AgentInstance
 export type { AgentInstance, AgentEventQueue } from './agent-instance.js';
 export { createAgentInstance, createAgentEventQueue } from './agent-instance.js';
 
 // Turn
-export type { Turn, TurnContext, TurnRunner, TurnRunnerOptions } from './turn-runner.js';
+export type {
+  Turn,
+  TurnContext,
+  TurnRunner,
+  TurnRunnerOptions,
+  TurnMessageEventType,
+  PersistedToolCall,
+  PersistedLlmMessage,
+  TurnMessageBaseLogger,
+  TurnMessageEventLogger,
+  TurnMessageStateLogger,
+  TurnMessageStateRecoverySnapshot,
+} from './turn-runner.js';
 export { createTurn, createTurnRunner } from './turn-runner.js';
+
+// Runtime persistence wiring
+export type {
+  RuntimePersistenceWorkspaceAdapter,
+  RuntimePersistenceBindings,
+} from './persistence.js';
+export { createRuntimePersistenceBindings } from './persistence.js';
 
 // Step
 export type {
@@ -58,6 +108,7 @@ export type {
   StepRunnerOptions,
   LlmCaller,
   ToolExecutor,
+  RuntimePipelineExecutor,
 } from './step-runner.js';
 export { createStep, createStepRunner } from './step-runner.js';
 

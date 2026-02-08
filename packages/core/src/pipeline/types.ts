@@ -15,6 +15,7 @@ export type PipelinePoint =
   | 'step.config'
   | 'step.tools'
   | 'step.blocks'
+  | 'step.llmInput'
   | 'step.llmCall'
   | 'step.llmError'
   | 'step.post'
@@ -37,6 +38,7 @@ export type MutatorPoint =
   | 'step.config'
   | 'step.tools'
   | 'step.blocks'
+  | 'step.llmInput'
   | 'step.llmError'
   | 'step.post'
   | 'toolCall.pre'
@@ -62,6 +64,7 @@ export const PIPELINE_POINTS: readonly PipelinePoint[] = [
   'step.config',
   'step.tools',
   'step.blocks',
+  'step.llmInput',
   'step.llmCall',
   'step.llmError',
   'step.post',
@@ -84,6 +87,7 @@ export const MUTATOR_POINTS: readonly MutatorPoint[] = [
   'step.config',
   'step.tools',
   'step.blocks',
+  'step.llmInput',
   'step.llmError',
   'step.post',
   'toolCall.pre',

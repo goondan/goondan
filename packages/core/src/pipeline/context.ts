@@ -28,9 +28,15 @@ export interface EventBus {
  * LLM 메시지 타입
  */
 export interface LlmMessage {
+  id: string;
   role: string;
   content?: string;
-  [key: string]: JsonValue | undefined;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+  toolName?: string;
+  output?: JsonValue;
+  attachments?: JsonValue[];
+  [key: string]: unknown;
 }
 
 /**
@@ -41,11 +47,11 @@ export interface BasePipelineContext {
   /** 현재 SwarmInstance 참조 */
   instance: SwarmInstanceRef;
   /** Swarm 리소스 정의 */
-  swarm: Resource<JsonObject>;
+  swarm: Resource<unknown>;
   /** 현재 Agent 리소스 정의 */
-  agent: Resource<JsonObject>;
+  agent: Resource<unknown>;
   /** 현재 Effective Config */
-  effectiveConfig: JsonObject;
+  effectiveConfig: unknown;
   /** 이벤트 버스 */
   events: EventBus;
   /** 로거 */
@@ -58,7 +64,7 @@ export interface BasePipelineContext {
 export interface TurnAuth {
   /** 호출자 정보 */
   actor?: {
-    type: 'user' | 'system';
+    type: 'user' | 'system' | 'agent';
     id: string;
     display?: string;
   };
@@ -70,17 +76,31 @@ export interface TurnAuth {
 }
 
 /**
+ * 메시지 이벤트 (Turn 중 메시지 변경 이벤트)
+ */
+export type MessageEvent =
+  | { type: 'system_message'; seq: number; message: LlmMessage }
+  | { type: 'llm_message'; seq: number; message: LlmMessage }
+  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
+  | { type: 'remove'; seq: number; targetId: string }
+  | { type: 'truncate'; seq: number };
+
+/**
  * Turn 정보
  */
 export interface Turn {
   /** Turn 고유 식별자 */
   id: string;
   /** Turn 입력 텍스트 */
-  input: string;
-  /** 누적된 LLM 메시지 */
-  messages: LlmMessage[];
+  input?: string;
+  /** Turn 메시지 상태 (NextMessages = BaseMessages + SUM(Events)) */
+  messageState: {
+    baseMessages: LlmMessage[];
+    events: MessageEvent[];
+    nextMessages: LlmMessage[];
+  };
   /** Tool 실행 결과 */
-  toolResults: ToolResult[];
+  toolResults?: ToolResult[];
   /** 호출 원점 정보 (Connector 등) */
   origin?: JsonObject;
   /** 인증 컨텍스트 */
@@ -98,6 +118,12 @@ export interface Turn {
 export interface TurnContext extends BasePipelineContext {
   /** 현재 Turn */
   turn: Turn;
+  /** turn 시작 기준 메시지 (turn.post에서 제공) */
+  baseMessages?: LlmMessage[];
+  /** turn 중 누적 메시지 이벤트 (turn.post에서 제공) */
+  messageEvents?: MessageEvent[];
+  /** turn 메시지 이벤트 발행 */
+  emitMessageEvent?: (event: MessageEvent) => Promise<void>;
 }
 
 /**
@@ -106,13 +132,15 @@ export interface TurnContext extends BasePipelineContext {
 export interface LlmResult {
   /** LLM 응답 메시지 */
   message: LlmMessage;
-  /** tool call 목록 */
-  toolCalls: ToolCall[];
+  /** tool call 목록 (message.toolCalls 미러) */
+  toolCalls?: ToolCall[];
   /** 사용량/메타 정보 */
   meta?: {
     usage?: {
-      inputTokens: number;
-      outputTokens: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      inputTokens?: number;
+      outputTokens?: number;
       totalTokens: number;
     };
     model?: string;
@@ -147,9 +175,9 @@ export interface ToolCatalogItem {
   /** 입력 파라미터 JSON Schema */
   parameters?: JsonObject;
   /** 원본 Tool 리소스 (있는 경우) */
-  tool?: Resource<JsonObject> | null;
+  tool?: Resource<unknown> | null;
   /** Tool export 정의 (있는 경우) */
-  export?: JsonObject | null;
+  export?: unknown | null;
   /** 도구 출처 정보 */
   source?: {
     type: 'static' | 'dynamic' | 'mcp';
@@ -183,8 +211,18 @@ export interface StepContext extends TurnContext {
   toolCatalog: ToolCatalogItem[];
   /** 컨텍스트 블록 */
   blocks: ContextBlock[];
+  /** step.llmInput 단계에서 구성된 LLM 입력 */
+  llmInput?: LlmMessage[];
   /** 현재 활성화된 SwarmBundleRef */
   activeSwarmRef: string;
+}
+
+/**
+ * LLM Input 컨텍스트
+ * step.llmInput 파이프라인 포인트에서 사용
+ */
+export interface LlmInputContext extends StepContext {
+  llmInput: LlmMessage[];
 }
 
 /**
@@ -195,8 +233,8 @@ export interface ToolCall {
   id: string;
   /** 호출할 도구 이름 */
   name: string;
-  /** 도구 입력 */
-  input: JsonObject;
+  /** 도구 인자 */
+  args: JsonObject;
 }
 
 /**
@@ -208,14 +246,20 @@ export interface ToolResult {
   /** 도구 이름 */
   toolName: string;
   /** 실행 결과 */
-  output: JsonValue;
+  output?: JsonValue;
   /** 실행 상태 */
-  status: 'success' | 'error';
+  status: 'ok' | 'error' | 'pending';
+  /** 비동기 제출 시 핸들 */
+  handle?: string;
   /** 오류 정보 (status가 error인 경우) */
   error?: {
     name: string;
     message: string;
     code?: string;
+    /** 사용자 복구를 위한 제안 (SHOULD) */
+    suggestion?: string;
+    /** 관련 문서 링크 (SHOULD) */
+    helpUrl?: string;
   };
 }
 
@@ -268,6 +312,7 @@ export interface PipelineContextMap {
   'step.config': StepContext;
   'step.tools': StepContext;
   'step.blocks': StepContext;
+  'step.llmInput': LlmInputContext;
   'step.llmCall': StepContext;
   'step.llmError': LlmErrorContext;
   'step.post': StepContext;

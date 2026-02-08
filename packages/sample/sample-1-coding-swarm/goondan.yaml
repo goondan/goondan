@@ -189,27 +189,12 @@ spec:
 
 ---
 
-# CLI Connector - 명령줄 인터페이스
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-spec:
-  type: cli
-
----
-
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: cli-to-coding-swarm
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
-  egress:
-    updatePolicy:
-      mode: replace
+  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  ingress:
+    rules:
+      - route: {}

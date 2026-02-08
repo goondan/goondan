@@ -51,8 +51,8 @@ describe('createExtensionApi', () => {
     });
   });
 
-  describe('extState', () => {
-    it('Extension별 상태를 반환한다', () => {
+  describe('state (getState/setState)', () => {
+    it('getState로 Extension별 상태를 반환한다', () => {
       interface MyState {
         count: number;
       }
@@ -63,23 +63,43 @@ describe('createExtensionApi', () => {
         stateStore,
       });
 
-      const state = api.extState();
-      state.count = 42;
+      api.setState({ count: 42 });
 
-      expect(api.extState().count).toBe(42);
+      expect(api.getState().count).toBe(42);
     });
 
-    it('동일한 상태 객체를 반환한다', () => {
+    it('state.get/state.set으로 상태를 접근/설정할 수 있다', () => {
+      interface MyState {
+        count: number;
+      }
+
+      const api = createExtensionApi<MyState>({
+        extension: extensionResource,
+        eventBus,
+        stateStore,
+      });
+
+      api.state.set({ count: 99 });
+
+      expect(api.state.get().count).toBe(99);
+      // getState와 state.get은 동일 결과
+      expect(api.getState().count).toBe(99);
+    });
+
+    it('setState는 상태를 교체한다 (불변 패턴)', () => {
       const api = createExtensionApi({
         extension: extensionResource,
         eventBus,
         stateStore,
       });
 
-      const state1 = api.extState();
-      const state2 = api.extState();
+      api.setState({ a: 1 });
+      const state1 = api.getState();
+      api.setState({ b: 2 });
+      const state2 = api.getState();
 
-      expect(state1).toBe(state2);
+      expect(state1).not.toBe(state2);
+      expect(state2).toEqual({ b: 2 });
     });
   });
 
@@ -243,8 +263,8 @@ describe('createExtensionApi', () => {
       });
 
       expect(api.swarmBundle).toBeDefined();
-      expect(typeof api.swarmBundle.openChangeset).toBe('function');
-      expect(typeof api.swarmBundle.commitChangeset).toBe('function');
+      expect(typeof api.swarmBundle?.openChangeset).toBe('function');
+      expect(typeof api.swarmBundle?.commitChangeset).toBe('function');
     });
   });
 
@@ -257,8 +277,8 @@ describe('createExtensionApi', () => {
       });
 
       expect(api.liveConfig).toBeDefined();
-      expect(typeof api.liveConfig.proposePatch).toBe('function');
-      expect(typeof api.liveConfig.getEffectiveConfig).toBe('function');
+      expect(typeof api.liveConfig?.proposePatch).toBe('function');
+      expect(typeof api.liveConfig?.getEffectiveConfig).toBe('function');
     });
   });
 

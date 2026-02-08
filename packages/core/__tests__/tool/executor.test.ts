@@ -67,7 +67,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_123',
         name: 'calc.add',
-        arguments: { a: 5, b: 3 },
+        args: { a: 5, b: 3 },
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -93,7 +93,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_456',
         name: 'calc.multiply',
-        arguments: { a: 6, b: 7 },
+        args: { a: 6, b: 7 },
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -106,7 +106,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_789',
         name: 'non.existent',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -114,6 +114,29 @@ describe('ToolExecutor', () => {
       expect(result.status).toBe('error');
       expect(result.error?.message).toContain('non.existent');
       expect(result.error?.name).toBe('ToolNotFoundError');
+    });
+
+    it('Catalog 밖 Tool 호출 시 구조화된 거부 결과를 반환한다', async () => {
+      const handler: ToolHandler = vi.fn().mockResolvedValue({ ok: true });
+      registry.register({
+        name: 'hidden.tool',
+        handler,
+      });
+
+      const toolCall: ToolCall = {
+        id: 'call_hidden',
+        name: 'hidden.tool',
+        args: {},
+      };
+
+      // 빈 catalog를 전달하면 hidden.tool은 허용되지 않아야 함
+      const result = await executor.execute(toolCall, mockContext, catalog);
+
+      expect(result.status).toBe('error');
+      expect(result.error?.name).toBe('ToolNotInCatalogError');
+      expect(result.error?.code).toBe('E_TOOL_NOT_IN_CATALOG');
+      expect(result.error?.suggestion).toContain('step.tools');
+      expect(handler).not.toHaveBeenCalled();
     });
 
     it('핸들러 예외 시 error 결과를 반환한다', async () => {
@@ -129,7 +152,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_error',
         name: 'failing.tool',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -155,7 +178,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_async',
         name: 'build.start',
-        arguments: { project: 'my-project' },
+        args: { project: 'my-project' },
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -185,7 +208,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_long',
         name: 'long.error',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -229,7 +252,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_limited',
         name: 'limited.tool',
-        arguments: {},
+        args: {},
       };
 
       // catalog에서 tool 정보를 가져와서 실행
@@ -253,7 +276,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_short',
         name: 'short.error',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -285,7 +308,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_custom',
         name: 'custom.error',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -308,7 +331,7 @@ describe('ToolExecutor', () => {
       const toolCall: ToolCall = {
         id: 'call_coded',
         name: 'coded.error',
-        arguments: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, mockContext);
@@ -339,8 +362,8 @@ describe('ToolExecutor', () => {
       registry.register({ name: 'tool2', handler: handler2 });
 
       const toolCalls: ToolCall[] = [
-        { id: 'call_1', name: 'tool1', arguments: {} },
-        { id: 'call_2', name: 'tool2', arguments: {} },
+        { id: 'call_1', name: 'tool1', args: {} },
+        { id: 'call_2', name: 'tool2', args: {} },
       ];
 
       const startTime = Date.now();
@@ -368,8 +391,8 @@ describe('ToolExecutor', () => {
       registry.register({ name: 'failing.tool', handler: handler2 });
 
       const toolCalls: ToolCall[] = [
-        { id: 'call_1', name: 'success.tool', arguments: {} },
-        { id: 'call_2', name: 'failing.tool', arguments: {} },
+        { id: 'call_1', name: 'success.tool', args: {} },
+        { id: 'call_2', name: 'failing.tool', args: {} },
       ];
 
       const results = await executor.executeAll(toolCalls, mockContext);

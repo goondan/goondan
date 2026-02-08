@@ -6,6 +6,7 @@
  * - Reference integrity (ObjectRef targets exist)
  * - File existence (entry, systemRef paths)
  * - Naming convention (lowercase with hyphens)
+ * - Model capability (Agent tool requirements vs Model capabilities)
  *
  * @see /docs/specs/cli.md - Section 5 (gdn validate)
  * @see /docs/specs/bundle.md - Section 6 (Validation)
@@ -236,6 +237,100 @@ function convertBundleErrors(
 }
 
 /**
+ * Type guard: object has a specific string key
+ */
+function hasStringKey<K extends string>(
+  value: unknown,
+  key: K,
+): value is Record<K, unknown> {
+  return typeof value === "object" && value !== null && key in value;
+}
+
+/**
+ * Validate Model capability vs Agent requirements
+ *
+ * Check that when an Agent uses tools, the referenced Model supports toolCalling.
+ * @see /docs/specs/cli.md - Section 5.4 item 7
+ */
+function validateModelCapabilities(
+  resources: Resource[],
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  // Build Model lookup: name -> capabilities
+  const modelCapabilities = new Map<string, Record<string, unknown>>();
+
+  for (const resource of resources) {
+    if (resource.kind !== "Model") {
+      continue;
+    }
+    const spec = resource.spec as Record<string, unknown>;
+    if (
+      hasStringKey(spec, "capabilities") &&
+      typeof spec.capabilities === "object" &&
+      spec.capabilities !== null
+    ) {
+      modelCapabilities.set(
+        resource.metadata.name,
+        spec.capabilities as Record<string, unknown>,
+      );
+    }
+  }
+
+  // Check each Agent
+  for (const resource of resources) {
+    if (resource.kind !== "Agent") {
+      continue;
+    }
+    const spec = resource.spec as Record<string, unknown>;
+    const resourceId = `${resource.kind}/${resource.metadata.name}`;
+
+    // Check if Agent has tools
+    const hasTools = Array.isArray(spec.tools) && spec.tools.length > 0;
+    if (!hasTools) {
+      continue;
+    }
+
+    // Get modelRef
+    const modelConfig = spec.modelConfig;
+    if (
+      !hasStringKey(modelConfig, "modelRef") ||
+      typeof modelConfig.modelRef !== "object" ||
+      modelConfig.modelRef === null
+    ) {
+      continue;
+    }
+
+    const modelRef = modelConfig.modelRef as Record<string, unknown>;
+    const modelName = typeof modelRef.name === "string" ? modelRef.name : null;
+    if (!modelName) {
+      continue;
+    }
+
+    // Check capabilities
+    const capabilities = modelCapabilities.get(modelName);
+    if (!capabilities) {
+      // Model has no capabilities declared - that's fine, it's optional
+      continue;
+    }
+
+    // If model explicitly declares toolCalling: false, warn
+    if (capabilities.toolCalling === false) {
+      issues.push({
+        code: "MODEL_CAPABILITY_MISMATCH",
+        message: `Agent "${resource.metadata.name}" uses tools but Model "${modelName}" declares toolCalling: false`,
+        level: "warning",
+        resource: resourceId,
+        field: "spec.tools",
+        suggestion: `Either remove tools from the Agent or use a Model that supports tool calling`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
  * Execute validation
  */
 async function executeValidation(
@@ -279,6 +374,10 @@ async function executeValidation(
   const bundleRoot = stat.isDirectory() ? absolutePath : path.dirname(absolutePath);
   const fileIssues = await validateFileExistence(result.resources, bundleRoot);
   errors.push(...fileIssues);
+
+  // Model capability validation
+  const capabilityIssues = validateModelCapabilities(result.resources);
+  warnings.push(...capabilityIssues);
 
   // Determine validity
   let valid = errors.length === 0;
@@ -539,6 +638,22 @@ async function executeValidateCommand(
 }
 
 /**
+ * Resolve effective bundle path for validate command.
+ *
+ * When the positional path is omitted (`.`) and global `--config` is provided,
+ * validate uses that config path as the bundle target.
+ */
+function resolveValidateBundlePath(
+  bundlePath: string,
+  configPathOverride?: string,
+): string {
+  if (bundlePath !== ".") {
+    return bundlePath;
+  }
+  return configPathOverride ?? bundlePath;
+}
+
+/**
  * Create the validate command
  *
  * @returns Commander command for 'gdn validate'
@@ -568,7 +683,22 @@ Examples:
         .choices(["text", "json", "github"])
         .default("text")
     )
-    .action(async (bundlePath: string, options: Record<string, unknown>) => {
+    .action(
+      async (
+        bundlePath: string,
+        options: Record<string, unknown>,
+        command: Command,
+      ) => {
+      const globalOptions = command.optsWithGlobals<{ config?: string }>();
+      const configPathOverride =
+        typeof globalOptions.config === "string"
+          ? globalOptions.config
+          : undefined;
+      const effectiveBundlePath = resolveValidateBundlePath(
+        bundlePath,
+        configPathOverride,
+      );
+
       const validateOptions: ValidateOptions = {
         strict: options.strict === true,
         fix: options.fix === true,
@@ -580,10 +710,13 @@ Examples:
         warn("--fix option is not yet implemented");
       }
 
-      await executeValidateCommand(bundlePath, validateOptions);
+      await executeValidateCommand(effectiveBundlePath, validateOptions);
     });
 
   return command;
 }
+
+// Export for testing
+export { validateModelCapabilities };
 
 export default createValidateCommand;

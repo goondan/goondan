@@ -880,100 +880,162 @@ async function createAgentInstance(
 
 ## 4. instanceKey 기반 라우팅
 
+> **v1.0**: instanceKey는 ConnectorEvent.properties에서 런타임이 결정한다. Connection의 IngressRoute에는 agentRef만 존재하며, 구 패턴의 instanceKeyFrom/swarmRef/inputFrom은 삭제되었다. 자세한 내용은 [`connector.md`](./connector.md) §5.4, [`connection.md`](./connection.md) §5를 참조한다.
+
 ### 4.1 라우팅 알고리즘
 
 ```typescript
 /**
- * instanceKey 계산 규칙
+ * instanceKey 계산 규칙 (v1.0)
  *
  * 규칙:
  * - MUST: 동일 맥락의 이벤트는 동일 instanceKey를 생성해야 한다
- * - SHOULD: Connector ingress 설정의 instanceKeyFrom 표현식을 사용
+ * - MUST: ConnectorEvent.properties에서 instanceKey를 추출한다
+ * - MUST: properties에 적합한 키가 없으면 Connection 이름 기반 기본값을 사용한다
  */
 interface InstanceKeyResolver {
   /**
-   * 이벤트에서 instanceKey 추출
+   * ConnectorEvent에서 instanceKey 추출
    *
-   * @param event - 외부 이벤트 payload
-   * @param ingressRule - Connector ingress 규칙
+   * @param event - ConnectorEvent (connector.md §5.4 참조)
+   * @param connection - Connection 리소스 (connection.md 참조)
    * @returns instanceKey 문자열
    */
-  resolve(event: JsonObject, ingressRule: IngressRule): string;
+  resolve(event: ConnectorEvent, connection: Resource<ConnectionSpec>): string;
 }
 
 /**
  * instanceKey 추출 의사 코드
+ *
+ * 프로토콜별 식별 키 우선순위:
+ *   1. properties.instanceKey (명시적 지정)
+ *   2. properties.chatId (Telegram 등)
+ *   3. properties.thread_ts (Slack 등)
+ *   4. properties.channel_id (채널 기반 프로토콜)
+ *   5. Connection 이름 기반 기본값
  */
 function resolveInstanceKey(
-  event: JsonObject,
-  ingressRule: IngressRule
+  event: ConnectorEvent,
+  connection: Resource<ConnectionSpec>
 ): string {
-  const expr = ingressRule.route?.instanceKeyFrom;
-
-  if (!expr) {
-    // 기본값: 'default' 또는 연결/세션 단위 키
-    return 'default';
+  // 명시적 instanceKey (CLI의 CliTriggerPayload.payload.instanceKey 등)
+  if (event.properties?.instanceKey) {
+    return String(event.properties.instanceKey);
   }
 
-  // JSONPath 표현식 평가
-  // 예: "$.event.thread_ts" -> event.event.thread_ts
-  const value = evaluateJsonPath(event, expr);
-
-  if (value === undefined || value === null) {
-    throw new RoutingError(
-      `instanceKeyFrom expression "${expr}" returned null/undefined`
-    );
+  // 프로토콜별 식별 키 (chatId, thread_ts 등)
+  if (event.properties?.chatId) {
+    return String(event.properties.chatId);
+  }
+  if (event.properties?.thread_ts) {
+    return String(event.properties.thread_ts);
+  }
+  if (event.properties?.channel_id) {
+    return String(event.properties.channel_id);
   }
 
-  return String(value);
+  // 기본값: Connection 이름 기반
+  return `${connection.metadata.name}:default`;
 }
 
 /**
- * 라우팅 흐름 의사 코드
+ * ConnectorEvent 라우팅 흐름 의사 코드 (v1.0)
+ *
+ * ConnectorEvent + Connection ingress rules 기반으로 라우팅한다.
+ * - instanceKey: ConnectorEvent.properties에서 추출
+ * - input: ConnectorEvent.message.text에서 추출
+ * - agentRef: 매칭된 IngressRule에서 결정 (없으면 entrypoint)
  */
-async function routeEvent(
-  connector: ConnectorInstance,
-  event: JsonObject
+async function routeConnectorEvent(
+  event: ConnectorEvent,
+  connection: Resource<ConnectionSpec>,
+  swarmRef: ObjectRefLike
 ): Promise<void> {
-  // 1. 매칭되는 ingress 규칙 찾기
-  const matchedRule = findMatchingIngressRule(connector.config, event);
+  // 1. Connection의 ingress.rules에서 매칭 규칙 찾기
+  const matchedRule = findMatchingIngressRule(connection, event);
   if (!matchedRule) {
     throw new RoutingError('No matching ingress rule');
   }
 
-  // 2. instanceKey 계산
-  const instanceKey = resolveInstanceKey(event, matchedRule);
+  // 2. instanceKey 결정
+  const instanceKey = resolveInstanceKey(event, connection);
 
   // 3. SwarmInstance 조회/생성
-  const swarmRef = matchedRule.route.swarmRef;
   const swarmInstance = await getOrCreateSwarmInstance(swarmRef, instanceKey);
 
-  // 4. 입력 텍스트 추출
-  const input = extractInput(event, matchedRule.route.inputFrom);
+  // 4. 대상 Agent 결정 (agentRef 없으면 entrypoint)
+  const agentRef = matchedRule.route?.agentRef;
+  const agentName = agentRef
+    ? resolveRefName(agentRef)
+    : resolveRefName(swarmInstance.swarmConfig.spec.entrypoint);
 
-  // 5. Origin/Auth 컨텍스트 구성
-  const origin = buildTurnOrigin(connector, event);
-  const auth = buildTurnAuth(connector, event);
+  // 5. 입력 텍스트 추출 (ConnectorEvent.message에서)
+  const input = event.message.type === 'text' ? event.message.text : '';
 
-  // 6. AgentEvent 생성 및 enqueue
+  // 6. Auth 컨텍스트 구성 (ConnectorEvent.auth에서)
+  const auth: TurnAuth | undefined = event.auth ? {
+    actor: {
+      type: 'user',
+      id: event.auth.actor.id,
+      display: event.auth.actor.name,
+    },
+    subjects: {
+      global: event.auth.subjects.global,
+      user: event.auth.subjects.user,
+    },
+  } : undefined;
+
+  // 7. AgentEvent 생성 및 enqueue
   const agentEvent: AgentEvent = {
     id: generateId(),
     type: 'user.input',
     input,
-    origin,
     auth,
-    metadata: { connectorEvent: event },
+    metadata: { connectorEvent: event.properties },
     createdAt: new Date(),
   };
 
-  // 7. 진입점 AgentInstance에 이벤트 추가
-  const entrypointAgent = swarmInstance.agents.get(
-    resolveRefName(swarmInstance.swarmConfig.spec.entrypoint)
-  );
-  entrypointAgent.eventQueue.enqueue(agentEvent);
+  // 8. 대상 AgentInstance에 이벤트 추가
+  let agentInstance = swarmInstance.agents.get(agentName);
+  if (!agentInstance) {
+    agentInstance = await createAgentInstance(
+      swarmInstance,
+      { kind: 'Agent', name: agentName }
+    );
+    swarmInstance.agents.set(agentName, agentInstance);
+  }
+  agentInstance.eventQueue.enqueue(agentEvent);
 
-  // 8. Turn 처리 트리거 (비동기)
-  scheduleAgentProcessing(entrypointAgent);
+  // 9. Turn 처리 트리거 (비동기)
+  scheduleAgentProcessing(agentInstance);
+}
+
+/**
+ * Connection ingress rule 매칭 (v1.0)
+ *
+ * ConnectorEvent의 name과 properties를 기반으로 매칭한다.
+ * connection.md §5.1 참조.
+ */
+function findMatchingIngressRule(
+  connection: Resource<ConnectionSpec>,
+  event: ConnectorEvent
+): IngressRule | undefined {
+  const rules = connection.spec.ingress?.rules;
+  if (!rules || rules.length === 0) {
+    // 규칙이 없으면 기본 규칙 (entrypoint로 라우팅)
+    return { route: {} };
+  }
+
+  return rules.find((rule) => {
+    if (!rule.match) return true; // match 생략 → 모든 이벤트 매칭
+    if (rule.match.event && rule.match.event !== event.name) return false;
+    if (rule.match.properties) {
+      for (const [key, value] of Object.entries(rule.match.properties)) {
+        if (event.properties?.[key] !== value) return false;
+      }
+    }
+    return true;
+  });
 }
 ```
 
@@ -996,32 +1058,22 @@ class RoutingError extends Error {
 /**
  * 라우팅 에러 처리 규칙
  *
- * - MUST: 라우팅 실패 시 Connector에 에러를 전달
- * - SHOULD: 에러 로그 기록
- * - MAY: Connector가 외부 채널에 에러 응답 전송
+ * - MUST: 라우팅 실패 시 에러 로그를 기록한다
+ * - SHOULD: ConnectorEvent의 출처를 로그에 포함한다
+ * - MAY: 외부 채널에 에러 응답 전송 (Tool을 통해)
  */
 async function handleRoutingError(
-  connector: ConnectorInstance,
-  event: JsonObject,
+  connection: Resource<ConnectionSpec>,
+  event: ConnectorEvent,
   error: RoutingError
 ): Promise<void> {
   // 1. 에러 로그 기록
   logger.error('Routing failed', {
-    connector: connector.name,
+    connection: connection.metadata.name,
+    eventName: event.name,
     error: error.message,
     code: error.code,
   });
-
-  // 2. Connector에 에러 알림
-  if (connector.adapter.onError) {
-    await connector.adapter.onError({
-      event,
-      error: {
-        message: error.message,
-        code: error.code,
-      },
-    });
-  }
 }
 ```
 
@@ -2149,80 +2201,86 @@ function validateTurnAuthForOAuth(
 
 ---
 
-## 11. Canonical Event Flow
+## 11. Connector Event Flow (v1.0)
+
+> **v1.0 주요 변경**: CanonicalEvent → ConnectorEvent로 대체, ConnectorTriggerContext → ConnectorContext로 대체. Connector는 ConnectorEvent만 발행하고, 라우팅(instanceKey 결정, Agent 선택)은 Runtime이 Connection의 ingress rules를 기반으로 수행한다. 자세한 타입 정의는 [`connector.md`](./connector.md) §5를 참조한다.
 
 ### 11.1 이벤트 흐름 상세
 
 ```typescript
 /**
- * Canonical Event Flow
+ * Connector Event Flow (v1.0)
  *
  * 규칙:
- * - MUST: Connector는 canonical event 생성 책임만 가진다
- * - MUST: Runtime이 canonical event를 Turn으로 변환
+ * - MUST: Connector는 ConnectorEvent 생성 책임만 가진다 (connector.md §5.4 참조)
+ * - MUST: Runtime이 ConnectorEvent를 Connection ingress rules로 라우팅하고 Turn으로 변환
  * - MUST: Connector는 Instance/Turn/Step 실행 모델을 직접 제어하지 않는다
+ * - MUST: instanceKey는 런타임이 ConnectorEvent.properties에서 추출한다 (§4.1 참조)
  */
-interface CanonicalEvent {
-  /** 이벤트 타입 */
-  type: string;
-
-  /** 대상 Swarm 참조 */
-  swarmRef: ObjectRefLike;
-
-  /** 인스턴스 키 */
-  instanceKey: string;
-
-  /** 대상 Agent 이름 (선택, 기본값: entrypoint) */
-  agentName?: string;
-
-  /** 입력 텍스트 */
-  input: string;
-
-  /** 호출 맥락 */
-  origin?: TurnOrigin;
-
-  /** 인증 컨텍스트 */
-  auth?: TurnAuth;
-
-  /** 이벤트 메타데이터 */
-  metadata?: JsonObject;
-}
 
 /**
- * Connector Trigger Context
+ * ConnectorEvent (connector.md §5.4에서 정의)
  *
- * Connector trigger handler에 주입되는 실행 컨텍스트
+ * Connector의 entry 함수가 ctx.emit()으로 발행하는 정규화된 이벤트.
+ * 참조용으로 인터페이스를 기재한다.
  */
-interface ConnectorTriggerContext {
-  /** Canonical event 발행 */
-  emit(event: CanonicalEvent): Promise<void>;
-
-  /** 로거 */
-  logger: Console;
-
-  /** OAuth 토큰 조회 (Connector용) */
-  oauth: OAuthApi;
-
-  /** Connection 설정 (resolve된 상태) */
-  connection: JsonObject;
-}
+// interface ConnectorEvent {
+//   type: "connector.event";
+//   name: string;
+//   message: ConnectorEventMessage;
+//   properties?: JsonObject;
+//   auth?: {
+//     actor: { id: string; name?: string };
+//     subjects: { global?: string; user?: string };
+//   };
+// }
 
 /**
- * Canonical Event 처리 흐름
+ * ConnectorContext (connector.md §5.2에서 정의)
+ *
+ * Connector entry 함수에 주입되는 실행 컨텍스트.
+ * Connection마다 한 번씩 호출된다.
+ * 참조용으로 인터페이스를 기재한다.
  */
-async function handleCanonicalEvent(event: CanonicalEvent): Promise<void> {
-  // 1. 대상 Swarm 결정
-  const swarmRef = event.swarmRef;
+// interface ConnectorContext {
+//   event: ConnectorTriggerEvent;
+//   connection: Resource<ConnectionSpec>;
+//   connector: Resource<ConnectorSpec>;
+//   emit: (event: ConnectorEvent) => Promise<void>;
+//   logger: Console;
+//   oauth?: { getAccessToken: (req: OAuthTokenRequest) => Promise<OAuthTokenResult> };
+//   verify?: { webhook?: { signingSecret: string } };
+// }
 
-  // 2. SwarmInstance 조회/생성
-  const swarmInstance = await getOrCreateSwarmInstance(
-    swarmRef,
-    event.instanceKey
-  );
+/**
+ * ConnectorEvent 처리 흐름 (v1.0)
+ *
+ * Runtime이 Connector의 ctx.emit() 호출을 수신하여 실행한다.
+ * Connection의 ingress.rules에서 매칭 규칙을 찾고,
+ * ConnectorEvent.properties에서 instanceKey를 추출하여 라우팅한다.
+ */
+async function handleConnectorEvent(
+  event: ConnectorEvent,
+  connection: Resource<ConnectionSpec>,
+  swarmRef: ObjectRefLike
+): Promise<void> {
+  // 1. Connection ingress rules에서 매칭 규칙 찾기
+  const matchedRule = findMatchingIngressRule(connection, event);
+  if (!matchedRule) {
+    throw new RoutingError('No matching ingress rule');
+  }
 
-  // 3. 대상 AgentInstance 결정
-  const agentName = event.agentName ??
-    resolveRefName(swarmInstance.swarmConfig.spec.entrypoint);
+  // 2. instanceKey 결정 (ConnectorEvent.properties에서 추출, §4.1 참조)
+  const instanceKey = resolveInstanceKey(event, connection);
+
+  // 3. SwarmInstance 조회/생성
+  const swarmInstance = await getOrCreateSwarmInstance(swarmRef, instanceKey);
+
+  // 4. 대상 AgentInstance 결정 (agentRef 없으면 entrypoint)
+  const agentRef = matchedRule.route?.agentRef;
+  const agentName = agentRef
+    ? resolveRefName(agentRef)
+    : resolveRefName(swarmInstance.swarmConfig.spec.entrypoint);
   let agentInstance = swarmInstance.agents.get(agentName);
 
   if (!agentInstance) {
@@ -2234,21 +2292,36 @@ async function handleCanonicalEvent(event: CanonicalEvent): Promise<void> {
     swarmInstance.agents.set(agentName, agentInstance);
   }
 
-  // 4. AgentEvent 생성
+  // 5. 입력 추출 (ConnectorEvent.message에서)
+  const input = event.message.type === 'text' ? event.message.text : '';
+
+  // 6. Auth 컨텍스트 변환 (ConnectorEvent.auth → TurnAuth)
+  const auth: TurnAuth | undefined = event.auth ? {
+    actor: {
+      type: 'user',
+      id: event.auth.actor.id,
+      display: event.auth.actor.name,
+    },
+    subjects: {
+      global: event.auth.subjects.global,
+      user: event.auth.subjects.user,
+    },
+  } : undefined;
+
+  // 7. AgentEvent 생성
   const agentEvent: AgentEvent = {
     id: generateId(),
-    type: mapToAgentEventType(event.type),
-    input: event.input,
-    origin: event.origin,
-    auth: event.auth,
-    metadata: event.metadata,
+    type: 'user.input',
+    input,
+    auth,
+    metadata: { connectorEvent: event.properties },
     createdAt: new Date(),
   };
 
-  // 5. AgentInstance 이벤트 큐에 enqueue
+  // 8. AgentInstance 이벤트 큐에 enqueue
   agentInstance.eventQueue.enqueue(agentEvent);
 
-  // 6. Agent 이벤트 로그 기록
+  // 9. Agent 이벤트 로그 기록
   await logAgentEvent(agentInstance, {
     kind: 'event.enqueued',
     data: {
@@ -2257,47 +2330,60 @@ async function handleCanonicalEvent(event: CanonicalEvent): Promise<void> {
     },
   });
 
-  // 7. Turn 처리 스케줄링 (비동기)
+  // 10. Turn 처리 스케줄링 (비동기)
   scheduleAgentProcessing(agentInstance);
 }
 
 /**
- * Connector trigger handler 예시 (Slack)
+ * Connector entry function 예시 (Slack) — ConnectorEntryFunction 패턴 (v1.0)
+ *
+ * connector.md §5.1의 단일 default export 패턴을 따른다.
+ * Connector는 ConnectorEvent만 발행하며, 라우팅은 Runtime이 수행한다.
  */
-async function slackWebhookHandler(
-  event: SlackWebhookEvent,
-  ctx: ConnectorTriggerContext
-): Promise<void> {
-  // 1. 이벤트 필터링
-  if (event.type !== 'message' || event.bot_id) {
-    return; // 봇 메시지 무시
+export default async function (ctx: ConnectorContext): Promise<void> {
+  // 1. 트리거 이벤트가 HTTP인지 확인
+  if (ctx.event.trigger.type !== 'http') return;
+
+  const body = ctx.event.trigger.payload.request.body;
+
+  // 2. 서명 검증 (Connection의 verify 블록이 있는 경우)
+  if (ctx.verify?.webhook?.signingSecret) {
+    const isValid = verifySlackSignature(
+      ctx.event.trigger.payload.request.headers,
+      ctx.event.trigger.payload.request.rawBody ?? '',
+      ctx.verify.webhook.signingSecret
+    );
+    if (!isValid) {
+      ctx.logger.error('Slack signature verification failed');
+      return;
+    }
   }
 
-  // 2. Ingress 규칙 매칭
-  const matchedRule = findMatchingIngressRule(event);
-  if (!matchedRule) {
-    return;
-  }
+  // 3. Slack 이벤트 필터링
+  const slackEvent = body.event;
+  if (!slackEvent || slackEvent.bot_id) return;
 
-  // 3. Canonical event 생성 및 발행
+  // 4. ConnectorEvent 발행 (라우팅은 Runtime이 수행)
   await ctx.emit({
-    type: 'user.input',
-    swarmRef: matchedRule.route.swarmRef,
-    instanceKey: event.thread_ts ?? event.ts,
-    input: event.text,
-    origin: {
-      connector: 'slack-main',
-      channel: event.channel,
-      threadTs: event.thread_ts ?? event.ts,
+    type: 'connector.event',
+    name: 'app_mention',
+    message: {
+      type: 'text',
+      text: slackEvent.text,
+    },
+    properties: {
+      channel_id: slackEvent.channel,
+      ts: slackEvent.ts,
+      thread_ts: slackEvent.thread_ts,
     },
     auth: {
       actor: {
-        type: 'user',
-        id: `slack:${event.user}`,
+        id: `slack:${slackEvent.user}`,
+        name: slackEvent.user_profile?.display_name,
       },
       subjects: {
-        global: `slack:team:${event.team_id}`,
-        user: `slack:user:${event.team_id}:${event.user}`,
+        global: `slack:team:${body.team_id}`,
+        user: `slack:user:${body.team_id}:${slackEvent.user}`,
       },
     },
   });
@@ -2308,31 +2394,47 @@ async function slackWebhookHandler(
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Canonical Event Flow                          │
+│                  Connector Event Flow (v1.0)                      │
 └─────────────────────────────────────────────────────────────────┘
 
  [External Event]
       │
-      │  Webhook / Cron / Queue
+      │  Webhook / Cron / CLI
       ▼
  ┌────────────────┐
- │   Connector    │
- │  Trigger Hndlr │
+ │    Runtime:    │
+ │  trigger 수신  │
  └───────┬────────┘
          │
-         │ ctx.emit(canonicalEvent)
+         │  Connection 목록 조회 (connectorRef가 이 Connector를 참조하는 Connection들)
+         ▼
+ ┌────────────────────┐
+ │  Connection마다    │
+ │  Entry Function    │
+ │  호출              │
+ │  ctx.event:        │
+ │   Trigger 정보     │
+ │  ctx.connection:   │
+ │   현재 Connection  │
+ │  ctx.verify:       │
+ │   서명 검증 정보   │
+ └───────┬────────────┘
+         │
+         │ ctx.emit(ConnectorEvent)
          ▼
  ┌────────────────────────────────────────────────────────────────┐
  │                         Runtime                                 │
  │                                                                 │
- │   ┌──────────────────┐                                         │
- │   │  handleCanonical │                                         │
- │   │      Event       │                                         │
- │   └────────┬─────────┘                                         │
+ │   ┌───────────────────┐                                        │
+ │   │ handleConnector   │                                        │
+ │   │     Event         │                                        │
+ │   └────────┬──────────┘                                        │
  │            │                                                    │
- │            │  1. Swarm/Agent 결정                               │
- │            │  2. SwarmInstance 조회/생성                        │
- │            │  3. AgentEvent 생성                                │
+ │            │  1. Connection ingress rules 매칭                  │
+ │            │  2. instanceKey 추출 (properties에서)              │
+ │            │  3. SwarmInstance 조회/생성                        │
+ │            │  4. agentRef 결정 (없으면 entrypoint)              │
+ │            │  5. AgentEvent 생성                                │
  │            ▼                                                    │
  │   ┌────────────────────┐                                       │
  │   │   SwarmInstance    │                                       │

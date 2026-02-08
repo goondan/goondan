@@ -8,6 +8,11 @@ import * as path from "node:path";
 import { describe, it, expect, afterAll } from "vitest";
 import { createToolExecutorImpl } from "../tool-executor-impl.js";
 import type { Step, ToolCall, ToolCatalogItem } from "@goondan/core/runtime";
+import {
+  createAgentEventQueue,
+  createAgentEvent,
+} from "@goondan/core";
+import { createTurnMessageState } from "@goondan/core/runtime";
 import type { ToolSpec, ToolExport } from "@goondan/core";
 
 describe("ToolExecutorImpl", () => {
@@ -58,8 +63,11 @@ describe("ToolExecutorImpl", () => {
     });
 
     // Step mock: turn은 테스트에서 사용하지 않으므로 최소 구조만 제공
+    const mockInputEvent = createAgentEvent("user.input", "test");
+    const mockMessageState = createTurnMessageState();
     const mockTurn: Step["turn"] = {
       id: "turn-1",
+      traceId: "trace-test",
       agentInstance: {
         id: "agent-1",
         swarmInstance: {
@@ -67,20 +75,28 @@ describe("ToolExecutorImpl", () => {
           swarmRef: "Swarm/test",
           instanceKey: "test-key",
           agents: new Map(),
-          status: "running",
+          activeSwarmBundleRef: activeSwarmBundleRef,
+          status: "active",
           createdAt: new Date(),
-          sharedState: {},
+          lastActivityAt: new Date(),
+          metadata: {},
         },
-        agentName: "Agent/test",
-        eventQueue: [],
-        turnHistory: [],
+        agentName: "test",
+        agentRef: "Agent/test",
+        eventQueue: createAgentEventQueue(),
         extensionStates: new Map(),
         currentTurn: null,
+        completedTurnCount: 0,
         sharedState: {},
+        createdAt: new Date(),
       },
-      event: { type: "user.input", data: "test" },
+      inputEvent: mockInputEvent,
+      origin: {},
+      auth: {},
+      messageState: mockMessageState,
+      messages: mockMessageState.nextMessages,
       steps: [],
-      messages: [],
+      currentStepIndex: 0,
       status: "running",
       startedAt: new Date(),
       metadata: {},
@@ -108,13 +124,13 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-1",
         name: "nonexistent.tool",
-        input: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, step);
 
       expect(result.error).toBeDefined();
-      expect(result.error?.error.name).toBe("ToolNotFoundError");
+      expect(result.error?.name).toBe("ToolNotFoundError");
       expect(result.toolCallId).toBe("call-1");
       expect(result.toolName).toBe("nonexistent.tool");
     });
@@ -126,13 +142,13 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-2",
         name: "test.tool",
-        input: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, step);
 
       expect(result.error).toBeDefined();
-      expect(result.error?.error.name).toBe("ToolSpecError");
+      expect(result.error?.name).toBe("ToolSpecError");
     });
 
     it("모듈 로드 실패 시 에러를 반환해야 한다", async () => {
@@ -142,7 +158,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-3",
         name: "test.tool",
-        input: {},
+        args: {},
       };
 
       const result = await executor.execute(toolCall, step);
@@ -172,7 +188,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-handlers",
         name: "delegate.toAgent",
-        input: { agentName: "coder", task: "test" },
+        args: { agentName: "coder", task: "test" },
       };
 
       const result = await executor.execute(toolCall, step);
@@ -208,7 +224,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-ctx-order",
         name: "test.tool",
-        input: { value: "ok" },
+        args: { value: "ok" },
       };
 
       const result = await executor.execute(toolCall, step);
@@ -279,7 +295,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-4",
         name: "test.tool",
-        input: { value: "hello" },
+        args: { value: "hello" },
       };
 
       const result = await isolated.execute(toolCall, step);
@@ -328,7 +344,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-handlers-worker",
         name: "delegate.toAgent",
-        input: { agentName: "coder", task: "test" },
+        args: { agentName: "coder", task: "test" },
       };
 
       const result = await isolated.execute(toolCall, step);
@@ -411,7 +427,7 @@ describe("ToolExecutorImpl", () => {
       const toolCall: ToolCall = {
         id: "call-5",
         name: "test.tool",
-        input: { reason: "unit-test" },
+        args: { reason: "unit-test" },
       };
 
       const result = await isolated.execute(toolCall, step);

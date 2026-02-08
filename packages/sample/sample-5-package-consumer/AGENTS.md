@@ -7,7 +7,7 @@ Bundle Package 의존성 시스템을 시연하는 샘플입니다. `sample-1-co
 ```
 sample-5-package-consumer/
 ├── package.yaml          # Bundle Package 매니페스트 (의존성 선언)
-├── goondan.yaml          # Bundle 정의 (커스텀 Agent, Swarm, Connector)
+├── goondan.yaml          # Bundle 정의 (커스텀 Agent, Swarm, Connection)
 ├── prompts/
 │   └── custom.system.md  # 커스텀 어시스턴트 프롬프트
 ├── package.json          # npm 패키지 설정
@@ -22,6 +22,7 @@ sample-5-package-consumer/
 spec:
   dependencies:
     - "file:../sample-1-coding-swarm"
+    - "@goondan/base"
 ```
 
 ### 패키지 리소스 참조 (goondan.yaml)
@@ -44,7 +45,7 @@ agents:
 ### 로컬 리소스
 - `assistant` (Agent): 커스텀 프롬프트를 사용하는 새 에이전트
 - `custom-swarm` (Swarm): 로컬+패키지 에이전트 조합
-- `cli` (Connector): CLI 인터페이스
+- `cli-to-custom-swarm` (Connection): `@goondan/base`의 `Connector/cli` 바인딩
 
 ### 패키지에서 가져온 리소스
 - `default-model` (Model): Claude Sonnet 4.5

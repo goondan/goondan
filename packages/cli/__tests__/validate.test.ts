@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createValidateCommand } from "../src/commands/validate.js";
+import { createProgram } from "../src/cli.js";
 import { Command } from "commander";
 
 // Test fixtures
@@ -49,7 +50,10 @@ kind: Connector
 metadata:
   name: cli
 spec:
-  type: cli
+  runtime: node
+  entry: ./connectors/cli/index.js
+  triggers:
+    - type: cli
 
 ---
 
@@ -59,11 +63,12 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - match:
+          event: cli.message
+        route:
+          agentRef: { kind: Agent, name: default }
 `;
 
 const invalidBundleYaml = `apiVersion: agents.example.io/v1alpha1
@@ -503,6 +508,49 @@ describe("gdn validate command", () => {
         };
         expect(jsonOutput.valid).toBe(false);
         expect(jsonOutput.errors.some((e) => e.code === "PATH_NOT_FOUND")).toBe(true);
+      }
+    });
+
+    it("should use global --config when positional path is omitted", async () => {
+      const bundleDir = path.join(tempDir, "bundle");
+      fs.mkdirSync(bundleDir, { recursive: true });
+      const bundlePath = path.join(bundleDir, "goondan.yaml");
+      fs.writeFileSync(bundlePath, validBundleYaml);
+
+      const program = createProgram();
+      program.exitOverride();
+
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        await program.parseAsync([
+          "node",
+          "gdn",
+          "--config",
+          bundlePath,
+          "validate",
+          "--format",
+          "json",
+        ]);
+      } catch {
+        // Commander may throw on exitOverride
+      } finally {
+        console.log = originalLog;
+      }
+
+      const output = logs.join("\n");
+      const parsed: unknown = JSON.parse(output);
+      expect(typeof parsed).toBe("object");
+      expect(parsed).not.toBeNull();
+      if (typeof parsed === "object" && parsed !== null) {
+        expect("valid" in parsed).toBe(true);
+        if ("valid" in parsed) {
+          expect(parsed.valid).toBe(true);
+        }
       }
     });
   });

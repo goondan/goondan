@@ -195,21 +195,28 @@ function parseCompactionConfig(input: unknown): CompactionConfig {
  * Entry point for the basicCompaction Extension
  */
 export async function register(api: ExtensionApi): Promise<void> {
-  // Initialize state
-  const rawState = api.extState();
-  rawState['compactionCount'] = 0;
-  rawState['totalMessagesCompacted'] = 0;
-  rawState['lastCompactionAt'] = null;
-  rawState['estimatedTokens'] = 0;
+  // Initialize state using new getState/setState API
+  api.setState({
+    compactionCount: 0,
+    totalMessagesCompacted: 0,
+    lastCompactionAt: null,
+    estimatedTokens: 0,
+  });
 
   // State accessor function that reads current state with type safety
-  const getState = (): CompactionState => getCompactionState(rawState);
-  // State updater functions
+  const getState = (): CompactionState => {
+    const rawState = api.getState();
+    return getCompactionState(rawState);
+  };
+  // State updater function
   const updateState = (updates: Partial<CompactionState>): void => {
-    if (updates.compactionCount !== undefined) rawState['compactionCount'] = updates.compactionCount;
-    if (updates.totalMessagesCompacted !== undefined) rawState['totalMessagesCompacted'] = updates.totalMessagesCompacted;
-    if (updates.lastCompactionAt !== undefined) rawState['lastCompactionAt'] = updates.lastCompactionAt;
-    if (updates.estimatedTokens !== undefined) rawState['estimatedTokens'] = updates.estimatedTokens;
+    const current = getState();
+    api.setState({
+      compactionCount: updates.compactionCount ?? current.compactionCount,
+      totalMessagesCompacted: updates.totalMessagesCompacted ?? current.totalMessagesCompacted,
+      lastCompactionAt: updates.lastCompactionAt !== undefined ? updates.lastCompactionAt : current.lastCompactionAt,
+      estimatedTokens: updates.estimatedTokens ?? current.estimatedTokens,
+    });
   };
 
   // Get config with defaults (using type-safe parser)
@@ -226,7 +233,7 @@ export async function register(api: ExtensionApi): Promise<void> {
   // Register step.llmCall middleware to wrap LLM calls
   // Check tokens before LLM call and perform compaction if needed
   api.pipelines.wrap('step.llmCall', async (ctx: ExtStepContext, next: (ctx: ExtStepContext) => Promise<ExtLlmResult>) => {
-    const messages = ctx.turn.messages;
+    const messages = ctx.turn.messageState.nextMessages;
 
     // Update token estimate
     const totalChars = getTotalChars(messages);
@@ -265,10 +272,12 @@ export async function register(api: ExtensionApi): Promise<void> {
     // We'll use the LLM to summarize the conversation
     const compactionMessages: ExtLlmMessage[] = [
       {
+        id: `compaction-sys-${Date.now()}`,
         role: 'system',
         content: 'You are a helpful assistant that summarizes conversations concisely.',
       },
       {
+        id: `compaction-user-${Date.now()}`,
         role: 'user',
         content: compactionPromptText,
       },
@@ -279,7 +288,11 @@ export async function register(api: ExtensionApi): Promise<void> {
       ...ctx,
       turn: {
         ...ctx.turn,
-        messages: compactionMessages,
+        messageState: {
+          baseMessages: compactionMessages,
+          events: [],
+          nextMessages: compactionMessages,
+        },
       },
       blocks: [],
       toolCatalog: [], // No tools during compaction
@@ -309,6 +322,7 @@ export async function register(api: ExtensionApi): Promise<void> {
 
     // Create new messages array with summary
     const summaryMessage: ExtLlmMessage = {
+      id: `compaction-summary-${Date.now()}`,
       role: 'user',
       content: `[Previous conversation summary]:\n${summary}`,
     };
@@ -333,7 +347,7 @@ export async function register(api: ExtensionApi): Promise<void> {
     );
 
     // Update context with compacted messages
-    ctx.turn.messages = newMessages;
+    ctx.turn.messageState.nextMessages.splice(0, ctx.turn.messageState.nextMessages.length, ...newMessages);
     ctx.turn.metadata = {
       ...ctx.turn.metadata,
       compaction: {

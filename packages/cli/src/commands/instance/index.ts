@@ -11,6 +11,8 @@ import { createListCommand } from "./list.js";
 import { createInspectCommand } from "./inspect.js";
 import { createDeleteCommand } from "./delete.js";
 import { createResumeCommand } from "./resume.js";
+import { createPauseCommand } from "./pause.js";
+import { createTerminateCommand } from "./terminate.js";
 
 /**
  * Create the main instance command group
@@ -22,8 +24,10 @@ export function createInstanceCommand(): Command {
     .description("Manage Swarm instances")
     .addCommand(createListCommand())
     .addCommand(createInspectCommand())
-    .addCommand(createDeleteCommand())
-    .addCommand(createResumeCommand());
+    .addCommand(createPauseCommand())
+    .addCommand(createResumeCommand())
+    .addCommand(createTerminateCommand())
+    .addCommand(createDeleteCommand());
 
   return command;
 }
@@ -32,14 +36,18 @@ export function createInstanceCommand(): Command {
 export {
   createListCommand,
   createInspectCommand,
-  createDeleteCommand,
+  createPauseCommand,
   createResumeCommand,
+  createTerminateCommand,
+  createDeleteCommand,
 };
 
 // Export types
 export type { ListOptions } from "./list.js";
-export type { DeleteOptions } from "./delete.js";
+export type { PauseOptions } from "./pause.js";
 export type { ResumeOptions } from "./resume.js";
+export type { TerminateOptions } from "./terminate.js";
+export type { DeleteOptions } from "./delete.js";
 
 // Export utils for reuse
 export {

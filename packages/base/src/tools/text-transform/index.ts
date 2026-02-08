@@ -100,7 +100,8 @@ function renderTemplate(template: string, variables: JsonObject): string {
     /\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g,
     (_match: string, key: string, content: string): string => {
       const value = variables[key];
-      if (value && value !== '' && value !== 0 && value !== false) {
+      // truthy 판정: undefined, null, '', 0, false가 아닌 경우 렌더링
+      if (value !== undefined && value !== null && value !== '' && value !== 0 && value !== false) {
         if (Array.isArray(value)) {
           // 배열인 경우 각 항목에 대해 렌더링
           return value
@@ -124,7 +125,8 @@ function renderTemplate(template: string, variables: JsonObject): string {
     /\{\{\^(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g,
     (_match: string, key: string, content: string): string => {
       const value = variables[key];
-      if (!value || value === '' || value === 0 || value === false) {
+      // falsy 판정: undefined, null, '', 0, false인 경우 렌더링
+      if (value === undefined || value === null || value === '' || value === 0 || value === false) {
         return content;
       }
       return '';
@@ -276,10 +278,19 @@ function parseSimpleYaml(text: string): JsonValue {
     const trimmed = line.trim();
 
     // 스택에서 현재 인덴트에 맞는 레벨 찾기
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
+    while (stack.length > 1) {
+      const top = stack[stack.length - 1];
+      if (top && top.indent >= indent) {
+        stack.pop();
+      } else {
+        break;
+      }
     }
-    const current = stack[stack.length - 1].obj;
+    const currentEntry = stack[stack.length - 1];
+    if (!currentEntry) {
+      continue;
+    }
+    const current = currentEntry.obj;
 
     // 배열 항목: - value
     if (trimmed.startsWith('- ')) {
@@ -390,11 +401,19 @@ function parseCsv(text: string): JsonValue {
     return [];
   }
 
-  const headers = parseCsvLine(lines[0]);
+  const firstLine = lines[0];
+  if (!firstLine) {
+    return [];
+  }
+  const headers = parseCsvLine(firstLine);
   const rows: JsonObject[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
+    const line = lines[i];
+    if (!line) {
+      continue;
+    }
+    const values = parseCsvLine(line);
     const row: JsonObject = {};
     for (let j = 0; j < headers.length; j++) {
       const header = headers[j];
@@ -448,8 +467,8 @@ function toCsv(value: JsonValue): string {
   }
 
   // 첫 번째 항목에서 헤더 추출
-  const first = value[0];
-  if (!isJsonObject(first)) {
+  const first: JsonValue | undefined = value[0];
+  if (first === undefined || !isJsonObject(first)) {
     throw new Error('CSV로 변환하려면 데이터가 객체 배열이어야 합니다.');
   }
 

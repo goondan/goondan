@@ -105,19 +105,32 @@ describe('Tool 시스템 타입', () => {
       expect(error.name).toBe('ValidationError');
       expect(error.code).toBe('E_VALIDATION');
     });
+
+    it('suggestion과 helpUrl을 포함할 수 있다', () => {
+      const error: ToolError = {
+        message: '인증이 필요합니다',
+        name: 'AuthError',
+        code: 'E_AUTH_REQUIRED',
+        suggestion: 'OAuth 인증을 먼저 수행하세요',
+        helpUrl: 'https://docs.example.com/auth',
+      };
+
+      expect(error.suggestion).toBe('OAuth 인증을 먼저 수행하세요');
+      expect(error.helpUrl).toBe('https://docs.example.com/auth');
+    });
   });
 
   describe('ToolCall 타입', () => {
-    it('id, name, arguments는 필수이다', () => {
+    it('id, name, args는 필수이다', () => {
       const toolCall: ToolCall = {
         id: 'call_abc123',
         name: 'calc.multiply',
-        arguments: { a: 6, b: 7 },
+        args: { a: 6, b: 7 },
       };
 
       expect(toolCall.id).toBe('call_abc123');
       expect(toolCall.name).toBe('calc.multiply');
-      expect(toolCall.arguments).toEqual({ a: 6, b: 7 });
+      expect(toolCall.args).toEqual({ a: 6, b: 7 });
     });
   });
 

@@ -24,6 +24,8 @@ import {
   createSwarmInstanceManager,
   createAgentInstance,
   createAgentEvent,
+  createEventBus,
+  ExtensionLoader,
   isLlmAssistantMessage,
   SwarmBundleManagerImpl,
   createSwarmBundleApi,
@@ -35,10 +37,12 @@ import {
 import type {
   TurnRunner,
   Turn,
+  AgentInstance,
   SwarmBundleApi,
   ChangesetPolicy,
   OpenChangesetInput,
   CommitChangesetInput,
+  StateStore,
 } from "@goondan/core";
 import { info, success, warn, error as logError, debug } from "../utils/logger.js";
 import { ExitCode } from "../types.js";
@@ -76,6 +80,10 @@ export interface RunOptions {
   port?: number;
   /** Skip dependency installation */
   noInstall: boolean;
+  /** Bundle configuration path override (from global --config) */
+  configPath?: string;
+  /** System state root override (from global --state-root) */
+  stateRoot?: string;
 }
 
 /**
@@ -101,6 +109,41 @@ async function findBundleConfig(startDir: string): Promise<string | null> {
   }
 
   return null;
+}
+
+/**
+ * Resolve bundle configuration path with optional global override.
+ *
+ * - If override points to a file, use it directly.
+ * - If override points to a directory, look for goondan.yaml/goondan.yml inside it.
+ * - If no override is provided, look in current working directory.
+ */
+async function resolveBundleConfigPath(
+  configPathOverride?: string,
+): Promise<string | null> {
+  if (!configPathOverride) {
+    return findBundleConfig(process.cwd());
+  }
+
+  const resolvedPath = path.resolve(process.cwd(), configPathOverride);
+
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(resolvedPath);
+  } catch {
+    return null;
+  }
+
+  if (stat.isDirectory()) {
+    return findBundleConfig(resolvedPath);
+  }
+
+  try {
+    await fs.promises.access(resolvedPath, fs.constants.R_OK);
+    return resolvedPath;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -425,6 +468,7 @@ async function createRuntimeSwarmBundleApi(
   swarmName: string,
   entrypointAgent: string,
   revisionState: RevisionState,
+  stateRoot?: string,
 ): Promise<{ api: SwarmBundleApi; activeRef: string }> {
   const swarmResource = result.getResource("Swarm", swarmName);
   const agentResource = result.getResource("Agent", entrypointAgent);
@@ -433,7 +477,7 @@ async function createRuntimeSwarmBundleApi(
 
   const manager = new SwarmBundleManagerImpl({
     swarmBundleRoot: bundleRootDir,
-    goondanHome: resolveGoondanHome(),
+    goondanHome: resolveGoondanHome({ cliStateRoot: stateRoot }),
     workspaceId: generateWorkspaceId(bundleRootDir),
     swarmPolicy,
     agentPolicy,
@@ -496,9 +540,9 @@ function displayUsage(turn: Turn): void {
   let stepCount = 0;
 
   for (const step of turn.steps) {
-    if (step.llmResult?.usage) {
-      totalPrompt += step.llmResult.usage.promptTokens;
-      totalCompletion += step.llmResult.usage.completionTokens;
+    if (step.llmResult?.meta?.usage) {
+      totalPrompt += step.llmResult.meta.usage.promptTokens;
+      totalCompletion += step.llmResult.meta.usage.completionTokens;
     }
     stepCount++;
   }
@@ -517,6 +561,69 @@ interface RuntimeCore {
   entrypointAgent: string;
 }
 
+interface RuntimePersistenceBindings {
+  messageStateLogger: (
+    agentInstance: AgentInstance,
+  ) => ReturnType<WorkspaceManager["createTurnMessageStateLogger"]>;
+  messageStateRecovery: (
+    agentInstance: AgentInstance,
+  ) => ReturnType<WorkspaceManager["recoverTurnMessageState"]>;
+  flushExtensionState: (agentInstance: AgentInstance) => Promise<void>;
+  extensionLoaderFactory: (agentInstance: AgentInstance) => Promise<ExtensionLoader>;
+}
+
+function hasFlushableStateStore(value: object): value is { flush: () => Promise<void> } {
+  return 'flush' in value && typeof value.flush === 'function';
+}
+
+function createRuntimePersistenceBindings(
+  workspaceManager: WorkspaceManager,
+  instanceId: string,
+): RuntimePersistenceBindings {
+  const stateStoreCache = new Map<string, Promise<StateStore>>();
+  const extensionLoaderCache = new Map<string, Promise<ExtensionLoader>>();
+
+  async function getStateStore(agentInstance: AgentInstance): Promise<StateStore> {
+    const cached = stateStoreCache.get(agentInstance.id);
+    if (cached) {
+      return cached;
+    }
+
+    const created = workspaceManager.createPersistentStateStore(instanceId);
+    stateStoreCache.set(agentInstance.id, created);
+    return created;
+  }
+
+  return {
+    messageStateLogger: (agentInstance) =>
+      workspaceManager.createTurnMessageStateLogger(instanceId, agentInstance.agentName),
+    messageStateRecovery: (agentInstance) =>
+      workspaceManager.recoverTurnMessageState(instanceId, agentInstance.agentName),
+    flushExtensionState: async (agentInstance) => {
+      const stateStore = await getStateStore(agentInstance);
+      if (hasFlushableStateStore(stateStore)) {
+        await stateStore.flush();
+      }
+    },
+    extensionLoaderFactory: async (agentInstance) => {
+      const cached = extensionLoaderCache.get(agentInstance.id);
+      if (cached) {
+        return cached;
+      }
+      const loaderPromise = getStateStore(agentInstance).then(
+        (stateStore) =>
+          new ExtensionLoader({
+            eventBus: createEventBus(),
+            stateStore,
+            logger: console,
+          }),
+      );
+      extensionLoaderCache.set(agentInstance.id, loaderPromise);
+      return loaderPromise;
+    },
+  };
+}
+
 /**
  * Bundle 결과에서 TurnRunner/Entrypoint를 재구성한다.
  */
@@ -525,6 +632,7 @@ function createRuntimeCore(
   bundleRootDir: string,
   swarmName: string,
   toolExecutor: RevisionedToolExecutor,
+  runtimePersistence?: RuntimePersistenceBindings,
 ): RuntimeCore {
   const bundleLoader = createBundleLoaderImpl({
     bundleLoadResult: result,
@@ -545,6 +653,14 @@ function createRuntimeCore(
   const turnRunner = createTurnRunner({
     stepRunner,
     maxStepsPerTurn,
+    ...(runtimePersistence
+      ? {
+          messageStateLogger: runtimePersistence.messageStateLogger,
+          messageStateRecovery: runtimePersistence.messageStateRecovery,
+          flushExtensionState: runtimePersistence.flushExtensionState,
+          extensionLoaderFactory: runtimePersistence.extensionLoaderFactory,
+        }
+      : {}),
   });
 
   const entrypointRef = getSwarmEntrypoint(swarmSpec);
@@ -575,11 +691,16 @@ async function reloadRuntimeForActiveRef(ctx: RuntimeContext): Promise<boolean> 
     return false;
   }
 
+  const runtimePersistence = createRuntimePersistenceBindings(
+    ctx.workspaceManager,
+    ctx.instanceId,
+  );
   const core = createRuntimeCore(
     result,
     ctx.bundleRootDir,
     ctx.swarmName,
     ctx.toolExecutor,
+    runtimePersistence,
   );
 
   ctx.currentBundle = result;
@@ -587,8 +708,12 @@ async function reloadRuntimeForActiveRef(ctx: RuntimeContext): Promise<boolean> 
   ctx.entrypointAgent = core.entrypointAgent;
   ctx.agentInstances.clear();
 
-  for (const swarmInstance of ctx.swarmInstanceManager.list()) {
-    swarmInstance.agents.clear();
+  const instanceInfos = await ctx.swarmInstanceManager.list();
+  for (const instanceInfo of instanceInfos) {
+    const swarmInstance = ctx.swarmInstanceManager.get(instanceInfo.instanceKey);
+    if (swarmInstance) {
+      swarmInstance.agents.clear();
+    }
   }
 
   return true;
@@ -661,7 +786,9 @@ async function processInput(
 
     // Turn 시작 이벤트 로깅
     const turnId = `turn-${Date.now()}`;
+    const traceId = `trace-${Date.now().toString(36)}`;
     await agentEventLogger.log({
+      traceId,
       kind: "turn.started",
       instanceId: ctx.instanceId,
       instanceKey: ctx.instanceKey,
@@ -679,6 +806,7 @@ async function processInput(
       displayUsage(turn);
 
       await agentEventLogger.log({
+        traceId,
         kind: "turn.completed",
         instanceId: ctx.instanceId,
         instanceKey: ctx.instanceKey,
@@ -697,6 +825,7 @@ async function processInput(
       }
 
       await agentEventLogger.log({
+        traceId,
         kind: "turn.error",
         instanceId: ctx.instanceId,
         instanceKey: ctx.instanceKey,
@@ -736,6 +865,7 @@ export async function processConnectorTurn(
     agentName,
   );
   const turnId = `turn-${Date.now()}`;
+  const traceId = `trace-${Date.now().toString(36)}`;
 
   try {
     const swarmInstance = await ctx.swarmInstanceManager.getOrCreate(
@@ -765,6 +895,7 @@ export async function processConnectorTurn(
 
     // Turn 시작 이벤트 로깅
     await agentEventLogger.log({
+      traceId,
       kind: "turn.started",
       instanceId: ctx.instanceId,
       instanceKey: options.instanceKey,
@@ -777,6 +908,7 @@ export async function processConnectorTurn(
 
     if (turn.status === "completed") {
       await agentEventLogger.log({
+        traceId,
         kind: "turn.completed",
         instanceId: ctx.instanceId,
         instanceKey: options.instanceKey,
@@ -793,6 +925,7 @@ export async function processConnectorTurn(
       : "Unknown error";
 
     await agentEventLogger.log({
+      traceId,
       kind: "turn.error",
       instanceId: ctx.instanceId,
       instanceKey: options.instanceKey,
@@ -818,6 +951,7 @@ async function initializeRuntime(
   bundleRootDir: string,
   swarmName: string,
   instanceKey: string,
+  stateRoot?: string,
 ): Promise<RuntimeContext> {
   const revisionState: RevisionState = {
     activeRef: "default",
@@ -835,6 +969,7 @@ async function initializeRuntime(
     swarmName,
     entrypointAgentForPolicy,
     revisionState,
+    stateRoot,
   );
 
   revisionState.activeRef = activeRef;
@@ -851,14 +986,20 @@ async function initializeRuntime(
     },
   });
 
-  const core = createRuntimeCore(result, bundleRootDir, swarmName, toolExecutor);
-
   // WorkspaceManager 생성 및 인스턴스 상태 초기화
   const workspaceManager = WorkspaceManager.create({
     swarmBundleRoot: bundleRootDir,
+    stateRoot,
   });
-
   const instanceId = generateInstanceId(swarmName, instanceKey);
+  const runtimePersistence = createRuntimePersistenceBindings(workspaceManager, instanceId);
+  const core = createRuntimeCore(
+    result,
+    bundleRootDir,
+    swarmName,
+    toolExecutor,
+    runtimePersistence,
+  );
 
   // 인스턴스 디렉터리 초기화 (entrypoint agent 포함)
   await workspaceManager.initializeInstanceState(instanceId, [core.entrypointAgent]);
@@ -1033,13 +1174,19 @@ async function executeRun(options: RunOptions): Promise<void> {
   try {
     // Find bundle configuration
     spinner.start("Looking for bundle configuration...");
-    const configPath = await findBundleConfig(process.cwd());
+    const configPath = await resolveBundleConfigPath(options.configPath);
 
     if (!configPath) {
       spinner.fail("Bundle configuration not found");
-      logError(
-        `Bundle not found at './${CONFIG_FILE_NAMES[0]}'. No ${CONFIG_FILE_NAMES.join(" or ")} found in current directory.`
-      );
+      if (options.configPath) {
+        logError(
+          `Bundle not found at configured path '${options.configPath}'. Provide a readable bundle file or directory containing ${CONFIG_FILE_NAMES.join(" or ")}.`
+        );
+      } else {
+        logError(
+          `Bundle not found at './${CONFIG_FILE_NAMES[0]}'. No ${CONFIG_FILE_NAMES.join(" or ")} found in current directory.`
+        );
+      }
       info("Run 'gdn init' to create a new project, or navigate to a project directory.");
       info("Run 'gdn doctor' to diagnose your environment.");
       process.exitCode = ExitCode.CONFIG_ERROR;
@@ -1088,6 +1235,13 @@ async function executeRun(options: RunOptions): Promise<void> {
       return;
     }
 
+    if (options.connector === "http") {
+      logError("Connector 'http' is not implemented yet in this CLI runtime.");
+      info("Use the default CLI connector, or configure a supported connector such as telegram.");
+      process.exitCode = ExitCode.INVALID_ARGS;
+      return;
+    }
+
     // Generate instance key if not provided
     const instanceKey = options.instanceKey ?? `cli-${Date.now()}`;
 
@@ -1105,12 +1259,15 @@ async function executeRun(options: RunOptions): Promise<void> {
       bundleRootDir,
       options.swarm,
       instanceKey,
+      options.stateRoot,
     );
     runtimeCtx = ctx;
     spinner.succeed("Runtime initialized");
 
     // Swarm lifecycle 이벤트 로깅
+    const swarmTraceId = `trace-${Date.now().toString(36)}`;
     await ctx.swarmEventLogger.log({
+      traceId: swarmTraceId,
       kind: "swarm.created",
       instanceId: ctx.instanceId,
       instanceKey: ctx.instanceKey,
@@ -1118,6 +1275,7 @@ async function executeRun(options: RunOptions): Promise<void> {
     });
 
     await ctx.swarmEventLogger.log({
+      traceId: swarmTraceId,
       kind: "agent.created",
       instanceId: ctx.instanceId,
       instanceKey: ctx.instanceKey,
@@ -1126,6 +1284,7 @@ async function executeRun(options: RunOptions): Promise<void> {
     });
 
     await ctx.swarmEventLogger.log({
+      traceId: swarmTraceId,
       kind: "swarm.started",
       instanceId: ctx.instanceId,
       instanceKey: ctx.instanceKey,
@@ -1203,6 +1362,12 @@ async function executeRun(options: RunOptions): Promise<void> {
           });
           runners.push(runner);
         } else if (detected.connectorType === "cli") {
+          if (!options.interactive) {
+            info(
+              `Skipping CLI connector '${detected.connectorName}' because interactive mode is disabled (--no-interactive).`,
+            );
+            continue;
+          }
           info(`Starting CLI connector: ${detected.connectorName}`);
           await runInteractiveMode(ctx);
           return;
@@ -1250,6 +1415,7 @@ async function executeRun(options: RunOptions): Promise<void> {
     if (runtimeCtx) {
       try {
         await runtimeCtx.swarmEventLogger.log({
+          traceId: `trace-${Date.now().toString(36)}`,
           kind: "swarm.stopped",
           instanceId: runtimeCtx.instanceId,
           instanceKey: runtimeCtx.instanceKey,
@@ -1314,11 +1480,19 @@ Examples:
     .addOption(
       new Option("--no-install", "Skip dependency installation")
     )
-    .action(async (opts: Record<string, unknown>) => {
+    .action(async (opts: Record<string, unknown>, command: Command) => {
       const optStr = (key: string): string | undefined =>
         typeof opts[key] === "string" ? opts[key] : undefined;
       const optNum = (key: string): number | undefined =>
         typeof opts[key] === "number" ? opts[key] : undefined;
+      const globalOpts = command.optsWithGlobals<{
+        config?: string;
+        stateRoot?: string;
+      }>();
+      const globalConfigPath =
+        typeof globalOpts.config === "string" ? globalOpts.config : undefined;
+      const globalStateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
 
       const runOptions: RunOptions = {
         swarm: optStr("swarm") ?? "default",
@@ -1330,6 +1504,8 @@ Examples:
         watch: opts.watch === true,
         port: optNum("port"),
         noInstall: opts.install === false,
+        configPath: globalConfigPath,
+        stateRoot: globalStateRoot,
       };
 
       await executeRun(runOptions);

@@ -88,6 +88,8 @@ metadata:
   name: cli
 spec:
   type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -97,11 +99,9 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}
 `;
   }
 
@@ -185,6 +185,8 @@ metadata:
   name: cli
 spec:
   type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -194,11 +196,9 @@ metadata:
   name: cli-to-${name}
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: ${name} }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}
 `;
   }
 
@@ -244,6 +244,8 @@ metadata:
   name: cli
 spec:
   type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -253,11 +255,9 @@ metadata:
   name: cli-to-${name}
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: ${name} }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}
 `;
 }
 
@@ -388,27 +388,25 @@ logs/
  */
 function generatePackageYaml(name: string): string {
   return `apiVersion: agents.example.io/v1alpha1
-kind: Bundle
+kind: Package
 metadata:
-  name: ${name}
-  annotations:
-    description: "${name} Bundle Package"
-spec:
+  name: "${name}"
   version: "0.1.0"
-
-  # Distribution configuration
-  dist: "./dist"
-
-  # Resources to include in the package
-  resources:
-    - "goondan.yaml"
-    - "src/tools/**/*.yaml"
+spec:
+  access: public
 
   # Dependencies (optional)
-  dependencies: {}
+  dependencies: []
 
-  # Dev dependencies (optional)
-  devDependencies: {}
+  # Resources to include in the package
+  # Paths are resolved relative to spec.dist
+  resources:
+    - "goondan.yaml"
+    - "src/tools/example/tool.yaml"
+
+  # Distribution folders to include in tarball
+  dist:
+    - "."
 `;
 }
 

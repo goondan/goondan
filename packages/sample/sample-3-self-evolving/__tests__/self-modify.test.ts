@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { handlers } from '../tools/self-modify/index.js';
 
 // Mock fs module
@@ -38,7 +39,7 @@ vi.mock('node:child_process', () => ({
   })),
 }));
 
-describe('self.readPrompt', () => {
+describe('self.read-prompt', () => {
   const mockContext = {
     swarmBundle: {
       openChangeset: vi.fn(),
@@ -56,7 +57,7 @@ describe('self.readPrompt', () => {
   it('should return error when file does not exist', async () => {
     vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'));
 
-    const result = await handlers['self.readPrompt'](mockContext, {});
+    const result = await handlers['self.read-prompt'](mockContext, {});
 
     expect(result).toMatchObject({
       success: false,
@@ -67,12 +68,13 @@ describe('self.readPrompt', () => {
   it('should return file content when file exists', async () => {
     vi.mocked(fs.access).mockResolvedValue(undefined);
     vi.mocked(fs.readFile).mockResolvedValue('# Test Prompt');
-    vi.mocked(fs.stat).mockResolvedValue({
-      size: 13,
-      mtime: new Date('2026-02-05T10:00:00Z'),
-    } as unknown as Awaited<ReturnType<typeof fs.stat>>);
+    const realFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const stat = await realFs.stat('/tmp');
+    stat.size = 13;
+    stat.mtime = new Date('2026-02-05T10:00:00Z');
+    vi.mocked(fs.stat).mockResolvedValue(stat);
 
-    const result = await handlers['self.readPrompt'](mockContext, {});
+    const result = await handlers['self.read-prompt'](mockContext, {});
 
     expect(result).toMatchObject({
       success: true,
@@ -84,7 +86,7 @@ describe('self.readPrompt', () => {
   it('should use custom prompt path', async () => {
     vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'));
 
-    const result = await handlers['self.readPrompt'](mockContext, {
+    const result = await handlers['self.read-prompt'](mockContext, {
       promptPath: 'custom/path.md',
     });
 
@@ -95,7 +97,7 @@ describe('self.readPrompt', () => {
   });
 });
 
-describe('self.updatePrompt', () => {
+describe('self.update-prompt', () => {
   const mockContext = {
     swarmBundle: {
       openChangeset: vi.fn(),
@@ -111,7 +113,7 @@ describe('self.updatePrompt', () => {
   });
 
   it('should return error when newContent is missing', async () => {
-    const result = await handlers['self.updatePrompt'](mockContext, {});
+    const result = await handlers['self.update-prompt'](mockContext, {});
 
     expect(result).toMatchObject({
       success: false,
@@ -124,7 +126,7 @@ describe('self.updatePrompt', () => {
       new Error('Git error')
     );
 
-    const result = await handlers['self.updatePrompt'](mockContext, {
+    const result = await handlers['self.update-prompt'](mockContext, {
       newContent: '# New Prompt',
     });
 
@@ -155,7 +157,7 @@ describe('self.updatePrompt', () => {
     vi.mocked(fs.mkdir).mockResolvedValue(undefined);
     vi.mocked(fs.writeFile).mockResolvedValue(undefined);
 
-    const result = await handlers['self.updatePrompt'](mockContext, {
+    const result = await handlers['self.update-prompt'](mockContext, {
       newContent: '# New Prompt',
       reason: 'Test update',
     });
@@ -187,7 +189,7 @@ describe('self.updatePrompt', () => {
     vi.mocked(fs.mkdir).mockResolvedValue(undefined);
     vi.mocked(fs.writeFile).mockResolvedValue(undefined);
 
-    const result = await handlers['self.updatePrompt'](mockContext, {
+    const result = await handlers['self.update-prompt'](mockContext, {
       newContent: '# New Prompt',
     });
 
@@ -199,7 +201,7 @@ describe('self.updatePrompt', () => {
   });
 });
 
-describe('self.viewChanges', () => {
+describe('self.view-changes', () => {
   const mockContext = {
     swarmBundle: {
       openChangeset: vi.fn(),
@@ -215,7 +217,7 @@ describe('self.viewChanges', () => {
   });
 
   it('should return empty array when no changes', async () => {
-    const result = await handlers['self.viewChanges'](mockContext, {});
+    const result = await handlers['self.view-changes'](mockContext, {});
 
     expect(result).toMatchObject({
       success: true,
@@ -226,7 +228,7 @@ describe('self.viewChanges', () => {
 
 describe('goondan.yaml validation', () => {
   it('should have valid Changeset policy structure', async () => {
-    const yamlContent = await fs.readFile(
+    const yamlContent = readFileSync(
       '/Users/channy/workspace/goondan/packages/sample/sample-3-self-evolving/goondan.yaml',
       'utf-8'
     );
@@ -244,19 +246,19 @@ describe('goondan.yaml validation', () => {
   });
 
   it('should have valid Tool exports', async () => {
-    const yamlContent = await fs.readFile(
+    const yamlContent = readFileSync(
       '/Users/channy/workspace/goondan/packages/sample/sample-3-self-evolving/goondan.yaml',
       'utf-8'
     );
 
     // Tool exports 검증
-    expect(yamlContent).toContain('- name: self.readPrompt');
-    expect(yamlContent).toContain('- name: self.updatePrompt');
-    expect(yamlContent).toContain('- name: self.viewChanges');
+    expect(yamlContent).toContain('- name: self.read-prompt');
+    expect(yamlContent).toContain('- name: self.update-prompt');
+    expect(yamlContent).toContain('- name: self.view-changes');
   });
 
   it('should have consistent Agent and Swarm policies', async () => {
-    const yamlContent = await fs.readFile(
+    const yamlContent = readFileSync(
       '/Users/channy/workspace/goondan/packages/sample/sample-3-self-evolving/goondan.yaml',
       'utf-8'
     );

@@ -9,11 +9,8 @@
  */
 
 import chalk from "chalk";
-import {
-  routeEvent,
-  createCanonicalEventFromIngress,
-} from "@goondan/core";
-import type { Resource, JsonObject } from "@goondan/core";
+import { routeEvent } from "@goondan/core";
+import type { Resource, ConnectorEvent } from "@goondan/core";
 import { info, warn, debug, error as logError } from "../utils/logger.js";
 import type { ConnectorRunner } from "./connector-runner.js";
 import {
@@ -150,53 +147,50 @@ export class TelegramConnectorRunner implements ConnectorRunner {
       return;
     }
 
-    // command 추출 (IngressMatcher가 사용)
-    const payload: JsonObject = {};
-    // update 전체를 payload로 복사 (JSONPath가 $.message.chat.id 등 접근)
-    for (const [k, v] of Object.entries(update)) {
-      payload[k] = v as import("@goondan/core").JsonValue;
-    }
+    const chatId = this.extractChatId(update);
+    const username = this.extractUsername(update);
+    const inputText = message.text;
 
-    if (message.text.startsWith("/")) {
-      const command = message.text.split(" ")[0] ?? message.text;
-      payload["command"] = command;
-    }
+    // ConnectorEvent 생성
+    const connectorEvent: ConnectorEvent = {
+      type: "connector.event",
+      name: "telegram.message",
+      message: { type: "text", text: inputText },
+      properties: {
+        chatId: chatId ?? "",
+        username: username ?? "",
+        ...(inputText.startsWith("/") ? { command: inputText.split(" ")[0] ?? inputText } : {}),
+      },
+      auth: username ? {
+        actor: { id: chatId ?? "unknown", name: username },
+        subjects: {},
+      } : undefined,
+    };
 
     // Connection rules로 라우팅
     const rules = toIngressRules(this.options.connectionResource);
-    const matchedRule = routeEvent(rules, payload);
+    const matchedRule = routeEvent(rules, connectorEvent);
 
     if (!matchedRule) {
       debug("No matching rule for Telegram update");
       return;
     }
 
-    // CanonicalEvent 생성 (JSONPath로 instanceKey, input 추출)
-    const canonical = createCanonicalEventFromIngress(matchedRule, payload, {
-      type: "telegram.message",
-      connectorName: this.options.connectorResource.metadata.name,
-      defaultInstanceKey: "telegram-default",
-    });
-
-    if (!canonical.input) {
-      return;
-    }
-
     // route에서 agentName 추출 (agentName 또는 agentRef 호환)
     const agentName = resolveAgentFromRoute(matchedRule.route);
 
-    // 채팅 정보 로그
-    const chatId = this.extractChatId(update);
-    const username = this.extractUsername(update);
-    info(`[Telegram] ${username ?? chatId}: ${canonical.input}`);
+    // instanceKey 결정 (chatId 기반)
+    const instanceKey = chatId ? `telegram-${chatId}` : "telegram-default";
+
+    info(`[Telegram] ${username ?? chatId}: ${inputText}`);
 
     // Turn 실행
     const result = await this.options.processConnectorTurn(
       this.options.runtimeCtx,
       {
-        instanceKey: canonical.instanceKey,
+        instanceKey,
         agentName,
-        input: canonical.input,
+        input: inputText,
       },
     );
 

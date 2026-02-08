@@ -25,6 +25,8 @@ packages/cli/
         update.ts     # gdn package update
         list.ts       # gdn package list
         publish.ts    # gdn package publish
+        unpublish.ts  # gdn package unpublish (패키지 버전 비게시)
+        deprecate.ts  # gdn package deprecate (패키지 폐기 표시)
         login.ts      # gdn package login
         logout.ts     # gdn package logout
         pack.ts       # gdn package pack
@@ -33,10 +35,12 @@ packages/cli/
       instance/       # gdn instance 명령어 그룹 (AGENTS.md 참조)
         index.ts      # 인스턴스 명령어 그룹 등록 (utils re-export 포함)
         utils.ts      # 공유 유틸리티 (type guards, path/JSONL/formatting, Core 재활용)
-        list.ts       # gdn instance list (--json 지원)
+        list.ts       # gdn instance list (--json, --status 필터 지원)
         inspect.ts    # gdn instance inspect (--json 지원)
-        delete.ts     # gdn instance delete
+        pause.ts      # gdn instance pause (인스턴스 일시 중지)
         resume.ts     # gdn instance resume
+        terminate.ts  # gdn instance terminate (인스턴스 종료)
+        delete.ts     # gdn instance delete
       logs.ts         # gdn logs - 로그 조회 (JSONL 파싱, 필터링, 실시간 스트리밍)
       config.ts       # gdn config get/set/list/delete/path (설정 관리)
       completion.ts   # gdn completion - 쉘 자동완성 (bash/zsh/fish/powershell)

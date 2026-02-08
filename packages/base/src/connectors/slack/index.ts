@@ -1,25 +1,19 @@
 /**
- * Slack Connector 구현
+ * Slack Connector 구현 (v1.0)
  *
- * Slack Events API 이벤트를 처리하여 canonical event로 변환하고,
- * 에이전트 응답을 Slack 채널로 전송한다.
+ * Slack Events API 이벤트를 처리하여 ConnectorEvent로 변환하고 emit한다.
+ * 단일 default export 패턴을 따른다.
  *
- * @see /docs/specs/connector.md - 10. Slack Connector 구현 예시
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
  * @packageDocumentation
  */
 
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-  ConnectorTurnAuth,
-} from '@goondan/core/connector';
-import type { JsonObject } from '@goondan/core';
-
-/**
- * TurnAuth 타입 별칭
- */
-type TurnAuth = ConnectorTurnAuth;
+  ConnectorContext,
+  ConnectorEvent,
+  HttpTriggerPayload,
+} from '@goondan/core';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 // ============================================================================
 // Types
@@ -111,10 +105,112 @@ function isNumber(value: unknown): value is number {
 }
 
 /**
- * JsonObject에서 SlackEvent를 파싱한다.
+ * HttpTriggerPayload 타입 가드
+ */
+function isHttpTrigger(trigger: { type: string }): trigger is HttpTriggerPayload {
+  return trigger.type === 'http';
+}
+
+/**
+ * 헤더 키를 대소문자 구분 없이 조회한다.
+ */
+function getHeaderValue(
+  headers: Record<string, string>,
+  headerName: string,
+): string | undefined {
+  const direct = headers[headerName];
+  if (isString(direct)) {
+    return direct;
+  }
+
+  const normalizedHeaderName = headerName.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedHeaderName && isString(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * 요청 본문을 서명 검증용 문자열로 직렬화한다.
+ */
+function getRequestRawBody(request: HttpTriggerPayload['payload']['request']): string | undefined {
+  if (isString(request.rawBody)) {
+    return request.rawBody;
+  }
+
+  try {
+    return JSON.stringify(request.body);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Slack 요청 서명을 검증한다.
+ */
+function verifySlackSignature(
+  request: HttpTriggerPayload['payload']['request'],
+  signingSecret: string,
+): boolean {
+  const signature = getHeaderValue(request.headers, 'x-slack-signature');
+  const timestamp = getHeaderValue(request.headers, 'x-slack-request-timestamp');
+
+  if (!signature || !timestamp) {
+    return false;
+  }
+
+  if (!signature.startsWith('v0=')) {
+    return false;
+  }
+
+  const rawBody = getRequestRawBody(request);
+  if (!rawBody) {
+    return false;
+  }
+
+  const baseString = `v0:${timestamp}:${rawBody}`;
+  const expected = `v0=${createHmac('sha256', signingSecret).update(baseString).digest('hex')}`;
+
+  const actualBuffer = Buffer.from(signature, 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+/**
+ * Connection verify 설정이 있을 때 Slack 서명을 검증한다.
  *
- * @param obj - 파싱할 객체
- * @returns SlackEvent 또는 undefined
+ * 검증 실패 시 emit을 중단해야 한다.
+ */
+function runVerifyHook(
+  context: ConnectorContext,
+  request: HttpTriggerPayload['payload']['request'],
+): boolean {
+  const signingSecret = context.verify?.webhook?.signingSecret;
+
+  if (!signingSecret) {
+    return true;
+  }
+
+  const verified = verifySlackSignature(request, signingSecret);
+  if (verified) {
+    context.logger.debug('[Slack] Signature verification passed');
+    return true;
+  }
+
+  context.logger.warn('[Slack] Signature verification failed');
+  return false;
+}
+
+/**
+ * JsonObject에서 SlackEvent를 파싱한다.
  */
 function parseSlackEvent(obj: unknown): SlackEvent | undefined {
   if (!isObject(obj)) {
@@ -183,9 +279,6 @@ function parseSlackEvent(obj: unknown): SlackEvent | undefined {
 
 /**
  * JsonObject에서 SlackEventPayload를 파싱한다.
- *
- * @param obj - 파싱할 객체
- * @returns SlackEventPayload 또는 undefined
  */
 function parseSlackEventPayload(obj: unknown): SlackEventPayload | undefined {
   if (!isObject(obj)) {
@@ -246,350 +339,130 @@ function parseSlackEventPayload(obj: unknown): SlackEventPayload | undefined {
 }
 
 // ============================================================================
-// Trigger Handler
+// Connector Entry Function (단일 default export)
 // ============================================================================
 
 /**
- * Slack Events API 이벤트를 처리하는 트리거 핸들러
+ * Slack Connector Entry Function
  *
- * @param event - 트리거 이벤트
- * @param _connection - 연결 설정 (현재 미사용)
- * @param ctx - 트리거 컨텍스트
+ * Slack Events API Webhook으로부터 이벤트를 받아
+ * ConnectorEvent로 변환하여 emit한다.
  */
-export async function onSlackEvent(
-  event: TriggerEvent,
-  _connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
+const slackConnector = async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, logger } = context;
+
+  // connector.trigger 이벤트만 처리
+  if (event.type !== 'connector.trigger') {
+    return;
+  }
+
+  const trigger = event.trigger;
+
+  // HTTP trigger만 처리
+  if (!isHttpTrigger(trigger)) {
+    logger.debug('[Slack] Not an HTTP trigger, skipping');
+    return;
+  }
+
+  const requestBody = trigger.payload.request.body;
+
+  // verify.webhook.signingSecret이 제공된 경우 서명 검증
+  if (!runVerifyHook(context, trigger.payload.request)) {
+    return;
+  }
+
   // 페이로드 파싱
-  const payload = parseSlackEventPayload(event.payload);
+  const payload = parseSlackEventPayload(requestBody);
   if (!payload) {
-    ctx.logger.warn('[Slack] Invalid payload received');
+    logger.warn('[Slack] Invalid payload received');
     return;
   }
 
   // URL Verification 처리 (Slack Events API 설정 시 사용)
   if (payload.type === 'url_verification') {
-    ctx.logger.debug('[Slack] URL verification challenge received');
-    // URL verification은 웹 서버에서 직접 처리해야 함
-    // 여기서는 로깅만 수행
+    logger.debug('[Slack] URL verification challenge received');
     return;
   }
 
   // event_callback 타입만 처리
   if (payload.type !== 'event_callback') {
-    ctx.logger.debug(`[Slack] Ignoring event type: ${payload.type ?? 'unknown'}`);
+    logger.debug(`[Slack] Ignoring event type: ${payload.type ?? 'unknown'}`);
     return;
   }
 
   const slackEvent = payload.event;
   if (!slackEvent) {
-    ctx.logger.warn('[Slack] No event object in payload');
+    logger.warn('[Slack] No event object in payload');
     return;
   }
 
   // 봇 메시지는 무시 (무한 루프 방지)
   if (slackEvent.bot_id || slackEvent.subtype === 'bot_message') {
-    ctx.logger.debug('[Slack] Ignoring bot message');
+    logger.debug('[Slack] Ignoring bot message');
     return;
   }
 
-  // 팀 ID 추출 (payload.team_id 또는 event.team에서)
+  // 팀 ID 추출
   const teamId = payload.team_id ?? slackEvent.team ?? '';
   if (!teamId) {
-    ctx.logger.warn('[Slack] No team ID found');
+    logger.warn('[Slack] No team ID found');
     return;
   }
 
   // 사용자 ID 추출
   const userId = slackEvent.user ?? '';
   if (!userId) {
-    ctx.logger.warn('[Slack] No user ID found');
+    logger.warn('[Slack] No user ID found');
     return;
   }
 
   // 채널 ID 추출
   const channel = slackEvent.channel ?? '';
   if (!channel) {
-    ctx.logger.warn('[Slack] No channel found');
+    logger.warn('[Slack] No channel found');
     return;
   }
 
-  // Connector 설정에서 ingress 규칙 조회
-  const connector = ctx.connector;
-  const connectorName = connector.metadata?.name ?? 'slack';
-  const ingressRules = connector.spec?.ingress ?? [];
-
-  // ingress 규칙 매칭
-  for (const rule of ingressRules) {
-    const match = rule.match ?? {};
-    const route = rule.route;
-
-    if (!route?.swarmRef) {
-      ctx.logger.warn('[Slack] No swarmRef in route');
-      continue;
-    }
-
-    // eventType 매칭
-    if (match.eventType && slackEvent.type !== match.eventType) {
-      continue;
-    }
-
-    // command 매칭 (슬래시 커맨드용)
-    if (match.command && slackEvent.command !== match.command) {
-      continue;
-    }
-
-    // channel 매칭
-    if (match.channel && slackEvent.channel !== match.channel) {
-      continue;
-    }
-
-    // instanceKey 추출 (thread_ts 또는 ts 사용)
-    const instanceKey = extractInstanceKey(payload, route.instanceKeyFrom, slackEvent);
-
-    // input 추출
-    const input = extractInput(payload, route.inputFrom, slackEvent);
-
-    // TurnAuth 생성
-    const auth = createTurnAuth(teamId, userId);
-
-    // Origin 정보 생성
-    const origin = createOrigin(slackEvent, connectorName, teamId, userId);
-
-    // metadata 생성 (undefined 제외)
-    const metadata = buildMetadata(payload);
-
-    // Canonical event 생성
-    const canonicalEvent: CanonicalEvent = {
-      type: slackEvent.type,
-      swarmRef: route.swarmRef,
-      instanceKey,
-      input,
-      origin,
-      auth,
-    };
-
-    // metadata가 있으면 추가
-    if (Object.keys(metadata).length > 0) {
-      canonicalEvent.metadata = metadata;
-    }
-
-    // agentName이 지정된 경우 추가
-    if (route.agentName) {
-      canonicalEvent.agentName = route.agentName;
-    }
-
-    // Canonical event 발행
-    await ctx.emit(canonicalEvent);
-
-    ctx.logger.info(
-      `[Slack] Emitted canonical event: type=${slackEvent.type}, ` +
-      `instanceKey=${instanceKey}, channel=${channel}`
-    );
-    return;
-  }
-
-  ctx.logger.debug(`[Slack] No matching ingress rule for event type: ${slackEvent.type}`);
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * TurnAuth를 생성한다.
- *
- * @param teamId - Slack 팀 ID
- * @param userId - Slack 사용자 ID
- * @returns TurnAuth 객체
- */
-function createTurnAuth(teamId: string, userId: string): TurnAuth {
-  return {
-    actor: {
-      type: 'user',
-      id: `slack:${userId}`,
-      display: userId,
+  // ConnectorEvent 생성 및 발행
+  const connectorEvent: ConnectorEvent = {
+    type: 'connector.event',
+    name: 'slack.message',
+    message: {
+      type: 'text',
+      text: slackEvent.text ?? '',
     },
-    subjects: {
-      // 워크스페이스 단위 토큰 조회용 (subjectMode=global)
-      global: `slack:team:${teamId}`,
-      // 사용자 단위 토큰 조회용 (subjectMode=user)
-      user: `slack:user:${teamId}:${userId}`,
+    properties: {
+      channelId: channel,
+      userId,
+      teamId,
+      threadTs: slackEvent.thread_ts ?? slackEvent.ts ?? '',
+      eventType: slackEvent.type,
+    },
+    auth: {
+      actor: {
+        id: `slack:${userId}`,
+        name: userId,
+      },
+      subjects: {
+        global: `slack:team:${teamId}`,
+        user: `slack:user:${teamId}:${userId}`,
+      },
     },
   };
-}
 
-/**
- * Origin 정보를 생성한다.
- *
- * @param slackEvent - Slack 이벤트 객체
- * @param connectorName - Connector 이름
- * @param teamId - 팀 ID
- * @param userId - 사용자 ID
- * @returns Origin 객체
- */
-function createOrigin(
-  slackEvent: SlackEvent,
-  connectorName: string,
-  teamId: string,
-  userId: string
-): JsonObject {
-  const origin: JsonObject = {
-    connector: connectorName,
-    teamId,
-    userId,
-    eventType: slackEvent.type,
-  };
+  await emit(connectorEvent);
 
-  // undefined가 아닌 값만 추가
-  if (slackEvent.channel !== undefined) {
-    origin['channel'] = slackEvent.channel;
-  }
-  if (slackEvent.thread_ts !== undefined) {
-    origin['threadTs'] = slackEvent.thread_ts;
-  } else if (slackEvent.ts !== undefined) {
-    origin['threadTs'] = slackEvent.ts;
-  }
-  if (slackEvent.ts !== undefined) {
-    origin['ts'] = slackEvent.ts;
-  }
-  if (slackEvent.channel_type !== undefined) {
-    origin['channelType'] = slackEvent.channel_type;
-  }
+  logger.info(
+    `[Slack] Emitted connector event: name=slack.message, ` +
+    `channel=${channel}, user=${userId}`
+  );
+};
 
-  return origin;
-}
-
-/**
- * metadata 정보를 생성한다.
- * undefined 값은 제외된다.
- *
- * @param payload - Slack 이벤트 페이로드
- * @returns metadata 객체
- */
-function buildMetadata(payload: SlackEventPayload): JsonObject {
-  const metadata: JsonObject = {};
-
-  if (payload.event_id !== undefined) {
-    metadata['eventId'] = payload.event_id;
-  }
-  if (payload.event_time !== undefined) {
-    metadata['eventTime'] = payload.event_time;
-  }
-  if (payload.api_app_id !== undefined) {
-    metadata['apiAppId'] = payload.api_app_id;
-  }
-
-  return metadata;
-}
-
-/**
- * JSONPath 또는 기본값으로 instanceKey를 추출한다.
- *
- * @param payload - 전체 페이로드
- * @param instanceKeyFrom - JSONPath 표현식
- * @param slackEvent - Slack 이벤트 객체
- * @returns instanceKey
- */
-function extractInstanceKey(
-  payload: SlackEventPayload,
-  instanceKeyFrom: string | undefined,
-  slackEvent: SlackEvent
-): string {
-  if (instanceKeyFrom) {
-    const value = readSimplePathFromPayload(payload, instanceKeyFrom);
-    if (value !== undefined && value !== null) {
-      return String(value);
-    }
-  }
-
-  // 기본값: thread_ts (스레드 내 대화) 또는 ts (새 대화)
-  return slackEvent.thread_ts ?? slackEvent.ts ?? `slack-${Date.now()}`;
-}
-
-/**
- * JSONPath 또는 기본값으로 input을 추출한다.
- *
- * @param payload - 전체 페이로드
- * @param inputFrom - JSONPath 표현식
- * @param slackEvent - Slack 이벤트 객체
- * @returns input 텍스트
- */
-function extractInput(
-  payload: SlackEventPayload,
-  inputFrom: string | undefined,
-  slackEvent: SlackEvent
-): string {
-  if (inputFrom) {
-    const value = readSimplePathFromPayload(payload, inputFrom);
-    if (value !== undefined && value !== null) {
-      return String(value);
-    }
-  }
-
-  // 기본값: event.text
-  return slackEvent.text ?? '';
-}
-
-/**
- * SlackEventPayload에서 간단한 JSONPath를 읽는다.
- * 타입 단언 없이 안전하게 값을 추출한다.
- *
- * @param payload - SlackEventPayload
- * @param expr - JSONPath 표현식 (예: "$.event.text")
- * @returns 추출된 값 또는 undefined
- */
-function readSimplePathFromPayload(
-  payload: SlackEventPayload,
-  expr: string
-): unknown {
-  if (!expr || !expr.startsWith('$.')) {
-    return undefined;
-  }
-
-  // $. 제거 후 경로 분리
-  const path = expr.slice(2);
-  if (!path) {
-    return payload;
-  }
-
-  // 배열 인덱스와 dot notation 처리
-  const segments = path.split(/\.|\[|\]/).filter(Boolean);
-
-  let current: unknown = payload;
-
-  for (const segment of segments) {
-    if (current === null || current === undefined) {
-      return undefined;
-    }
-
-    if (!isObject(current) && !Array.isArray(current)) {
-      return undefined;
-    }
-
-    if (Array.isArray(current)) {
-      const index = parseInt(segment, 10);
-      if (isNaN(index)) {
-        return undefined;
-      }
-      current = current[index];
-    } else {
-      current = current[segment];
-    }
-  }
-
-  return current;
-}
+export default slackConnector;
 
 // ============================================================================
 // Slack API Helpers (Egress용)
 // ============================================================================
-
-/**
- * Slack API 호출을 위한 헬퍼 함수들
- * 실제 egress 처리는 ConnectorAdapter의 send 메서드에서 이 함수들을 사용한다.
- */
 
 /**
  * Slack 메시지를 전송한다.

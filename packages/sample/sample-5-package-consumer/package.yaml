@@ -6,9 +6,12 @@ metadata:
   name: package-consumer
   version: "1.0.0"
 spec:
-  # coding-swarm 패키지를 로컬 경로로 참조
+  # coding-swarm 패키지와 base 패키지를 의존성으로 참조
   dependencies:
     - "file:../sample-1-coding-swarm"
-  # 이 패키지는 최종 소비자이므로 resources 없음
-  resources: []
-  dist: []
+    - "@goondan/base"
+  # 이 패키지가 export하는 로컬 리소스
+  resources:
+    - goondan.yaml
+  dist:
+    - "."

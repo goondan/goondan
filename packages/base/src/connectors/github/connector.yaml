@@ -6,8 +6,41 @@ metadata:
     tier: base
     category: devops
 spec:
-  type: github
   runtime: node
   entry: "./connectors/github/index.js"
   triggers:
-    - handler: onGitHubEvent
+    - type: http
+      endpoint:
+        path: /github/webhook
+        method: POST
+  events:
+    - name: github.push
+      properties:
+        repository:
+          type: string
+        ref:
+          type: string
+        action:
+          type: string
+          optional: true
+    - name: github.pull_request
+      properties:
+        repository:
+          type: string
+        action:
+          type: string
+          optional: true
+    - name: github.issues
+      properties:
+        repository:
+          type: string
+        action:
+          type: string
+          optional: true
+    - name: github.issue_comment
+      properties:
+        repository:
+          type: string
+        action:
+          type: string
+          optional: true

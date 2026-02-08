@@ -90,7 +90,7 @@ function convertMessages(messages: readonly LlmMessage[]): CoreMessage[] {
               type: "tool-call",
               toolCallId: tc.id,
               toolName: sanitizeToolName(tc.name),
-              args: tc.input,
+              args: tc.args,
             });
           }
           result.push({ role: "assistant", content: parts });
@@ -246,13 +246,14 @@ export function createLlmCallerImpl(): LlmCaller {
           toolCalls.push({
             id: tc.toolCallId,
             name: originalName,
-            input: args,
+            args,
           });
         }
       }
 
       // Assistant message 구성
       const assistantMessage: LlmAssistantMessage = {
+        id: `msg-asst-${Date.now()}`,
         role: "assistant",
         content: result.text || undefined,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -260,15 +261,17 @@ export function createLlmCallerImpl(): LlmCaller {
 
       return {
         message: assistantMessage,
-        usage: result.usage
-          ? {
-              promptTokens: result.usage.promptTokens,
-              completionTokens: result.usage.completionTokens,
-              totalTokens:
-                result.usage.promptTokens + result.usage.completionTokens,
-            }
-          : undefined,
-        finishReason: mapFinishReason(result.finishReason),
+        meta: {
+          usage: result.usage
+            ? {
+                promptTokens: result.usage.promptTokens,
+                completionTokens: result.usage.completionTokens,
+                totalTokens:
+                  result.usage.promptTokens + result.usage.completionTokens,
+              }
+            : undefined,
+          finishReason: mapFinishReason(result.finishReason),
+        },
       };
     },
   };

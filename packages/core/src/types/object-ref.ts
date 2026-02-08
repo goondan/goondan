@@ -13,6 +13,8 @@ export interface ObjectRef {
   kind: string;
   /** 리소스 이름 */
   name: string;
+  /** 패키지 이름 (선택, Bundle Package 간 참조 시 사용) */
+  package?: string;
 }
 
 /**

@@ -12,36 +12,6 @@ spec:
 
 ---
 
-# Bash Tool - 시스템 명령어 실행
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: bash
-  labels:
-    tier: system
-spec:
-  runtime: node
-  entry: "./tools/bash/index.ts"
-  errorMessageLimit: 2000
-  exports:
-    - name: bash.exec
-      description: "bash 명령어를 실행합니다. 시스템 점검, 로그 분석, 프로세스 관리 등에 사용합니다."
-      parameters:
-        type: object
-        properties:
-          command:
-            type: string
-            description: "실행할 bash 명령어"
-          timeout:
-            type: number
-            description: "타임아웃 (ms, 기본값: 30000)"
-          cwd:
-            type: string
-            description: "작업 디렉토리"
-        required: ["command"]
-
----
-
 # Delegate Tool - 에이전트 간 작업 위임
 apiVersion: agents.example.io/v1alpha1
 kind: Tool
@@ -52,7 +22,7 @@ metadata:
     category: orchestration
 spec:
   runtime: node
-  entry: "./tools/delegate/index.ts"
+  entry: "./delegate-tool.ts"
   exports:
     - name: agent.delegate
       description: "다른 에이전트에게 작업을 위임합니다. 복잡한 작업을 계획 에이전트에게 위임하거나, 실행 에이전트에게 명령을 전달할 때 사용합니다."
@@ -78,24 +48,6 @@ spec:
 
 ---
 
-# Logging Extension - 작업 로깅
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: logging
-  labels:
-    category: observability
-spec:
-  runtime: node
-  entry: "./extensions/logging/index.ts"
-  config:
-    logLevel: "info"
-    logDir: "./logs"
-    includeTimestamp: true
-    maxLogFileSizeMB: 10
-
----
-
 # DevOps Agent - 시스템 명령 실행 및 진단
 apiVersion: agents.example.io/v1alpha1
 kind: Agent
@@ -113,10 +65,10 @@ spec:
   prompts:
     systemRef: "./prompts/devops.md"
   tools:
-    - { kind: Tool, name: bash }
+    - { kind: Tool, name: bash, package: "@goondan/base" }
     - { kind: Tool, name: delegate-tool }
   extensions:
-    - { kind: Extension, name: logging }
+    - { kind: Extension, name: logging, package: "@goondan/base" }
 
 ---
 
@@ -139,7 +91,7 @@ spec:
   tools:
     - { kind: Tool, name: delegate-tool }
   extensions:
-    - { kind: Extension, name: logging }
+    - { kind: Extension, name: logging, package: "@goondan/base" }
 
 ---
 
@@ -158,24 +110,12 @@ spec:
 
 ---
 
-# CLI Connector
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: cli
-spec:
-  type: cli
-
----
-
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: cli-to-devops
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: devops-swarm }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  ingress:
+    rules:
+      - route: {}

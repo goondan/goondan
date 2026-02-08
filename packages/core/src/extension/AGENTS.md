@@ -28,10 +28,11 @@ Extension의 `register()` 함수에 전달되는 API 인터페이스:
 - `pipelines`: Mutator/Middleware 등록 API
 - `tools`: 동적 Tool 등록 API
 - `events`: 이벤트 버스
-- `swarmBundle`: Changeset API
-- `liveConfig`: Live Config API
+- `swarmBundle?`: Changeset API (선택적)
+- `liveConfig?`: Live Config API (선택적)
 - `oauth`: OAuth API
-- `extState()`: Extension별 격리 상태
+- `state.get()` / `state.set(next)`: Extension별 격리 상태 (객체 형태)
+- `getState()` / `setState(next)`: Extension별 격리 상태 (편의 메서드)
 - `instance.shared`: 인스턴스 공유 상태
 
 ### PipelineRegistry
@@ -50,10 +51,13 @@ Extension의 `register()` 함수에 전달되는 API 인터페이스:
 
 ### StateStore
 상태 관리:
-- `getExtensionState(name)`: Extension별 격리 상태
+- `getExtensionState(name)`: Extension별 격리 상태 조회
+- `setExtensionState(name, state)`: Extension별 상태 교체 (불변 패턴)
 - `getSharedState()`: 인스턴스 공유 상태
+- `setSharedState(state)`: 인스턴스 공유 상태 교체 (불변 패턴)
 - `clearExtensionState(name)`: Extension 상태 초기화
 - `clearAll()`: 모든 상태 초기화
+- `createStateStore(options)`: `initialExtensionStates`/`initialSharedState` 복원 및 persistence 콜백 지원
 
 ### ToolRegistry
 동적 Tool 관리:
@@ -72,7 +76,7 @@ Extension 모듈 로드:
 
 ### Mutator 포인트 (순차 실행)
 - `turn.pre`, `turn.post`: Turn 레벨
-- `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.post`: Step 레벨
+- `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.llmInput`, `step.post`: Step 레벨
 - `step.llmError`: LLM 에러 처리
 - `toolCall.pre`, `toolCall.post`: Tool 호출 레벨
 - `workspace.repoAvailable`, `workspace.worktreeMounted`: Workspace 레벨

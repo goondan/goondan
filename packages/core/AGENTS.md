@@ -25,10 +25,10 @@ src/
 │   └── package/          # Package 시스템 (참조 파싱, 캐싱, 의존성 해석)
 ├── runtime/      # [구현완료] 런타임 실행 모델 (SwarmInstance, AgentInstance, Turn, Step)
 │   ├── types.ts              # Runtime 타입 (LlmMessage, ToolCall, TurnOrigin, TurnAuth 등)
-│   ├── swarm-instance.ts     # SwarmInstance 클래스, SwarmInstanceManager
+│   ├── swarm-instance.ts     # SwarmInstance 클래스, SwarmInstanceManager (lifecycle metadata hooks 지원)
 │   ├── agent-instance.ts     # AgentInstance 클래스, AgentEventQueue
-│   ├── turn-runner.ts        # Turn 실행 로직, TurnRunner
-│   ├── step-runner.ts        # Step 실행 로직, StepRunner
+│   ├── turn-runner.ts        # Turn 실행 로직, TurnRunner (turn 종료 시 base/events 반영 훅 지원)
+│   ├── step-runner.ts        # Step 실행 로직, StepRunner (step.pre 포함)
 │   ├── effective-config.ts   # EffectiveConfig 계산, normalizeByIdentity
 │   ├── message-builder.ts    # LLM 메시지 빌더
 │   └── index.ts              # 모든 기능 re-export
@@ -45,24 +45,20 @@ src/
 ├── extension/    # [구현완료] Extension 시스템 (ExtensionApi, 파이프라인 등록)
 │   ├── types.ts           # Extension 타입 (PipelinePoint, Context, ExtensionApi 등)
 │   ├── event-bus.ts       # EventBus 구현 (이벤트 발행/구독)
-│   ├── state-store.ts     # StateStore 구현 (Extension별/공유 상태)
+│   ├── state-store.ts     # StateStore 구현 (Extension별/공유 상태, 복원/영속화 옵션)
 │   ├── pipeline-registry.ts # PipelineRegistry (Mutator/Middleware 등록/실행)
 │   ├── tool-registry.ts   # ToolRegistry (동적 Tool 등록/해제)
 │   ├── api.ts             # createExtensionApi 팩토리
 │   ├── loader.ts          # ExtensionLoader (모듈 로드/초기화)
 │   └── index.ts           # 모든 기능 re-export
-├── connector/    # [구현완료] Connector/Connection 시스템 (Ingress/Egress, Trigger Handler)
-│   ├── types.ts          # ConnectorAdapter, TriggerHandler, CanonicalEvent 등 타입
-│   ├── adapter.ts        # BaseConnectorAdapter, createConnectorAdapter (ConnectionConfig 기반)
-│   ├── ingress.ts        # IngressMatcher, matchIngressRule, routeEvent
-│   ├── egress.ts         # EgressHandler, createEgressHandler (debounce 포함)
-│   ├── trigger.ts        # TriggerExecutor, createTriggerContext, loadTriggerModule
-│   ├── jsonpath.ts       # readJsonPath, isValidJsonPath (jsonpath-plus 기반)
-│   ├── canonical.ts      # createCanonicalEvent, validateCanonicalEvent, toRuntimeEventInput
+├── connector/    # [구현완료] Connector/Connection 시스템 (v1.0: Entry Function, ConnectorEvent, Ingress)
+│   ├── types.ts          # ConnectorContext, ConnectorEvent, ConnectorTriggerEvent 등 런타임 타입
+│   ├── ingress.ts        # IngressMatcher, matchIngressRule, routeEvent (ConnectorEvent 기반)
+│   ├── trigger.ts        # loadConnectorEntry, createConnectorContext, validateConnectorEntry
 │   └── index.ts          # 모든 기능 re-export
 ├── oauth/        # OAuth 시스템 (OAuthApp, OAuthStore, Token 관리)
 ├── changeset/    # Changeset 시스템 (SwarmBundleRef, ChangesetPolicy)
-├── workspace/    # Workspace 시스템 (3루트 분리, 경로 규칙)
+├── workspace/    # Workspace 시스템 (3루트 분리, 경로 규칙, metadata/state 영속화 유틸)
 └── index.ts      # 메인 엔트리포인트
 ```
 

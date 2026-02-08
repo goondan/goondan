@@ -1,181 +1,90 @@
 /**
- * TriggerHandler 실행 테스트
- * @see /docs/specs/connector.md - 6. Trigger Handler 시스템, 7. Trigger Execution Model
+ * Connector Entry Function 로딩/실행 테스트 (v1.0)
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
-  TriggerExecutor,
-  createTriggerContext,
-  loadTriggerModule,
-  validateTriggerHandlers,
+  createConnectorContext,
+  loadConnectorEntry,
+  validateConnectorEntry,
 } from '../../src/connector/trigger.js';
 import type {
-  TriggerHandler,
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
+  ConnectorEvent,
+  ConnectorContext,
+  ConnectorTriggerEvent,
 } from '../../src/connector/types.js';
-import type { Resource, ConnectorSpec, ConnectionSpec, JsonObject } from '../../src/types/index.js';
+import type { Resource, ConnectorSpec, ConnectionSpec } from '../../src/types/index.js';
 
-describe('TriggerHandler 실행', () => {
-  describe('TriggerExecutor 클래스', () => {
-    it('handler를 등록하고 실행할 수 있다', async () => {
-      const emitted: CanonicalEvent[] = [];
-      const executor = new TriggerExecutor({
-        onEmit: async (event) => {
-          emitted.push(event);
-        },
-        logger: console,
-      });
+function createTestConnector(): Resource<ConnectorSpec> {
+  return {
+    apiVersion: 'agents.example.io/v1alpha1',
+    kind: 'Connector',
+    metadata: { name: 'test-connector' },
+    spec: {
+      runtime: 'node',
+      entry: './connectors/test/index.ts',
+      triggers: [{ type: 'cli' }],
+      events: [{ name: 'user_input' }],
+    },
+  };
+}
 
-      const handler: TriggerHandler = async (event, connection, ctx) => {
-        await ctx.emit({
-          type: event.type,
-          swarmRef: { kind: 'Swarm', name: 'default' },
-          instanceKey: String(event.payload['id'] ?? 'default'),
-          input: String(event.payload['message'] ?? ''),
-        });
-      };
+function createTestConnection(): Resource<ConnectionSpec> {
+  return {
+    apiVersion: 'agents.example.io/v1alpha1',
+    kind: 'Connection',
+    metadata: { name: 'test-conn' },
+    spec: {
+      connectorRef: { kind: 'Connector', name: 'test-connector' },
+      ingress: {
+        rules: [{ route: {} }],
+      },
+    },
+  };
+}
 
-      executor.registerHandler('onWebhook', handler);
+function createTestTriggerEvent(): ConnectorTriggerEvent {
+  return {
+    type: 'connector.trigger',
+    trigger: {
+      type: 'cli',
+      payload: {
+        text: 'hello world',
+      },
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
 
-      const triggerEvent: TriggerEvent = {
-        type: 'webhook',
-        payload: { id: 'req-1', message: 'test' },
-        timestamp: new Date().toISOString(),
-      };
+describe('Connector Entry Function (v1.0)', () => {
+  describe('createConnectorContext', () => {
+    it('ConnectorContext를 생성한다', () => {
+      const connector = createTestConnector();
+      const connection = createTestConnection();
+      const event = createTestTriggerEvent();
 
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
-
-      await executor.execute('onWebhook', triggerEvent, connection);
-
-      expect(emitted.length).toBe(1);
-      expect(emitted[0]?.instanceKey).toBe('req-1');
-    });
-
-    it('등록되지 않은 handler 실행 시 에러를 던진다', async () => {
-      const executor = new TriggerExecutor({
-        onEmit: async () => {},
-        logger: console,
-      });
-
-      const triggerEvent: TriggerEvent = {
-        type: 'webhook',
-        payload: {},
-        timestamp: new Date().toISOString(),
-      };
-
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
-
-      await expect(executor.execute('nonexistent', triggerEvent, connection)).rejects.toThrow(
-        'Handler not found: nonexistent'
-      );
-    });
-
-    it('여러 handler를 등록할 수 있다', async () => {
-      const executor = new TriggerExecutor({
-        onEmit: async () => {},
-        logger: console,
-      });
-
-      const onWebhook: TriggerHandler = async () => {};
-      const onCron: TriggerHandler = async () => {};
-
-      executor.registerHandler('onWebhook', onWebhook);
-      executor.registerHandler('onCron', onCron);
-
-      expect(executor.hasHandler('onWebhook')).toBe(true);
-      expect(executor.hasHandler('onCron')).toBe(true);
-      expect(executor.hasHandler('onQueue')).toBe(false);
-    });
-
-    it('handler 실행 중 에러가 발생하면 전파한다', async () => {
-      const executor = new TriggerExecutor({
-        onEmit: async () => {},
-        logger: console,
-      });
-
-      const failingHandler: TriggerHandler = async () => {
-        throw new Error('Handler error');
-      };
-
-      executor.registerHandler('failing', failingHandler);
-
-      const triggerEvent: TriggerEvent = {
-        type: 'test',
-        payload: {},
-        timestamp: new Date().toISOString(),
-      };
-
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
-
-      await expect(executor.execute('failing', triggerEvent, connection)).rejects.toThrow(
-        'Handler error'
-      );
-    });
-  });
-
-  describe('createTriggerContext 함수', () => {
-    it('TriggerContext를 생성한다', () => {
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'test-connector' },
-        spec: { type: 'custom' },
-      };
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
-
-      const ctx = createTriggerContext({
+      const ctx = createConnectorContext({
         connector,
         connection,
+        event,
         onEmit: async () => {},
         logger: console,
       });
 
-      expect(ctx.emit).toBeDefined();
-      expect(ctx.logger).toBeDefined();
+      expect(ctx.event).toBe(event);
       expect(ctx.connector).toBe(connector);
       expect(ctx.connection).toBe(connection);
+      expect(ctx.emit).toBeDefined();
+      expect(ctx.logger).toBeDefined();
     });
 
     it('emit 호출 시 onEmit 콜백이 실행된다', async () => {
-      const emitted: CanonicalEvent[] = [];
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'test-connector' },
-        spec: { type: 'custom' },
-      };
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
+      const emitted: ConnectorEvent[] = [];
 
-      const ctx = createTriggerContext({
-        connector,
-        connection,
+      const ctx = createConnectorContext({
+        connector: createTestConnector(),
+        connection: createTestConnection(),
+        event: createTestTriggerEvent(),
         onEmit: async (event) => {
           emitted.push(event);
         },
@@ -183,37 +92,24 @@ describe('TriggerHandler 실행', () => {
       });
 
       await ctx.emit({
-        type: 'test',
-        swarmRef: { kind: 'Swarm', name: 'default' },
-        instanceKey: 'key-1',
-        input: 'hello',
+        type: 'connector.event',
+        name: 'user_input',
+        message: { type: 'text', text: 'hello' },
       });
 
-      expect(emitted.length).toBe(1);
-      expect(emitted[0]?.type).toBe('test');
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.name).toBe('user_input');
     });
 
     it('oauth 옵션이 제공되면 ctx.oauth가 설정된다', async () => {
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'slack-connector' },
-        spec: { type: 'slack' },
-      };
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'slack-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'slack-connector' } },
-      };
-
-      const ctx = createTriggerContext({
-        connector,
-        connection,
+      const ctx = createConnectorContext({
+        connector: createTestConnector(),
+        connection: createTestConnection(),
+        event: createTestTriggerEvent(),
         onEmit: async () => {},
         logger: console,
         oauth: {
-          getAccessToken: async (request) => ({
+          getAccessToken: async () => ({
             accessToken: 'xoxb-token',
             expiresAt: Date.now() + 3600000,
           }),
@@ -225,220 +121,253 @@ describe('TriggerHandler 실행', () => {
       expect(result?.accessToken).toBe('xoxb-token');
     });
 
-    it('liveConfig 옵션이 제공되면 ctx.liveConfig가 설정된다', async () => {
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'test-connector' },
-        spec: { type: 'custom' },
-      };
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: { connectorRef: { kind: 'Connector', name: 'test-connector' } },
-      };
-
-      const patches: unknown[] = [];
-      const ctx = createTriggerContext({
-        connector,
-        connection,
+    it('verify 옵션이 제공되면 ctx.verify가 설정된다', () => {
+      const ctx = createConnectorContext({
+        connector: createTestConnector(),
+        connection: createTestConnection(),
+        event: createTestTriggerEvent(),
         onEmit: async () => {},
         logger: console,
-        liveConfig: {
-          proposePatch: async (patch) => {
-            patches.push(patch);
+        verify: {
+          webhook: {
+            signingSecret: 'test-secret-value',
           },
         },
       });
 
-      expect(ctx.liveConfig).toBeDefined();
-      await ctx.liveConfig?.proposePatch({
-        resourceRef: 'Agent/coder',
-        patch: { maxTokens: 2000 },
+      expect(ctx.verify).toBeDefined();
+      expect(ctx.verify?.webhook?.signingSecret).toBe('test-secret-value');
+    });
+
+    it('oauth와 verify가 없으면 undefined이다', () => {
+      const ctx = createConnectorContext({
+        connector: createTestConnector(),
+        connection: createTestConnection(),
+        event: createTestTriggerEvent(),
+        onEmit: async () => {},
+        logger: console,
       });
-      expect(patches.length).toBe(1);
+
+      expect(ctx.oauth).toBeUndefined();
+      expect(ctx.verify).toBeUndefined();
     });
   });
 
-  describe('loadTriggerModule 함수', () => {
-    it('모듈에서 handler를 로드한다', async () => {
-      // 모듈 모킹
+  describe('loadConnectorEntry', () => {
+    it('모듈에서 default export 함수를 로드한다', () => {
       const mockModule = {
-        onWebhook: async (
-          event: TriggerEvent,
-          connection: Resource<ConnectionSpec>,
-          ctx: TriggerContext
-        ) => {},
-        onCron: async (
-          event: TriggerEvent,
-          connection: Resource<ConnectionSpec>,
-          ctx: TriggerContext
-        ) => {},
+        default: async (ctx: ConnectorContext) => {
+          await ctx.emit({
+            type: 'connector.event',
+            name: 'user_input',
+            message: { type: 'text', text: 'loaded' },
+          });
+        },
       };
 
-      const handlers = loadTriggerModule(mockModule, ['onWebhook', 'onCron']);
-
-      expect(handlers.size).toBe(2);
-      expect(handlers.has('onWebhook')).toBe(true);
-      expect(handlers.has('onCron')).toBe(true);
+      const entry = loadConnectorEntry(mockModule);
+      expect(typeof entry).toBe('function');
     });
 
-    it('handler가 함수가 아니면 에러를 던진다', () => {
+    it('로드된 함수가 실행 가능하다', async () => {
+      const emitted: ConnectorEvent[] = [];
+
       const mockModule = {
-        onWebhook: 'not a function',
+        default: async (ctx: ConnectorContext) => {
+          await ctx.emit({
+            type: 'connector.event',
+            name: 'test',
+            message: { type: 'text', text: 'from entry' },
+          });
+        },
       };
 
-      expect(() => loadTriggerModule(mockModule, ['onWebhook'])).toThrow(
-        'Handler is not a function: onWebhook'
+      const entry = loadConnectorEntry(mockModule);
+
+      const ctx = createConnectorContext({
+        connector: createTestConnector(),
+        connection: createTestConnection(),
+        event: createTestTriggerEvent(),
+        onEmit: async (event) => { emitted.push(event); },
+        logger: console,
+      });
+
+      await entry(ctx);
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.message).toEqual({ type: 'text', text: 'from entry' });
+    });
+
+    it('default export가 없으면 에러를 던진다', () => {
+      const mockModule = {
+        namedExport: async () => {},
+      };
+
+      expect(() => loadConnectorEntry(mockModule)).toThrow(
+        'Connector entry module must have a default export'
       );
     });
 
-    it('handler가 존재하지 않으면 에러를 던진다', () => {
+    it('default export가 함수가 아니면 에러를 던진다', () => {
       const mockModule = {
-        onWebhook: async () => {},
+        default: 'not a function',
       };
 
-      expect(() => loadTriggerModule(mockModule, ['onWebhook', 'onCron'])).toThrow(
-        'Handler not exported: onCron'
+      expect(() => loadConnectorEntry(mockModule)).toThrow(
+        'Connector entry default export must be a function'
       );
     });
   });
 
-  describe('validateTriggerHandlers 함수', () => {
-    it('모든 handler가 존재하면 성공한다', () => {
+  describe('validateConnectorEntry', () => {
+    it('유효한 모듈이면 성공한다', () => {
       const module = {
-        onWebhook: async () => {},
-        onCron: async () => {},
+        default: async () => {},
       };
-      const triggers = [{ handler: 'onWebhook' }, { handler: 'onCron' }];
 
-      const result = validateTriggerHandlers(module, triggers);
+      const result = validateConnectorEntry(module);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
-    it('누락된 handler를 보고한다', () => {
+    it('default export가 없으면 실패한다', () => {
       const module = {
-        onWebhook: async () => {},
+        namedExport: async () => {},
       };
-      const triggers = [{ handler: 'onWebhook' }, { handler: 'onCron' }];
 
-      const result = validateTriggerHandlers(module, triggers);
+      const result = validateConnectorEntry(module);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Handler not exported: onCron');
+      expect(result.errors).toContain('default export not found');
     });
 
-    it('함수가 아닌 export를 보고한다', () => {
+    it('default export가 함수가 아니면 실패한다', () => {
       const module = {
-        onWebhook: async () => {},
-        onCron: 'not a function',
+        default: 42,
       };
-      const triggers = [{ handler: 'onWebhook' }, { handler: 'onCron' }];
 
-      const result = validateTriggerHandlers(module, triggers);
+      const result = validateConnectorEntry(module);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Handler is not a function: onCron');
+      expect(result.errors).toContain('default export is not a function');
     });
 
-    it('triggers가 비어있으면 성공한다', () => {
+    it('빈 모듈이면 실패한다', () => {
       const module = {};
-      const triggers: { handler: string }[] = [];
 
-      const result = validateTriggerHandlers(module, triggers);
+      const result = validateConnectorEntry(module);
 
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
     });
   });
 
-  describe('TriggerExecutor connection 파라미터', () => {
-    it('connection 객체를 handler에 전달한다', async () => {
-      let receivedConnection: Resource<ConnectionSpec> | null = null;
-
-      const executor = new TriggerExecutor({
-        onEmit: async () => {},
-        logger: console,
-      });
-
-      const handler: TriggerHandler = async (event, connection, ctx) => {
-        receivedConnection = connection;
-      };
-
-      executor.registerHandler('onWebhook', handler);
-
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'test-conn' },
-        spec: {
-          connectorRef: { kind: 'Connector', name: 'test-connector' },
-        },
-      };
-
-      await executor.execute(
-        'onWebhook',
-        { type: 'webhook', payload: {}, timestamp: new Date().toISOString() },
-        connection
-      );
-
-      expect(receivedConnection).toEqual(connection);
-    });
-  });
-
-  describe('TriggerContext.connector 접근', () => {
-    it('handler에서 connector 설정에 접근할 수 있다', async () => {
-      let connectorName: string | undefined;
-
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'my-webhook' },
-        spec: {
-          type: 'custom',
-        },
-      };
-
-      const connection: Resource<ConnectionSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connection',
-        metadata: { name: 'my-webhook-conn' },
-        spec: {
-          connectorRef: { kind: 'Connector', name: 'my-webhook' },
-          rules: [
-            {
-              route: {
-                swarmRef: { kind: 'Swarm', name: 'default' },
-                instanceKeyFrom: '$.id',
-                inputFrom: '$.message',
-              },
+  describe('ConnectorTriggerEvent 타입 시스템', () => {
+    it('HTTP trigger event를 생성할 수 있다', () => {
+      const event: ConnectorTriggerEvent = {
+        type: 'connector.trigger',
+        trigger: {
+          type: 'http',
+          payload: {
+            request: {
+              method: 'POST',
+              path: '/webhook/slack/events',
+              headers: { 'content-type': 'application/json' },
+              body: { type: 'event_callback', event: { type: 'app_mention' } },
+              rawBody: '{"type":"event_callback"}',
             },
-          ],
+          },
+        },
+        timestamp: '2026-02-08T00:00:00Z',
+      };
+
+      expect(event.trigger.type).toBe('http');
+    });
+
+    it('Cron trigger event를 생성할 수 있다', () => {
+      const event: ConnectorTriggerEvent = {
+        type: 'connector.trigger',
+        trigger: {
+          type: 'cron',
+          payload: {
+            schedule: '0 9 * * MON-FRI',
+            scheduledAt: '2026-02-08T09:00:00Z',
+          },
+        },
+        timestamp: '2026-02-08T09:00:00Z',
+      };
+
+      expect(event.trigger.type).toBe('cron');
+    });
+
+    it('CLI trigger event를 생성할 수 있다', () => {
+      const event: ConnectorTriggerEvent = {
+        type: 'connector.trigger',
+        trigger: {
+          type: 'cli',
+          payload: {
+            text: 'hello agent',
+            instanceKey: 'session-1',
+          },
+        },
+        timestamp: '2026-02-08T00:00:00Z',
+      };
+
+      expect(event.trigger.type).toBe('cli');
+      expect(event.trigger.payload.text).toBe('hello agent');
+    });
+  });
+
+  describe('ConnectorEvent 타입 시스템', () => {
+    it('텍스트 메시지 이벤트를 생성할 수 있다', () => {
+      const event: ConnectorEvent = {
+        type: 'connector.event',
+        name: 'app_mention',
+        message: { type: 'text', text: '<@U123> hello' },
+        properties: { channel_id: 'C123', ts: '123.456' },
+        auth: {
+          actor: { id: 'slack:U234567' },
+          subjects: {
+            global: 'slack:team:T111',
+            user: 'slack:user:T111:U234567',
+          },
         },
       };
 
-      const executor = new TriggerExecutor({
-        onEmit: async () => {},
-        logger: console,
-        connector,
-        connection,
-      });
+      expect(event.type).toBe('connector.event');
+      expect(event.name).toBe('app_mention');
+      expect(event.message.type).toBe('text');
+    });
 
-      const handler: TriggerHandler = async (event, conn, ctx) => {
-        connectorName = ctx.connector.metadata.name;
+    it('이미지 메시지 이벤트를 생성할 수 있다', () => {
+      const event: ConnectorEvent = {
+        type: 'connector.event',
+        name: 'image_upload',
+        message: { type: 'image', image: 'base64-encoded-data' },
       };
 
-      executor.registerHandler('onWebhook', handler);
+      expect(event.message.type).toBe('image');
+    });
 
-      await executor.execute(
-        'onWebhook',
-        { type: 'webhook', payload: {}, timestamp: new Date().toISOString() },
-        connection
-      );
+    it('파일 메시지 이벤트를 생성할 수 있다', () => {
+      const event: ConnectorEvent = {
+        type: 'connector.event',
+        name: 'file_upload',
+        message: { type: 'file', data: 'base64-file-data', mediaType: 'application/pdf' },
+      };
 
-      expect(connectorName).toBe('my-webhook');
+      expect(event.message.type).toBe('file');
+    });
+
+    it('properties와 auth는 선택적이다', () => {
+      const event: ConnectorEvent = {
+        type: 'connector.event',
+        name: 'simple_event',
+        message: { type: 'text', text: 'hello' },
+      };
+
+      expect(event.properties).toBeUndefined();
+      expect(event.auth).toBeUndefined();
     });
   });
 });

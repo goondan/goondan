@@ -7,6 +7,7 @@ Goondan Runtime의 실행 라이프사이클에서 Extension이 개입할 수 �
 파이프라인을 통해 Extension은 다음을 수행할 수 있습니다:
 - 도구 카탈로그 조작 (step.tools)
 - 컨텍스트 블록 주입 (step.blocks)
+- LLM 입력 메시지 전처리 (step.llmInput)
 - LLM 호출 래핑 (step.llmCall)
 - 도구 실행 제어 (toolCall.exec)
 - 워크스페이스 이벤트 처리 (workspace.*)
@@ -61,6 +62,7 @@ api.pipelines.wrap('step.llmCall', async (ctx, next) => {
 | `step.config` | Mutator | SwarmBundleRef 활성화 및 Effective Config 로드 |
 | `step.tools` | Mutator | Tool Catalog 구성 |
 | `step.blocks` | Mutator | Context Blocks 구성 |
+| `step.llmInput` | Mutator | LLM 입력 메시지 최종 전처리 |
 | `step.llmCall` | Middleware | LLM 호출 래핑 |
 | `step.llmError` | Mutator | LLM 호출 실패 시 오류 처리 |
 | `step.post` | Mutator | Step 종료 직후 |
@@ -86,6 +88,18 @@ api.pipelines.wrap('step.llmCall', async (ctx, next) => {
 
 ### createPipelineApi(registry)
 Extension에 제공되는 PipelineApi 인터페이스를 생성합니다.
+
+## 주요 타입 변경 사항 (v0.10)
+
+- `Turn.messages` -> `Turn.messageState: { baseMessages, events, nextMessages }` (NextMessages = BaseMessages + SUM(Events))
+- `MessageEvent`: discriminated union (`system_message | llm_message | replace | remove | truncate`)
+- `TurnContext`: `baseMessages?`, `messageEvents?`, `emitMessageEvent?` 추가
+- `ToolCall.input` -> `ToolCall.args`
+- `ToolResult.status`: `'ok' | 'error' | 'pending'` (pending 추가)
+- `ToolResult.error`: `suggestion?`, `helpUrl?` 추가
+- `ToolResult.handle?`: 비동기 결과 핸들 추가
+- `LlmMessage`: `id: string` 필수 필드 추가
+- `step.llmError`: Middleware -> Mutator로 변경
 
 ## 참조 문서
 

@@ -34,6 +34,12 @@ export interface DoctorCheckResult {
  */
 export interface DoctorOptions {
   fix: boolean;
+  /** Run runtime health check */
+  runtime: boolean;
+  /** Port for HTTP mode health check */
+  port?: number;
+  /** Output as JSON */
+  json: boolean;
 }
 
 /**
@@ -549,93 +555,256 @@ function formatCheckResult(result: DoctorCheckResult): void {
 }
 
 /**
- * Execute the doctor command
+ * Runtime health check response shape
  */
-async function executeDoctorCommand(_options: DoctorOptions): Promise<void> {
+interface HealthCheckResponse {
+  status: string;
+  uptime?: number;
+  instances?: Record<string, number>;
+  timestamp?: string;
+}
+
+/**
+ * Doctor output section
+ */
+interface DoctorSection {
+  title: string;
+  checks: DoctorCheckResult[];
+}
+
+/**
+ * Doctor summary
+ */
+interface DoctorSummary {
+  passCount: number;
+  warnCount: number;
+  failCount: number;
+}
+
+/**
+ * JSON output payload for doctor command
+ */
+interface DoctorJsonOutput {
+  ok: boolean;
+  generatedAt: string;
+  runtimeChecked: boolean;
+  port?: number;
+  summary: {
+    passed: number;
+    warnings: number;
+    errors: number;
+  };
+  sections: DoctorSection[];
+}
+
+/**
+ * Type guard for HealthCheckResponse
+ */
+function isHealthCheckResponse(value: unknown): value is HealthCheckResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "status" in value &&
+    typeof (value as Record<string, unknown>).status === "string"
+  );
+}
+
+/**
+ * Check runtime health via HTTP endpoint
+ */
+async function checkRuntimeHealth(port: number): Promise<DoctorCheckResult> {
+  const url = `http://localhost:${port}/health`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return {
+        name: "Runtime Health",
+        status: "fail",
+        message: `Health endpoint returned HTTP ${response.status}`,
+        detail: `Check if the runtime is running on port ${port}`,
+      };
+    }
+
+    const body: unknown = await response.json();
+
+    if (isHealthCheckResponse(body)) {
+      const instanceInfo = body.instances
+        ? ` (running: ${body.instances.running ?? 0}, paused: ${body.instances.paused ?? 0})`
+        : "";
+      return {
+        name: "Runtime Health",
+        status: body.status === "healthy" ? "pass" : "warn",
+        message: `Runtime is ${body.status}${instanceInfo}`,
+      };
+    }
+
+    return {
+      name: "Runtime Health",
+      status: "warn",
+      message: "Unexpected health response format",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    if (message.includes("abort") || message.includes("ABORT")) {
+      return {
+        name: "Runtime Health",
+        status: "fail",
+        message: "Health check timed out",
+        detail: `Could not reach http://localhost:${port}/health within 5 seconds`,
+      };
+    }
+
+    return {
+      name: "Runtime Health",
+      status: "fail",
+      message: `Cannot reach runtime at port ${port}`,
+      detail: `Ensure the runtime is running with: gdn run --connector http --port ${port}`,
+    };
+  }
+}
+
+/**
+ * Build sectioned check results
+ */
+async function collectDoctorSections(options: DoctorOptions): Promise<DoctorSection[]> {
+  const systemChecks = [
+    checkNodeVersion(),
+    checkNpm(),
+    checkPnpm(),
+    checkTypeScript(),
+  ];
+  const apiKeyChecks = checkApiKeys();
+  const goondanPackageChecks = checkGoondanPackages();
+  const projectChecks = [
+    checkBundleConfig(),
+    checkDependencies(),
+    await checkBundleValidation(),
+  ];
+
+  const sections: DoctorSection[] = [
+    { title: "System", checks: systemChecks },
+    { title: "API Keys", checks: apiKeyChecks },
+    { title: "Goondan Packages", checks: goondanPackageChecks },
+    { title: "Project", checks: projectChecks },
+  ];
+
+  if (options.runtime) {
+    const runtimePort = options.port ?? 3000;
+    const runtimeCheck = await checkRuntimeHealth(runtimePort);
+    sections.push({
+      title: "Runtime",
+      checks: [runtimeCheck],
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Build summary from check results
+ */
+function summarizeChecks(sections: DoctorSection[]): DoctorSummary {
+  const allChecks = sections.flatMap((section) => section.checks);
+
+  return {
+    passCount: allChecks.filter((check) => check.status === "pass").length,
+    warnCount: allChecks.filter((check) => check.status === "warn").length,
+    failCount: allChecks.filter((check) => check.status === "fail").length,
+  };
+}
+
+/**
+ * Render human-readable doctor output
+ */
+function renderDoctorText(
+  sections: DoctorSection[],
+  summary: DoctorSummary,
+): void {
   console.log();
   console.log(chalk.bold("Goondan Doctor"));
   console.log(chalk.dim("Checking your environment..."));
   console.log();
 
-  const allResults: DoctorCheckResult[] = [];
-
-  // 1. System checks
-  console.log(chalk.bold.underline("System"));
-  const nodeResult = checkNodeVersion();
-  formatCheckResult(nodeResult);
-  allResults.push(nodeResult);
-
-  const npmResult = checkNpm();
-  formatCheckResult(npmResult);
-  allResults.push(npmResult);
-
-  const pnpmResult = checkPnpm();
-  formatCheckResult(pnpmResult);
-  allResults.push(pnpmResult);
-
-  const tsResult = checkTypeScript();
-  formatCheckResult(tsResult);
-  allResults.push(tsResult);
-
-  console.log();
-
-  // 2. API keys
-  console.log(chalk.bold.underline("API Keys"));
-  const apiKeyResults = checkApiKeys();
-  for (const result of apiKeyResults) {
-    formatCheckResult(result);
-    allResults.push(result);
+  for (const section of sections) {
+    console.log(chalk.bold.underline(section.title));
+    for (const check of section.checks) {
+      formatCheckResult(check);
+    }
+    console.log();
   }
-
-  console.log();
-
-  // 3. Goondan packages
-  console.log(chalk.bold.underline("Goondan Packages"));
-  const packageResults = checkGoondanPackages();
-  for (const result of packageResults) {
-    formatCheckResult(result);
-    allResults.push(result);
-  }
-
-  console.log();
-
-  // 4. Project checks
-  console.log(chalk.bold.underline("Project"));
-  const bundleResult = checkBundleConfig();
-  formatCheckResult(bundleResult);
-  allResults.push(bundleResult);
-
-  const depsResult = checkDependencies();
-  formatCheckResult(depsResult);
-  allResults.push(depsResult);
-
-  const validationResult = await checkBundleValidation();
-  formatCheckResult(validationResult);
-  allResults.push(validationResult);
-
-  console.log();
 
   // Summary
-  const failCount = allResults.filter((r) => r.status === "fail").length;
-  const warnCount = allResults.filter((r) => r.status === "warn").length;
-  const passCount = allResults.filter((r) => r.status === "pass").length;
-
   console.log(chalk.bold("Summary"));
   console.log(
-    `  ${chalk.green(`${passCount} passed`)}, ${chalk.yellow(`${warnCount} warnings`)}, ${chalk.red(`${failCount} errors`)}`
+    `  ${chalk.green(`${summary.passCount} passed`)}, ${chalk.yellow(`${summary.warnCount} warnings`)}, ${chalk.red(`${summary.failCount} errors`)}`
   );
   console.log();
+}
 
-  if (failCount > 0) {
-    logError("Some checks failed. Fix the issues above to proceed.");
-    process.exitCode = 1;
-  } else if (warnCount > 0) {
-    warn("Some checks have warnings. Your environment may work, but consider resolving them.");
-  } else {
-    info(chalk.green("All checks passed. Your environment is ready!"));
+/**
+ * Render JSON doctor output
+ */
+function renderDoctorJson(
+  sections: DoctorSection[],
+  summary: DoctorSummary,
+  options: DoctorOptions,
+): void {
+  const output: DoctorJsonOutput = {
+    ok: summary.failCount === 0,
+    generatedAt: new Date().toISOString(),
+    runtimeChecked: options.runtime,
+    summary: {
+      passed: summary.passCount,
+      warnings: summary.warnCount,
+      errors: summary.failCount,
+    },
+    sections,
+  };
+
+  if (options.runtime) {
+    output.port = options.port ?? 3000;
   }
 
-  console.log();
+  console.log(JSON.stringify(output, null, 2));
+}
+
+/**
+ * Execute the doctor command
+ */
+async function executeDoctorCommand(options: DoctorOptions): Promise<void> {
+  const sections = await collectDoctorSections(options);
+  const summary = summarizeChecks(sections);
+
+  if (options.json) {
+    renderDoctorJson(sections, summary, options);
+  } else {
+    renderDoctorText(sections, summary);
+  }
+
+  if (summary.failCount > 0) {
+    if (!options.json) {
+      logError("Some checks failed. Fix the issues above to proceed.");
+      console.log();
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!options.json) {
+    if (summary.warnCount > 0) {
+      warn("Some checks have warnings. Your environment may work, but consider resolving them.");
+    } else {
+      info(chalk.green("All checks passed. Your environment is ready!"));
+    }
+    console.log();
+  }
 }
 
 /**
@@ -655,10 +824,17 @@ Examples:
   $ gdn doctor          Check environment readiness
   $ gdn doctor --json   Output results as JSON`
     )
+    .option("--json", "Output results as JSON", false)
     .option("--fix", "Attempt to fix issues automatically (placeholder)", false)
-    .action(async (options: Record<string, unknown>) => {
+    .option("--runtime", "Run runtime health check", false)
+    .option("-p, --port <number>", "Port for HTTP mode health check", (v) => parseInt(v, 10))
+    .action(async (options: Record<string, unknown>, command: Command) => {
+      const globalOptions = command.optsWithGlobals<{ json?: boolean }>();
       const doctorOptions: DoctorOptions = {
-        fix: options.fix === true,
+        fix: options["fix"] === true,
+        json: options["json"] === true || globalOptions.json === true,
+        runtime: options["runtime"] === true,
+        port: typeof options["port"] === "number" ? options["port"] : undefined,
       };
       await executeDoctorCommand(doctorOptions);
     });
@@ -677,6 +853,7 @@ export {
   checkTypeScript,
   checkGoondanPackages,
   checkBundleValidation,
+  checkRuntimeHealth,
   parseVersion,
   executeDoctorCommand,
 };

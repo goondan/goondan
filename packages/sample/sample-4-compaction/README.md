@@ -91,7 +91,7 @@ spec:
 
 Extension은 다음 Tool을 자동으로 등록합니다:
 
-### `compaction.getStatus`
+### `compaction.get-status`
 
 현재 압축 상태와 통계를 조회합니다.
 
@@ -105,7 +105,7 @@ Extension은 다음 Tool을 자동으로 등록합니다:
 }
 ```
 
-### `compaction.getSummaries`
+### `compaction.get-summaries`
 
 이전 압축에서 생성된 요약 목록을 조회합니다.
 
@@ -123,7 +123,7 @@ Extension은 다음 Tool을 자동으로 등록합니다:
 }
 ```
 
-### `compaction.forceCompact`
+### `compaction.force-compact`
 
 수동으로 압축을 강제 실행합니다.
 

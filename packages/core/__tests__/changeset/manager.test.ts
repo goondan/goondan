@@ -233,6 +233,52 @@ describe('SwarmBundleManager', () => {
       expect(result.summary?.filesDeleted).toContain('prompts/system.md');
     });
 
+    it('선행 반영된 changeset과 충돌하면 conflict를 반환하고 workdir을 유지해야 한다', async () => {
+      const manager = new SwarmBundleManagerImpl({
+        swarmBundleRoot: repoDir,
+        goondanHome,
+        workspaceId,
+      });
+
+      const first = await manager.openChangeset();
+      const second = await manager.openChangeset();
+
+      await fs.writeFile(
+        path.join(first.workdir, 'prompts', 'system.md'),
+        '# Updated by first changeset'
+      );
+      const firstResult = await manager.commitChangeset({
+        changesetId: first.changesetId,
+      });
+      expect(firstResult.status).toBe('ok');
+
+      await fs.writeFile(
+        path.join(second.workdir, 'prompts', 'system.md'),
+        '# Updated by second changeset'
+      );
+      const secondResult = await manager.commitChangeset({
+        changesetId: second.changesetId,
+      });
+
+      expect(secondResult.status).toBe('conflict');
+      expect(secondResult.error?.code).toBe('MERGE_CONFLICT');
+      const conflictingFiles = secondResult.error?.conflictingFiles ?? [];
+      expect(conflictingFiles.some((file) => file.includes('prompts/system.md'))).toBe(true);
+
+      const workdirExists = await fs
+        .access(second.workdir)
+        .then(() => true)
+        .catch(() => false);
+      expect(workdirExists).toBe(true);
+
+      const retryResult = await manager.commitChangeset({
+        changesetId: second.changesetId,
+      });
+      expect(retryResult.status).toBe('conflict');
+
+      await manager.discardChangeset(second.changesetId);
+    });
+
     it('존재하지 않는 changesetId에 대해 failed를 반환해야 한다', async () => {
       const manager = new SwarmBundleManagerImpl({
         swarmBundleRoot: repoDir,

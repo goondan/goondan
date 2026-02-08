@@ -64,8 +64,12 @@ describe('Extension 타입 정의', () => {
       // oauth 속성
       expect('oauth' in api).toBe(true);
 
-      // extState 속성
-      expect('extState' in api).toBe(true);
+      // state 속성
+      expect('state' in api).toBe(true);
+
+      // getState/setState 속성
+      expect('getState' in api).toBe(true);
+      expect('setState' in api).toBe(true);
 
       // instance 속성
       expect('instance' in api).toBe(true);
@@ -98,8 +102,11 @@ describe('Extension 타입 정의', () => {
         stateStore: createStateStore(),
       });
 
-      // extState가 함수인지 확인
-      expect(typeof api.extState).toBe('function');
+      // state.get/state.set이 함수인지 확인
+      expect(typeof api.state.get).toBe('function');
+      expect(typeof api.state.set).toBe('function');
+      expect(typeof api.getState).toBe('function');
+      expect(typeof api.setState).toBe('function');
     });
   });
 
@@ -194,6 +201,7 @@ describe('Extension 타입 정의', () => {
         'step.config',
         'step.tools',
         'step.blocks',
+        'step.llmInput',
         'step.llmCall',
         'step.llmError',
         'step.post',
@@ -215,7 +223,7 @@ describe('Extension 타입 정의', () => {
         ...workspacePoints,
       ];
 
-      expect(allPoints).toHaveLength(14);
+      expect(allPoints).toHaveLength(15);
     });
   });
 
@@ -228,6 +236,7 @@ describe('Extension 타입 정의', () => {
         'step.config',
         'step.tools',
         'step.blocks',
+        'step.llmInput',
         'step.llmError',
         'step.post',
         'toolCall.pre',
@@ -236,7 +245,7 @@ describe('Extension 타입 정의', () => {
         'workspace.worktreeMounted',
       ];
 
-      expect(mutatorPoints).toHaveLength(12);
+      expect(mutatorPoints).toHaveLength(13);
     });
   });
 
@@ -258,7 +267,11 @@ describe('Extension 타입 정의', () => {
         turn: {
           id: 'turn-1',
           input: 'test',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         swarm: {
@@ -283,6 +296,7 @@ describe('Extension 타입 정의', () => {
           tools: new Map(),
           extensions: new Map(),
           connectors: new Map(),
+          connections: new Map(),
           oauthApps: new Map(),
           revision: 1,
           swarmBundleRef: 'git:HEAD',
@@ -300,7 +314,11 @@ describe('Extension 타입 정의', () => {
         turn: {
           id: 'turn-1',
           input: 'test',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         swarm: {
@@ -325,6 +343,7 @@ describe('Extension 타입 정의', () => {
           tools: new Map(),
           extensions: new Map(),
           connectors: new Map(),
+          connections: new Map(),
           oauthApps: new Map(),
           revision: 1,
           swarmBundleRef: 'git:HEAD',
@@ -354,7 +373,11 @@ describe('Extension 타입 정의', () => {
         turn: {
           id: 'turn-1',
           input: 'test',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         swarm: {
@@ -379,6 +402,7 @@ describe('Extension 타입 정의', () => {
           tools: new Map(),
           extensions: new Map(),
           connectors: new Map(),
+          connections: new Map(),
           oauthApps: new Map(),
           revision: 1,
           swarmBundleRef: 'git:HEAD',
@@ -394,7 +418,7 @@ describe('Extension 타입 정의', () => {
         toolCall: {
           id: 'call-1',
           name: 'test-tool',
-          input: {},
+          args: {},
         },
       };
 

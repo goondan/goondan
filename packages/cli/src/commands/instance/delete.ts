@@ -57,11 +57,14 @@ function deleteDirectory(dirPath: string): void {
 async function executeDelete(
   instanceId: string,
   options: DeleteOptions,
+  stateRoot?: string,
 ): Promise<void> {
   const spinner = ora();
 
   try {
-    const config = await loadConfig();
+    const config = await loadConfig({
+      cliStateRoot: stateRoot,
+    });
     const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
@@ -147,12 +150,15 @@ export function createDeleteCommand(): Command {
     .description("Delete instance state")
     .argument("<id>", "Instance ID")
     .option("-f, --force", "Skip confirmation prompt", false)
-    .action(async (instanceId: string, options: Record<string, unknown>) => {
+    .action(async (instanceId: string, options: Record<string, unknown>, command: Command) => {
+      const globalOpts = command.optsWithGlobals<{ stateRoot?: string }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
       const deleteOptions: DeleteOptions = {
         force: options["force"] === true,
       };
 
-      await executeDelete(instanceId, deleteOptions);
+      await executeDelete(instanceId, deleteOptions, stateRoot);
     });
 
   return command;

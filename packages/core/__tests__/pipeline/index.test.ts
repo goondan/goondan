@@ -149,7 +149,11 @@ describe('Pipeline 모듈 export', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         step: {
@@ -169,7 +173,7 @@ describe('Pipeline 모듈 export', () => {
       await executor.runMiddleware('step.llmCall', stepCtx, async () => {
         executionOrder.push('core');
         return {
-          message: { role: 'assistant', content: 'Hello!' },
+          message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
           toolCalls: [],
         };
       });

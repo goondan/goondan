@@ -5,7 +5,7 @@
 import type { ToolHandler, ToolContext, JsonValue, JsonObject } from '@goondan/core';
 
 export const handlers: Record<string, ToolHandler> = {
-  'delegate.toAgent': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
+  'delegate.to-agent': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
     const agentName = input['agentName'];
     const task = input['task'];
 
@@ -16,7 +16,7 @@ export const handlers: Record<string, ToolHandler> = {
       throw new Error('task는 문자열이어야 합니다.');
     }
 
-    ctx.logger?.info?.(`[delegate.toAgent] Delegating to ${agentName}: ${task}`);
+    ctx.logger?.info?.(`[delegate.to-agent] Delegating to ${agentName}: ${task}`);
 
     // 실제 위임은 런타임에서 처리
     return {

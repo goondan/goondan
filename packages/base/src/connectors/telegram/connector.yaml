@@ -6,8 +6,21 @@ metadata:
     tier: base
     category: messaging
 spec:
-  type: telegram
   runtime: node
   entry: "./connectors/telegram/index.js"
   triggers:
-    - handler: onUpdate
+    - type: http
+      endpoint:
+        path: /telegram/webhook
+        method: POST
+  events:
+    - name: telegram.message
+      properties:
+        chatId:
+          type: string
+        userId:
+          type: string
+        chatType:
+          type: string
+        messageId:
+          type: number

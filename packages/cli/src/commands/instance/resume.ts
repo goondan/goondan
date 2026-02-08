@@ -32,9 +32,12 @@ export interface ResumeOptions {
 async function executeResume(
   instanceId: string,
   options: ResumeOptions,
+  stateRoot?: string,
 ): Promise<void> {
   try {
-    const config = await loadConfig();
+    const config = await loadConfig({
+      cliStateRoot: stateRoot,
+    });
     const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
@@ -108,12 +111,15 @@ export function createResumeCommand(): Command {
     .description("Resume a saved instance")
     .argument("<id>", "Instance ID")
     .option("--input <text>", "Input message to send when resuming")
-    .action(async (instanceId: string, options: Record<string, unknown>) => {
+    .action(async (instanceId: string, options: Record<string, unknown>, command: Command) => {
+      const globalOpts = command.optsWithGlobals<{ stateRoot?: string }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
       const resumeOptions: ResumeOptions = {
         input: typeof options["input"] === "string" ? options["input"] : undefined,
       };
 
-      await executeResume(instanceId, resumeOptions);
+      await executeResume(instanceId, resumeOptions, stateRoot);
     });
 
   return command;

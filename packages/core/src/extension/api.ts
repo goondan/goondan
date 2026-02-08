@@ -81,6 +81,7 @@ function createDefaultLiveConfigApi(): LiveConfigApi {
     tools: new Map(),
     extensions: new Map(),
     connectors: new Map(),
+    connections: new Map(),
     oauthApps: new Map(),
     revision: 1,
     swarmBundleRef: 'git:HEAD',
@@ -138,10 +139,20 @@ export function createExtensionApi<
 
   const extensionName = extension.metadata.name;
 
-  // extState 함수: Extension별 상태 반환
-  function extState(): TState {
+  // getState / setState 함수
+  function getState(): TState {
     return stateStore.getExtensionState(extensionName) as TState;
   }
+
+  function setState(next: TState): void {
+    stateStore.setExtensionState(extensionName, next as JsonObject);
+  }
+
+  // state 객체: get/set 메서드
+  const state = {
+    get: getState,
+    set: setState,
+  };
 
   // instance 객체: 공유 상태 접근
   const instance = {
@@ -172,7 +183,9 @@ export function createExtensionApi<
     swarmBundle: swarmBundleApi,
     liveConfig: liveConfigApi,
     oauth: oauthApi,
-    extState,
+    state,
+    getState,
+    setState,
     instance,
     logger,
   };

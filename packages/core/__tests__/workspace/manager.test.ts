@@ -7,7 +7,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { WorkspaceManager } from '../../src/workspace/manager.js';
-import type { WorkspaceEvent } from '../../src/workspace/types.js';
+import { createSwarmInstanceManager } from '../../src/runtime/swarm-instance.js';
+import type { WorkspaceEvent, InstanceMetadata } from '../../src/workspace/types.js';
 
 describe('WorkspaceManager', () => {
   let tempDir: string;
@@ -158,6 +159,7 @@ describe('WorkspaceManager', () => {
         path.join(stateRoot, 'oauth', 'grants'),
         path.join(stateRoot, 'oauth', 'sessions'),
         path.join(stateRoot, 'secrets'),
+        path.join(stateRoot, 'metrics'),
         path.join(stateRoot, 'instances'),
       ];
 
@@ -230,7 +232,46 @@ describe('WorkspaceManager', () => {
         .catch(() => false);
       expect(swarmEventsExists).toBe(true);
 
-      // Agent 디렉터리
+      // Metrics 디렉터리
+      const metricsDir = path.join(
+        stateRoot,
+        'instances',
+        workspaceId,
+        'default-cli',
+        'metrics'
+      );
+      const metricsExists = await fs
+        .stat(metricsDir)
+        .then(s => s.isDirectory())
+        .catch(() => false);
+      expect(metricsExists).toBe(true);
+
+      // Extensions 디렉터리
+      const extensionsDir = path.join(
+        stateRoot,
+        'instances',
+        workspaceId,
+        'default-cli',
+        'extensions'
+      );
+      const extensionsExists = await fs
+        .stat(extensionsDir)
+        .then(s => s.isDirectory())
+        .catch(() => false);
+      expect(extensionsExists).toBe(true);
+
+      const sharedStatePath = path.join(
+        stateRoot,
+        'instances',
+        workspaceId,
+        'default-cli',
+        'extensions',
+        '_shared.json'
+      );
+      const sharedStateContent = await fs.readFile(sharedStatePath, 'utf8');
+      expect(JSON.parse(sharedStateContent)).toEqual({});
+
+      // Agent별 디렉터리
       for (const agentName of ['planner', 'executor']) {
         const messagesDir = path.join(
           stateRoot,
@@ -263,6 +304,31 @@ describe('WorkspaceManager', () => {
         expect(messagesExists).toBe(true);
         expect(eventsExists).toBe(true);
       }
+    });
+
+    it('metadata.json을 초기화해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+
+      const workspaceId = manager.getWorkspaceId();
+      const metadataPath = path.join(
+        stateRoot,
+        'instances',
+        workspaceId,
+        'default-cli',
+        'metadata.json'
+      );
+
+      const content = await fs.readFile(metadataPath, 'utf8');
+      const metadata = JSON.parse(content) as InstanceMetadata;
+
+      expect(metadata.status).toBe('running');
+      expect(metadata.updatedAt).toBeDefined();
+      expect(metadata.createdAt).toBeDefined();
     });
   });
 
@@ -304,27 +370,108 @@ describe('WorkspaceManager', () => {
     });
   });
 
-  describe('createLlmMessageLogger', () => {
-    it('LlmMessageLogger 인스턴스를 반환해야 한다', async () => {
+  describe('createMessageBaseLogger', () => {
+    it('MessageBaseLogger 인스턴스를 반환해야 한다', async () => {
       manager = WorkspaceManager.create({
         stateRoot,
         swarmBundleRoot: bundleRoot,
       });
 
-      const logger = manager.createLlmMessageLogger('default-cli', 'planner');
+      const logger = manager.createMessageBaseLogger('default-cli', 'planner');
       expect(logger).toBeDefined();
 
-      // 로거가 올바른 경로에 기록하는지 확인
       await logger.log({
+        traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
-        message: { role: 'user', content: 'test' },
+        messages: [{ id: 'msg-001', role: 'user', content: 'test' }],
       });
 
       const records = await logger.readAll();
       expect(records.length).toBe(1);
+    });
+  });
+
+  describe('createMessageEventLogger', () => {
+    it('MessageEventLogger 인스턴스를 반환해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      const logger = manager.createMessageEventLogger('default-cli', 'planner');
+      expect(logger).toBeDefined();
+
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-001', role: 'user', content: 'test' } },
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(1);
+    });
+  });
+
+  describe('createTurnMessageStateLogger', () => {
+    it('turn message state 로거 세트를 생성하고 base/events를 기록/정리해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      const logger = manager.createTurnMessageStateLogger('default-cli', 'planner');
+
+      await logger.events.log({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        seq: 0,
+        eventType: 'llm_message',
+        payload: {
+          message: {
+            id: 'msg-001',
+            role: 'user',
+            content: 'hello',
+          },
+        },
+      });
+      await logger.base.log({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        messages: [
+          {
+            id: 'msg-001',
+            role: 'user',
+            content: 'hello',
+          },
+        ],
+        sourceEventCount: 1,
+      });
+      await logger.events.clear();
+
+      const baseRecords = await manager
+        .createMessageBaseLogger('default-cli', 'planner')
+        .readAll();
+      const eventRecords = await manager
+        .createMessageEventLogger('default-cli', 'planner')
+        .readAll();
+
+      expect(baseRecords).toHaveLength(1);
+      expect(baseRecords[0]?.sourceEventCount).toBe(1);
+      expect(eventRecords).toHaveLength(0);
     });
   });
 
@@ -339,6 +486,7 @@ describe('WorkspaceManager', () => {
       expect(logger).toBeDefined();
 
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'swarm.created',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -361,10 +509,37 @@ describe('WorkspaceManager', () => {
       expect(logger).toBeDefined();
 
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'turn.started',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(1);
+    });
+  });
+
+  describe('createTurnMetricsLogger', () => {
+    it('TurnMetricsLogger 인스턴스를 반환해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      const logger = manager.createTurnMetricsLogger('default-cli');
+      expect(logger).toBeDefined();
+
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        turnId: 'turn-001',
+        instanceId: 'default-cli',
+        agentName: 'planner',
+        latencyMs: 1500,
+        tokenUsage: { prompt: 100, completion: 20, total: 120 },
+        toolCallCount: 1,
+        errorCount: 0,
       });
 
       const records = await logger.readAll();
@@ -444,6 +619,256 @@ describe('WorkspaceManager', () => {
         workspaceId: manager.getWorkspaceId(),
       });
       expect(count).toBe(1); // 여전히 1
+    });
+  });
+
+  describe('instance metadata 관리', () => {
+    it('metadata 상태를 pause/running/terminated로 갱신해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+
+      await manager.markInstancePaused('default-cli');
+      let metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('paused');
+
+      await manager.markInstanceRunning('default-cli');
+      metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('running');
+
+      await manager.markInstanceTerminated('default-cli');
+      metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('terminated');
+    });
+
+    it('deleteInstanceState는 인스턴스 상태 디렉터리를 삭제해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const instancePath = manager.getPaths().instancePath('default-cli');
+
+      await manager.deleteInstanceState('default-cli');
+
+      const exists = await fs
+        .stat(instancePath)
+        .then(() => true)
+        .catch(() => false);
+      expect(exists).toBe(false);
+    });
+
+    it('lifecycle hooks로 pause/resume/terminate/delete metadata 갱신이 연결되어야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      await manager.initializeInstanceState('default-cli-delete', ['planner']);
+
+      const swarmManager = createSwarmInstanceManager({
+        lifecycleHooks: manager.createSwarmInstanceLifecycleHooks(),
+      });
+
+      await swarmManager.getOrCreate('Swarm/default', 'cli', 'bundle-ref');
+      await swarmManager.pause('cli');
+      let metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('paused');
+
+      await swarmManager.resume('cli');
+      metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('running');
+
+      await swarmManager.terminate('cli');
+      metadata = await manager.readInstanceMetadata('default-cli');
+      expect(metadata?.status).toBe('terminated');
+
+      await swarmManager.getOrCreate('Swarm/default', 'cli-delete', 'bundle-ref');
+      await swarmManager.delete('cli-delete');
+
+      const deletedPath = manager.getPaths().instancePath('default-cli-delete');
+      const deletedExists = await fs
+        .stat(deletedPath)
+        .then(() => true)
+        .catch(() => false);
+      expect(deletedExists).toBe(false);
+    });
+  });
+
+  describe('extension state 영속화/복원', () => {
+    it('createPersistentStateStore는 파일 상태를 복원해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      await manager.writeExtensionSharedState('default-cli', { sharedKey: 'sharedValue' });
+      await manager.writeExtensionState('default-cli', 'extA', { count: 3 });
+
+      const store = await manager.createPersistentStateStore('default-cli');
+
+      expect(store.getSharedState()).toEqual({ sharedKey: 'sharedValue' });
+      expect(store.getExtensionState('extA')).toEqual({ count: 3 });
+    });
+
+    it('persistent store의 상태 변경을 flush 후 파일로 저장해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const store = await manager.createPersistentStateStore('default-cli');
+
+      store.setExtensionState('extA', { count: 10 });
+      store.getSharedState()['mode'] = 'active';
+      await manager.flushPersistentStateStore('default-cli');
+
+      const extState = await manager.readExtensionState('default-cli', 'extA');
+      const sharedState = await manager.readExtensionSharedState('default-cli');
+
+      expect(extState).toEqual({ count: 10 });
+      expect(sharedState).toEqual({ mode: 'active' });
+    });
+
+    it('rehydratePersistentStateStore는 파일 상태로 메모리 상태를 복원해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const store = await manager.createPersistentStateStore('default-cli');
+      store.setExtensionState('extA', { count: 1 });
+      await manager.flushPersistentStateStore('default-cli');
+
+      await manager.writeExtensionState('default-cli', 'extA', { count: 7 });
+      await manager.rehydratePersistentStateStore('default-cli');
+
+      expect(store.getExtensionState('extA')).toEqual({ count: 7 });
+    });
+
+    it('pause/resume lifecycle hooks가 flush/rehydrate를 호출해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const store = await manager.createPersistentStateStore('default-cli');
+      store.setExtensionState('extA', { count: 2 });
+
+      const swarmManager = createSwarmInstanceManager({
+        lifecycleHooks: manager.createSwarmInstanceLifecycleHooks(),
+      });
+
+      await swarmManager.getOrCreate('Swarm/default', 'cli', 'bundle-ref');
+      await swarmManager.pause('cli');
+
+      const pausedState = await manager.readExtensionState('default-cli', 'extA');
+      expect(pausedState).toEqual({ count: 2 });
+
+      await manager.writeExtensionState('default-cli', 'extA', { count: 11 });
+      await swarmManager.resume('cli');
+
+      expect(store.getExtensionState('extA')).toEqual({ count: 11 });
+    });
+  });
+
+  describe('messageState 복구', () => {
+    it('recoverTurnMessageState는 마지막 base와 잔존 events를 복구해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const logger = manager.createTurnMessageStateLogger('default-cli', 'planner');
+
+      await logger.base.log({
+        traceId: 'trace-base',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-base',
+        messages: [{ id: 'msg-base', role: 'user', content: 'base' }],
+      });
+
+      await logger.events.log({
+        traceId: 'trace-old',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-old',
+        seq: 0,
+        eventType: 'llm_message',
+        payload: {
+          message: { id: 'msg-old', role: 'assistant', content: 'old' },
+        },
+      });
+
+      await logger.events.log({
+        traceId: 'trace-pending',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-pending',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: {
+          message: { id: 'msg-pending', role: 'assistant', content: 'pending' },
+        },
+      });
+
+      await logger.events.log({
+        traceId: 'trace-pending',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-pending',
+        seq: 2,
+        eventType: 'replace',
+        payload: {
+          targetId: 'msg-base',
+          message: { id: 'msg-base', role: 'user', content: 'base-updated' },
+        },
+      });
+
+      const recovered = await manager.recoverTurnMessageState('default-cli', 'planner');
+
+      expect(recovered).toBeDefined();
+      expect(recovered?.baseMessages).toEqual([{ id: 'msg-base', role: 'user', content: 'base' }]);
+      expect(recovered?.events).toHaveLength(2);
+      expect(recovered?.events[0]).toMatchObject({
+        type: 'llm_message',
+        seq: 1,
+      });
+      expect(recovered?.events[1]).toMatchObject({
+        type: 'replace',
+        seq: 2,
+      });
+
+      await recovered?.clearRecoveredEvents?.();
+      const remainingEvents = await manager.createMessageEventLogger('default-cli', 'planner').readAll();
+      expect(remainingEvents).toEqual([]);
+    });
+
+    it('복구할 로그가 없으면 undefined를 반환해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const recovered = await manager.recoverTurnMessageState('default-cli', 'planner');
+
+      expect(recovered).toBeUndefined();
     });
   });
 

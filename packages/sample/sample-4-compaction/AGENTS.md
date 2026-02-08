@@ -45,7 +45,7 @@ export async function register(
   api.pipelines.mutate('turn.pre', async (ctx) => { ... });
 
   // 3. Tool 등록
-  api.tools.register({ name: 'compaction.getStatus', ... });
+  api.tools.register({ name: 'compaction.get-status', ... });
 
   // 4. 이벤트 발행
   api.events.emit('extension.initialized', { ... });
@@ -88,4 +88,4 @@ export async function register(
 5. goondan.yaml 수정 시 `/docs/specs/bundle.md` 스펙 준수:
    - `Model.spec.name` (model이 아님), `Model.spec.options` (parameters가 아님)
    - `Agent.spec.prompts.systemRef` (prompt.system이 아님)
-   - 반드시 CLI Connector 포함
+   - 반드시 CLI Connector 포함 (이 샘플은 `../../base/src/connectors/cli/index.ts` 참조)

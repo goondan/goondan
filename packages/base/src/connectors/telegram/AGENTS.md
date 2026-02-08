@@ -1,33 +1,40 @@
-# Telegram Connector
+# Telegram Connector (v1.0)
 
-Telegram Bot API를 통해 메시지를 수신하고 응답을 전송하는 Connector입니다.
+Telegram Bot API Webhook을 통해 메시지를 수신하고 ConnectorEvent로 변환하는 Connector 구현.
+단일 default export 패턴을 따릅니다.
 
 ## 파일 구조
 
-- `connector.yaml` - Connector 리소스 정의 (YAML)
-- `index.ts` - Trigger 핸들러 및 Telegram API 함수 구현
+- `connector.yaml` - Connector 리소스 정의 (triggers, events 선언)
+- `index.ts` - 단일 default export Entry Function
 
 ## 주요 기능
 
-### Trigger Handler
+### Entry Function (default export)
 
-- `onUpdate` - Telegram Webhook 업데이트 처리
-  - 메시지 수신 및 명령어 파싱
-  - Ingress 규칙 매칭
-  - CanonicalEvent 생성 및 발행
+- `telegramConnector(context: ConnectorContext)` - Telegram Webhook 업데이트 처리
+  - `event.type === 'connector.trigger'` 확인
+  - `event.trigger` 타입 가드: `isHttpTrigger()`로 HTTP trigger 확인
+  - `trigger.payload.request.body`에서 Telegram Update 파싱
+  - `message` 또는 `edited_message` 처리
+  - 봇 명령어 파싱 (/start, /help 등, @botname 제거)
+  - `emit()` 호출로 ConnectorEvent 발행
 
-### Telegram API 함수
+### ConnectorEvent 발행
 
-- `sendMessage` - 메시지 전송
-- `editMessage` - 메시지 수정
-- `deleteMessage` - 메시지 삭제
-- `setWebhook` - Webhook URL 설정
-- `getWebhookInfo` - Webhook 정보 조회
-- `deleteWebhook` - Webhook 삭제
+- `name: 'telegram.message'`
+- `message: { type: 'text', text }`
+- `properties: { chatId, userId, chatType, messageId }`
+- `auth.subjects`:
+  - `global`: `telegram:chat:{chatId}`
+  - `user`: `telegram:user:{userId}`
 
-## 사용법
+### 서명 검증
 
-### connector.yaml 설정
+- `context.verify.webhook.signingSecret`이 설정된 경우 Telegram secret token 헤더(`x-telegram-bot-api-secret-token`)를 검증
+- 검증 실패 시 `emit()`을 중단
+
+## connector.yaml 구조
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
@@ -35,37 +42,33 @@ kind: Connector
 metadata:
   name: telegram
 spec:
-  type: telegram
   runtime: node
   entry: "./connectors/telegram/index.js"
-  auth:
-    staticToken:
-      valueFrom:
-        env: "TELEGRAM_BOT_TOKEN"
-  ingress:
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-  egress:
-    updatePolicy:
-      mode: newMessage
   triggers:
-    - handler: onUpdate
+    - type: http
+      endpoint:
+        path: /telegram/webhook
+        method: POST
+  events:
+    - name: telegram.message
+      properties:
+        chatId: { type: string }
+        userId: { type: string }
+        chatType: { type: string }
+        messageId: { type: number }
 ```
 
-### Ingress 규칙
+## 타입 import
 
-- `match.command` - 봇 명령어 매칭 (예: "/start", "/help")
-- `match.channel` - 특정 채팅 ID 매칭
-- `route.swarmRef` - 대상 Swarm
-- `route.instanceKeyFrom` - 인스턴스 키 추출 (JSONPath)
-- `route.inputFrom` - 입력 텍스트 추출 (JSONPath)
-- `route.agentName` - 특정 에이전트로 라우팅 (선택)
+- `ConnectorContext`, `ConnectorEvent`, `HttpTriggerPayload` from `@goondan/core`
 
-## 참조 문서
+## 수정 시 참고사항
 
-- [Connector 스펙](/docs/specs/connector.md)
-- [Telegram Bot API](https://core.telegram.org/bots/api)
+1. Telegram Bot API 명세 참고: https://core.telegram.org/bots/api
+2. 인증(Bot Token)/라우팅 설정은 Connection 리소스에 정의
+3. 봇 명령어 파싱은 connector 내부에서 처리 (properties.command)
+
+## 관련 스펙
+
+- `/docs/specs/connector.md` - Connector 시스템 스펙
+- `/docs/specs/connection.md` - Connection 시스템 스펙

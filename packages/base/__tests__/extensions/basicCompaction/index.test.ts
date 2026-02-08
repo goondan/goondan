@@ -37,7 +37,7 @@ function createMockExtensionApi(
   config: Record<string, unknown> = {},
   handlers: RegisteredHandlers = { mutators: new Map(), middlewares: new Map() }
 ): ExtensionApi {
-  const state: Record<string, unknown> = {};
+  let state: Record<string, unknown> = {};
 
   const eventEmitSpy = vi.fn();
   const eventBus: ExtEventBus = {
@@ -99,6 +99,9 @@ function createMockExtensionApi(
     }),
   };
 
+  const getStateFn = () => state;
+  const setStateFn = (next: Record<string, unknown>) => { state = next; };
+
   return {
     extension: {
       apiVersion: 'agents.example.io/v1alpha1',
@@ -116,7 +119,9 @@ function createMockExtensionApi(
     swarmBundle: swarmBundleApi,
     liveConfig: liveConfigApi,
     oauth: oauthApi,
-    extState: () => state,
+    getState: getStateFn,
+    setState: setStateFn,
+    state: { get: getStateFn, set: setStateFn },
     instance: { shared: {} },
     logger: {
       debug: vi.fn(),
@@ -139,7 +144,11 @@ function createMockStepContext(
     turn: {
       id: 'test-turn',
       input: 'test input',
-      messages,
+      messageState: {
+        baseMessages: [...messages],
+        events: [],
+        nextMessages: [...messages],
+      },
       toolResults: [],
     },
     swarm: {
@@ -234,7 +243,7 @@ describe('basicCompaction Extension', () => {
 
       await register(api);
 
-      const state = api.extState();
+      const state = api.getState();
       expect(state['compactionCount']).toBe(0);
       expect(state['totalMessagesCompacted']).toBe(0);
       expect(state['lastCompactionAt']).toBeNull();
@@ -314,7 +323,7 @@ describe('basicCompaction Extension', () => {
       await middleware!(ctx, mockNext);
 
       // 토큰 추정값이 업데이트되어야 함
-      const state = api.extState();
+      const state = api.getState();
       expect(state['estimatedTokens']).toBe(100); // 400 / 4 = 100
     });
   });
@@ -344,7 +353,7 @@ describe('basicCompaction Extension', () => {
 
       // next가 원본 컨텍스트로 호출되어야 함
       expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(ctx.turn.messages).toEqual(messages);
+      expect(ctx.turn.messageState.nextMessages).toEqual(messages);
     });
 
     it('문자 수가 maxChars를 초과하면 압축해야 함', async () => {
@@ -393,7 +402,7 @@ describe('basicCompaction Extension', () => {
       expect(mockNext).toHaveBeenCalledTimes(2);
 
       // 상태가 업데이트되어야 함
-      const state = api.extState();
+      const state = api.getState();
       expect(state['compactionCount']).toBe(1);
       expect(state['totalMessagesCompacted']).toBeGreaterThan(0);
       expect(state['lastCompactionAt']).not.toBeNull();
@@ -435,7 +444,7 @@ describe('basicCompaction Extension', () => {
 
       // 압축이 실행되어야 함
       expect(mockNext).toHaveBeenCalledTimes(2);
-      expect(api.extState()['compactionCount']).toBe(1);
+      expect(api.getState()['compactionCount']).toBe(1);
     });
   });
 
@@ -464,7 +473,7 @@ describe('basicCompaction Extension', () => {
 
       let finalMessages: ExtLlmMessage[] = [];
       const mockNext = vi.fn().mockImplementation((passedCtx: ExtStepContext) => {
-        finalMessages = passedCtx.turn.messages;
+        finalMessages = passedCtx.turn.messageState.nextMessages;
         return Promise.resolve({
           message: { role: 'assistant', content: 'Summary or Response' },
           toolCalls: [],
@@ -507,7 +516,7 @@ describe('basicCompaction Extension', () => {
       const mockNext = vi.fn().mockImplementation((passedCtx: ExtStepContext) => {
         callCount++;
         if (callCount === 2) {
-          secondCallMessages = passedCtx.turn.messages;
+          secondCallMessages = passedCtx.turn.messageState.nextMessages;
         }
         return Promise.resolve({
           message: { role: 'assistant', content: 'Response' },
@@ -595,7 +604,7 @@ describe('basicCompaction Extension', () => {
 
       // next가 1번만 호출되어야 함 (압축 없이 바로 LLM 호출)
       expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(api.extState()['compactionCount']).toBe(0);
+      expect(api.getState()['compactionCount']).toBe(0);
     });
 
     it('LLM 요약 실패 시 폴백 요약을 사용해야 함', async () => {
@@ -635,7 +644,7 @@ describe('basicCompaction Extension', () => {
       await middleware!(ctx, mockNext);
 
       // 압축이 수행되어야 함 (폴백 사용)
-      expect(api.extState()['compactionCount']).toBe(1);
+      expect(api.getState()['compactionCount']).toBe(1);
       // next가 2번 호출되어야 함
       expect(mockNext).toHaveBeenCalledTimes(2);
     });
@@ -751,7 +760,7 @@ describe('basicCompaction Extension', () => {
 
       // 첫 번째 호출(압축용)의 메시지에 tool 결과가 텍스트로 포함되어야 함
       expect(firstCallContext).not.toBeNull();
-      const userMessage = firstCallContext!.turn.messages.find((m: ExtLlmMessage) => m.role === 'user');
+      const userMessage = firstCallContext!.turn.messageState.nextMessages.find((m: ExtLlmMessage) => m.role === 'user');
       expect(userMessage).toBeDefined();
       if (userMessage && 'content' in userMessage) {
         expect(userMessage.content).toContain('test_tool');
@@ -804,7 +813,7 @@ describe('basicCompaction Extension', () => {
 
       // 첫 번째 호출(압축용)의 메시지에 tool 이름들이 포함되어야 함
       expect(firstCallContext).not.toBeNull();
-      const userMessage = firstCallContext!.turn.messages.find((m: ExtLlmMessage) => m.role === 'user');
+      const userMessage = firstCallContext!.turn.messageState.nextMessages.find((m: ExtLlmMessage) => m.role === 'user');
       expect(userMessage).toBeDefined();
       if (userMessage && 'content' in userMessage) {
         expect(userMessage.content).toContain('tool_a');

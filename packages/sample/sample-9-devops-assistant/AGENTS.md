@@ -6,7 +6,9 @@
 
 ```
 sample-9-devops-assistant/
-├── goondan.yaml      # Bundle 정의 (Model + 2 Tool + Extension + 2 Agent + Swarm + Connector + Connection)
+├── package.yaml      # Bundle Package 정의 (@goondan/base 의존성)
+├── goondan.yaml      # Bundle 정의 (Model + 로컬 Tool + 2 Agent + Swarm + Connection)
+├── delegate-tool.ts  # agent.delegate 로컬 구현 (devops/planner 위임)
 ├── prompts/
 │   ├── devops.md     # DevOps 에이전트 프롬프트 (시스템 점검, 배포, 로그 분석)
 │   └── planner.md    # 작업 계획 에이전트 프롬프트
@@ -21,13 +23,13 @@ sample-9-devops-assistant/
 - `default-model`: Anthropic Claude Sonnet 4.5
 
 ### Tool
-- `bash`: bash 명령어 실행 (base 패키지 도구)
+- `bash`: bash 명령어 실행 (`@goondan/base` 패키지 Tool 참조)
   - `bash.exec`: 시스템 명령 실행
 - `delegate-tool`: 에이전트 위임 도구
   - `agent.delegate`: planner 또는 devops에게 작업 위임
 
 ### Extension
-- `logging`: 작업 로깅 (base 패키지 Extension)
+- `logging`: 작업 로깅 (`@goondan/base` 패키지 Extension 참조)
 
 ### Agent
 - `devops`: 시스템 명령 실행/진단 (진입점, temperature: 0.2)
@@ -36,15 +38,15 @@ sample-9-devops-assistant/
 ### Swarm
 - `devops-swarm`: 2개 에이전트로 구성
 
-### Connector
-- `cli`: CLI 인터페이스
+### Connection
+- `cli-to-devops`: `@goondan/base`의 `Connector/cli`를 스웜에 바인딩
 
 ## 핵심 개념
 
 - **bash 도구**: 시스템 명령어를 통한 인프라 관리
 - **안전 정책**: 위험 명령 차단, 읽기 우선, sudo 확인
 - **계획-실행 분리**: 복잡한 작업의 계획(planner)과 실행(devops)을 분리
-- **로깅**: logging extension으로 모든 작업 이력 기록
+- **로깅**: `@goondan/base` logging extension 구현 엔트리를 재사용해 모든 작업 이력 기록
 
 ## 참조 스펙
 - `/docs/specs/bundle.md` - Bundle YAML 스펙

@@ -18,6 +18,8 @@ import { createLogoutCommand } from "./logout.js";
 import { createPackCommand } from "./pack.js";
 import { createInfoCommand } from "./info.js";
 import { createCacheCommand } from "./cache.js";
+import { createUnpublishCommand } from "./unpublish.js";
+import { createDeprecateCommand } from "./deprecate.js";
 
 /**
  * Create the main package command group
@@ -33,6 +35,8 @@ export function createPackageCommand(): Command {
     .addCommand(createUpdateCommand())
     .addCommand(createListCommand())
     .addCommand(createPublishCommand())
+    .addCommand(createUnpublishCommand())
+    .addCommand(createDeprecateCommand())
     .addCommand(createLoginCommand())
     .addCommand(createLogoutCommand())
     .addCommand(createPackCommand())
@@ -50,6 +54,8 @@ export {
   createUpdateCommand,
   createListCommand,
   createPublishCommand,
+  createUnpublishCommand,
+  createDeprecateCommand,
   createLoginCommand,
   createLogoutCommand,
   createPackCommand,

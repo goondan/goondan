@@ -1004,12 +1004,10 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        status: "error",
         error: {
-          status: "error",
-          error: {
-            message: `Tool not found in catalog: ${toolCall.name}`,
-            name: "ToolNotFoundError",
-          },
+          message: `Tool not found in catalog: ${toolCall.name}`,
+          name: "ToolNotFoundError",
         },
       };
     }
@@ -1019,12 +1017,10 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        status: "error",
         error: {
-          status: "error",
-          error: {
-            message: `Tool spec not found for: ${toolCall.name}`,
-            name: "ToolSpecError",
-          },
+          message: `Tool spec not found for: ${toolCall.name}`,
+          name: "ToolSpecError",
         },
       };
     }
@@ -1049,7 +1045,7 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
           execResult = await this.executeOnWorker(state, {
             entryPath,
             exportName: toolCall.name,
-            input: toolCall.input,
+            input: toolCall.args,
             activeRef,
             swarmBundleRoot: this.swarmBundleRoot,
             contextData,
@@ -1074,15 +1070,13 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
         return {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          status: "error",
           error: {
-            status: "error",
-            error: {
-              message: truncateMessage(
-                execResult.error?.message ?? "Unknown tool execution error",
-                errorMessageLimit,
-              ),
-              name: execResult.error?.name ?? "ToolExecutionError",
-            },
+            message: truncateMessage(
+              execResult.error?.message ?? "Unknown tool execution error",
+              errorMessageLimit,
+            ),
+            name: execResult.error?.name ?? "ToolExecutionError",
           },
         };
       }
@@ -1090,6 +1084,7 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        status: "ok",
         output: execResult.output ?? null,
       };
     } catch (err) {
@@ -1099,12 +1094,10 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        status: "error",
         error: {
-          status: "error",
-          error: {
-            message: truncateMessage(error.message, errorMessageLimit),
-            name: error.name,
-          },
+          message: truncateMessage(error.message, errorMessageLimit),
+          name: error.name,
         },
       };
     }
@@ -1379,7 +1372,7 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       }
 
       const context = this.createInProcessContext(contextData, activeRef);
-      const output = await handler(context, toolCall.input);
+      const output = await handler(context, toolCall.args);
 
       return {
         type: "result",

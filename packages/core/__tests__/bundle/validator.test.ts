@@ -298,32 +298,231 @@ describe('Bundle Validator', () => {
         const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/agents')).toBe(true);
       });
+
+      it('queueMode가 serial이 아니면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Swarm',
+          metadata: { name: 'test-swarm' },
+          spec: {
+            entrypoint: { kind: 'Agent', name: 'agent-1' },
+            agents: [{ kind: 'Agent', name: 'agent-1' }],
+            policy: { queueMode: 'parallel' },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/policy/queueMode')).toBe(true);
+      });
+
+      it('lifecycle의 양수가 아닌 값에 대해 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Swarm',
+          metadata: { name: 'test-swarm' },
+          spec: {
+            entrypoint: { kind: 'Agent', name: 'agent-1' },
+            agents: [{ kind: 'Agent', name: 'agent-1' }],
+            policy: {
+              lifecycle: {
+                autoPauseIdleSeconds: -1,
+                ttlSeconds: 0,
+              },
+            },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/policy/lifecycle/autoPauseIdleSeconds')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/policy/lifecycle/ttlSeconds')).toBe(true);
+      });
+
+      it('유효한 Swarm policy는 오류가 없어야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Swarm',
+          metadata: { name: 'test-swarm' },
+          spec: {
+            entrypoint: { kind: 'Agent', name: 'agent-1' },
+            agents: [{ kind: 'Agent', name: 'agent-1' }],
+            policy: {
+              maxStepsPerTurn: 32,
+              queueMode: 'serial',
+              lifecycle: {
+                autoPauseIdleSeconds: 3600,
+                ttlSeconds: 604800,
+                gcGraceSeconds: 86400,
+              },
+            },
+          },
+        };
+        const errors = validateResources([resource]);
+        const swarmErrors = errors.filter(
+          (e) => e.kind === 'Swarm' && e.level !== 'warning'
+        );
+        expect(swarmErrors).toHaveLength(0);
+      });
     });
 
     describe('Connector', () => {
-      it('type이 없으면 오류를 반환해야 한다', () => {
-        const resource: Resource = {
-          apiVersion: 'agents.example.io/v1alpha1',
-          kind: 'Connector',
-          metadata: { name: 'test-conn' },
-          spec: {},
-        };
-        const errors = validateResources([resource]);
-        expect(errors.some((e) => e.path === '/spec/type')).toBe(true);
-      });
-
-      it('custom 타입에서 runtime과 entry가 없으면 오류를 반환해야 한다', () => {
+      it('runtime이 없으면 오류를 반환해야 한다', () => {
         const resource: Resource = {
           apiVersion: 'agents.example.io/v1alpha1',
           kind: 'Connector',
           metadata: { name: 'test-conn' },
           spec: {
-            type: 'custom',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'cli' }],
           },
         };
         const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/runtime')).toBe(true);
+      });
+
+      it('entry가 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            triggers: [{ type: 'cli' }],
+          },
+        };
+        const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/entry')).toBe(true);
+      });
+
+      it('triggers가 없거나 빈 배열이면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/triggers')).toBe(true);
+      });
+
+      it('http trigger에서 endpoint가 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'http' }],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path?.includes('/endpoint'))).toBe(true);
+      });
+
+      it('http trigger에서 endpoint.path가 /로 시작하지 않으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [
+              { type: 'http', endpoint: { path: 'webhook/slack', method: 'POST' } },
+            ],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path?.includes('/endpoint/path'))).toBe(true);
+      });
+
+      it('cron trigger에서 schedule이 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'cron' }],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path?.includes('/schedule'))).toBe(true);
+      });
+
+      it('cron trigger에서 유효하지 않은 schedule이면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'cron', schedule: 'invalid cron' }],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/triggers/0/schedule')).toBe(true);
+      });
+
+      it('CLI trigger가 2개 이상이면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'cli' }, { type: 'cli' }],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/triggers')).toBe(true);
+      });
+
+      it('events 이름이 중복되면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [{ type: 'cli' }],
+            events: [
+              { name: 'message' },
+              { name: 'message' },
+            ],
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.message.includes('not unique'))).toBe(true);
+      });
+
+      it('유효한 Connector는 오류가 없어야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'test-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/test/index.ts',
+            triggers: [
+              { type: 'http', endpoint: { path: '/webhook/test', method: 'POST' } },
+            ],
+            events: [
+              { name: 'message', properties: { channel_id: { type: 'string' } } },
+            ],
+          },
+        };
+        const errors = validateResources([resource]);
+        const connectorErrors = errors.filter(
+          (e) => e.kind === 'Connector' && e.level !== 'warning'
+        );
+        expect(connectorErrors).toHaveLength(0);
       });
     });
 
@@ -334,15 +533,9 @@ describe('Bundle Validator', () => {
           kind: 'Connection',
           metadata: { name: 'test-connection' },
           spec: {
-            rules: [
-              {
-                route: {
-                  swarmRef: { kind: 'Swarm', name: 'test' },
-                  instanceKeyFrom: '$.id',
-                  inputFrom: '$.text',
-                },
-              },
-            ],
+            ingress: {
+              rules: [{ route: {} }],
+            },
           },
         };
         const errors = validateResources([resource]);
@@ -360,11 +553,54 @@ describe('Bundle Validator', () => {
               oauthAppRef: { kind: 'OAuthApp', name: 'slack' },
               staticToken: { value: 'token' },
             },
-            rules: [],
           },
         };
         const errors = validateResources([resource]);
         expect(errors.some((e) => e.path === '/spec/auth')).toBe(true);
+      });
+
+      it('auth.staticToken이 잘못된 ValueSource면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-static-token' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'slack' },
+            auth: {
+              staticToken: {
+                value: 'token',
+                valueFrom: { env: 'TOKEN' },
+              },
+            },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/auth/staticToken')).toBe(true);
+      });
+
+      it('verify.webhook.signingSecret이 잘못된 ValueSource면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-signing-secret' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'slack' },
+            verify: {
+              webhook: {
+                signingSecret: {
+                  valueFrom: {
+                    env: 'A',
+                    secretRef: { ref: 'Secret/slack', key: 'signing' },
+                  },
+                },
+              },
+            },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(
+          errors.some((e) => e.path === '/spec/verify/webhook/signingSecret')
+        ).toBe(true);
       });
 
       it('유효한 Connection은 오류가 없어야 한다', () => {
@@ -374,19 +610,12 @@ describe('Bundle Validator', () => {
           metadata: { name: 'test-connection' },
           spec: {
             connectorRef: { kind: 'Connector', name: 'cli' },
-            rules: [
-              {
-                route: {
-                  swarmRef: { kind: 'Swarm', name: 'default' },
-                  instanceKeyFrom: '$.instanceKey',
-                  inputFrom: '$.text',
-                },
-              },
-            ],
+            ingress: {
+              rules: [{ route: {} }],
+            },
           },
         };
         const errors = validateResources([resource]);
-        // 공통 검증 오류만 확인 (Connection 자체의 kind별 검증은 통과해야 함)
         const connectionErrors = errors.filter(
           (e) => e.kind === 'Connection' && e.level !== 'warning'
         );
@@ -406,6 +635,10 @@ describe('Bundle Validator', () => {
         expect(errors.some((e) => e.path === '/spec/provider')).toBe(true);
         expect(errors.some((e) => e.path === '/spec/flow')).toBe(true);
         expect(errors.some((e) => e.path === '/spec/subjectMode')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/client')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/endpoints/tokenUrl')).toBe(
+          true
+        );
         expect(errors.some((e) => e.path === '/spec/scopes')).toBe(true);
       });
 
@@ -436,6 +669,140 @@ describe('Bundle Validator', () => {
         expect(
           errors.some((e) => e.path === '/spec/redirect/callbackPath')
         ).toBe(true);
+      });
+
+      it('client.clientId/clientSecret이 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'missing-client-credentials' },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {},
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/oauth/callback' },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/client/clientId')).toBe(true);
+        expect(errors.some((e) => e.path === '/spec/client/clientSecret')).toBe(
+          true
+        );
+      });
+
+      it('endpoints.tokenUrl이 없으면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'missing-token-url' },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: { valueFrom: { env: 'SLACK_CLIENT_ID' } },
+              clientSecret: { valueFrom: { env: 'SLACK_CLIENT_SECRET' } },
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/oauth/callback' },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/endpoints/tokenUrl')).toBe(
+          true
+        );
+      });
+
+      it('deviceCode flow는 현재 런타임에서 거부되어야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'device-code-app' },
+          spec: {
+            provider: 'github',
+            flow: 'deviceCode',
+            subjectMode: 'user',
+            client: {
+              clientId: { value: 'id' },
+              clientSecret: { value: 'secret' },
+            },
+            endpoints: {
+              tokenUrl: 'https://github.com/login/oauth/access_token',
+            },
+            scopes: ['repo'],
+            redirect: { callbackPath: '/oauth/callback/github' },
+          },
+        };
+
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/flow')).toBe(true);
+        expect(errors.some((e) => e.message.includes('deviceCode'))).toBe(true);
+      });
+
+      it('client.clientId가 잘못된 ValueSource면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'bad-client-id' },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: {
+                value: 'id',
+                valueFrom: { env: 'SLACK_CLIENT_ID' },
+              },
+              clientSecret: {
+                valueFrom: { env: 'SLACK_CLIENT_SECRET' },
+              },
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/oauth/callback' },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/client/clientId')).toBe(true);
+      });
+
+      it('client.clientSecret이 잘못된 ValueSource면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'bad-client-secret' },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: {
+                valueFrom: { env: 'SLACK_CLIENT_ID' },
+              },
+              clientSecret: {},
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/oauth/callback' },
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/client/clientSecret')).toBe(true);
       });
     });
   });

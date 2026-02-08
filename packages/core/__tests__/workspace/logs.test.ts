@@ -1,6 +1,6 @@
 /**
  * 로그 시스템 테스트
- * @see /docs/specs/workspace.md - 섹션 6, 7: LLM Message Log, Event Log 스키마
+ * @see /docs/specs/workspace.md - 섹션 6, 7: Message State Log, Event Log 스키마
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
@@ -8,14 +8,18 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   JsonlWriter,
-  LlmMessageLogger,
+  MessageBaseLogger,
+  MessageEventLogger,
   SwarmEventLogger,
   AgentEventLogger,
+  TurnMetricsLogger,
 } from '../../src/workspace/logs.js';
 import type {
-  LlmMessageLogRecord,
+  MessageBaseLogRecord,
+  MessageEventLogRecord,
   SwarmEventLogRecord,
   AgentEventLogRecord,
+  TurnMetricsLogRecord,
 } from '../../src/workspace/types.js';
 
 describe('JsonlWriter', () => {
@@ -161,15 +165,15 @@ describe('JsonlWriter', () => {
   });
 });
 
-describe('LlmMessageLogger', () => {
+describe('MessageBaseLogger', () => {
   let tempDir: string;
   let logFile: string;
-  let logger: LlmMessageLogger;
+  let logger: MessageBaseLogger;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'goondan-test-'));
-    logFile = path.join(tempDir, 'llm.jsonl');
-    logger = new LlmMessageLogger(logFile);
+    logFile = path.join(tempDir, 'base.jsonl');
+    logger = new MessageBaseLogger(logFile);
   });
 
   afterEach(async () => {
@@ -177,30 +181,35 @@ describe('LlmMessageLogger', () => {
   });
 
   describe('log', () => {
-    it('LlmMessageLogRecord를 기록해야 한다', async () => {
+    it('MessageBaseLogRecord를 기록해야 한다', async () => {
       await logger.log({
+        traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
-        message: { role: 'user', content: 'Hello' },
+        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
+        sourceEventCount: 1,
       });
 
       const records = await logger.readAll();
       expect(records.length).toBe(1);
-      expect(records[0].type).toBe('llm.message');
+      expect(records[0].type).toBe('message.base');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
       expect(records[0].instanceId).toBe('default-cli');
-      expect(records[0].message.role).toBe('user');
+      expect(records[0].messages.length).toBe(1);
+      expect(records[0].sourceEventCount).toBe(1);
     });
 
     it('recordedAt을 자동으로 설정해야 한다', async () => {
       const before = new Date().toISOString();
       await logger.log({
+        traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
-        message: { role: 'user', content: 'Hello' },
+        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
       });
       const after = new Date().toISOString();
 
@@ -208,48 +217,83 @@ describe('LlmMessageLogger', () => {
       expect(records[0].recordedAt >= before).toBe(true);
       expect(records[0].recordedAt <= after).toBe(true);
     });
+  });
+});
 
-    it('모든 LLM 메시지 역할을 기록할 수 있어야 한다', async () => {
-      await logger.log({
-        instanceId: 'inst',
-        instanceKey: 'key',
-        agentName: 'agent',
-        turnId: 'turn',
-        message: { role: 'system', content: 'System prompt' },
-      });
+describe('MessageEventLogger', () => {
+  let tempDir: string;
+  let logFile: string;
+  let logger: MessageEventLogger;
 
-      await logger.log({
-        instanceId: 'inst',
-        instanceKey: 'key',
-        agentName: 'agent',
-        turnId: 'turn',
-        message: { role: 'user', content: 'User message' },
-      });
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'goondan-test-'));
+    logFile = path.join(tempDir, 'events.jsonl');
+    logger = new MessageEventLogger(logFile);
+  });
 
-      await logger.log({
-        instanceId: 'inst',
-        instanceKey: 'key',
-        agentName: 'agent',
-        turnId: 'turn',
-        message: { role: 'assistant', content: 'Assistant response' },
-      });
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
 
+  describe('log', () => {
+    it('MessageEventLogRecord를 기록해야 한다', async () => {
       await logger.log({
-        instanceId: 'inst',
-        instanceKey: 'key',
-        agentName: 'agent',
-        turnId: 'turn',
-        message: {
-          role: 'tool',
-          toolCallId: 'call_001',
-          toolName: 'test',
-          output: { result: 'success' },
-        },
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-001', role: 'user', content: 'Hello' } },
       });
 
       const records = await logger.readAll();
-      expect(records.length).toBe(4);
-      expect(records.map(r => r.message.role)).toEqual(['system', 'user', 'assistant', 'tool']);
+      expect(records.length).toBe(1);
+      expect(records[0].type).toBe('message.event');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
+      expect(records[0].seq).toBe(1);
+      expect(records[0].eventType).toBe('llm_message');
+    });
+
+    it('stepId를 선택적으로 기록할 수 있어야 한다', async () => {
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-001', role: 'assistant', content: 'Hi' } },
+        stepId: 'step-xyz789',
+      });
+
+      const records = await logger.readAll();
+      expect(records[0].stepId).toBe('step-xyz789');
+    });
+  });
+
+  describe('clear', () => {
+    it('파일 내용을 비워야 한다', async () => {
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-001', role: 'user', content: 'Hello' } },
+      });
+
+      let records = await logger.readAll();
+      expect(records.length).toBe(1);
+
+      await logger.clear();
+
+      records = await logger.readAll();
+      expect(records.length).toBe(0);
     });
   });
 });
@@ -272,6 +316,7 @@ describe('SwarmEventLogger', () => {
   describe('log', () => {
     it('SwarmEventLogRecord를 기록해야 한다', async () => {
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'swarm.created',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -281,11 +326,13 @@ describe('SwarmEventLogger', () => {
       const records = await logger.readAll();
       expect(records.length).toBe(1);
       expect(records[0].type).toBe('swarm.event');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
       expect(records[0].kind).toBe('swarm.created');
     });
 
     it('agentName과 data를 선택적으로 기록할 수 있어야 한다', async () => {
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'agent.created',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -319,6 +366,7 @@ describe('AgentEventLogger', () => {
   describe('log', () => {
     it('AgentEventLogRecord를 기록해야 한다', async () => {
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'turn.started',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -328,11 +376,13 @@ describe('AgentEventLogger', () => {
       const records = await logger.readAll();
       expect(records.length).toBe(1);
       expect(records[0].type).toBe('agent.event');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
       expect(records[0].kind).toBe('turn.started');
     });
 
     it('turnId, stepId, stepIndex, data를 선택적으로 기록할 수 있어야 한다', async () => {
       await logger.log({
+        traceId: 'trace-a1b2c3',
         kind: 'step.started',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -348,6 +398,63 @@ describe('AgentEventLogger', () => {
       expect(records[0].stepId).toBe('step-001');
       expect(records[0].stepIndex).toBe(0);
       expect(records[0].data).toEqual({ info: 'test' });
+    });
+  });
+});
+
+describe('TurnMetricsLogger', () => {
+  let tempDir: string;
+  let logFile: string;
+  let logger: TurnMetricsLogger;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'goondan-test-'));
+    logFile = path.join(tempDir, 'turns.jsonl');
+    logger = new TurnMetricsLogger(logFile);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  describe('log', () => {
+    it('TurnMetricsLogRecord를 기록해야 한다', async () => {
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        turnId: 'turn-abc123',
+        instanceId: 'default-cli',
+        agentName: 'planner',
+        latencyMs: 3200,
+        tokenUsage: { prompt: 150, completion: 30, total: 180 },
+        toolCallCount: 1,
+        errorCount: 0,
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(1);
+      expect(records[0].type).toBe('metrics.turn');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
+      expect(records[0].latencyMs).toBe(3200);
+      expect(records[0].tokenUsage.total).toBe(180);
+      expect(records[0].toolCallCount).toBe(1);
+      expect(records[0].errorCount).toBe(0);
+    });
+
+    it('stepId를 선택적으로 기록할 수 있어야 한다', async () => {
+      await logger.log({
+        traceId: 'trace-a1b2c3',
+        turnId: 'turn-abc123',
+        stepId: 'step-xyz789',
+        instanceId: 'default-cli',
+        agentName: 'planner',
+        latencyMs: 1200,
+        tokenUsage: { prompt: 100, completion: 20, total: 120 },
+        toolCallCount: 0,
+        errorCount: 0,
+      });
+
+      const records = await logger.readAll();
+      expect(records[0].stepId).toBe('step-xyz789');
     });
   });
 });

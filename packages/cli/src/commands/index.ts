@@ -35,6 +35,8 @@ export {
   createUpdateCommand,
   createListCommand,
   createPublishCommand,
+  createUnpublishCommand,
+  createDeprecateCommand,
   createLoginCommand,
   createLogoutCommand,
   createPackCommand,
@@ -47,11 +49,15 @@ export {
   createInstanceCommand,
   createListCommand as createInstanceListCommand,
   createInspectCommand,
-  createDeleteCommand,
+  createPauseCommand,
   createResumeCommand,
+  createTerminateCommand,
+  createDeleteCommand,
   type ListOptions as InstanceListOptions,
-  type DeleteOptions as InstanceDeleteOptions,
+  type PauseOptions as InstancePauseOptions,
   type ResumeOptions as InstanceResumeOptions,
+  type TerminateOptions as InstanceTerminateOptions,
+  type DeleteOptions as InstanceDeleteOptions,
 } from "./instance/index.js";
 
 // Logs command

@@ -144,6 +144,34 @@ describe("gdn init command", () => {
         fs.existsSync(path.join(projectDir, "src/tools/example/index.ts"))
       ).toBe(true);
     });
+
+    it("should generate spec-compliant package.yaml for package template", async () => {
+      const projectDir = path.join(testDir, "package-spec-project");
+      const options: InitOptions = {
+        template: "package",
+        git: false,
+        force: false,
+      };
+
+      await executeInit(projectDir, options);
+
+      const packageYaml = fs.readFileSync(
+        path.join(projectDir, "package.yaml"),
+        "utf8",
+      );
+
+      expect(packageYaml).toContain("kind: Package");
+      expect(packageYaml).toContain("metadata:");
+      expect(packageYaml).toContain('version: "0.1.0"');
+      expect(packageYaml).toContain("access: public");
+      expect(packageYaml).toContain("dependencies: []");
+      expect(packageYaml).toContain("resources:");
+      expect(packageYaml).toContain('    - "goondan.yaml"');
+      expect(packageYaml).toContain('    - "src/tools/example/tool.yaml"');
+      expect(packageYaml).toContain("dist:");
+      expect(packageYaml).toContain('    - "."');
+      expect(packageYaml).not.toContain("kind: Bundle");
+    });
   });
 
   describe("goondan.yaml content", () => {
@@ -184,8 +212,11 @@ describe("gdn init command", () => {
       );
 
       expect(goonandYaml).toContain("type: cli");
-      expect(goonandYaml).toContain("instanceKeyFrom:");
-      expect(goonandYaml).toContain("inputFrom:");
+      expect(goonandYaml).toContain("ingress:");
+      expect(goonandYaml).toContain("route: {}");
+      expect(goonandYaml).not.toContain("instanceKeyFrom:");
+      expect(goonandYaml).not.toContain("inputFrom:");
+      expect(goonandYaml).not.toContain("swarmRef:");
     });
 
     it("should use project name from --name option", async () => {

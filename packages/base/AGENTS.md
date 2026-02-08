@@ -52,7 +52,7 @@ packages/base/
 │   │   │   ├── connector.yaml  # Connector 리소스 정의
 │   │   │   ├── index.ts        # Trigger Handler 구현
 │   │   │   └── AGENTS.md       # 폴더별 가이드
-│   │   └── github/     # GitHub Webhook Connector
+│   │   └── github/     # GitHub Webhook Connector (push/pull_request/issues/issue_comment)
 │   │       ├── connector.yaml  # Connector 리소스 정의
 │   │       ├── index.ts        # Trigger Handler 구현
 │   │       └── AGENTS.md       # 폴더별 가이드
@@ -187,34 +187,43 @@ Node.js fs/promises 기반 파일 시스템 작업 도구.
 - `text.regex`: 정규식 매칭(match), 치환(replace), 존재 확인(test)
 - `text.format`: 포맷 변환 (JSON <-> YAML <-> CSV)
 
-### Connector 작성 규칙
+### Connector 작성 규칙 (v1.0)
 
 1. **connector.yaml**: Connector 리소스 정의 (프로토콜 구현체만)
    - `apiVersion: agents.example.io/v1alpha1`
    - `kind: Connector`
-   - `spec.type`: Connector 타입 (slack, telegram, cli, github, custom 등)
    - `spec.runtime: node`
    - `spec.entry`: Bundle Package Root 기준 상대 경로 (예: `"./connectors/slack/index.js"`)
-   - `spec.triggers`: Trigger Handler 목록
-   - **주의**: `auth`, `ingress`, `egress`는 Connector가 아닌 **Connection** 리소스에 정의
+   - `spec.triggers`: Trigger 프로토콜 선언 목록 (http/cron/cli)
+   - `spec.events`: emit할 수 있는 이벤트 스키마 (선택)
+   - **주의**: `auth`, `ingress`, `verify`, `egress`는 Connector가 아닌 **Connection** 리소스에 정의
+   - **v1.0 변경**: `spec.type` 제거됨 - 더 이상 사용하지 않음
 
-2. **index.ts**: Trigger Handler 구현
-   - Trigger handler 함수를 export해야 함 (예: `onSlackEvent`)
-   - 핸들러 시그니처: `(event: TriggerEvent, connection: Resource<ConnectionSpec>, ctx: TriggerContext) => Promise<void>`
-   - `ctx.emit()`으로 canonical event 발행
-   - `ctx.connection`으로 Connection 리소스 접근 (auth, rules, egress 정보)
-   - `ctx.oauth.getAccessToken()`으로 OAuth 토큰 획득 (OAuthApp 기반 모드)
+2. **index.ts**: 단일 default export 패턴
+   - `export default` 함수 하나만 export
+   - 핸들러 시그니처: `(context: ConnectorContext) => Promise<void>`
+   - `ConnectorContext` 구조: `{ event, connection, connector, emit, logger, oauth?, verify? }`
+   - `event.type === 'connector.trigger'` 확인 후 `event.trigger`에서 페이로드 추출
+   - `emit(connectorEvent)`로 ConnectorEvent 발행
+   - `context.verify?.webhook?.signingSecret`로 서명 시크릿을 읽어 Connector 내부 검증 로직 수행
 
-3. **auth.subjects 설정**: Turn의 인증 컨텍스트 설정
-   - `subjects.global`: 전역 토큰 조회용 식별자 (예: `slack:team:{teamId}`)
-   - `subjects.user`: 사용자별 토큰 조회용 식별자 (예: `slack:user:{teamId}:{userId}`)
+3. **ConnectorEvent 발행 규칙**:
+   - `type: 'connector.event'` (고정)
+   - `name`: 이벤트 이름 (예: `slack.message`, `telegram.message`)
+   - `message`: `{ type: 'text', text }` 형태의 정규화된 메시지
+   - `properties`: 이벤트 속성 (예: `{ channelId, userId }`)
+   - `auth`: 인증 정보 (`{ actor: { id, name }, subjects: { global, user } }`)
+
+4. **타입 import**: `@goondan/core`에서 `ConnectorContext`, `ConnectorEvent`, `HttpTriggerPayload`, `CliTriggerPayload` 등 사용
 
 ### Connection과 Connector의 관계
 
-- **Connector**: 프로토콜 구현 패키지 (type, runtime, entry, triggers)
-- **Connection**: 배포 바인딩 (connectorRef → Connector, auth, rules, egress)
-- Connector는 "무엇"을 정의하고, Connection은 "어떻게 연결할지"를 정의
+- **Connector**: 프로토콜 수신 선언 + 이벤트 정규화 (runtime, entry, triggers, events)
+- **Connection**: 배포 바인딩 (connectorRef, auth, verify, ingress rules)
+- Connector는 "어떤 프로토콜로 무엇을 수신하고 어떤 이벤트를 발행할지"를 선언
+- Connection은 "인증, 서명 검증, 라우팅"을 정의
 - 하나의 Connector에 여러 Connection을 바인딩할 수 있음
+- Entry 함수는 Connection마다 호출됨 (동일 trigger event에 대해 각 Connection별 호출)
 
 ### package.yaml 리소스 export 규칙
 

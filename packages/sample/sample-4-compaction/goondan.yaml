@@ -96,8 +96,16 @@ apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
   name: cli
+  labels:
+    tier: base
+    category: interactive
 spec:
-  type: cli
+  runtime: node
+  entry: "../../base/src/connectors/cli/index.ts"
+  triggers:
+    - type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -107,8 +115,6 @@ metadata:
   name: cli-to-compaction-demo
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: compaction-demo }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}

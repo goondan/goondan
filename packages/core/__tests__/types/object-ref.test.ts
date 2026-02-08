@@ -27,6 +27,16 @@ describe('ObjectRef 타입', () => {
 
       expect(ref.apiVersion).toBe('agents.example.io/v1alpha1');
     });
+
+    it('package는 선택이다 (Bundle Package 간 참조)', () => {
+      const ref: ObjectRef = {
+        kind: 'Tool',
+        name: 'fileRead',
+        package: 'core-tools',
+      };
+
+      expect(ref.package).toBe('core-tools');
+    });
   });
 
   describe('ObjectRefLike 유니온 타입', () => {

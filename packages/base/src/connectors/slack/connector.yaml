@@ -6,8 +6,23 @@ metadata:
     tier: base
     category: messaging
 spec:
-  type: slack
   runtime: node
   entry: "./connectors/slack/index.js"
   triggers:
-    - handler: onSlackEvent
+    - type: http
+      endpoint:
+        path: /slack/events
+        method: POST
+  events:
+    - name: slack.message
+      properties:
+        channelId:
+          type: string
+        userId:
+          type: string
+        teamId:
+          type: string
+        threadTs:
+          type: string
+        eventType:
+          type: string

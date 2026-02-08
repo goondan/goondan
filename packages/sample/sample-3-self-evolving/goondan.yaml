@@ -2,9 +2,9 @@
 # 이 샘플은 Changeset 기능을 활용하여 자신의 프롬프트와 설정을 수정할 수 있는 에이전트를 구현합니다.
 #
 # 핵심 기능:
-# - self.readPrompt: 현재 시스템 프롬프트 읽기
-# - self.updatePrompt: Changeset을 통한 프롬프트 수정
-# - self.viewChanges: 변경 이력 조회
+# - self.read-prompt: 현재 시스템 프롬프트 읽기
+# - self.update-prompt: Changeset을 통한 프롬프트 수정
+# - self.view-changes: 변경 이력 조회
 #
 # Changeset 정책:
 # - prompts/** 및 resources/** 디렉터리만 수정 가능
@@ -32,7 +32,7 @@ spec:
   entry: "./tools/self-modify/index.ts"
   errorMessageLimit: 2000
   exports:
-    - name: self.readPrompt
+    - name: self.read-prompt
       description: |
         현재 시스템 프롬프트를 읽습니다.
         프롬프트 파일의 전체 내용을 반환합니다.
@@ -44,7 +44,7 @@ spec:
             description: "읽을 프롬프트 파일 경로 (기본: prompts/evolving.system.md)"
         required: []
 
-    - name: self.updatePrompt
+    - name: self.update-prompt
       description: |
         시스템 프롬프트를 수정합니다.
         Changeset을 열고 프롬프트 파일을 수정한 후 커밋합니다.
@@ -63,7 +63,7 @@ spec:
             description: "변경 이유 (커밋 메시지에 포함)"
         required: ["newContent"]
 
-    - name: self.viewChanges
+    - name: self.view-changes
       description: |
         프롬프트 변경 이력을 조회합니다.
         Git 로그를 통해 최근 변경 사항을 확인합니다.
@@ -139,8 +139,16 @@ apiVersion: agents.example.io/v1alpha1
 kind: Connector
 metadata:
   name: cli
+  labels:
+    tier: base
+    category: interactive
 spec:
-  type: cli
+  runtime: node
+  entry: "../../base/src/connectors/cli/index.ts"
+  triggers:
+    - type: cli
+  events:
+    - name: user_input
 
 ---
 
@@ -150,8 +158,6 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
-  rules:
-    - route:
-        swarmRef: { kind: Swarm, name: default }
-        instanceKeyFrom: "$.instanceKey"
-        inputFrom: "$.text"
+  ingress:
+    rules:
+      - route: {}

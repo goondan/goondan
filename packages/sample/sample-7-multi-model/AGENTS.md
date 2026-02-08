@@ -6,7 +6,8 @@ Anthropic과 OpenAI 모델을 조합하여 작업 성격에 따라 최적의 에
 
 ```
 sample-7-multi-model/
-├── goondan.yaml             # Bundle 정의 (2 Model + 3 Agent + Swarm + Connector)
+├── package.yaml             # Bundle Package 정의 (@goondan/base 의존성)
+├── goondan.yaml             # Bundle 정의 (2 Model + Tool + 3 Agent + Swarm + Connection)
 ├── prompts/
 │   ├── router.system.md     # 라우터 에이전트 프롬프트
 │   ├── creative-writer.system.md  # 창작 에이전트 프롬프트
@@ -38,8 +39,8 @@ sample-7-multi-model/
 ### Swarm
 - `multi-model-swarm`: 3개 에이전트로 구성
 
-### Connector
-- `cli`: CLI 인터페이스
+### Connection
+- `cli-to-multi-model-swarm`: `@goondan/base`의 `Connector/cli`를 스웜에 바인딩
 
 ## 핵심 개념
 

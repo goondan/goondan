@@ -332,6 +332,189 @@ spec:
       expect(result.resources).toHaveLength(1);
       expect(result.resources[0]?.kind).toBe('Model');
     });
+
+    it('dependency package의 spec.resources 경로가 안전하지 않으면 오류를 반환해야 한다', async () => {
+      const depDir = path.join(tempDir, 'dep');
+      fs.mkdirSync(path.join(depDir, 'dist'), { recursive: true });
+      fs.writeFileSync(
+        path.join(depDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: dep
+  version: "1.0.0"
+spec:
+  resources:
+    - ../escape.yaml
+  dist:
+    - dist/
+`
+      );
+
+      const rootDir = path.join(tempDir, 'root');
+      fs.mkdirSync(rootDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: root
+  version: "1.0.0"
+spec:
+  dependencies:
+    - "file:../dep"
+  dist:
+    - dist/
+`
+      );
+      fs.writeFileSync(
+        path.join(rootDir, 'models.yaml'),
+        `
+kind: Model
+metadata:
+  name: model-1
+spec:
+  provider: openai
+  name: gpt-5
+`
+      );
+
+      const result = await loadBundleFromDirectory(rootDir);
+      expect(result.errors.some((e) => e.message.includes('Unsafe package path'))).toBe(true);
+    });
+
+    it('dependency 리소스 spec.entry 경로가 안전하지 않으면 오류를 반환해야 한다', async () => {
+      const depDir = path.join(tempDir, 'dep-entry');
+      fs.mkdirSync(path.join(depDir, 'dist', 'tools'), { recursive: true });
+      fs.writeFileSync(
+        path.join(depDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: dep-entry
+  version: "1.0.0"
+spec:
+  resources:
+    - tools/tool.yaml
+  dist:
+    - dist/
+`
+      );
+      fs.writeFileSync(
+        path.join(depDir, 'dist', 'tools', 'tool.yaml'),
+        `
+kind: Tool
+metadata:
+  name: unsafe-tool
+spec:
+  runtime: node
+  entry: "../outside.js"
+  exports:
+    - name: test
+      description: test
+      parameters:
+        type: object
+`
+      );
+
+      const rootDir = path.join(tempDir, 'root-entry');
+      fs.mkdirSync(rootDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: root-entry
+  version: "1.0.0"
+spec:
+  dependencies:
+    - "file:../dep-entry"
+  dist:
+    - dist/
+`
+      );
+      fs.writeFileSync(
+        path.join(rootDir, 'models.yaml'),
+        `
+kind: Model
+metadata:
+  name: model-1
+spec:
+  provider: openai
+  name: gpt-5
+`
+      );
+
+      const result = await loadBundleFromDirectory(rootDir);
+      expect(result.errors.some((e) => e.message.includes('spec.entry'))).toBe(true);
+      expect(
+        result.resources.some((r) => r.kind === 'Tool' && r.metadata.name === 'unsafe-tool')
+      ).toBe(false);
+    });
+
+    it('동일 패키지에 대한 버전 요구가 충돌하면 오류를 반환해야 한다', async () => {
+      const sharedPackageDir = path.join(
+        tempDir,
+        '.goondan',
+        'packages',
+        '@test',
+        'shared'
+      );
+      fs.mkdirSync(path.join(sharedPackageDir, 'dist'), { recursive: true });
+      fs.writeFileSync(
+        path.join(sharedPackageDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@test/shared"
+  version: "1.2.0"
+spec:
+  resources: []
+  dist:
+    - dist/
+`
+      );
+
+      const rootDir = path.join(tempDir, 'root-version-conflict');
+      fs.mkdirSync(rootDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, 'package.yaml'),
+        `
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: root-version-conflict
+  version: "1.0.0"
+spec:
+  dependencies:
+    - "@test/shared@^1.0.0"
+    - "@test/shared@^2.0.0"
+  dist:
+    - dist/
+`
+      );
+      fs.writeFileSync(
+        path.join(rootDir, 'model.yaml'),
+        `
+kind: Model
+metadata:
+  name: model-1
+spec:
+  provider: openai
+  name: gpt-5
+`
+      );
+
+      const result = await loadBundleFromDirectory(rootDir);
+      expect(result.errors.some((e) => e.message.includes('Version conflict for @test/shared'))).toBe(
+        true
+      );
+    });
   });
 
   describe('BundleLoadResult', () => {

@@ -34,8 +34,10 @@ export type {
   ToolCatalogItem as ExtToolCatalogItem,
   ToolExportSpec as ExtToolExportSpec,
   EffectiveConfig as ExtEffectiveConfig,
+  MessageEvent as ExtMessageEvent,
   TurnContext as ExtTurnContext,
   StepContext as ExtStepContext,
+  LlmInputContext as ExtLlmInputContext,
   ToolCallContext as ExtToolCallContext,
   WorkspaceContext as ExtWorkspaceContext,
   LlmErrorContext as ExtLlmErrorContext,
@@ -68,6 +70,8 @@ export type {
   RegisterFunction,
 
   // State Store Types
+  CreateStateStoreOptions,
+  StateStorePersistence,
   StateStore,
 
   // Loader Types

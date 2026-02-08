@@ -113,6 +113,7 @@ export const turnStrategy: CompactionStrategyHandler = {
 
     // Create summary message
     const summaryMessage: ExtUserMessage = {
+      id: `msg-summary-${Date.now()}`,
       role: 'user',
       content: `[Conversation history - ${turnsToCompact} turns summarized]: ${summaryText}`,
     };

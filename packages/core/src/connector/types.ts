@@ -1,88 +1,11 @@
 /**
- * Connector 시스템 타입 정의
- * @see /docs/specs/connector.md
+ * Connector 시스템 런타임 타입 정의 (v1.0)
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
  */
 
-import type { JsonObject, ObjectRefLike, Resource } from '../types/index.js';
+import type { JsonObject, Resource } from '../types/index.js';
 import type { ConnectorSpec } from '../types/specs/connector.js';
 import type { ConnectionSpec } from '../types/specs/connection.js';
-
-/**
- * 에이전트 응답 전송 입력
- */
-export interface ConnectorSendInput {
-  /** 전송할 텍스트 */
-  text: string;
-  /** 호출 맥락 (채널, 스레드 등) */
-  origin?: JsonObject;
-  /** 인증 컨텍스트 */
-  auth?: JsonObject;
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-  /** 메시지 종류: progress(진행중) 또는 final(최종) */
-  kind?: 'progress' | 'final';
-}
-
-/**
- * Connector 어댑터 인터페이스
- * Runtime과 Connector 간의 표준 인터페이스
- */
-export interface ConnectorAdapter {
-  /**
-   * 외부 이벤트를 처리하여 Runtime에 전달
-   */
-  handleEvent(payload: JsonObject): Promise<void>;
-
-  /**
-   * 에이전트 응답을 외부 채널로 전송 (선택)
-   */
-  send?(input: ConnectorSendInput): Promise<unknown>;
-
-  /**
-   * Connector 종료 (선택)
-   */
-  shutdown?(): Promise<void>;
-}
-
-/**
- * Runtime 이벤트 핸들러
- */
-export interface RuntimeEventHandler {
-  handleEvent(event: RuntimeEventInput): Promise<void>;
-}
-
-/**
- * Connector 생성 옵션
- */
-export interface ConnectorOptions {
-  /** Runtime 이벤트 핸들러 */
-  runtime: RuntimeEventHandler;
-  /** Connector 리소스 설정 */
-  connectorConfig: Resource<ConnectorSpec>;
-  /** Connection 리소스 설정 */
-  connectionConfig: Resource<ConnectionSpec>;
-  /** 로거 (선택) */
-  logger?: Console;
-}
-
-/**
- * Connector 팩토리 함수 타입
- */
-export type ConnectorFactory = (options: ConnectorOptions) => ConnectorAdapter;
-
-/**
- * Trigger 이벤트
- */
-export interface TriggerEvent {
-  /** 이벤트 타입 */
-  type: 'webhook' | 'cron' | 'queue' | 'message' | string;
-  /** 이벤트 페이로드 */
-  payload: JsonObject;
-  /** 이벤트 발생 시각 (ISO 8601) */
-  timestamp: string;
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-}
 
 /**
  * OAuth 토큰 요청
@@ -105,114 +28,123 @@ export interface OAuthTokenResult {
 }
 
 /**
- * LiveConfig 패치 요청
+ * ConnectorEvent의 메시지 콘텐츠 타입
+ * @see /docs/specs/connector.md - 5.4 ConnectorEvent
  */
-export interface LiveConfigPatch {
-  /** 대상 리소스 참조 */
-  resourceRef: string;
-  /** 적용할 패치 */
-  patch: JsonObject;
+export type ConnectorEventMessage =
+  | { type: 'text'; text: string }
+  | { type: 'image'; image: string }
+  | { type: 'file'; data: string; mediaType: string };
+
+/**
+ * ConnectorEvent - Entry 함수가 ctx.emit()으로 발행하는 정규화된 이벤트
+ * @see /docs/specs/connector.md - 5.4 ConnectorEvent
+ */
+export interface ConnectorEvent {
+  /** 이벤트 타입 (고정) */
+  type: 'connector.event';
+  /** 이벤트 이름 (connector의 events[]에 선언된 이름) */
+  name: string;
+  /** 멀티모달 입력 메시지 */
+  message: ConnectorEventMessage;
+  /** 이벤트 속성 (events[].properties에 선언된 키-값) */
+  properties?: JsonObject;
+  /** 인증 컨텍스트 */
+  auth?: {
+    actor: { id: string; name?: string };
+    subjects: { global?: string; user?: string };
+  };
 }
 
 /**
- * Trigger 컨텍스트
+ * HTTP Trigger 페이로드
  */
-export interface TriggerContext {
-  /**
-   * Canonical event 발행
-   */
-  emit(event: CanonicalEvent): Promise<void>;
+export interface HttpTriggerPayload {
+  type: 'http';
+  payload: {
+    request: {
+      method: string;
+      path: string;
+      headers: Record<string, string>;
+      body: JsonObject;
+      rawBody?: string;
+    };
+  };
+}
 
+/**
+ * Cron Trigger 페이로드
+ */
+export interface CronTriggerPayload {
+  type: 'cron';
+  payload: {
+    schedule: string;
+    scheduledAt: string;
+  };
+}
+
+/**
+ * CLI Trigger 페이로드
+ */
+export interface CliTriggerPayload {
+  type: 'cli';
+  payload: {
+    text: string;
+    instanceKey?: string;
+  };
+}
+
+/**
+ * Trigger 페이로드 (union)
+ */
+export type TriggerPayload =
+  | HttpTriggerPayload
+  | CronTriggerPayload
+  | CliTriggerPayload;
+
+/**
+ * ConnectorTriggerEvent - 트리거 프로토콜별 페이로드를 캡슐화
+ * @see /docs/specs/connector.md - 5.3 ConnectorTriggerEvent
+ */
+export interface ConnectorTriggerEvent {
+  type: 'connector.trigger';
+  trigger: TriggerPayload;
+  timestamp: string;
+}
+
+/**
+ * ConnectorContext - Entry 함수에 전달되는 컨텍스트
+ * Connection마다 한 번씩 호출된다.
+ * @see /docs/specs/connector.md - 5.2 ConnectorContext
+ */
+export interface ConnectorContext {
+  /** 트리거 이벤트 정보 */
+  event: ConnectorTriggerEvent;
+  /** 현재 Connection 리소스 */
+  connection: Resource<ConnectionSpec>;
+  /** Connector 리소스 */
+  connector: Resource<ConnectorSpec>;
+  /** ConnectorEvent 발행 */
+  emit: (event: ConnectorEvent) => Promise<void>;
   /** 로깅 */
   logger: Console;
-
-  /** OAuth 토큰 접근 (OAuthApp 기반 모드인 경우) */
+  /** OAuth 토큰 접근 (Connection의 OAuthApp 기반 모드인 경우) */
   oauth?: {
-    getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
+    getAccessToken: (request: OAuthTokenRequest) => Promise<OAuthTokenResult>;
   };
-
-  /** LiveConfig 제안 (선택) */
-  liveConfig?: {
-    proposePatch(patch: LiveConfigPatch): Promise<void>;
+  /** 서명 검증 정보 (Connection의 verify 블록에서 해석) */
+  verify?: {
+    webhook?: {
+      /** 서명 시크릿 (Connection의 verify.webhook.signingSecret에서 해석된 값) */
+      signingSecret: string;
+    };
   };
-
-  /** Connector 설정 */
-  connector: Resource<ConnectorSpec>;
-
-  /** Connection 설정 (배포 바인딩) */
-  connection: Resource<ConnectionSpec>;
 }
 
 /**
- * Trigger Handler 함수 타입
+ * ConnectorEntryFunction - Connector entry 모듈의 단일 default export
+ * @see /docs/specs/connector.md - 5.1 단일 Default Export
  */
-export type TriggerHandler = (
-  event: TriggerEvent,
-  connection: Resource<ConnectionSpec>,
-  ctx: TriggerContext
+export type ConnectorEntryFunction = (
+  context: ConnectorContext
 ) => Promise<void>;
-
-/**
- * Turn 인증 정보
- */
-export interface TurnAuth {
-  /** 액터 정보 */
-  actor: {
-    /** 액터 타입 (user, system 등) */
-    type: string;
-    /** 액터 식별자 */
-    id: string;
-    /** 표시 이름 (선택) */
-    display?: string;
-  };
-  /** Subject 식별자들 */
-  subjects: {
-    /** 글로벌 subject (subjectMode=global 토큰 조회용) */
-    global?: string;
-    /** 사용자 subject (subjectMode=user 토큰 조회용) */
-    user?: string;
-  };
-}
-
-/**
- * Canonical Event
- * Trigger handler가 외부 이벤트를 변환하여 Runtime에 전달하는 표준 이벤트
- */
-export interface CanonicalEvent {
-  /** 이벤트 타입 */
-  type: string;
-  /** 대상 Swarm 참조 */
-  swarmRef: ObjectRefLike;
-  /** 인스턴스 식별자 */
-  instanceKey: string;
-  /** LLM 입력 텍스트 */
-  input: string;
-  /** 대상 에이전트 이름 (선택) */
-  agentName?: string;
-  /** 호출 맥락 */
-  origin?: JsonObject;
-  /** 인증 컨텍스트 */
-  auth?: TurnAuth;
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-}
-
-/**
- * Runtime이 받는 이벤트 입력
- */
-export interface RuntimeEventInput {
-  /** 대상 Swarm 참조 */
-  swarmRef: ObjectRefLike;
-  /** 인스턴스 식별자 */
-  instanceKey: string;
-  /** LLM 입력 텍스트 */
-  input: string;
-  /** 대상 에이전트 이름 (선택) */
-  agentName?: string;
-  /** 호출 맥락 */
-  origin?: JsonObject;
-  /** 인증 컨텍스트 */
-  auth?: TurnAuth;
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-}

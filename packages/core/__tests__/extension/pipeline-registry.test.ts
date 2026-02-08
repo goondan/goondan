@@ -18,7 +18,11 @@ function createStepContext(overrides: Partial<StepContext> = {}): StepContext {
     turn: {
       id: 'turn-1',
       input: 'test input',
-      messages: [],
+      messageState: {
+        baseMessages: [],
+        events: [],
+        nextMessages: [],
+      },
       toolResults: [],
     },
     swarm: {
@@ -43,6 +47,7 @@ function createStepContext(overrides: Partial<StepContext> = {}): StepContext {
       tools: new Map(),
       extensions: new Map(),
       connectors: new Map(),
+      connections: new Map(),
       oauthApps: new Map(),
       revision: 1,
       swarmBundleRef: 'git:HEAD',

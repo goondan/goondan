@@ -13,7 +13,9 @@ import {
 import { createSwarmInstance } from '../../src/runtime/swarm-instance.js';
 import { createAgentInstance } from '../../src/runtime/agent-instance.js';
 import { createTurn } from '../../src/runtime/turn-runner.js';
-import { createAgentEvent } from '../../src/runtime/types.js';
+import { createAgentEvent, computeNextMessages } from '../../src/runtime/types.js';
+import { PipelineRegistry } from '../../src/pipeline/registry.js';
+import { PipelineExecutor } from '../../src/pipeline/executor.js';
 import type { Turn } from '../../src/runtime/turn-runner.js';
 import type { EffectiveConfig } from '../../src/runtime/effective-config.js';
 import type {
@@ -21,7 +23,101 @@ import type {
   ToolCall,
   ToolResult,
   ToolCatalogItem,
+  LlmMessage,
+  MessageEvent,
 } from '../../src/runtime/types.js';
+import type { ToolResource } from '../../src/types/specs/tool.js';
+
+/**
+ * Turn의 messageState에 메시지를 이벤트로 추가하는 헬퍼
+ */
+function appendMessageToTurn(turn: Turn, message: LlmMessage): void {
+  const event: MessageEvent = {
+    type: 'llm_message',
+    seq: turn.messageState.events.length,
+    message,
+  };
+  turn.messageState.events.push(event);
+  const recomputed = computeNextMessages(
+    turn.messageState.baseMessages,
+    turn.messageState.events
+  );
+  turn.messageState.nextMessages.splice(
+    0,
+    turn.messageState.nextMessages.length,
+    ...recomputed
+  );
+}
+
+/**
+ * 테스트용 EffectiveConfig mock 팩토리
+ *
+ * 실제 EffectiveConfig 타입에 맞는 최소 구조를 생성
+ */
+function createMockEffectiveConfig(overrides?: {
+  systemPrompt?: string;
+  tools?: ToolResource[];
+  modelName?: string;
+  agentName?: string;
+}): EffectiveConfig {
+  const modelName = overrides?.modelName ?? 'gpt-5';
+  const agentName = overrides?.agentName ?? 'planner';
+  const systemPrompt = overrides?.systemPrompt ?? 'You are a helpful assistant.';
+  const defaultTool: ToolResource = {
+    apiVersion: 'v1',
+    kind: 'Tool',
+    metadata: { name: 'default-tools' },
+    spec: {
+      runtime: 'node',
+      entry: 'tools/default.js',
+      exports: [
+        { name: 'test.tool', description: 'Test', parameters: { type: 'object' } },
+        { name: 'failing.tool', description: 'Failing', parameters: { type: 'object' } },
+        { name: 'tool.a', description: 'Tool A', parameters: { type: 'object' } },
+        { name: 'tool.b', description: 'Tool B', parameters: { type: 'object' } },
+        { name: 'passing.tool', description: 'Passing', parameters: { type: 'object' } },
+        { name: 'bad.tool', description: 'Bad', parameters: { type: 'object' } },
+        { name: 'error.tool', description: 'Error', parameters: { type: 'object' } },
+        { name: 'coded.tool', description: 'Coded', parameters: { type: 'object' } },
+        { name: 'plain.tool', description: 'Plain', parameters: { type: 'object' } },
+        { name: 'fail.tool', description: 'Fail', parameters: { type: 'object' } },
+      ],
+    },
+  };
+  const tools = overrides?.tools ?? [defaultTool];
+
+  return {
+    swarm: {
+      apiVersion: 'v1',
+      kind: 'Swarm',
+      metadata: { name: 'test-swarm' },
+      spec: {
+        entrypoint: `Agent/${agentName}`,
+        agents: [`Agent/${agentName}`],
+      },
+    },
+    agent: {
+      apiVersion: 'v1',
+      kind: 'Agent',
+      metadata: { name: agentName },
+      spec: {
+        modelConfig: { modelRef: `Model/${modelName}` },
+        prompts: { system: systemPrompt },
+      },
+    },
+    model: {
+      apiVersion: 'v1',
+      kind: 'Model',
+      metadata: { name: modelName },
+      spec: { provider: 'openai', name: modelName },
+    },
+    tools,
+    extensions: [],
+    connections: [],
+    systemPrompt,
+    revision: 1,
+  };
+}
 
 describe('Step', () => {
   let turn: Turn;
@@ -62,15 +158,7 @@ describe('Step', () => {
     it('effectiveConfig는 나중에 설정할 수 있어야 한다', () => {
       const step = createStep(turn, 0, 'bundle-ref');
 
-      const mockConfig = {
-        swarm: {},
-        agent: {},
-        model: {},
-        tools: [],
-        extensions: [],
-        systemPrompt: 'You are helpful.',
-        revision: 1,
-      } as EffectiveConfig;
+      const mockConfig = createMockEffectiveConfig();
 
       step.effectiveConfig = mockConfig;
       expect(step.effectiveConfig).toBe(mockConfig);
@@ -78,7 +166,7 @@ describe('Step', () => {
   });
 
   describe('Step 상태 전이', () => {
-    it('pending -> config -> tools -> blocks -> llmCall -> completed 전이', () => {
+    it('pending -> config -> tools -> blocks -> llmInput -> llmCall -> completed 전이', () => {
       const step = createStep(turn, 0, 'bundle-ref');
 
       expect(step.status).toBe('pending');
@@ -91,6 +179,9 @@ describe('Step', () => {
 
       step.status = 'blocks';
       expect(step.status).toBe('blocks');
+
+      step.status = 'llmInput';
+      expect(step.status).toBe('llmInput');
 
       step.status = 'llmCall';
       expect(step.status).toBe('llmCall');
@@ -133,12 +224,13 @@ describe('Step', () => {
       const toolCall: ToolCall = {
         id: 'call_001',
         name: 'file.read',
-        input: { path: '/test.txt' },
+        args: { path: '/test.txt' },
       };
 
       const toolResult: ToolResult = {
         toolCallId: 'call_001',
         toolName: 'file.read',
+        status: 'ok',
         output: { content: 'file contents' },
       };
 
@@ -156,21 +248,24 @@ describe('Step', () => {
 
       const llmResult: LlmResult = {
         message: {
+          id: 'msg-asst-1',
           role: 'assistant',
           content: 'Hello! How can I help you?',
         },
-        usage: {
-          promptTokens: 100,
-          completionTokens: 20,
-          totalTokens: 120,
+        meta: {
+          usage: {
+            promptTokens: 100,
+            completionTokens: 20,
+            totalTokens: 120,
+          },
+          finishReason: 'stop',
         },
-        finishReason: 'stop',
       };
 
       step.llmResult = llmResult;
 
       expect(step.llmResult.message.content).toBe('Hello! How can I help you?');
-      expect(step.llmResult.finishReason).toBe('stop');
+      expect(step.llmResult.meta.finishReason).toBe('stop');
     });
   });
 });
@@ -185,6 +280,7 @@ describe('StepRunner', () => {
   };
   let mockEffectiveConfigLoader: {
     load: ReturnType<typeof vi.fn>;
+    getActiveRef: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -196,33 +292,28 @@ describe('StepRunner', () => {
     const agentInstance = createAgentInstance(swarmInstance, 'Agent/planner');
     const event = createAgentEvent('user.input', 'Hello!');
     turn = createTurn(agentInstance, event);
-    turn.messages.push({ role: 'user', content: 'Hello!' });
+    // messageState 방식으로 초기 사용자 메시지 추가
+    appendMessageToTurn(turn, { id: 'msg-user-init', role: 'user', content: 'Hello!' });
 
     mockLlmCaller = {
       call: vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Hi there!' },
-        finishReason: 'stop',
-      } as LlmResult),
+        message: { id: 'msg-asst-mock', role: 'assistant', content: 'Hi there!' },
+        meta: { finishReason: 'stop' },
+      }),
     };
 
     mockToolExecutor = {
       execute: vi.fn().mockResolvedValue({
         toolCallId: 'call_001',
         toolName: 'test.tool',
+        status: 'ok',
         output: { result: 'success' },
-      } as ToolResult),
+      }),
     };
 
     mockEffectiveConfigLoader = {
-      load: vi.fn().mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [],
-        extensions: [],
-        systemPrompt: 'You are a helpful assistant.',
-        revision: 1,
-      } as EffectiveConfig),
+      load: vi.fn().mockResolvedValue(createMockEffectiveConfig()),
+      getActiveRef: vi.fn().mockResolvedValue('bundle-ref'),
     };
   });
 
@@ -265,7 +356,37 @@ describe('StepRunner', () => {
       const step = await runner.run(turn);
 
       expect(mockEffectiveConfigLoader.load).toHaveBeenCalled();
-      expect(step.effectiveConfig.systemPrompt).toBe('You are a helpful assistant.');
+      expect(step.effectiveConfig?.systemPrompt).toBe('You are a helpful assistant.');
+    });
+
+    it('step.config에서 activeSwarmBundleRef를 확정하고 step.pre는 기존 ref를 사용해야 한다', async () => {
+      const registry = new PipelineRegistry();
+      const pipelineExecutor = new PipelineExecutor(registry);
+      let observedActiveRef: string | undefined;
+
+      registry.mutate('step.pre', async (ctx) => {
+        observedActiveRef = ctx.activeSwarmRef;
+        return ctx;
+      });
+
+      mockEffectiveConfigLoader.getActiveRef.mockResolvedValue('bundle-ref-next');
+
+      const runner = createStepRunner({
+        llmCaller: mockLlmCaller,
+        toolExecutor: mockToolExecutor,
+        effectiveConfigLoader: mockEffectiveConfigLoader,
+        pipelineExecutor,
+      });
+
+      const step = await runner.run(turn);
+
+      expect(step.activeSwarmBundleRef).toBe('bundle-ref-next');
+      expect(mockEffectiveConfigLoader.load).toHaveBeenCalledWith(
+        'bundle-ref-next',
+        turn.agentInstance.agentRef
+      );
+      expect(turn.agentInstance.swarmInstance.activeSwarmBundleRef).toBe('bundle-ref-next');
+      expect(observedActiveRef).toBe('bundle-ref');
     });
 
     it('LLM을 호출해야 한다', async () => {
@@ -280,7 +401,7 @@ describe('StepRunner', () => {
       expect(mockLlmCaller.call).toHaveBeenCalled();
     });
 
-    it('LLM 응답을 Turn.messages에 추가해야 한다', async () => {
+    it('LLM 응답을 messageState.nextMessages에 추가해야 한다', async () => {
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
         toolExecutor: mockToolExecutor,
@@ -289,7 +410,7 @@ describe('StepRunner', () => {
 
       await runner.run(turn);
 
-      const lastMessage = turn.messages[turn.messages.length - 1];
+      const lastMessage = turn.messageState.nextMessages[turn.messageState.nextMessages.length - 1];
       expect(lastMessage.role).toBe('assistant');
       expect(lastMessage.content).toBe('Hi there!');
     });
@@ -297,11 +418,12 @@ describe('StepRunner', () => {
     it('Tool call이 있으면 Tool을 실행해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-tc',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'test.tool', input: { x: 1 } }],
+          toolCalls: [{ id: 'call_001', name: 'test.tool', args: { x: 1 } }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -319,14 +441,15 @@ describe('StepRunner', () => {
       expect(step.toolResults.length).toBe(1);
     });
 
-    it('Tool 결과를 Turn.messages에 추가해야 한다', async () => {
+    it('Tool 결과를 messageState.nextMessages에 추가해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-tc2',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'test.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'test.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -336,18 +459,19 @@ describe('StepRunner', () => {
 
       await runner.run(turn);
 
-      const toolMessages = turn.messages.filter((m) => m.role === 'tool');
+      const toolMessages = turn.messageState.nextMessages.filter((m) => m.role === 'tool');
       expect(toolMessages.length).toBe(1);
     });
 
     it('Tool 실행 에러를 ToolResult로 변환해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-fail',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'failing.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'failing.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(new Error('Tool execution failed'));
 
@@ -362,7 +486,7 @@ describe('StepRunner', () => {
       // Tool 에러는 ToolResult로 변환되어야 하고, Step은 완료되어야 함
       expect(step.status).toBe('completed');
       expect(step.toolResults[0].error).toBeDefined();
-      expect(step.toolResults[0].error?.error.message).toContain('Tool execution failed');
+      expect(step.toolResults[0].error?.message).toContain('Tool execution failed');
     });
 
     it('LLM 호출 에러 시 Step을 실패 처리해야 한다', async () => {
@@ -395,20 +519,22 @@ describe('StepRunner', () => {
       const calls: string[] = [];
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-multi',
           role: 'assistant',
           toolCalls: [
-            { id: 'call_001', name: 'tool.a', input: {} },
-            { id: 'call_002', name: 'tool.b', input: {} },
+            { id: 'call_001', name: 'tool.a', args: {} },
+            { id: 'call_002', name: 'tool.b', args: {} },
           ],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockImplementation(async (toolCall: ToolCall) => {
         calls.push(toolCall.name);
         return {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          status: 'ok',
           output: { result: 'ok' },
         };
       });
@@ -429,14 +555,15 @@ describe('StepRunner', () => {
     it('Tool 에러 시에도 다른 Tool은 실행되어야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-mixed',
           role: 'assistant',
           toolCalls: [
-            { id: 'call_001', name: 'failing.tool', input: {} },
-            { id: 'call_002', name: 'passing.tool', input: {} },
+            { id: 'call_001', name: 'failing.tool', args: {} },
+            { id: 'call_002', name: 'passing.tool', args: {} },
           ],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockImplementation(async (toolCall: ToolCall) => {
         if (toolCall.name === 'failing.tool') {
@@ -445,6 +572,7 @@ describe('StepRunner', () => {
         return {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          status: 'ok',
           output: { result: 'success' },
         };
       });
@@ -463,14 +591,15 @@ describe('StepRunner', () => {
       expect(step.toolResults[1].output).toEqual({ result: 'success' });
     });
 
-    it('Tool 결과 메시지가 Turn.messages에 올바르게 추가되어야 한다', async () => {
+    it('Tool 결과 메시지가 messageState.nextMessages에 올바르게 추가되어야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-verify',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'test.tool', input: { x: 1 } }],
+          toolCalls: [{ id: 'call_001', name: 'test.tool', args: { x: 1 } }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -480,8 +609,8 @@ describe('StepRunner', () => {
 
       await runner.run(turn);
 
-      // messages: [user, assistant(toolCalls), tool(result)]
-      const toolMessages = turn.messages.filter((m) => m.role === 'tool');
+      // messageState.nextMessages에서 tool 메시지 확인
+      const toolMessages = turn.messageState.nextMessages.filter((m) => m.role === 'tool');
       expect(toolMessages.length).toBe(1);
       expect(toolMessages[0]).toMatchObject({
         role: 'tool',
@@ -504,9 +633,7 @@ describe('StepContext', () => {
     const turn = createTurn(agentInstance, event);
     const step = createStep(turn, 0, 'bundle-ref');
 
-    const mockConfig = {
-      systemPrompt: 'Test',
-    } as EffectiveConfig;
+    const mockConfig = createMockEffectiveConfig({ systemPrompt: 'Test' });
 
     const context: StepContext = {
       turn,
@@ -528,7 +655,10 @@ describe('StepRunner - Edge Cases', () => {
   let turn: Turn;
   let mockLlmCaller: { call: ReturnType<typeof vi.fn> };
   let mockToolExecutor: { execute: ReturnType<typeof vi.fn> };
-  let mockEffectiveConfigLoader: { load: ReturnType<typeof vi.fn> };
+  let mockEffectiveConfigLoader: {
+    load: ReturnType<typeof vi.fn>;
+    getActiveRef: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     const swarmInstance = createSwarmInstance(
@@ -539,80 +669,69 @@ describe('StepRunner - Edge Cases', () => {
     const agentInstance = createAgentInstance(swarmInstance, 'Agent/planner');
     const event = createAgentEvent('user.input', 'Hello!');
     turn = createTurn(agentInstance, event);
-    turn.messages.push({ role: 'user', content: 'Hello!' });
+    // messageState 방식으로 초기 사용자 메시지 추가
+    appendMessageToTurn(turn, { id: 'msg-user-init', role: 'user', content: 'Hello!' });
 
     mockLlmCaller = {
       call: vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Hi there!' },
-        finishReason: 'stop',
-      } as LlmResult),
+        message: { id: 'msg-asst-mock', role: 'assistant', content: 'Hi there!' },
+        meta: { finishReason: 'stop' },
+      }),
     };
 
     mockToolExecutor = {
       execute: vi.fn().mockResolvedValue({
         toolCallId: 'call_001',
         toolName: 'test.tool',
+        status: 'ok',
         output: { result: 'success' },
-      } as ToolResult),
+      }),
     };
 
     mockEffectiveConfigLoader = {
-      load: vi.fn().mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [],
-        extensions: [],
-        systemPrompt: 'You are a helpful assistant.',
-        revision: 1,
-      } as EffectiveConfig),
+      load: vi.fn().mockResolvedValue(createMockEffectiveConfig()),
+      getActiveRef: vi.fn().mockResolvedValue('bundle-ref'),
     };
   });
 
   describe('Tool Catalog 빌드', () => {
     it('effectiveConfig.tools의 exports를 ToolCatalog으로 변환해야 한다', async () => {
-      mockEffectiveConfigLoader.load.mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [
-          {
-            apiVersion: 'v1',
-            kind: 'Tool',
-            metadata: { name: 'file-tool' },
-            spec: {
-              runtime: 'node',
-              entry: 'tools/file.js',
-              exports: [
-                {
-                  name: 'file.read',
-                  description: 'Read a file',
-                  parameters: {
-                    type: 'object',
-                    properties: { path: { type: 'string' } },
-                    required: ['path'],
-                  },
-                },
-                {
-                  name: 'file.write',
-                  description: 'Write a file',
-                  parameters: {
-                    type: 'object',
-                    properties: {
-                      path: { type: 'string' },
-                      content: { type: 'string' },
-                    },
-                    required: ['path', 'content'],
-                  },
-                },
-              ],
+      const toolResource: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'file-tool' },
+        spec: {
+          runtime: 'node',
+          entry: 'tools/file.js',
+          exports: [
+            {
+              name: 'file.read',
+              description: 'Read a file',
+              parameters: {
+                type: 'object',
+                properties: { path: { type: 'string' } },
+                required: ['path'],
+              },
             },
-          },
-        ],
-        extensions: [],
-        systemPrompt: 'System prompt.',
-        revision: 1,
-      } as EffectiveConfig);
+            {
+              name: 'file.write',
+              description: 'Write a file',
+              parameters: {
+                type: 'object',
+                properties: {
+                  path: { type: 'string' },
+                  content: { type: 'string' },
+                },
+                required: ['path', 'content'],
+              },
+            },
+          ],
+        },
+      };
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ systemPrompt: 'System prompt.', tools: [toolResource] })
+      );
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -634,36 +753,30 @@ describe('StepRunner - Edge Cases', () => {
     });
 
     it('여러 Tool의 exports를 하나의 catalog으로 합쳐야 한다', async () => {
-      mockEffectiveConfigLoader.load.mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [
-          {
-            apiVersion: 'v1',
-            kind: 'Tool',
-            metadata: { name: 'tool-a' },
-            spec: {
-              runtime: 'node',
-              entry: 'a.js',
-              exports: [{ name: 'a.run', description: 'Run A', parameters: { type: 'object' } }],
-            },
-          },
-          {
-            apiVersion: 'v1',
-            kind: 'Tool',
-            metadata: { name: 'tool-b' },
-            spec: {
-              runtime: 'node',
-              entry: 'b.js',
-              exports: [{ name: 'b.run', description: 'Run B', parameters: { type: 'object' } }],
-            },
-          },
-        ],
-        extensions: [],
-        systemPrompt: '',
-        revision: 1,
-      } as EffectiveConfig);
+      const toolA: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'tool-a' },
+        spec: {
+          runtime: 'node',
+          entry: 'a.js',
+          exports: [{ name: 'a.run', description: 'Run A', parameters: { type: 'object' } }],
+        },
+      };
+      const toolB: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'tool-b' },
+        spec: {
+          runtime: 'node',
+          entry: 'b.js',
+          exports: [{ name: 'b.run', description: 'Run B', parameters: { type: 'object' } }],
+        },
+      };
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ tools: [toolA, toolB] })
+      );
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -678,22 +791,16 @@ describe('StepRunner - Edge Cases', () => {
     });
 
     it('exports가 빈 배열인 Tool은 catalog에 항목을 추가하지 않아야 한다', async () => {
-      mockEffectiveConfigLoader.load.mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [
-          {
-            apiVersion: 'v1',
-            kind: 'Tool',
-            metadata: { name: 'empty-tool' },
-            spec: { runtime: 'node', entry: 'empty.js', exports: [] },
-          },
-        ],
-        extensions: [],
-        systemPrompt: '',
-        revision: 1,
-      } as EffectiveConfig);
+      const emptyTool: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'empty-tool' },
+        spec: { runtime: 'node', entry: 'empty.js', exports: [] },
+      };
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ tools: [emptyTool] })
+      );
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -707,54 +814,48 @@ describe('StepRunner - Edge Cases', () => {
     });
 
     it('복잡한 JSON Schema (nested properties, items, enum, default, additionalProperties)를 변환해야 한다', async () => {
-      mockEffectiveConfigLoader.load.mockResolvedValue({
-        swarm: { metadata: { name: 'test-swarm' }, spec: {} },
-        agent: { metadata: { name: 'planner' }, spec: {} },
-        model: { metadata: { name: 'gpt-5' }, spec: { provider: 'openai', name: 'gpt-5' } },
-        tools: [
-          {
-            apiVersion: 'v1',
-            kind: 'Tool',
-            metadata: { name: 'complex-tool' },
-            spec: {
-              runtime: 'node',
-              entry: 'complex.js',
-              exports: [
-                {
-                  name: 'complex.run',
-                  description: 'Complex tool',
-                  parameters: {
+      const complexTool: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'complex-tool' },
+        spec: {
+          runtime: 'node',
+          entry: 'complex.js',
+          exports: [
+            {
+              name: 'complex.run',
+              description: 'Complex tool',
+              parameters: {
+                type: 'object',
+                properties: {
+                  tags: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Tag list',
+                  },
+                  status: {
+                    type: 'string',
+                    enum: ['active', 'inactive', null],
+                    default: 'active',
+                  },
+                  config: {
                     type: 'object',
-                    properties: {
-                      tags: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: 'Tag list',
-                      },
-                      status: {
-                        type: 'string',
-                        enum: ['active', 'inactive', null],
-                        default: 'active',
-                      },
-                      config: {
-                        type: 'object',
-                        additionalProperties: { type: 'string' },
-                      },
-                      frozen: {
-                        type: 'object',
-                        additionalProperties: false,
-                      },
-                    },
+                    additionalProperties: { type: 'string' },
+                  },
+                  frozen: {
+                    type: 'object',
+                    additionalProperties: false,
                   },
                 },
-              ],
+              },
             },
-          },
-        ],
-        extensions: [],
-        systemPrompt: '',
-        revision: 1,
-      } as EffectiveConfig);
+          ],
+        },
+      };
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ tools: [complexTool] })
+      );
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -795,11 +896,12 @@ describe('StepRunner - Edge Cases', () => {
     it('Tool에서 비-Error 객체 throw 시 문자열로 변환해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-bad1',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'bad.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'bad.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue('string error thrown');
 
@@ -813,17 +915,18 @@ describe('StepRunner - Edge Cases', () => {
 
       expect(step.status).toBe('completed');
       expect(step.toolResults[0].error).toBeDefined();
-      expect(step.toolResults[0].error?.error.message).toContain('string error thrown');
+      expect(step.toolResults[0].error?.message).toContain('string error thrown');
     });
 
     it('Tool에서 숫자 throw 시 문자열로 변환해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-bad2',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'bad.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'bad.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(42);
 
@@ -836,7 +939,7 @@ describe('StepRunner - Edge Cases', () => {
       const step = await runner.run(turn);
 
       expect(step.status).toBe('completed');
-      expect(step.toolResults[0].error?.error.message).toContain('42');
+      expect(step.toolResults[0].error?.message).toContain('42');
     });
   });
 
@@ -845,11 +948,12 @@ describe('StepRunner - Edge Cases', () => {
       const longMessage = 'x'.repeat(2000);
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-trunc',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'error.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'error.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(new Error(longMessage));
 
@@ -861,7 +965,7 @@ describe('StepRunner - Edge Cases', () => {
 
       const step = await runner.run(turn);
 
-      const errorMsg = step.toolResults[0].error?.error.message ?? '';
+      const errorMsg = step.toolResults[0].error?.message ?? '';
       // 원본이 2000자이므로 1000자 + "... (truncated)"로 잘려야 함
       expect(errorMsg.length).toBeLessThan(longMessage.length);
       expect(errorMsg).toContain('... (truncated)');
@@ -870,11 +974,12 @@ describe('StepRunner - Edge Cases', () => {
     it('짧은 에러 메시지는 잘리지 않아야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-short',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'error.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'error.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(new Error('Short error'));
 
@@ -886,7 +991,7 @@ describe('StepRunner - Edge Cases', () => {
 
       const step = await runner.run(turn);
 
-      expect(step.toolResults[0].error?.error.message).toBe('Short error');
+      expect(step.toolResults[0].error?.message).toBe('Short error');
     });
   });
 
@@ -894,11 +999,12 @@ describe('StepRunner - Edge Cases', () => {
     it('Error에 code 프로퍼티가 있으면 추출해야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-code',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'coded.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'coded.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       const err = new Error('Permission denied');
       (err as Error & { code: string }).code = 'EACCES';
@@ -912,17 +1018,18 @@ describe('StepRunner - Edge Cases', () => {
 
       const step = await runner.run(turn);
 
-      expect(step.toolResults[0].error?.error.code).toBe('EACCES');
+      expect(step.toolResults[0].error?.code).toBe('EACCES');
     });
 
     it('Error에 code가 없으면 undefined이어야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-nocode',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'plain.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'plain.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(new Error('No code'));
 
@@ -934,7 +1041,7 @@ describe('StepRunner - Edge Cases', () => {
 
       const step = await runner.run(turn);
 
-      expect(step.toolResults[0].error?.error.code).toBeUndefined();
+      expect(step.toolResults[0].error?.code).toBeUndefined();
     });
   });
 
@@ -951,13 +1058,14 @@ describe('StepRunner - Edge Cases', () => {
       const callArgs = mockLlmCaller.call.mock.calls[0];
       const messages = callArgs[0];
       expect(messages[0]).toEqual({
+        id: 'msg-sys-0',
         role: 'system',
         content: 'You are a helpful assistant.',
       });
     });
 
-    it('Turn.messages를 시스템 프롬프트 뒤에 포함해야 한다', async () => {
-      turn.messages.push({ role: 'user', content: 'Second message' });
+    it('messageState.nextMessages를 시스템 프롬프트 뒤에 포함해야 한다', async () => {
+      appendMessageToTurn(turn, { id: 'msg-user-2', role: 'user', content: 'Second message' });
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -1007,14 +1115,15 @@ describe('StepRunner - Edge Cases', () => {
   });
 
   describe('Tool 에러 시 Tool 결과 메시지', () => {
-    it('Tool 에러 시 error 정보가 Turn.messages의 tool 메시지 output에 포함되어야 한다', async () => {
+    it('Tool 에러 시 error 정보가 messageState.nextMessages의 tool 메시지 output에 포함되어야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-terr',
           role: 'assistant',
-          toolCalls: [{ id: 'call_001', name: 'fail.tool', input: {} }],
+          toolCalls: [{ id: 'call_001', name: 'fail.tool', args: {} }],
         },
-        finishReason: 'tool_calls',
-      } as LlmResult);
+        meta: { finishReason: 'tool_calls' },
+      });
 
       mockToolExecutor.execute.mockRejectedValue(new Error('Tool broke'));
 
@@ -1026,12 +1135,13 @@ describe('StepRunner - Edge Cases', () => {
 
       await runner.run(turn);
 
-      const toolMessages = turn.messages.filter((m) => m.role === 'tool');
+      const toolMessages = turn.messageState.nextMessages.filter((m) => m.role === 'tool');
       expect(toolMessages.length).toBe(1);
-      // output이 error 객체여야 함
-      const output = toolMessages[0] as { output: unknown };
-      if ('output' in output && typeof output.output === 'object' && output.output !== null) {
-        expect((output.output as Record<string, unknown>)['status']).toBe('error');
+      // output이 error 객체여야 함 (flat error structure: { name, message, code? })
+      const toolMsg = toolMessages[0];
+      if ('output' in toolMsg && typeof toolMsg.output === 'object' && toolMsg.output !== null) {
+        const outputObj = toolMsg.output as Record<string, unknown>;
+        expect(outputObj['message']).toContain('Tool broke');
       }
     });
   });
@@ -1040,12 +1150,13 @@ describe('StepRunner - Edge Cases', () => {
     it('toolCalls가 빈 배열이면 Tool을 실행하지 않아야 한다', async () => {
       mockLlmCaller.call.mockResolvedValue({
         message: {
+          id: 'msg-asst-no-tool',
           role: 'assistant',
           content: 'No tools needed.',
           toolCalls: [],
         },
-        finishReason: 'stop',
-      } as LlmResult);
+        meta: { finishReason: 'stop' },
+      });
 
       const runner = createStepRunner({
         llmCaller: mockLlmCaller,
@@ -1101,7 +1212,153 @@ describe('StepRunner - Edge Cases', () => {
         effectiveConfigLoader: mockEffectiveConfigLoader,
       });
 
-      await expect(runner.run(turn)).rejects.toBe('raw string error');
+      await expect(runner.run(turn)).rejects.toThrow('raw string error');
+    });
+  });
+
+  describe('파이프라인 포인트 실행', () => {
+    it('step/toolCall 파이프라인 포인트가 순서대로 실행되어야 한다', async () => {
+      const registry = new PipelineRegistry();
+      const pipelineExecutor = new PipelineExecutor(registry);
+      const executionOrder: string[] = [];
+
+      registry.mutate('step.pre', async (ctx) => {
+        executionOrder.push('step.pre');
+        return ctx;
+      });
+      registry.mutate('step.config', async (ctx) => {
+        executionOrder.push('step.config');
+        return ctx;
+      });
+      registry.mutate('step.tools', async (ctx) => {
+        executionOrder.push('step.tools');
+        return ctx;
+      });
+      registry.mutate('step.blocks', async (ctx) => {
+        executionOrder.push('step.blocks');
+        return ctx;
+      });
+      registry.mutate('step.llmInput', async (ctx) => {
+        executionOrder.push('step.llmInput');
+        return {
+          ...ctx,
+          llmInput: [
+            ...ctx.llmInput,
+            { id: 'msg-injected', role: 'user', content: 'Injected' },
+          ],
+        };
+      });
+      registry.wrap('step.llmCall', async (ctx, next) => {
+        executionOrder.push('step.llmCall.before');
+        const result = await next(ctx);
+        executionOrder.push('step.llmCall.after');
+        return result;
+      });
+      registry.mutate('toolCall.pre', async (ctx) => {
+        executionOrder.push('toolCall.pre');
+        return ctx;
+      });
+      registry.wrap('toolCall.exec', async (ctx, next) => {
+        executionOrder.push('toolCall.exec.before');
+        const result = await next(ctx);
+        executionOrder.push('toolCall.exec.after');
+        return result;
+      });
+      registry.mutate('toolCall.post', async (ctx) => {
+        executionOrder.push('toolCall.post');
+        return ctx;
+      });
+
+      mockLlmCaller.call.mockResolvedValue({
+        message: {
+          id: 'msg-asst-pipeline',
+          role: 'assistant',
+          toolCalls: [{ id: 'call_001', name: 'test.tool', args: {} }],
+        },
+        meta: { finishReason: 'tool_calls' },
+      });
+
+      const toolResource: ToolResource = {
+        apiVersion: 'v1',
+        kind: 'Tool',
+        metadata: { name: 'test-tool' },
+        spec: {
+          runtime: 'node',
+          entry: 'tools/test.js',
+          exports: [{ name: 'test.tool', description: 'Test', parameters: { type: 'object' } }],
+        },
+      };
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ tools: [toolResource] })
+      );
+
+      const runner = createStepRunner({
+        llmCaller: mockLlmCaller,
+        toolExecutor: mockToolExecutor,
+        effectiveConfigLoader: mockEffectiveConfigLoader,
+        pipelineExecutor,
+      });
+
+      await runner.run(turn);
+
+      const llmCallArgs = mockLlmCaller.call.mock.calls[0];
+      const llmInput = llmCallArgs?.[0];
+      expect(Array.isArray(llmInput)).toBe(true);
+      if (Array.isArray(llmInput)) {
+        const injected = llmInput.find(
+          (message) =>
+            typeof message === 'object' &&
+            message !== null &&
+            'id' in message &&
+            message.id === 'msg-injected'
+        );
+        expect(injected).toBeDefined();
+      }
+
+      expect(executionOrder).toEqual([
+        'step.pre',
+        'step.config',
+        'step.tools',
+        'step.blocks',
+        'step.llmInput',
+        'step.llmCall.before',
+        'step.llmCall.after',
+        'toolCall.pre',
+        'toolCall.exec.before',
+        'toolCall.exec.after',
+        'toolCall.post',
+      ]);
+    });
+
+    it('Tool Catalog 밖의 호출은 실행하지 않고 구조화된 에러 결과를 반환해야 한다', async () => {
+      mockLlmCaller.call.mockResolvedValue({
+        message: {
+          id: 'msg-asst-catalog',
+          role: 'assistant',
+          toolCalls: [{ id: 'call_001', name: 'not.allowed', args: {} }],
+        },
+        meta: { finishReason: 'tool_calls' },
+      });
+
+      mockEffectiveConfigLoader.load.mockResolvedValue(
+        createMockEffectiveConfig({ tools: [] })
+      );
+
+      const runner = createStepRunner({
+        llmCaller: mockLlmCaller,
+        toolExecutor: mockToolExecutor,
+        effectiveConfigLoader: mockEffectiveConfigLoader,
+      });
+
+      const step = await runner.run(turn);
+
+      expect(mockToolExecutor.execute).not.toHaveBeenCalled();
+      expect(step.toolResults).toHaveLength(1);
+      expect(step.toolResults[0].status).toBe('error');
+      expect(step.toolResults[0].error?.name).toBe('ToolNotInCatalogError');
+      expect(step.toolResults[0].error?.code).toBe('E_TOOL_NOT_IN_CATALOG');
+      expect(step.toolResults[0].error?.suggestion).toContain('step.tools');
     });
   });
 });

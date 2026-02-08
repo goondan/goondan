@@ -100,6 +100,11 @@ export interface CompactionState {
    * Token estimation cache
    */
   estimatedTokens: number;
+
+  /**
+   * Index signature for JsonObject compatibility
+   */
+  [key: string]: JsonValue;
 }
 
 /**
@@ -196,10 +201,9 @@ export interface CompactionStrategyHandler {
 
 /**
  * Turn with messages for compaction processing
+ * Note: ExtTurn now uses messageState.nextMessages instead of messages
  */
-export interface TurnWithMessages extends ExtTurn {
-  messages: ExtLlmMessage[];
-}
+export type TurnWithMessages = ExtTurn;
 
 /**
  * Token estimation function type

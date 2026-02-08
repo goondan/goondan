@@ -160,6 +160,23 @@ describe('Changeset 타입', () => {
       expect(result.error?.violatedFiles).toContain('goondan.yaml');
     });
 
+    it('충돌 상태를 표현할 수 있어야 한다', () => {
+      const result: CommitChangesetResult = {
+        status: 'conflict',
+        changesetId: 'cs-1234567890-abcd1234',
+        baseRef: 'git:3d2a1b4c5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+        error: {
+          code: 'MERGE_CONFLICT',
+          message: 'ff-only merge 실패',
+          conflictingFiles: ['prompts/system.md'],
+        },
+      };
+
+      expect(result.status).toBe('conflict');
+      expect(result.error?.code).toBe('MERGE_CONFLICT');
+      expect(result.error?.conflictingFiles).toContain('prompts/system.md');
+    });
+
     it('실패 상태를 표현할 수 있어야 한다', () => {
       const result: CommitChangesetResult = {
         status: 'failed',
@@ -309,6 +326,31 @@ describe('Changeset 타입', () => {
 
       expect(record.type).toBe('agent.event');
       expect(record.kind).toBe('changeset.committed');
+    });
+
+    it('changeset 충돌 이벤트를 표현할 수 있어야 한다', () => {
+      const record: ChangesetEventRecord = {
+        type: 'agent.event',
+        kind: 'changeset.conflict',
+        recordedAt: '2026-02-05T10:30:00.000Z',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        data: {
+          changesetId: 'cs-000124',
+          baseRef: 'git:abc123',
+          status: 'conflict',
+          error: {
+            code: 'MERGE_CONFLICT',
+            message: 'merge conflict',
+            conflictingFiles: ['prompts/system.md'],
+          },
+        },
+      };
+
+      expect(record.kind).toBe('changeset.conflict');
+      expect(record.data.status).toBe('conflict');
+      expect(record.data.error?.conflictingFiles?.[0]).toBe('prompts/system.md');
     });
   });
 });

@@ -14,7 +14,7 @@ Goondan Bundle Package 시스템의 패키지 의존성 기능을 시연하는 �
 ```
 sample-5-package-consumer/
 ├── package.yaml          # Bundle Package 매니페스트 (의존성 선언)
-├── goondan.yaml          # Bundle 정의 (커스텀 Agent, Swarm, Connector)
+├── goondan.yaml          # Bundle 정의 (커스텀 Agent, Swarm, Connection)
 ├── prompts/
 │   └── custom.system.md  # 커스텀 어시스턴트 프롬프트
 ├── package.json
@@ -29,6 +29,7 @@ sample-5-package-consumer/
 spec:
   dependencies:
     - "file:../sample-1-coding-swarm"
+    - "@goondan/base"
 ```
 
 지원하는 참조 형식:

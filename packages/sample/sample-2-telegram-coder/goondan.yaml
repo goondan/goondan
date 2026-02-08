@@ -79,7 +79,7 @@ spec:
   runtime: node
   entry: "./tools/delegate/index.ts"
   exports:
-    - name: delegate.toAgent
+    - name: delegate.to-agent
       description: "다른 에이전트에게 작업을 위임합니다."
       parameters:
         type: object
@@ -162,54 +162,21 @@ spec:
 
 ---
 
-# @goondan/base의 telegram connector 사용
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: telegram
-  annotations:
-    base: "@goondan/base"
-spec:
-  type: telegram
-
----
-
 # Connection: telegram → coding-swarm
 apiVersion: agents.example.io/v1alpha1
 kind: Connection
 metadata:
   name: telegram-to-coding-swarm
 spec:
-  connectorRef: { kind: Connector, name: telegram }
+  connectorRef: { kind: Connector, name: telegram, package: "@goondan/base" }
   auth:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
-  rules:
-    # /start 명령어 매칭
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-        agentRef: { kind: Agent, name: planner }
-
-    # /code 명령어 매칭
-    - match:
-        command: "/code"
-      route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-        agentRef: { kind: Agent, name: planner }
-
-    # 기본 메시지 라우팅 (명령어 없는 일반 메시지)
-    - route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-  egress:
-    updatePolicy:
-      mode: updateInThread
-      debounceMs: 1500
+  ingress:
+    rules:
+      - match:
+          event: telegram.message
+        route:
+          agentRef: { kind: Agent, name: planner }
+      - route: {}

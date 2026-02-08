@@ -170,58 +170,32 @@ export type {
 // Connector - Export non-conflicting items only
 // For full connector types, import directly from '@goondan/core/connector'
 export {
-  // JSONPath
-  readJsonPath,
-  isValidJsonPath,
-  readSimplePath,
   // Ingress
   matchIngressRule,
   routeEvent,
-  createCanonicalEventFromIngress,
   IngressMatcher,
-  // Egress
-  EgressHandler,
-  createEgressHandler,
-  // Trigger
-  TriggerExecutor,
-  createTriggerContext,
-  loadTriggerModule,
-  validateTriggerHandlers,
-  // Canonical
-  createCanonicalEvent,
-  validateCanonicalEvent,
-  toRuntimeEventInput,
-  // Adapter
-  BaseConnectorAdapter,
-  createConnectorAdapter,
+  // Entry Function loading
+  createConnectorContext,
+  loadConnectorEntry,
+  validateConnectorEntry,
 } from './connector/index.js';
 
 export type {
-  // Connector types (non-conflicting)
-  ConnectorAdapter,
-  ConnectorSendInput,
-  ConnectorOptions,
-  ConnectorFactory,
-  RuntimeEventHandler,
-  RuntimeEventInput,
-  TriggerHandler,
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-  LiveConfigPatch,
-  // Aliased types to avoid conflicts
-  ConnectorTurnAuth,
-  ConnectorOAuthTokenRequest,
-  ConnectorOAuthTokenResult,
+  // Connector runtime types
+  ConnectorEntryFunction,
+  ConnectorContext,
+  ConnectorTriggerEvent,
+  ConnectorEvent,
+  ConnectorEventMessage,
+  TriggerPayload,
+  HttpTriggerPayload,
+  CronTriggerPayload,
+  CliTriggerPayload,
+  OAuthTokenRequest as ConnectorOAuthTokenRequest,
+  OAuthTokenResult as ConnectorOAuthTokenResult,
   // Options types
-  CreateCanonicalEventOptions,
-  EgressOptions,
-  TriggerExecutorOptions,
-  CreateTriggerContextOptions,
-  ValidateResult as TriggerValidateResult,
-  CreateCanonicalEventParams,
-  ValidationResult as CanonicalValidationResult,
-  BaseConnectorAdapterOptions,
+  CreateConnectorContextOptions,
+  ValidateEntryResult,
 } from './connector/index.js';
 
 // Workspace

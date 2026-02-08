@@ -93,16 +93,18 @@ export type PipelinePoint =
   | 'workspace.worktreeMounted';
 
 /**
- * 훅 액션
+ * 훅 액션 - 스크립트 실행 기술자
+ * toolCall 스키마를 직접 사용하지 않고 런타임 스크립트로 기술한다.
  */
 export interface HookAction {
-  /** Tool 호출 액션 */
-  toolCall?: {
-    /** 호출할 도구 이름 */
-    tool: string;
-    /** 입력 파라미터 (정적 값 또는 표현식) */
-    input: Record<string, unknown | ExprValue>;
-  };
+  /** 런타임 환경 */
+  runtime: 'node' | 'python' | 'deno';
+  /** 엔트리 파일 경로 (Bundle Root 기준) */
+  entry: string;
+  /** export 함수 이름 */
+  export: string;
+  /** 입력 파라미터 (정적 값 또는 표현식) */
+  input?: Record<string, unknown | ExprValue>;
 }
 
 /**

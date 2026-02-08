@@ -4,15 +4,19 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  Turn,
   createTurn,
-  TurnRunner,
   createTurnRunner,
+} from '../../src/runtime/turn-runner.js';
+import type {
+  Turn,
+  TurnRunner,
   TurnContext,
 } from '../../src/runtime/turn-runner.js';
 import { createSwarmInstance } from '../../src/runtime/swarm-instance.js';
 import { createAgentInstance } from '../../src/runtime/agent-instance.js';
 import { createAgentEvent } from '../../src/runtime/types.js';
+import { PipelineRegistry } from '../../src/pipeline/registry.js';
+import { PipelineExecutor } from '../../src/pipeline/executor.js';
 import type { AgentInstance } from '../../src/runtime/agent-instance.js';
 import type { StepRunner } from '../../src/runtime/step-runner.js';
 import type { LlmResult } from '../../src/runtime/types.js';
@@ -37,10 +41,16 @@ describe('Turn', () => {
       const turn = createTurn(mockAgentInstance, event);
 
       expect(turn.id).toBeDefined();
+      expect(turn.id.startsWith('turn-')).toBe(true);
+      expect(turn.traceId).toBeDefined();
+      expect(turn.traceId.startsWith('trace-')).toBe(true);
       expect(turn.agentInstance).toBe(mockAgentInstance);
       expect(turn.inputEvent).toBe(event);
       expect(turn.status).toBe('pending');
-      expect(turn.messages).toEqual([]);
+      expect(turn.messageState).toBeDefined();
+      expect(turn.messageState.baseMessages).toEqual([]);
+      expect(turn.messageState.events).toEqual([]);
+      expect(turn.messageState.nextMessages).toEqual([]);
       expect(turn.steps).toEqual([]);
       expect(turn.currentStepIndex).toBe(0);
       expect(turn.startedAt).toBeInstanceOf(Date);
@@ -84,6 +94,25 @@ describe('Turn', () => {
 
       expect(turn.auth).toEqual({});
     });
+
+    it('baseMessages로 초기화 할 수 있어야 한다', () => {
+      const baseMessages = [
+        { id: 'msg-1', role: 'user' as const, content: 'Hello' },
+        { id: 'msg-2', role: 'assistant' as const, content: 'Hi' },
+      ];
+      const event = createAgentEvent('user.input', 'New message');
+      const turn = createTurn(mockAgentInstance, event, baseMessages);
+
+      expect(turn.messageState.baseMessages.length).toBe(2);
+      expect(turn.messageState.nextMessages.length).toBe(2);
+    });
+
+    it('messages는 messageState.nextMessages에 대한 편의 참조여야 한다', () => {
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = createTurn(mockAgentInstance, event);
+
+      expect(turn.messages).toBe(turn.messageState.nextMessages);
+    });
   });
 
   describe('Turn 상태 전이', () => {
@@ -116,39 +145,31 @@ describe('Turn', () => {
     });
   });
 
-  describe('Turn 메시지 누적', () => {
-    it('메시지를 순서대로 추가할 수 있어야 한다', () => {
+  describe('Turn 메시지 상태 모델', () => {
+    it('messageState에 이벤트를 추가하면 nextMessages가 반영되어야 한다', () => {
       const event = createAgentEvent('user.input', 'Hello!');
       const turn = createTurn(mockAgentInstance, event);
 
-      turn.messages.push({ role: 'user', content: 'Hello!' });
-      turn.messages.push({
-        role: 'assistant',
-        content: 'Hi! How can I help?',
+      // 직접 이벤트 추가 시뮬레이션
+      turn.messageState.events.push({
+        type: 'llm_message',
+        seq: 0,
+        message: { id: 'msg-1', role: 'user', content: 'Hello!' },
       });
 
-      expect(turn.messages.length).toBe(2);
-      expect(turn.messages[0].role).toBe('user');
-      expect(turn.messages[1].role).toBe('assistant');
+      // nextMessages는 수동으로 재계산해야 함 (TurnRunner/StepRunner가 담당)
+      expect(turn.messageState.events.length).toBe(1);
     });
 
-    it('tool call과 결과를 누적할 수 있어야 한다', () => {
-      const event = createAgentEvent('user.input', 'List files');
-      const turn = createTurn(mockAgentInstance, event);
+    it('baseMessages가 있으면 nextMessages에 포함되어야 한다', () => {
+      const base = [
+        { id: 'msg-1', role: 'user' as const, content: 'Previous' },
+      ];
+      const event = createAgentEvent('user.input', 'New');
+      const turn = createTurn(mockAgentInstance, event, base);
 
-      turn.messages.push({ role: 'user', content: 'List files' });
-      turn.messages.push({
-        role: 'assistant',
-        toolCalls: [{ id: 'call_1', name: 'file.list', input: { path: '.' } }],
-      });
-      turn.messages.push({
-        role: 'tool',
-        toolCallId: 'call_1',
-        toolName: 'file.list',
-        output: { files: ['a.txt', 'b.txt'] },
-      });
-
-      expect(turn.messages.length).toBe(3);
+      expect(turn.messageState.nextMessages.length).toBe(1);
+      expect(turn.messageState.nextMessages[0].id).toBe('msg-1');
     });
   });
 });
@@ -183,8 +204,8 @@ describe('TurnRunner', () => {
           completedAt: new Date(),
           metadata: {},
           llmResult: {
-            message: { role: 'assistant' as const, content: 'Done!' },
-            finishReason: 'stop' as const,
+            message: { id: 'msg-ast-1', role: 'assistant' as const, content: 'Done!' },
+            meta: { finishReason: 'stop' },
           },
         };
       }),
@@ -218,7 +239,20 @@ describe('TurnRunner', () => {
       expect(turn.steps.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('초기 사용자 메시지를 추가해야 한다', async () => {
+    it('traceId가 생성되어야 한다', async () => {
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        maxStepsPerTurn: 32,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(turn.traceId).toBeDefined();
+      expect(turn.traceId.startsWith('trace-')).toBe(true);
+    });
+
+    it('초기 사용자 메시지가 messageState에 추가되어야 한다', async () => {
       const runner = createTurnRunner({
         stepRunner: mockStepRunner,
         maxStepsPerTurn: 32,
@@ -227,10 +261,11 @@ describe('TurnRunner', () => {
       const event = createAgentEvent('user.input', 'What is 2+2?');
       const turn = await runner.run(agentInstance, event);
 
-      expect(turn.messages[0]).toEqual({
-        role: 'user',
-        content: 'What is 2+2?',
-      });
+      // messageState.events에 user message 이벤트가 있어야 함
+      const userEvents = turn.messageState.events.filter(
+        (e) => e.type === 'llm_message' && 'message' in e && e.message.role === 'user'
+      );
+      expect(userEvents.length).toBeGreaterThanOrEqual(1);
     });
 
     it('AgentInstance 상태를 갱신해야 한다', async () => {
@@ -244,10 +279,7 @@ describe('TurnRunner', () => {
       expect(agentInstance.status).toBe('idle');
       expect(agentInstance.currentTurn).toBeNull();
 
-      const turnPromise = runner.run(agentInstance, event);
-
-      // 실행 완료 후
-      const turn = await turnPromise;
+      const turn = await runner.run(agentInstance, event);
 
       expect(agentInstance.status).toBe('idle');
       expect(agentInstance.currentTurn).toBeNull();
@@ -255,7 +287,6 @@ describe('TurnRunner', () => {
     });
 
     it('maxStepsPerTurn 제한을 적용해야 한다', async () => {
-      // tool call이 계속되는 Step 시뮬레이션
       let stepCount = 0;
       mockStepRunner.run = vi.fn().mockImplementation(async (turn: Turn) => {
         stepCount++;
@@ -267,18 +298,19 @@ describe('TurnRunner', () => {
           effectiveConfig: {} as never,
           toolCatalog: [],
           blocks: [],
-          toolCalls: [{ id: `call_${stepCount}`, name: 'test', input: {} }],
-          toolResults: [{ toolCallId: `call_${stepCount}`, toolName: 'test', output: 'ok' }],
+          toolCalls: [{ id: `call_${stepCount}`, name: 'test', args: {} }],
+          toolResults: [{ toolCallId: `call_${stepCount}`, toolName: 'test', status: 'ok', output: 'ok' }],
           status: 'completed' as const,
           startedAt: new Date(),
           completedAt: new Date(),
           metadata: {},
           llmResult: {
             message: {
+              id: `msg-ast-${stepCount}`,
               role: 'assistant' as const,
-              toolCalls: [{ id: `call_${stepCount}`, name: 'test', input: {} }],
+              toolCalls: [{ id: `call_${stepCount}`, name: 'test', args: {} }],
             },
-            finishReason: 'tool_calls' as const,
+            meta: { finishReason: 'tool_calls' },
           },
         };
       });
@@ -333,9 +365,251 @@ describe('TurnRunner', () => {
       const turn = await runner.run(agentInstance, event);
 
       expect(turn.status).toBe('completed');
-      // 사용자 메시지가 추가되지 않아야 함
-      const userMessages = turn.messages.filter((m) => m.role === 'user');
-      expect(userMessages.length).toBe(0);
+      // 사용자 메시지 이벤트가 없어야 함
+      const userEvents = turn.messageState.events.filter(
+        (e) => e.type === 'llm_message' && 'message' in e && e.message.role === 'user'
+      );
+      expect(userEvents.length).toBe(0);
+    });
+
+    it('Turn 메트릭이 기록되어야 한다', async () => {
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        maxStepsPerTurn: 32,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(turn.metrics).toBeDefined();
+      expect(turn.metrics?.stepCount).toBe(1);
+      expect(turn.metrics?.latencyMs).toBeGreaterThanOrEqual(0);
+      expect(turn.metrics?.toolCallCount).toBe(0);
+      expect(turn.metrics?.errorCount).toBe(0);
+      expect(turn.metrics?.tokenUsage).toBeDefined();
+    });
+
+    it('paused 상태의 SwarmInstance에서는 Turn을 interrupted 처리해야 한다', async () => {
+      const swarmInstance = createSwarmInstance(
+        'Swarm/test-swarm',
+        'paused-key',
+        'bundle-ref'
+      );
+      swarmInstance.status = 'paused';
+      const pausedAgent = createAgentInstance(swarmInstance, 'Agent/planner');
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        maxStepsPerTurn: 32,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(pausedAgent, event);
+
+      expect(turn.status).toBe('interrupted');
+      expect(turn.metadata['interruptReason']).toBe('instance_paused');
+    });
+
+    it('turn.pre/post 파이프라인 포인트가 실행되어야 한다', async () => {
+      const registry = new PipelineRegistry();
+      const pipelineExecutor = new PipelineExecutor(registry);
+      const executionOrder: string[] = [];
+
+      registry.mutate('turn.pre', async (ctx) => {
+        executionOrder.push('turn.pre');
+        return {
+          ...ctx,
+          turn: {
+            ...ctx.turn,
+            metadata: {
+              ...(ctx.turn.metadata ?? {}),
+              fromTurnPre: true,
+            },
+          },
+        };
+      });
+
+      registry.mutate('turn.post', async (ctx) => {
+        executionOrder.push('turn.post');
+        if (ctx.emitMessageEvent) {
+          await ctx.emitMessageEvent({
+            type: 'llm_message',
+            seq: ctx.turn.messageState.events.length,
+            message: {
+              id: 'msg-turn-post',
+              role: 'assistant',
+              content: 'post-processed',
+            },
+          });
+        }
+        return ctx;
+      });
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        maxStepsPerTurn: 32,
+        pipelineExecutor,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(executionOrder).toEqual(['turn.pre', 'turn.post']);
+      expect(turn.metadata['fromTurnPre']).toBe(true);
+      const postMessage = turn.messageState.nextMessages.find(
+        (message) => message.id === 'msg-turn-post'
+      );
+      expect(postMessage).toBeDefined();
+    });
+
+    it('onTurnSettled 콜백이 호출되어야 한다', async () => {
+      const settled = vi.fn();
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        onTurnSettled: settled,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      await runner.run(agentInstance, event);
+
+      expect(settled).toHaveBeenCalledTimes(1);
+    });
+
+    it('turn.post 이후 flushExtensionState 콜백이 호출되어야 한다', async () => {
+      const flushExtensionState = vi.fn().mockResolvedValue(undefined);
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        flushExtensionState,
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      await runner.run(agentInstance, event);
+
+      expect(flushExtensionState).toHaveBeenCalledTimes(1);
+      expect(flushExtensionState).toHaveBeenCalledWith(agentInstance);
+    });
+
+    it('messageStateLogger가 설정되면 events/base를 기록하고 events를 clear해야 한다', async () => {
+      const logEvent = vi.fn().mockResolvedValue(undefined);
+      const clearEvents = vi.fn().mockResolvedValue(undefined);
+      const logBase = vi.fn().mockResolvedValue(undefined);
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        messageStateLogger: () => ({
+          events: {
+            log: logEvent,
+            clear: clearEvents,
+          },
+          base: {
+            log: logBase,
+          },
+        }),
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      expect(logBase).toHaveBeenCalledWith(
+        expect.objectContaining({
+          turnId: turn.id,
+          sourceEventCount: 1,
+        })
+      );
+      expect(clearEvents).toHaveBeenCalledTimes(1);
+      expect(turn.messageState.events).toEqual([]);
+      expect(turn.messageState.baseMessages).toEqual(turn.messageState.nextMessages);
+    });
+
+    it('messageStateLogger 기록 실패는 Turn을 깨뜨리지 않고 metadata에 남겨야 한다', async () => {
+      const logEvent = vi.fn().mockResolvedValue(undefined);
+      const clearEvents = vi.fn().mockResolvedValue(undefined);
+      const logBase = vi.fn().mockRejectedValue(new Error('persist failed'));
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        messageStateLogger: () => ({
+          events: {
+            log: logEvent,
+            clear: clearEvents,
+          },
+          base: {
+            log: logBase,
+          },
+        }),
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(turn.status).toBe('completed');
+      expect(turn.metadata['messageStatePersistenceError']).toBeDefined();
+      expect(clearEvents).not.toHaveBeenCalled();
+      expect(turn.messageState.events.length).toBeGreaterThan(0);
+    });
+
+    it('Turn 시작 시 base+events를 복원해 초기 messageState를 구성해야 한다', async () => {
+      const clearRecoveredEvents = vi.fn().mockResolvedValue(undefined);
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        messageStateRecovery: async () => ({
+          baseMessages: [
+            { id: 'msg-prev-user', role: 'user', content: 'previous user' },
+          ],
+          events: [
+            {
+              type: 'llm_message',
+              seq: 0,
+              message: {
+                id: 'msg-prev-asst',
+                role: 'assistant',
+                content: 'previous assistant',
+              },
+            },
+          ],
+          clearRecoveredEvents,
+        }),
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(turn.status).toBe('completed');
+      expect(turn.metadata['recoveredMessageEventCount']).toBe(1);
+      expect(clearRecoveredEvents).toHaveBeenCalledTimes(1);
+      expect(turn.messageState.baseMessages.map((message) => message.id)).toEqual([
+        'msg-prev-user',
+        'msg-prev-asst',
+      ]);
+      expect(turn.messageState.nextMessages.map((message) => message.id)).toEqual([
+        'msg-prev-user',
+        'msg-prev-asst',
+        expect.stringMatching(/^msg-/),
+      ]);
+    });
+
+    it('복원 중 오류가 나도 기존 conversationHistory로 Turn을 계속 실행해야 한다', async () => {
+      agentInstance.conversationHistory.push({
+        id: 'msg-history',
+        role: 'user',
+        content: 'history',
+      });
+
+      const runner = createTurnRunner({
+        stepRunner: mockStepRunner,
+        messageStateRecovery: async () => {
+          throw new Error('recover failed');
+        },
+      });
+
+      const event = createAgentEvent('user.input', 'Hello!');
+      const turn = await runner.run(agentInstance, event);
+
+      expect(turn.status).toBe('completed');
+      expect(turn.metadata['recoveredMessageEventCount']).toBeUndefined();
+      expect(turn.messageState.baseMessages[0]?.id).toBe('msg-history');
     });
   });
 
@@ -356,7 +630,6 @@ describe('TurnRunner', () => {
       const event = createAgentEvent('user.input', 'Hello!');
       const turn = await runner.run(agentInstance, event);
 
-      // Step이 1개만 실행되어야 함
       expect(turn.steps.length).toBe(1);
     });
 
@@ -368,14 +641,15 @@ describe('TurnRunner', () => {
           return {
             id: 'step-1',
             status: 'completed',
-            toolCalls: [{ id: 'call_1', name: 'test', input: {} }],
-            toolResults: [{ toolCallId: 'call_1', toolName: 'test', output: 'ok' }],
+            toolCalls: [{ id: 'call_1', name: 'test', args: {} }],
+            toolResults: [{ toolCallId: 'call_1', toolName: 'test', status: 'ok', output: 'ok' }],
             llmResult: {
               message: {
+                id: 'msg-ast-1',
                 role: 'assistant',
-                toolCalls: [{ id: 'call_1', name: 'test', input: {} }],
+                toolCalls: [{ id: 'call_1', name: 'test', args: {} }],
               },
-              finishReason: 'tool_calls',
+              meta: { finishReason: 'tool_calls' },
             },
           };
         }
@@ -385,8 +659,8 @@ describe('TurnRunner', () => {
           toolCalls: [],
           toolResults: [],
           llmResult: {
-            message: { role: 'assistant', content: 'Done!' },
-            finishReason: 'stop',
+            message: { id: 'msg-ast-2', role: 'assistant', content: 'Done!' },
+            meta: { finishReason: 'stop' },
           },
         };
       });

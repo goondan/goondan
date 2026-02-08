@@ -58,8 +58,16 @@ export interface SwarmBundleRootLayout {
 export interface InstanceStatePaths {
   /** 인스턴스 상태 루트 */
   root: string;
+  /** 인스턴스 메타데이터 파일 */
+  metadataFile: string;
   /** Swarm 이벤트 로그 */
   swarmEventsLog: string;
+  /** Turn/Step 메트릭 로그 */
+  metricsLog: string;
+  /** Extension 공유 상태 파일 (instance.shared) */
+  extensionSharedState: string;
+  /** Extension별 상태 경로 생성 */
+  extensionState(extensionName: string): string;
   /** Agent별 경로 생성 */
   agent(agentName: string): AgentStatePaths;
 }
@@ -70,8 +78,10 @@ export interface InstanceStatePaths {
 export interface AgentStatePaths {
   /** Agent 상태 루트 */
   root: string;
-  /** LLM 메시지 로그 */
-  messagesLog: string;
+  /** Message base 스냅샷 로그 */
+  messageBaseLog: string;
+  /** Turn 메시지 이벤트 로그 */
+  messageEventsLog: string;
   /** Agent 이벤트 로그 */
   eventsLog: string;
 }
@@ -92,6 +102,10 @@ export interface SystemStatePaths {
   oauth: OAuthStorePaths;
   /** Secrets 디렉터리 */
   secrets: string;
+  /** Metrics 디렉터리 */
+  metricsDir: string;
+  /** 런타임 메트릭 로그 */
+  runtimeMetricsLog: string;
   /** Instances 디렉터리 */
   instances: string;
   /** 특정 Bundle Package 캐시 경로 */
@@ -162,13 +176,75 @@ export interface ToolCall {
  * LLM 메시지 타입
  */
 export type LlmMessage =
-  | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
-  | { role: 'assistant'; content?: string; toolCalls?: ToolCall[] }
-  | { role: 'tool'; toolCallId: string; toolName: string; output: JsonValue };
+  | { id: string; role: 'system'; content: string }
+  | { id: string; role: 'user'; content: string }
+  | { id: string; role: 'assistant'; content?: string; toolCalls?: ToolCall[] }
+  | { id: string; role: 'tool'; toolCallId: string; toolName: string; output: JsonValue };
 
 /**
- * LLM 메시지 로그 레코드
+ * Message base 스냅샷 로그 레코드
+ */
+export interface MessageBaseLogRecord {
+  /** 레코드 타입 (고정값) */
+  type: 'message.base';
+  /** 기록 시각 (ISO8601) */
+  recordedAt: string;
+  /** 추적 ID (분산 추적용) */
+  traceId: string;
+  /** 인스턴스 ID */
+  instanceId: string;
+  /** 인스턴스 키 */
+  instanceKey: string;
+  /** 에이전트 이름 */
+  agentName: string;
+  /** Turn ID */
+  turnId: string;
+  /** 최종 기준 메시지 스냅샷 */
+  messages: LlmMessage[];
+  /** 이번 turn에서 fold된 이벤트 수 */
+  sourceEventCount?: number;
+}
+
+/**
+ * 메시지 이벤트 타입
+ */
+export type MessageEventType =
+  | 'system_message'
+  | 'llm_message'
+  | 'replace'
+  | 'remove'
+  | 'truncate';
+
+/**
+ * Turn 메시지 이벤트 로그 레코드
+ */
+export interface MessageEventLogRecord {
+  /** 레코드 타입 (고정값) */
+  type: 'message.event';
+  /** 기록 시각 (ISO8601) */
+  recordedAt: string;
+  /** 추적 ID (분산 추적용) */
+  traceId: string;
+  /** 인스턴스 ID */
+  instanceId: string;
+  /** 인스턴스 키 */
+  instanceKey: string;
+  /** 에이전트 이름 */
+  agentName: string;
+  /** Turn ID */
+  turnId: string;
+  /** Turn 내 이벤트 순번(단조 증가) */
+  seq: number;
+  /** 이벤트 타입 */
+  eventType: MessageEventType;
+  /** 이벤트 페이로드 */
+  payload: JsonObject;
+  /** Step ID (선택) */
+  stepId?: string;
+}
+
+/**
+ * @deprecated LlmMessageLogRecord는 MessageBaseLogRecord + MessageEventLogRecord로 대체됨
  */
 export interface LlmMessageLogRecord {
   /** 레코드 타입 (고정값) */
@@ -192,12 +268,72 @@ export interface LlmMessageLogRecord {
 }
 
 /**
+ * Instance Metadata 스키마
+ */
+export interface InstanceMetadata {
+  /** 인스턴스 상태 */
+  status: SwarmInstanceStatus;
+  /** 마지막 갱신 시각 (ISO8601) */
+  updatedAt: string;
+  /** 인스턴스 생성 시각 (ISO8601) */
+  createdAt: string;
+  /** TTL 만료 시각 (선택, ISO8601) */
+  expiresAt?: string;
+}
+
+/**
+ * Swarm Instance 상태
+ */
+export type SwarmInstanceStatus = 'running' | 'paused' | 'terminated';
+
+/**
+ * Turn 메트릭 로그 레코드
+ */
+export interface TurnMetricsLogRecord {
+  /** 레코드 타입 (고정값) */
+  type: 'metrics.turn';
+  /** 기록 시각 (ISO8601) */
+  recordedAt: string;
+  /** 추적 ID */
+  traceId: string;
+  /** Turn ID */
+  turnId: string;
+  /** Step ID (선택) */
+  stepId?: string;
+  /** 인스턴스 ID */
+  instanceId: string;
+  /** 에이전트 이름 */
+  agentName: string;
+  /** 레이턴시 (밀리초) */
+  latencyMs: number;
+  /** 토큰 사용량 */
+  tokenUsage: TokenUsage;
+  /** Tool 호출 횟수 */
+  toolCallCount: number;
+  /** 오류 횟수 */
+  errorCount: number;
+}
+
+/**
+ * 토큰 사용량
+ */
+export interface TokenUsage {
+  prompt: number;
+  completion: number;
+  total: number;
+}
+
+/**
  * Swarm 이벤트 종류
  */
 export type SwarmEventKind =
   | 'swarm.created'
   | 'swarm.started'
   | 'swarm.stopped'
+  | 'swarm.paused'
+  | 'swarm.resumed'
+  | 'swarm.terminated'
+  | 'swarm.deleted'
   | 'swarm.error'
   | 'swarm.configChanged'
   | 'agent.created'
@@ -218,6 +354,8 @@ export interface SwarmEventLogRecord {
   type: 'swarm.event';
   /** 기록 시각 (ISO8601) */
   recordedAt: string;
+  /** 추적 ID (분산 추적용) */
+  traceId: string;
   /** 이벤트 종류 */
   kind: SwarmEventKind;
   /** 인스턴스 ID */
@@ -262,6 +400,8 @@ export interface AgentEventLogRecord {
   type: 'agent.event';
   /** 기록 시각 (ISO8601) */
   recordedAt: string;
+  /** 추적 ID (분산 추적용) */
+  traceId: string;
   /** 이벤트 종류 */
   kind: AgentEventKind;
   /** 인스턴스 ID */

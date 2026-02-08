@@ -20,7 +20,7 @@ export type SwarmBundleRef = string;
 /**
  * SwarmInstance 상태
  */
-export type SwarmInstanceStatus = 'active' | 'idle' | 'terminated';
+export type SwarmInstanceStatus = 'active' | 'idle' | 'paused' | 'terminated';
 
 /**
  * AgentInstance 상태
@@ -45,6 +45,7 @@ export type StepStatus =
   | 'config'
   | 'tools'
   | 'blocks'
+  | 'llmInput'
   | 'llmCall'
   | 'toolExec'
   | 'post'
@@ -122,22 +123,34 @@ export type LlmMessage =
   | LlmToolMessage;
 
 export interface LlmSystemMessage {
+  readonly id: string;
   readonly role: 'system';
   readonly content: string;
 }
 
 export interface LlmUserMessage {
+  readonly id: string;
   readonly role: 'user';
   readonly content: string;
+  readonly attachments?: MessageAttachment[];
+}
+
+export interface MessageAttachment {
+  readonly type: 'image' | 'file';
+  readonly url?: string;
+  readonly base64?: string;
+  readonly mimeType?: string;
 }
 
 export interface LlmAssistantMessage {
+  readonly id: string;
   readonly role: 'assistant';
   readonly content?: string;
   readonly toolCalls?: ToolCall[];
 }
 
 export interface LlmToolMessage {
+  readonly id: string;
   readonly role: 'tool';
   readonly toolCallId: string;
   readonly toolName: string;
@@ -150,16 +163,73 @@ export interface LlmToolMessage {
 export interface LlmResult {
   /** 응답 메시지 */
   readonly message: LlmAssistantMessage;
-  /** 사용량 정보 */
-  readonly usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  /** 완료 이유 */
-  readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter';
   /** 응답 메타데이터 */
-  readonly meta?: JsonObject;
+  readonly meta: {
+    usage?: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    };
+    model?: string;
+    finishReason?: string;
+  };
+}
+
+// ============================================================
+// MessageEvent 타입
+// ============================================================
+
+/**
+ * MessageEvent: Turn 메시지 상태 변경 이벤트
+ *
+ * NextMessages = BaseMessages + SUM(Events) 공식으로 계산
+ */
+export type MessageEvent =
+  | SystemMessageEvent
+  | LlmMessageEvent
+  | ReplaceEvent
+  | RemoveEvent
+  | TruncateEvent;
+
+export interface SystemMessageEvent {
+  readonly type: 'system_message';
+  readonly seq: number;
+  readonly message: LlmSystemMessage;
+}
+
+export interface LlmMessageEvent {
+  readonly type: 'llm_message';
+  readonly seq: number;
+  readonly message: LlmUserMessage | LlmAssistantMessage | LlmToolMessage;
+}
+
+export interface ReplaceEvent {
+  readonly type: 'replace';
+  readonly seq: number;
+  readonly targetId: string;
+  readonly message: LlmMessage;
+}
+
+export interface RemoveEvent {
+  readonly type: 'remove';
+  readonly seq: number;
+  readonly targetId: string;
+}
+
+export interface TruncateEvent {
+  readonly type: 'truncate';
+  readonly seq: number;
+}
+
+/**
+ * TurnMessageState: Turn의 메시지 상태 모델
+ *
+ * NextMessages = BaseMessages + SUM(Events)
+ */
+export interface TurnMessageState {
+  readonly baseMessages: LlmMessage[];
+  readonly events: MessageEvent[];
+  readonly nextMessages: LlmMessage[];
 }
 
 // ============================================================
@@ -174,8 +244,8 @@ export interface ToolCall {
   readonly id: string;
   /** 도구 이름 */
   readonly name: string;
-  /** 입력 인자 */
-  readonly input: JsonObject;
+  /** LLM이 전달한 인자 (JSON) */
+  readonly args: JsonObject;
 }
 
 /**
@@ -191,18 +261,21 @@ export interface ToolResult {
   readonly toolCallId: string;
   /** 도구 이름 */
   readonly toolName: string;
+  /** 결과 상태 */
+  readonly status: 'ok' | 'error' | 'pending';
   /** 실행 결과 (동기 완료) */
   readonly output?: JsonValue;
   /** 비동기 핸들 */
   readonly handle?: string;
-  /** 오류 정보 */
+  /** 오류 정보 (status === 'error' 시) */
   readonly error?: {
-    status: 'error';
-    error: {
-      message: string;
-      name?: string;
-      code?: string;
-    };
+    name: string;
+    message: string;
+    code?: string;
+    /** 사용자에게 제시할 해결 제안 */
+    suggestion?: string;
+    /** 관련 도움말 URL */
+    helpUrl?: string;
   };
 }
 
@@ -261,7 +334,245 @@ export interface AgentEvent {
 }
 
 // ============================================================
-// 타입 가드
+// MessageEvent 타입 가드
+// ============================================================
+
+export function isSystemMessageEvent(event: MessageEvent): event is SystemMessageEvent {
+  return event.type === 'system_message';
+}
+
+export function isLlmMessageEvent(event: MessageEvent): event is LlmMessageEvent {
+  return event.type === 'llm_message';
+}
+
+export function isReplaceMessageEvent(event: MessageEvent): event is ReplaceEvent {
+  return event.type === 'replace';
+}
+
+export function isRemoveMessageEvent(event: MessageEvent): event is RemoveEvent {
+  return event.type === 'remove';
+}
+
+export function isTruncateMessageEvent(event: MessageEvent): event is TruncateEvent {
+  return event.type === 'truncate';
+}
+
+// ============================================================
+// TurnMessageState 계산
+// ============================================================
+
+/**
+ * MessageEvent에서 nextMessages를 재계산
+ *
+ * 규칙:
+ * - MUST: nextMessages = fold(baseMessages, events)
+ */
+export function computeNextMessages(
+  baseMessages: readonly LlmMessage[],
+  events: readonly MessageEvent[]
+): LlmMessage[] {
+  let messages = [...baseMessages];
+
+  for (const event of events) {
+    switch (event.type) {
+      case 'system_message':
+        messages.push(event.message);
+        break;
+      case 'llm_message':
+        messages.push(event.message);
+        break;
+      case 'replace': {
+        const idx = messages.findIndex((m) => m.id === event.targetId);
+        if (idx >= 0) {
+          messages[idx] = event.message;
+        }
+        break;
+      }
+      case 'remove':
+        messages = messages.filter((m) => m.id !== event.targetId);
+        break;
+      case 'truncate':
+        messages = [];
+        break;
+    }
+  }
+
+  return messages;
+}
+
+/**
+ * 빈 TurnMessageState 생성
+ */
+export function createTurnMessageState(
+  baseMessages?: LlmMessage[]
+): TurnMessageState {
+  const base = baseMessages ?? [];
+  return {
+    baseMessages: [...base],
+    events: [],
+    nextMessages: [...base],
+  };
+}
+
+// ============================================================
+// Observability 타입
+// ============================================================
+
+/**
+ * Token 사용량
+ */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/**
+ * Step 메트릭
+ */
+export interface StepMetrics {
+  /** Step 실행 시간(ms) */
+  latencyMs: number;
+  /** Tool 호출 횟수 */
+  toolCallCount: number;
+  /** 오류 횟수 */
+  errorCount: number;
+  /** 토큰 사용량 */
+  tokenUsage: TokenUsage;
+}
+
+/**
+ * Turn 메트릭
+ */
+export interface TurnMetrics {
+  /** Turn 전체 실행 시간(ms) */
+  latencyMs: number;
+  /** Step 수 */
+  stepCount: number;
+  /** 총 Tool 호출 횟수 */
+  toolCallCount: number;
+  /** 총 오류 횟수 */
+  errorCount: number;
+  /** 총 토큰 사용량 */
+  tokenUsage: TokenUsage;
+}
+
+/**
+ * Runtime 이벤트 로그 엔트리
+ */
+export interface RuntimeLogEntry {
+  timestamp: string;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  event: string;
+  traceId?: string;
+  context: {
+    instanceKey?: string;
+    swarmRef?: string;
+    agentName?: string;
+    turnId?: string;
+    stepIndex?: number;
+  };
+  data?: JsonObject;
+  error?: {
+    name: string;
+    message: string;
+    code?: string;
+    stack?: string;
+  };
+}
+
+/**
+ * Health Check 결과
+ */
+export interface HealthCheckResult {
+  /** 전체 상태 */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** 활성 인스턴스 수 */
+  activeInstances: number;
+  /** 현재 실행 중인 Turn 수 */
+  activeTurns: number;
+  /** 마지막 활동 시각 */
+  lastActivityAt?: string;
+  /** 구성 요소별 상태 */
+  components?: Record<string, {
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    message?: string;
+  }>;
+}
+
+/**
+ * 인스턴스 GC 정책
+ */
+export interface InstanceGcPolicy {
+  /** 인스턴스 최대 생존 시간(ms) (0이면 비활성화) */
+  ttlMs?: number;
+  /** 유휴 상태 최대 시간(ms) (0이면 비활성화) */
+  idleTimeoutMs?: number;
+  /** GC 검사 간격(ms) */
+  checkIntervalMs?: number;
+}
+
+// ============================================================
+// 민감값 마스킹
+// ============================================================
+
+/** 민감 필드 키 패턴 */
+const SENSITIVE_KEY_PATTERNS: readonly RegExp[] = [
+  /token/i,
+  /secret/i,
+  /password/i,
+  /credential/i,
+  /api[_-]?key/i,
+];
+
+/**
+ * 민감값 마스킹
+ *
+ * 규칙:
+ * - SHOULD: 마스킹된 값은 앞 4자만 노출하고 나머지는 "****"로 대체한다
+ */
+export function maskSensitiveValue(value: string): string {
+  if (value.length <= 4) {
+    return '****';
+  }
+  return value.slice(0, 4) + '****';
+}
+
+/**
+ * 키 이름이 민감한 필드인지 확인
+ */
+export function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+/**
+ * JsonValue가 JsonObject인지 확인하는 타입 가드
+ */
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 객체 내 민감값을 재귀적으로 마스킹
+ */
+export function maskSensitiveFields(obj: JsonObject): JsonObject {
+  const result: JsonObject = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (isSensitiveKey(key) && typeof value === 'string') {
+      result[key] = maskSensitiveValue(value);
+    } else if (isJsonObject(value)) {
+      result[key] = maskSensitiveFields(value);
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
+}
+
+// ============================================================
+// LlmMessage 타입 가드
 // ============================================================
 
 /**
@@ -308,13 +619,13 @@ function generateId(): string {
  */
 export function createToolCall(
   name: string,
-  input: JsonObject,
+  args: JsonObject,
   id?: string
 ): ToolCall {
   return {
     id: id ?? generateId(),
     name,
-    input,
+    args,
   };
 }
 
@@ -331,13 +642,11 @@ export function createToolResult(
     return {
       toolCallId,
       toolName,
+      status: 'error',
       error: {
-        status: 'error',
-        error: {
-          message: error.message,
-          name: error.name,
-          code: 'code' in error && typeof error.code === 'string' ? error.code : undefined,
-        },
+        name: error.name,
+        message: error.message,
+        code: 'code' in error && typeof error.code === 'string' ? error.code : undefined,
       },
     };
   }
@@ -345,6 +654,7 @@ export function createToolResult(
   return {
     toolCallId,
     toolName,
+    status: 'ok',
     output,
   };
 }

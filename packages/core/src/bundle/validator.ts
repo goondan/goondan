@@ -19,6 +19,160 @@ const VALID_RUNTIMES = ['node', 'python', 'deno'];
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const MAX_NAME_LENGTH = 63;
 
+interface CronFieldSpec {
+  min: number;
+  max: number;
+  names?: readonly string[];
+  namedValueStart?: number;
+}
+
+const MONTH_NAMES: readonly string[] = [
+  'JAN',
+  'FEB',
+  'MAR',
+  'APR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AUG',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DEC',
+];
+
+const DAY_NAMES: readonly string[] = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+const CRON_5_FIELD_SPEC: readonly CronFieldSpec[] = [
+  { min: 0, max: 59 },
+  { min: 0, max: 23 },
+  { min: 1, max: 31 },
+  { min: 1, max: 12, names: MONTH_NAMES, namedValueStart: 1 },
+  { min: 0, max: 7, names: DAY_NAMES, namedValueStart: 0 },
+];
+
+const CRON_6_FIELD_SPEC: readonly CronFieldSpec[] = [
+  { min: 0, max: 59 },
+  ...CRON_5_FIELD_SPEC,
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isPositiveIntegerString(value: string): boolean {
+  return /^\d+$/.test(value) && Number(value) > 0;
+}
+
+function parseCronValue(raw: string, spec: CronFieldSpec): number | null {
+  if (/^\d+$/.test(raw)) {
+    const value = Number(raw);
+    return value >= spec.min && value <= spec.max ? value : null;
+  }
+
+  if (!spec.names) {
+    return null;
+  }
+
+  const token = raw.toUpperCase();
+  const nameIndex = spec.names.indexOf(token);
+  if (nameIndex < 0) {
+    return null;
+  }
+
+  const namedValueStart = spec.namedValueStart ?? spec.min;
+  return namedValueStart + nameIndex;
+}
+
+function isCronRangeOrValueValid(raw: string, spec: CronFieldSpec): boolean {
+  if (raw === '*') {
+    return true;
+  }
+
+  const rangeParts = raw.split('-');
+  if (rangeParts.length === 2) {
+    const start = rangeParts[0];
+    const end = rangeParts[1];
+    if (!start || !end) {
+      return false;
+    }
+
+    const startValue = parseCronValue(start, spec);
+    const endValue = parseCronValue(end, spec);
+    return (
+      startValue !== null &&
+      endValue !== null &&
+      startValue <= endValue
+    );
+  }
+
+  if (rangeParts.length > 2) {
+    return false;
+  }
+
+  return parseCronValue(raw, spec) !== null;
+}
+
+function isCronSegmentValid(rawSegment: string, spec: CronFieldSpec): boolean {
+  const slashParts = rawSegment.split('/');
+  if (slashParts.length === 2) {
+    const base = slashParts[0];
+    const step = slashParts[1];
+    if (!base || !step || !isPositiveIntegerString(step)) {
+      return false;
+    }
+    return isCronRangeOrValueValid(base, spec);
+  }
+
+  if (slashParts.length > 2) {
+    return false;
+  }
+
+  return isCronRangeOrValueValid(rawSegment, spec);
+}
+
+function isValidCronExpression(schedule: string): boolean {
+  const fields = schedule.trim().split(/\s+/).filter(Boolean);
+  const fieldSpec =
+    fields.length === 5
+      ? CRON_5_FIELD_SPEC
+      : fields.length === 6
+        ? CRON_6_FIELD_SPEC
+        : null;
+
+  if (!fieldSpec) {
+    return false;
+  }
+
+  return fields.every((field, index) => {
+    const spec = fieldSpec[index];
+    if (!spec) {
+      return false;
+    }
+
+    return field.split(',').every(
+      (segment) => segment.length > 0 && isCronSegmentValid(segment, spec)
+    );
+  });
+}
+
+function pushValueSourceErrors(
+  errors: ValidationError[],
+  source: unknown,
+  path: string,
+  ctx: { kind: string; resourceName?: string }
+): void {
+  const sourceErrors = validateValueSource(source);
+  for (const sourceError of sourceErrors) {
+    errors.push(
+      new ValidationError(sourceError.message, {
+        ...ctx,
+        path,
+      })
+    );
+  }
+}
+
 /**
  * 단일 리소스 기본 검증 (공통 규칙)
  *
@@ -678,47 +832,298 @@ function validateSwarm(resource: Resource): ValidationError[] {
     );
   }
 
+  // policy 검증
+  if (spec.policy && typeof spec.policy === 'object') {
+    const policy = spec.policy as Record<string, unknown>;
+
+    // maxStepsPerTurn 검증
+    if (policy.maxStepsPerTurn !== undefined) {
+      if (typeof policy.maxStepsPerTurn !== 'number' || policy.maxStepsPerTurn <= 0) {
+        errors.push(
+          new ValidationError(
+            'spec.policy.maxStepsPerTurn must be a positive number',
+            {
+              ...ctx,
+              path: '/spec/policy/maxStepsPerTurn',
+            }
+          )
+        );
+      }
+    }
+
+    // queueMode 검증
+    if (policy.queueMode !== undefined && policy.queueMode !== 'serial') {
+      errors.push(
+        new ValidationError(
+          'spec.policy.queueMode must be "serial"',
+          {
+            ...ctx,
+            path: '/spec/policy/queueMode',
+            expected: 'serial',
+            actual: String(policy.queueMode),
+          }
+        )
+      );
+    }
+
+    // lifecycle 검증
+    if (policy.lifecycle && typeof policy.lifecycle === 'object') {
+      const lifecycle = policy.lifecycle as Record<string, unknown>;
+
+      if (lifecycle.autoPauseIdleSeconds !== undefined &&
+          (typeof lifecycle.autoPauseIdleSeconds !== 'number' || lifecycle.autoPauseIdleSeconds <= 0)) {
+        errors.push(
+          new ValidationError(
+            'spec.policy.lifecycle.autoPauseIdleSeconds must be a positive number',
+            {
+              ...ctx,
+              path: '/spec/policy/lifecycle/autoPauseIdleSeconds',
+            }
+          )
+        );
+      }
+
+      if (lifecycle.ttlSeconds !== undefined &&
+          (typeof lifecycle.ttlSeconds !== 'number' || lifecycle.ttlSeconds <= 0)) {
+        errors.push(
+          new ValidationError(
+            'spec.policy.lifecycle.ttlSeconds must be a positive number',
+            {
+              ...ctx,
+              path: '/spec/policy/lifecycle/ttlSeconds',
+            }
+          )
+        );
+      }
+
+      if (lifecycle.gcGraceSeconds !== undefined &&
+          (typeof lifecycle.gcGraceSeconds !== 'number' || lifecycle.gcGraceSeconds <= 0)) {
+        errors.push(
+          new ValidationError(
+            'spec.policy.lifecycle.gcGraceSeconds must be a positive number',
+            {
+              ...ctx,
+              path: '/spec/policy/lifecycle/gcGraceSeconds',
+            }
+          )
+        );
+      }
+    }
+  }
+
   return errors;
 }
+
+/**
+ * 유효한 trigger 타입
+ */
+const VALID_TRIGGER_TYPES = ['http', 'cron', 'cli'];
+
+/**
+ * 유효한 HTTP 메서드
+ */
+const VALID_HTTP_METHODS = ['POST', 'GET', 'PUT', 'DELETE'];
 
 function validateConnector(resource: Resource): ValidationError[] {
   const errors: ValidationError[] = [];
   const spec = getSpec(resource);
   const ctx = { kind: resource.kind, resourceName: resource.metadata?.name };
+  let cliTriggerCount = 0;
 
-  // type 검증
-  if (!spec.type) {
+  // runtime 검증 (현재 'node'만 지원)
+  if (!spec.runtime) {
     errors.push(
-      new ValidationError('spec.type is required for Connector', {
+      new ValidationError('spec.runtime is required for Connector', {
         ...ctx,
-        path: '/spec/type',
+        path: '/spec/runtime',
+      })
+    );
+  } else if (spec.runtime !== 'node') {
+    errors.push(
+      new ValidationError(
+        'spec.runtime must be "node" for Connector',
+        {
+          ...ctx,
+          path: '/spec/runtime',
+          expected: 'node',
+          actual: String(spec.runtime),
+        }
+      )
+    );
+  }
+
+  // entry 검증
+  if (!spec.entry) {
+    errors.push(
+      new ValidationError('spec.entry is required for Connector', {
+        ...ctx,
+        path: '/spec/entry',
       })
     );
   }
 
-  // custom 타입일 때 runtime과 entry 필수
-  if (spec.type === 'custom') {
-    if (!spec.runtime) {
+  // triggers 검증 (최소 1개)
+  if (!spec.triggers || !Array.isArray(spec.triggers) || spec.triggers.length === 0) {
+    errors.push(
+      new ValidationError(
+        'spec.triggers is required and must have at least one trigger declaration',
+        {
+          ...ctx,
+          path: '/spec/triggers',
+        }
+      )
+    );
+  } else {
+    for (let i = 0; i < spec.triggers.length; i++) {
+      const triggerRaw = spec.triggers[i];
+      if (!isRecord(triggerRaw)) {
+        errors.push(
+          new ValidationError(
+            `spec.triggers[${i}] must be an object`,
+            {
+              ...ctx,
+              path: `/spec/triggers/${i}`,
+            }
+          )
+        );
+        continue;
+      }
+
+      const triggerType =
+        typeof triggerRaw.type === 'string' ? triggerRaw.type : undefined;
+      if (!triggerType || !VALID_TRIGGER_TYPES.includes(triggerType)) {
+        errors.push(
+          new ValidationError(
+            `spec.triggers[${i}].type must be one of: ${VALID_TRIGGER_TYPES.join(', ')}`,
+            {
+              ...ctx,
+              path: `/spec/triggers/${i}/type`,
+            }
+          )
+        );
+      }
+
+      if (triggerType === 'cli') {
+        cliTriggerCount += 1;
+      }
+
+      // http trigger: endpoint.path 및 endpoint.method 검증
+      if (triggerType === 'http') {
+        const endpointRaw = triggerRaw.endpoint;
+        if (!isRecord(endpointRaw)) {
+          errors.push(
+            new ValidationError(
+              `spec.triggers[${i}].endpoint is required for http trigger`,
+              {
+                ...ctx,
+                path: `/spec/triggers/${i}/endpoint`,
+              }
+            )
+          );
+        } else {
+          if (
+            typeof endpointRaw.path !== 'string' ||
+            !endpointRaw.path.startsWith('/')
+          ) {
+            errors.push(
+              new ValidationError(
+                `spec.triggers[${i}].endpoint.path must be a string starting with "/"`,
+                {
+                  ...ctx,
+                  path: `/spec/triggers/${i}/endpoint/path`,
+                }
+              )
+            );
+          }
+          if (
+            typeof endpointRaw.method !== 'string' ||
+            !VALID_HTTP_METHODS.includes(endpointRaw.method)
+          ) {
+            errors.push(
+              new ValidationError(
+                `spec.triggers[${i}].endpoint.method must be one of: ${VALID_HTTP_METHODS.join(', ')}`,
+                {
+                  ...ctx,
+                  path: `/spec/triggers/${i}/endpoint/method`,
+                }
+              )
+            );
+          }
+        }
+      }
+
+      // cron trigger: schedule 검증
+      if (triggerType === 'cron') {
+        if (
+          typeof triggerRaw.schedule !== 'string' ||
+          triggerRaw.schedule.trim().length === 0
+        ) {
+          errors.push(
+            new ValidationError(
+              `spec.triggers[${i}].schedule is required for cron trigger`,
+              {
+                ...ctx,
+                path: `/spec/triggers/${i}/schedule`,
+              }
+            )
+          );
+        } else if (!isValidCronExpression(triggerRaw.schedule)) {
+          errors.push(
+            new ValidationError(
+              `spec.triggers[${i}].schedule must be a valid cron expression (5-field or 6-field)`,
+              {
+                ...ctx,
+                path: `/spec/triggers/${i}/schedule`,
+              }
+            )
+          );
+        }
+      }
+    }
+
+    if (cliTriggerCount > 1) {
       errors.push(
         new ValidationError(
-          'spec.runtime is required for custom Connector',
+          'spec.triggers can include at most one "cli" trigger',
           {
             ...ctx,
-            path: '/spec/runtime',
+            path: '/spec/triggers',
+            expected: 'max 1 cli trigger',
+            actual: String(cliTriggerCount),
           }
         )
       );
     }
-    if (!spec.entry) {
-      errors.push(
-        new ValidationError(
-          'spec.entry is required for custom Connector',
-          {
-            ...ctx,
-            path: '/spec/entry',
-          }
-        )
-      );
+  }
+
+  // events 이름 고유성 검증
+  if (spec.events && Array.isArray(spec.events)) {
+    const eventNames = new Set<string>();
+    for (let i = 0; i < spec.events.length; i++) {
+      const event = spec.events[i] as Record<string, unknown>;
+      if (!event.name || typeof event.name !== 'string') {
+        errors.push(
+          new ValidationError(
+            `spec.events[${i}].name is required and must be a string`,
+            {
+              ...ctx,
+              path: `/spec/events/${i}/name`,
+            }
+          )
+        );
+      } else if (eventNames.has(event.name)) {
+        errors.push(
+          new ValidationError(
+            `spec.events[${i}].name "${event.name}" is not unique within the Connector`,
+            {
+              ...ctx,
+              path: `/spec/events/${i}/name`,
+            }
+          )
+        );
+      } else {
+        eventNames.add(event.name);
+      }
     }
   }
 
@@ -741,10 +1146,14 @@ function validateConnection(resource: Resource): ValidationError[] {
   }
 
   // auth 상호 배타 검증
-  if (spec.auth) {
-    const auth = spec.auth as Record<string, unknown>;
-    const hasOAuthAppRef = 'oauthAppRef' in auth && auth.oauthAppRef;
-    const hasStaticToken = 'staticToken' in auth && auth.staticToken;
+  if (isRecord(spec.auth)) {
+    const auth = spec.auth;
+    const hasOAuthAppRef =
+      Object.prototype.hasOwnProperty.call(auth, 'oauthAppRef') &&
+      auth.oauthAppRef !== undefined;
+    const hasStaticToken =
+      Object.prototype.hasOwnProperty.call(auth, 'staticToken') &&
+      auth.staticToken !== undefined;
 
     if (hasOAuthAppRef && hasStaticToken) {
       errors.push(
@@ -757,6 +1166,28 @@ function validateConnection(resource: Resource): ValidationError[] {
         )
       );
     }
+
+    if (hasStaticToken) {
+      pushValueSourceErrors(
+        errors,
+        auth.staticToken,
+        '/spec/auth/staticToken',
+        ctx
+      );
+    }
+  }
+
+  if (
+    isRecord(spec.verify) &&
+    isRecord(spec.verify.webhook) &&
+    Object.prototype.hasOwnProperty.call(spec.verify.webhook, 'signingSecret')
+  ) {
+    pushValueSourceErrors(
+      errors,
+      spec.verify.webhook.signingSecret,
+      '/spec/verify/webhook/signingSecret',
+      ctx
+    );
   }
 
   return errors;
@@ -807,10 +1238,77 @@ function validateOAuthApp(resource: Resource): ValidationError[] {
     );
   }
 
+  if (!isRecord(spec.client)) {
+    errors.push(
+      new ValidationError('spec.client is required for OAuthApp', {
+        ...ctx,
+        path: '/spec/client',
+      })
+    );
+  } else {
+    const client = spec.client;
+    if (!Object.prototype.hasOwnProperty.call(client, 'clientId')) {
+      errors.push(
+        new ValidationError('spec.client.clientId is required for OAuthApp', {
+          ...ctx,
+          path: '/spec/client/clientId',
+        })
+      );
+    } else {
+      pushValueSourceErrors(
+        errors,
+        client.clientId,
+        '/spec/client/clientId',
+        ctx
+      );
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(client, 'clientSecret')) {
+      errors.push(
+        new ValidationError('spec.client.clientSecret is required for OAuthApp', {
+          ...ctx,
+          path: '/spec/client/clientSecret',
+        })
+      );
+    } else {
+      pushValueSourceErrors(
+        errors,
+        client.clientSecret,
+        '/spec/client/clientSecret',
+        ctx
+      );
+    }
+  }
+
+  const endpoints = isRecord(spec.endpoints) ? spec.endpoints : undefined;
+  if (typeof endpoints?.tokenUrl !== 'string' || endpoints.tokenUrl.length === 0) {
+    errors.push(
+      new ValidationError('spec.endpoints.tokenUrl is required for OAuthApp', {
+        ...ctx,
+        path: '/spec/endpoints/tokenUrl',
+      })
+    );
+  }
+
+  if (spec.flow === 'deviceCode') {
+    errors.push(
+      new ValidationError(
+        'spec.flow=deviceCode is not supported by the current runtime and must be rejected at load time',
+        {
+          ...ctx,
+          path: '/spec/flow',
+          actual: 'deviceCode',
+        }
+      )
+    );
+  }
+
   // authorizationCode flow 추가 검증
   if (spec.flow === 'authorizationCode') {
-    const endpoints = spec.endpoints as Record<string, unknown> | undefined;
-    if (!endpoints?.authorizationUrl) {
+    if (
+      typeof endpoints?.authorizationUrl !== 'string' ||
+      endpoints.authorizationUrl.length === 0
+    ) {
       errors.push(
         new ValidationError(
           'spec.endpoints.authorizationUrl is required for authorizationCode flow',
@@ -822,8 +1320,11 @@ function validateOAuthApp(resource: Resource): ValidationError[] {
       );
     }
 
-    const redirect = spec.redirect as Record<string, unknown> | undefined;
-    if (!redirect?.callbackPath) {
+    const redirect = isRecord(spec.redirect) ? spec.redirect : undefined;
+    if (
+      typeof redirect?.callbackPath !== 'string' ||
+      redirect.callbackPath.length === 0
+    ) {
       errors.push(
         new ValidationError(
           'spec.redirect.callbackPath is required for authorizationCode flow',

@@ -9,9 +9,7 @@ import type {
   ModelParams,
   AgentPrompts,
   HookSpec,
-  HookAction,
   PipelinePoint,
-  ExprValue,
   AgentChangesetPolicy,
   AgentResource,
 } from '../../../src/types/specs/agent.js';
@@ -69,18 +67,21 @@ describe('AgentSpec 타입', () => {
   });
 
   describe('HookSpec', () => {
-    it('point는 필수이다', () => {
+    it('point와 action.runtime/entry/export는 필수이다', () => {
       const hook: HookSpec = {
         point: 'turn.post',
         action: {
-          toolCall: {
-            tool: 'log.info',
-            input: { message: 'Turn completed' },
-          },
+          runtime: 'node',
+          entry: './hooks/notify.ts',
+          export: 'onTurnPost',
+          input: { message: 'Turn completed' },
         },
       };
 
       expect(hook.point).toBe('turn.post');
+      expect(hook.action.runtime).toBe('node');
+      expect(hook.action.entry).toBe('./hooks/notify.ts');
+      expect(hook.action.export).toBe('onTurnPost');
     });
 
     it('id와 priority는 선택이다', () => {
@@ -89,10 +90,10 @@ describe('AgentSpec 타입', () => {
         point: 'turn.post',
         priority: 10,
         action: {
-          toolCall: {
-            tool: 'slack.postMessage',
-            input: { channel: '#general', text: 'Done!' },
-          },
+          runtime: 'node',
+          entry: './hooks/slack.ts',
+          export: 'notify',
+          input: { channel: '#general', text: 'Done!' },
         },
       };
 
@@ -100,22 +101,27 @@ describe('AgentSpec 타입', () => {
       expect(hook.priority).toBe(10);
     });
 
-    it('action.toolCall.input에 ExprValue를 사용할 수 있다', () => {
+    it('action.input에 ExprValue를 사용할 수 있다', () => {
       const hook: HookSpec = {
         point: 'turn.post',
         action: {
-          toolCall: {
-            tool: 'slack.postMessage',
-            input: {
-              channel: { expr: '$.turn.origin.channel' },
-              text: { expr: '$.turn.summary' },
-            },
+          runtime: 'node',
+          entry: './hooks/slack.ts',
+          export: 'notify',
+          input: {
+            channel: { expr: '$.turn.origin.channel' },
+            text: { expr: '$.turn.summary' },
           },
         },
       };
 
-      const channelExpr = hook.action.toolCall?.input.channel as ExprValue;
-      expect(channelExpr.expr).toBe('$.turn.origin.channel');
+      const channelExpr = hook.action.input?.channel;
+      if (channelExpr && typeof channelExpr === 'object' && 'expr' in channelExpr) {
+        expect(channelExpr.expr).toBe('$.turn.origin.channel');
+        return;
+      }
+
+      throw new Error('ExprValue가 설정되지 않았습니다.');
     });
   });
 
@@ -194,12 +200,12 @@ describe('AgentSpec 타입', () => {
               point: 'turn.post',
               priority: 0,
               action: {
-                toolCall: {
-                  tool: 'slack.postMessage',
-                  input: {
-                    channel: { expr: '$.turn.origin.channel' },
-                    text: { expr: '$.turn.summary' },
-                  },
+                runtime: 'node',
+                entry: './hooks/slack.ts',
+                export: 'notify',
+                input: {
+                  channel: { expr: '$.turn.origin.channel' },
+                  text: { expr: '$.turn.summary' },
                 },
               },
             },

@@ -64,3 +64,8 @@
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
 - Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함)
+
+## 최근 코어 동기화
+- Runtime: `step.pre` 파이프라인 호출, Turn 종료 시 `events -> base -> clear` 반영 훅 추가
+- Extension/Workspace: extension/shared state 파일 복원/영속화 최소 경로(`createPersistentStateStore`) 추가
+- Runtime/Workspace: pause/resume/terminate/delete 시 metadata 갱신을 위한 lifecycle hook 연결 경로 추가

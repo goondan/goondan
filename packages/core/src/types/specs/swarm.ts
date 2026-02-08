@@ -25,10 +25,40 @@ export interface SwarmSpec {
 export interface SwarmPolicy {
   /** Turn당 최대 Step 수 */
   maxStepsPerTurn?: number;
+  /** 이벤트 큐 처리 모드 */
+  queueMode?: 'serial';
+  /** 인스턴스 라이프사이클 정책 */
+  lifecycle?: SwarmLifecyclePolicy;
+  /** 재시도 정책 */
+  retry?: {
+    /** 최대 재시도 횟수 */
+    maxRetries?: number;
+    /** 재시도 간격 (ms) */
+    backoffMs?: number;
+  };
+  /** 타임아웃 정책 */
+  timeout?: {
+    /** Step 타임아웃 (ms) */
+    stepTimeoutMs?: number;
+    /** Turn 타임아웃 (ms) */
+    turnTimeoutMs?: number;
+  };
   /** Changeset 정책 */
   changesets?: SwarmChangesetPolicy;
   /** Live Config 정책 */
   liveConfig?: LiveConfigPolicy;
+}
+
+/**
+ * 인스턴스 라이프사이클 정책
+ */
+export interface SwarmLifecyclePolicy {
+  /** 유휴 시 자동 일시정지까지의 시간 (초) */
+  autoPauseIdleSeconds?: number;
+  /** 인스턴스 최대 수명 (초) */
+  ttlSeconds?: number;
+  /** GC 유예 기간 (초) */
+  gcGraceSeconds?: number;
 }
 
 /**

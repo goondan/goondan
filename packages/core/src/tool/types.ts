@@ -40,7 +40,7 @@ export interface ToolCall {
   name: string;
 
   /** LLM이 전달한 인자 (JSON) */
-  arguments: JsonObject;
+  args: JsonObject;
 }
 
 // =============================================================================
@@ -272,6 +272,12 @@ export interface ToolError {
 
   /** 오류 코드 */
   code?: string;
+
+  /** 사용자 복구를 위한 제안 (SHOULD) */
+  suggestion?: string;
+
+  /** 관련 문서 링크 (SHOULD) */
+  helpUrl?: string;
 }
 
 // =============================================================================

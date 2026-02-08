@@ -11,6 +11,7 @@ export type {
   PackageRefType,
   PackageRef,
   PackageRefLike,
+  PackageAccess,
   PackageSpec,
   ResolvedDependency,
   PackageVersionInfo,

@@ -18,6 +18,7 @@ import {
   checkBundleValidation,
   parseVersion,
   createDoctorCommand,
+  executeDoctorCommand,
 } from "../src/commands/doctor.js";
 
 describe("parseVersion", () => {
@@ -257,5 +258,53 @@ describe("createDoctorCommand", () => {
     const command = createDoctorCommand();
     expect(command.name()).toBe("doctor");
     expect(command.description()).toContain("environment");
+  });
+
+  it("should include --json option", () => {
+    const command = createDoctorCommand();
+    const options = command.options.map((opt) => opt.long);
+    expect(options).toContain("--json");
+  });
+});
+
+describe("executeDoctorCommand (json mode)", () => {
+  it("should print structured JSON output when json=true", async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    };
+
+    try {
+      await executeDoctorCommand({
+        fix: false,
+        runtime: false,
+        json: true,
+      });
+    } finally {
+      console.log = originalLog;
+      process.exitCode = originalExitCode;
+    }
+
+    const output = logs.join("\n");
+    const parsed: unknown = JSON.parse(output);
+
+    expect(typeof parsed).toBe("object");
+    expect(parsed).not.toBeNull();
+    if (typeof parsed === "object" && parsed !== null) {
+      expect("ok" in parsed).toBe(true);
+      expect("generatedAt" in parsed).toBe(true);
+      expect("runtimeChecked" in parsed).toBe(true);
+      expect("summary" in parsed).toBe(true);
+      expect("sections" in parsed).toBe(true);
+
+      if ("summary" in parsed && typeof parsed.summary === "object" && parsed.summary !== null) {
+        expect("passed" in parsed.summary).toBe(true);
+        expect("warnings" in parsed.summary).toBe(true);
+        expect("errors" in parsed.summary).toBe(true);
+      }
+    }
   });
 });

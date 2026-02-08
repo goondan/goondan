@@ -11,9 +11,15 @@ import type {
   AgentStatePaths,
   SystemStatePaths,
   OAuthStorePaths,
-  LlmMessageLogRecord,
+  MessageBaseLogRecord,
+  MessageEventLogRecord,
+  MessageEventType,
   LlmMessage,
   ToolCall,
+  InstanceMetadata,
+  SwarmInstanceStatus,
+  TurnMetricsLogRecord,
+  TokenUsage,
   SwarmEventLogRecord,
   SwarmEventKind,
   AgentEventLogRecord,
@@ -90,82 +96,138 @@ describe('Workspace 타입', () => {
   });
 
   describe('InstanceStatePaths', () => {
-    it('root와 swarmEventsLog 경로를 가진다', () => {
-      // 타입 체크용 - 실제 객체는 구현에서 생성
+    it('모든 필수 필드를 가진다', () => {
       const mockPaths: InstanceStatePaths = {
         root: '/home/.goondan/instances/ws1/inst1',
+        metadataFile: '/home/.goondan/instances/ws1/inst1/metadata.json',
         swarmEventsLog: '/home/.goondan/instances/ws1/inst1/swarm/events/events.jsonl',
+        metricsLog: '/home/.goondan/instances/ws1/inst1/metrics/turns.jsonl',
+        extensionSharedState: '/home/.goondan/instances/ws1/inst1/extensions/_shared.json',
+        extensionState(extensionName: string): string {
+          return `/home/.goondan/instances/ws1/inst1/extensions/${extensionName}/state.json`;
+        },
         agent: (agentName: string): AgentStatePaths => ({
           root: `/home/.goondan/instances/ws1/inst1/agents/${agentName}`,
-          messagesLog: `/home/.goondan/instances/ws1/inst1/agents/${agentName}/messages/llm.jsonl`,
+          messageBaseLog: `/home/.goondan/instances/ws1/inst1/agents/${agentName}/messages/base.jsonl`,
+          messageEventsLog: `/home/.goondan/instances/ws1/inst1/agents/${agentName}/messages/events.jsonl`,
           eventsLog: `/home/.goondan/instances/ws1/inst1/agents/${agentName}/events/events.jsonl`,
         }),
       };
 
       expect(mockPaths.root).toBeDefined();
+      expect(mockPaths.metadataFile).toContain('metadata.json');
       expect(mockPaths.swarmEventsLog).toBeDefined();
+      expect(mockPaths.metricsLog).toContain('turns.jsonl');
+      expect(mockPaths.extensionSharedState).toContain('_shared.json');
+      expect(mockPaths.extensionState('basicCompaction')).toContain('basicCompaction/state.json');
       expect(typeof mockPaths.agent).toBe('function');
     });
   });
 
   describe('AgentStatePaths', () => {
-    it('root, messagesLog, eventsLog 경로를 가진다', () => {
+    it('root, messageBaseLog, messageEventsLog, eventsLog 경로를 가진다', () => {
       const paths: AgentStatePaths = {
         root: '/home/.goondan/instances/ws1/inst1/agents/planner',
-        messagesLog: '/home/.goondan/instances/ws1/inst1/agents/planner/messages/llm.jsonl',
+        messageBaseLog: '/home/.goondan/instances/ws1/inst1/agents/planner/messages/base.jsonl',
+        messageEventsLog: '/home/.goondan/instances/ws1/inst1/agents/planner/messages/events.jsonl',
         eventsLog: '/home/.goondan/instances/ws1/inst1/agents/planner/events/events.jsonl',
       };
 
       expect(paths.root).toBeDefined();
-      expect(paths.messagesLog).toContain('llm.jsonl');
-      expect(paths.eventsLog).toContain('events.jsonl');
+      expect(paths.messageBaseLog).toContain('base.jsonl');
+      expect(paths.messageEventsLog).toContain('events.jsonl');
+      expect(paths.eventsLog).toContain('events/events.jsonl');
     });
   });
 
-  describe('LlmMessageLogRecord', () => {
-    it('type이 llm.message여야 한다', () => {
-      const record: LlmMessageLogRecord = {
-        type: 'llm.message',
+  describe('MessageBaseLogRecord', () => {
+    it('type이 message.base여야 한다', () => {
+      const record: MessageBaseLogRecord = {
+        type: 'message.base',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-abc123',
-        message: { role: 'user', content: 'Hello' },
+        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
+        sourceEventCount: 1,
       };
 
-      expect(record.type).toBe('llm.message');
+      expect(record.type).toBe('message.base');
+      expect(record.traceId).toBe('trace-a1b2c3');
+      expect(record.messages.length).toBe(1);
+      expect(record.sourceEventCount).toBe(1);
     });
+  });
 
-    it('stepId와 stepIndex는 선택적이다', () => {
-      const record: LlmMessageLogRecord = {
-        type: 'llm.message',
+  describe('MessageEventLogRecord', () => {
+    it('type이 message.event여야 한다', () => {
+      const record: MessageEventLogRecord = {
+        type: 'message.event',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-abc123',
+        seq: 1,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-001', role: 'user', content: 'Hello' } },
+      };
+
+      expect(record.type).toBe('message.event');
+      expect(record.seq).toBe(1);
+      expect(record.eventType).toBe('llm_message');
+    });
+
+    it('stepId는 선택적이다', () => {
+      const record: MessageEventLogRecord = {
+        type: 'message.event',
+        recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-abc123',
+        seq: 2,
+        eventType: 'llm_message',
+        payload: { message: { id: 'msg-002', role: 'assistant', content: 'Hi' } },
         stepId: 'step-xyz789',
-        stepIndex: 0,
-        message: { role: 'user', content: 'Hello' },
       };
 
       expect(record.stepId).toBe('step-xyz789');
-      expect(record.stepIndex).toBe(0);
+    });
+  });
+
+  describe('MessageEventType', () => {
+    it('정의된 이벤트 타입을 허용해야 한다', () => {
+      const types: MessageEventType[] = [
+        'system_message',
+        'llm_message',
+        'replace',
+        'remove',
+        'truncate',
+      ];
+
+      expect(types.length).toBe(5);
     });
   });
 
   describe('LlmMessage', () => {
     it('system 역할을 가질 수 있다', () => {
       const message: LlmMessage = {
+        id: 'msg-001',
         role: 'system',
         content: 'You are a helpful assistant',
       };
       expect(message.role).toBe('system');
+      expect(message.id).toBe('msg-001');
     });
 
     it('user 역할을 가질 수 있다', () => {
       const message: LlmMessage = {
+        id: 'msg-002',
         role: 'user',
         content: 'Hello',
       };
@@ -174,6 +236,7 @@ describe('Workspace 타입', () => {
 
     it('assistant 역할을 가질 수 있다 (content만)', () => {
       const message: LlmMessage = {
+        id: 'msg-003',
         role: 'assistant',
         content: 'Hi there!',
       };
@@ -187,6 +250,7 @@ describe('Workspace 타입', () => {
         arguments: { path: '.' },
       };
       const message: LlmMessage = {
+        id: 'msg-004',
         role: 'assistant',
         toolCalls: [toolCall],
       };
@@ -198,6 +262,7 @@ describe('Workspace 타입', () => {
 
     it('tool 역할을 가질 수 있다', () => {
       const message: LlmMessage = {
+        id: 'msg-005',
         role: 'tool',
         toolCallId: 'call_001',
         toolName: 'file.list',
@@ -207,11 +272,63 @@ describe('Workspace 타입', () => {
     });
   });
 
+  describe('InstanceMetadata', () => {
+    it('필수 필드를 가져야 한다', () => {
+      const metadata: InstanceMetadata = {
+        status: 'running',
+        updatedAt: '2026-02-01T12:00:00.000Z',
+        createdAt: '2026-02-01T12:00:00.000Z',
+      };
+
+      expect(metadata.status).toBe('running');
+      expect(metadata.updatedAt).toBeDefined();
+      expect(metadata.createdAt).toBeDefined();
+    });
+
+    it('expiresAt는 선택적이다', () => {
+      const metadata: InstanceMetadata = {
+        status: 'running',
+        updatedAt: '2026-02-01T12:00:00.000Z',
+        createdAt: '2026-02-01T12:00:00.000Z',
+        expiresAt: '2026-02-02T12:00:00.000Z',
+      };
+
+      expect(metadata.expiresAt).toBe('2026-02-02T12:00:00.000Z');
+    });
+
+    it('모든 SwarmInstanceStatus 값을 허용해야 한다', () => {
+      const statuses: SwarmInstanceStatus[] = ['running', 'paused', 'terminated'];
+      expect(statuses.length).toBe(3);
+    });
+  });
+
+  describe('TurnMetricsLogRecord', () => {
+    it('type이 metrics.turn이어야 한다', () => {
+      const tokenUsage: TokenUsage = { prompt: 150, completion: 30, total: 180 };
+      const record: TurnMetricsLogRecord = {
+        type: 'metrics.turn',
+        recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
+        turnId: 'turn-abc123',
+        instanceId: 'default-cli',
+        agentName: 'planner',
+        latencyMs: 3200,
+        tokenUsage,
+        toolCallCount: 1,
+        errorCount: 0,
+      };
+
+      expect(record.type).toBe('metrics.turn');
+      expect(record.tokenUsage.total).toBe(180);
+    });
+  });
+
   describe('SwarmEventLogRecord', () => {
     it('type이 swarm.event여야 한다', () => {
       const record: SwarmEventLogRecord = {
         type: 'swarm.event',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         kind: 'swarm.created',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -220,12 +337,14 @@ describe('Workspace 타입', () => {
 
       expect(record.type).toBe('swarm.event');
       expect(record.kind).toBe('swarm.created');
+      expect(record.traceId).toBe('trace-a1b2c3');
     });
 
     it('agentName과 data는 선택적이다', () => {
       const record: SwarmEventLogRecord = {
         type: 'swarm.event',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         kind: 'agent.created',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -245,6 +364,10 @@ describe('Workspace 타입', () => {
         'swarm.created',
         'swarm.started',
         'swarm.stopped',
+        'swarm.paused',
+        'swarm.resumed',
+        'swarm.terminated',
+        'swarm.deleted',
         'swarm.error',
         'swarm.configChanged',
         'agent.created',
@@ -257,7 +380,7 @@ describe('Workspace 타입', () => {
         'changeset.activated',
       ];
 
-      expect(kinds.length).toBe(13);
+      expect(kinds.length).toBe(17);
     });
 
     it('확장 가능하므로 임의의 문자열도 허용해야 한다', () => {
@@ -271,6 +394,7 @@ describe('Workspace 타입', () => {
       const record: AgentEventLogRecord = {
         type: 'agent.event',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         kind: 'turn.started',
         instanceId: 'default-cli',
         instanceKey: 'cli',
@@ -279,12 +403,14 @@ describe('Workspace 타입', () => {
 
       expect(record.type).toBe('agent.event');
       expect(record.kind).toBe('turn.started');
+      expect(record.traceId).toBe('trace-a1b2c3');
     });
 
     it('turnId, stepId, stepIndex, data는 선택적이다', () => {
       const record: AgentEventLogRecord = {
         type: 'agent.event',
         recordedAt: '2026-02-01T12:00:00.000Z',
+        traceId: 'trace-a1b2c3',
         kind: 'step.started',
         instanceId: 'default-cli',
         instanceKey: 'cli',

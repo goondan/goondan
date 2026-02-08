@@ -1,101 +1,34 @@
 /**
- * CLI Connector
+ * CLI Connector (v1.0)
  *
- * readline 기반으로 CLI 입력을 수신하고 응답을 console.log로 출력하는 Connector입니다.
- * 이 모듈은 @goondan/base 패키지에서 재사용 가능한 기본 Connector로 제공됩니다.
+ * readline 기반으로 CLI 입력을 수신하고 ConnectorEvent로 변환하여 emit하는 Connector입니다.
+ * 단일 default export 패턴을 따릅니다.
  *
- * @see /docs/specs/connector.md - Section 9. CLI Connector 구현 예시
+ * @see /docs/specs/connector.md - Section 5. Entry Function 실행 모델
  * @packageDocumentation
  */
 
 import * as readline from 'node:readline';
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-  ConnectorTurnAuth,
-  JsonObject,
+  ConnectorContext,
+  ConnectorEvent,
+  CliTriggerPayload,
 } from '@goondan/core';
-
-/**
- * TurnAuth 타입 별칭
- */
-type TurnAuth = ConnectorTurnAuth;
 
 // ============================================================================
 // 타입 가드
 // ============================================================================
 
 /**
- * object 타입 가드
+ * CliTriggerPayload 타입 가드
  */
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * 문자열 타입 가드
- */
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
+function isCliTrigger(trigger: { type: string }): trigger is CliTriggerPayload {
+  return trigger.type === 'cli';
 }
 
 // ============================================================================
 // 유틸리티 함수
 // ============================================================================
-
-/**
- * JSONPath 간단 구현
- *
- * "$.key1.key2" 형식의 경로로 객체에서 값을 추출합니다.
- *
- * @param payload - 대상 객체
- * @param expr - JSONPath 표현식
- * @returns 추출된 값 또는 undefined
- */
-function readPath(payload: JsonObject, expr: string | undefined): unknown {
-  if (!expr || !expr.startsWith('$.')) return undefined;
-  const keys = expr.slice(2).split('.');
-  let current: unknown = payload;
-  for (const key of keys) {
-    if (!isObject(current)) return undefined;
-    current = current[key];
-  }
-  return current;
-}
-
-/**
- * CLI 사용자의 TurnAuth를 생성합니다.
- *
- * @returns TurnAuth 객체
- */
-function createCliTurnAuth(): TurnAuth {
-  return {
-    actor: {
-      type: 'cli',
-      id: 'cli:local-user',
-      display: 'CLI User',
-    },
-    subjects: {
-      global: 'cli:local',
-      user: 'cli:local-user',
-    },
-  };
-}
-
-/**
- * CLI Origin 정보를 생성합니다.
- *
- * @param connectorName - Connector 이름
- * @returns Origin 객체
- */
-function createOrigin(connectorName: string): JsonObject {
-  return {
-    connector: connectorName,
-    source: 'cli',
-    timestamp: new Date().toISOString(),
-  };
-}
 
 /**
  * 종료 명령어인지 확인합니다.
@@ -109,85 +42,78 @@ export function isExitCommand(input: string): boolean {
 }
 
 // ============================================================================
-// Trigger Handler
+// Connector Entry Function (단일 default export)
 // ============================================================================
 
 /**
- * CLI Input 이벤트 핸들러
+ * CLI Connector Entry Function
  *
- * CLI(stdin)로부터 입력을 받아 CanonicalEvent로 변환하여 Runtime에 전달합니다.
- * connector.yaml의 triggers에 handler: onCliInput으로 등록되어야 합니다.
+ * CLI(stdin)로부터 입력을 받아 ConnectorEvent로 변환하여 emit합니다.
+ * Connection마다 한 번씩 호출됩니다.
  *
- * @param event - Trigger 이벤트 (payload에 text, instanceKey 포함)
- * @param _connection - Connection 설정 (현재 미사용)
- * @param ctx - Trigger 컨텍스트
+ * @param context - ConnectorContext
  */
-export async function onCliInput(
-  event: TriggerEvent,
-  _connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
-  const payload = event.payload;
-  const connector = ctx.connector;
-  const connectorName = connector.metadata?.name ?? 'cli';
-  const ingressRules = connector.spec.ingress ?? [];
+const cliConnector = async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, logger } = context;
 
-  // text 추출
-  const rawText = payload['text'];
-  if (!isString(rawText) || rawText.trim() === '') {
-    ctx.logger.debug('[CLI] Empty or non-string input, skipping');
+  // connector.trigger 이벤트만 처리
+  if (event.type !== 'connector.trigger') {
     return;
   }
 
-  const text = rawText.trim();
+  const trigger = event.trigger;
+
+  // CLI trigger만 처리
+  if (!isCliTrigger(trigger)) {
+    logger.debug('[CLI] Not a CLI trigger, skipping');
+    return;
+  }
+
+  const text = trigger.payload.text;
+
+  // 빈 입력 무시
+  if (!text || text.trim() === '') {
+    logger.debug('[CLI] Empty input, skipping');
+    return;
+  }
+
+  const trimmedText = text.trim();
 
   // 종료 명령어 처리
-  if (isExitCommand(text)) {
-    ctx.logger.info('[CLI] Exit command received');
+  if (isExitCommand(trimmedText)) {
+    logger.info('[CLI] Exit command received');
     return;
   }
 
-  // Ingress 규칙 매칭
-  for (const rule of ingressRules) {
-    const route = rule.route;
+  // ConnectorEvent 생성 및 발행
+  const connectorEvent: ConnectorEvent = {
+    type: 'connector.event',
+    name: 'user_input',
+    message: {
+      type: 'text',
+      text: trimmedText,
+    },
+    properties: {
+      instanceKey: trigger.payload.instanceKey ?? 'cli-default',
+    },
+    auth: {
+      actor: {
+        id: 'cli:local-user',
+        name: 'CLI User',
+      },
+      subjects: {
+        global: 'cli:local',
+        user: 'cli:local-user',
+      },
+    },
+  };
 
-    if (!route?.swarmRef) {
-      ctx.logger.warn('[CLI] Ingress rule missing swarmRef');
-      continue;
-    }
+  await emit(connectorEvent);
 
-    // instanceKey 추출 (JSONPath 또는 기본값)
-    const instanceKeyRaw = readPath(payload, route.instanceKeyFrom);
-    const instanceKey = isString(instanceKeyRaw) ? instanceKeyRaw : 'cli-default';
+  logger.info(`[CLI] Input emitted: instanceKey=${trigger.payload.instanceKey ?? 'cli-default'}`);
+};
 
-    // input 추출 (JSONPath 또는 직접 text 사용)
-    const inputRaw = readPath(payload, route.inputFrom);
-    const input = isString(inputRaw) ? inputRaw : text;
-
-    // CanonicalEvent 생성
-    const canonicalEvent: CanonicalEvent = {
-      type: 'cli_input',
-      swarmRef: route.swarmRef,
-      instanceKey,
-      input,
-      origin: createOrigin(connectorName),
-      auth: createCliTurnAuth(),
-    };
-
-    // agentName이 지정된 경우 추가
-    if (route.agentName) {
-      canonicalEvent.agentName = route.agentName;
-    }
-
-    // 이벤트 발행
-    await ctx.emit(canonicalEvent);
-
-    ctx.logger.info(`[CLI] Input routed: instanceKey=${instanceKey}`);
-    return;
-  }
-
-  ctx.logger.debug('[CLI] No matching ingress rule found');
-}
+export default cliConnector;
 
 // ============================================================================
 // Interactive CLI 함수
@@ -197,7 +123,7 @@ export async function onCliInput(
  * Interactive CLI 세션 옵션
  */
 export interface InteractiveCliOptions {
-  /** 이벤트 핸들러 (onCliInput에 전달될 TriggerContext 생성용) */
+  /** 이벤트 핸들러 (입력 텍스트와 instanceKey를 받음) */
   onInput: (text: string, instanceKey: string) => Promise<void>;
   /** 인스턴스 키 (기본: 'cli-default') */
   instanceKey?: string;

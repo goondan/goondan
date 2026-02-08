@@ -37,6 +37,7 @@ describe('DependencyResolver', () => {
   async function createPackageDir(
     name: string,
     spec: {
+      version?: string;
       dependencies?: string[];
       resources?: string[];
       resourceContents?: Array<{ path: string; content: Resource }>;
@@ -45,16 +46,7 @@ describe('DependencyResolver', () => {
     const pkgDir = path.join(tempDir, name.replace('@', '').replace('/', '-'));
     await fs.mkdir(path.join(pkgDir, 'dist'), { recursive: true });
 
-    const manifest = {
-      apiVersion: 'agents.example.io/v1alpha1',
-      kind: 'Package',
-      metadata: { name, version: '1.0.0' },
-      spec: {
-        dependencies: spec.dependencies,
-        resources: spec.resources,
-        dist: ['dist/'],
-      },
-    };
+    const packageVersion = spec.version ?? '1.0.0';
 
     await fs.writeFile(
       path.join(pkgDir, 'package.yaml'),
@@ -62,7 +54,7 @@ describe('DependencyResolver', () => {
 kind: Package
 metadata:
   name: "${name}"
-  version: "1.0.0"
+  version: "${packageVersion}"
 spec:
   ${spec.dependencies ? `dependencies:\n    ${spec.dependencies.map((d) => `- "${d}"`).join('\n    ')}` : ''}
   ${spec.resources ? `resources:\n    ${spec.resources.map((r) => `- ${r}`).join('\n    ')}` : ''}
@@ -389,6 +381,118 @@ spec:
       const commonCount = result.filter((d) => d.name === 'common').length;
       expect(commonCount).toBe(1);
     });
+
+    it('동일 패키지의 상이한 버전이 동시에 해석되면 충돌로 거부해야 한다', async () => {
+      const sharedV1Dir = await createPackageDir('shared-lib', {
+        version: '1.0.0',
+        resources: ['tools/shared-v1.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/shared-v1.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'shared-v1-tool' },
+              spec: { runtime: 'node', entry: './index.js' },
+            },
+          },
+        ],
+      });
+
+      const sharedV2Dir = await createPackageDir('shared-lib-v2', {
+        version: '2.0.0',
+        resources: ['tools/shared-v2.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/shared-v2.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'shared-v2-tool' },
+              spec: { runtime: 'node', entry: './index.js' },
+            },
+          },
+        ],
+      });
+
+      await fs.writeFile(
+        path.join(sharedV2Dir, 'package.yaml'),
+        `apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "shared-lib"
+  version: "2.0.0"
+spec:
+  resources:
+    - tools/shared-v2.yaml
+  dist:
+    - dist/
+`
+      );
+
+      const depADir = await createPackageDir('dep-a-versioned', {
+        dependencies: [`file:${sharedV1Dir}`],
+        resources: ['tools/a.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/a.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'a-tool' },
+              spec: { runtime: 'node', entry: './index.js' },
+            },
+          },
+        ],
+      });
+
+      const depBDir = await createPackageDir('dep-b-versioned', {
+        dependencies: [`file:${sharedV2Dir}`],
+        resources: ['tools/b.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/b.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'b-tool' },
+              spec: { runtime: 'node', entry: './index.js' },
+            },
+          },
+        ],
+      });
+
+      const mainDir = await createPackageDir('main-versioned', {
+        dependencies: [`file:${depADir}`, `file:${depBDir}`],
+        resources: ['tools/main.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/main.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'main-tool' },
+              spec: { runtime: 'node', entry: './index.js' },
+            },
+          },
+        ],
+      });
+
+      const packageResource: Resource<PackageSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Package',
+        metadata: { name: 'main-versioned', version: '1.0.0' },
+        spec: {
+          dependencies: [`file:${depADir}`, `file:${depBDir}`],
+          resources: ['tools/main.yaml'],
+          dist: ['dist/'],
+        },
+      };
+
+      await expect(resolver.resolve(packageResource, mainDir)).rejects.toThrow(
+        DependencyResolutionError
+      );
+    });
   });
 
   describe('ResolutionOrder', () => {
@@ -474,6 +578,47 @@ spec:
       const resources = await resolver.loadResources(pkgDir, undefined, ['dist/']);
 
       expect(resources).toHaveLength(0);
+    });
+
+    it('spec.resources 경로에 ../가 포함되면 거부해야 한다', async () => {
+      const pkgDir = await createPackageDir('unsafe-resource-path', {
+        resources: ['tools/tool1.yaml'],
+      });
+
+      await expect(
+        resolver.loadResources(pkgDir, ['../outside.yaml'], ['dist/'])
+      ).rejects.toThrow(DependencyResolutionError);
+    });
+
+    it('spec.dist 경로가 절대 경로면 거부해야 한다', async () => {
+      const pkgDir = await createPackageDir('unsafe-dist-path', {
+        resources: ['tools/tool1.yaml'],
+      });
+
+      await expect(
+        resolver.loadResources(pkgDir, ['tools/tool1.yaml'], ['/absolute/path'])
+      ).rejects.toThrow(DependencyResolutionError);
+    });
+
+    it('리소스 spec.entry에 ../가 포함되면 거부해야 한다', async () => {
+      const pkgDir = await createPackageDir('unsafe-entry-path', {
+        resources: ['tools/tool1.yaml'],
+        resourceContents: [
+          {
+            path: 'tools/tool1.yaml',
+            content: {
+              apiVersion: 'agents.example.io/v1alpha1',
+              kind: 'Tool',
+              metadata: { name: 'tool1' },
+              spec: { runtime: 'node', entry: '../outside.js' },
+            },
+          },
+        ],
+      });
+
+      await expect(
+        resolver.loadResources(pkgDir, ['tools/tool1.yaml'], ['dist/'])
+      ).rejects.toThrow(DependencyResolutionError);
     });
   });
 });

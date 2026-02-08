@@ -13,6 +13,8 @@
 | `update.ts` | `gdn package update [ref]` | 의존성 업데이트 |
 | `list.ts` | `gdn package list` | 설치된 패키지 목록 |
 | `publish.ts` | `gdn package publish` | 패키지 레지스트리에 발행 |
+| `unpublish.ts` | `gdn package unpublish <ref>` | 패키지 버전 비게시 |
+| `deprecate.ts` | `gdn package deprecate <ref>` | 패키지 폐기(deprecation) 표시 |
 | `login.ts` | `gdn package login` | 레지스트리 인증 |
 | `logout.ts` | `gdn package logout` | 레지스트리 인증 해제 |
 | `pack.ts` | `gdn package pack` | 로컬 tarball 생성 |

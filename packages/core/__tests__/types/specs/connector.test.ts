@@ -1,215 +1,205 @@
 /**
- * Connector Spec 타입 테스트
+ * Connector Spec 타입 테스트 (v1.0)
+ * @see /docs/specs/connector.md
  * @see /docs/specs/resources.md - 6.6 Connector
  */
 import { describe, it, expect } from 'vitest';
 import type {
   ConnectorSpec,
-  ConnectorAuth,
-  IngressRule,
-  IngressMatch,
-  IngressRoute,
-  EgressConfig,
-  UpdatePolicy,
-  TriggerConfig,
+  TriggerDeclaration,
+  HttpTrigger,
+  CronTrigger,
+  CliTrigger,
+  EventSchema,
+  EventPropertyType,
   ConnectorResource,
 } from '../../../src/types/specs/connector.js';
 
-describe('ConnectorSpec 타입', () => {
+describe('ConnectorSpec 타입 (v1.0)', () => {
   describe('ConnectorSpec 인터페이스', () => {
-    it('type은 필수이다', () => {
+    it('runtime, entry, triggers는 필수이다', () => {
       const spec: ConnectorSpec = {
-        type: 'slack',
-      };
-
-      expect(spec.type).toBe('slack');
-    });
-
-    it('custom 타입에서는 runtime과 entry가 필요하다', () => {
-      const spec: ConnectorSpec = {
-        type: 'custom',
         runtime: 'node',
-        entry: './connectors/webhook/index.js',
+        entry: './connectors/slack/index.ts',
+        triggers: [
+          { type: 'http', endpoint: { path: '/webhook/slack', method: 'POST' } },
+        ],
       };
 
-      expect(spec.type).toBe('custom');
       expect(spec.runtime).toBe('node');
-      expect(spec.entry).toBe('./connectors/webhook/index.js');
+      expect(spec.entry).toBe('./connectors/slack/index.ts');
+      expect(spec.triggers).toHaveLength(1);
+    });
+
+    it('events는 선택적이다', () => {
+      const spec: ConnectorSpec = {
+        runtime: 'node',
+        entry: './connectors/cli/index.ts',
+        triggers: [{ type: 'cli' }],
+        events: [
+          { name: 'user_input' },
+        ],
+      };
+
+      expect(spec.events).toHaveLength(1);
+      expect(spec.events?.[0]?.name).toBe('user_input');
     });
   });
 
-  describe('ConnectorAuth', () => {
-    it('oauthAppRef로 OAuth 인증을 설정할 수 있다', () => {
-      const auth: ConnectorAuth = {
-        oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
-      };
-
-      expect(auth.oauthAppRef?.kind).toBe('OAuthApp');
-      expect(auth.oauthAppRef?.name).toBe('slack-bot');
-    });
-
-    it('staticToken으로 정적 토큰을 설정할 수 있다', () => {
-      const auth: ConnectorAuth = {
-        staticToken: {
-          valueFrom: {
-            secretRef: {
-              ref: 'Secret/slack-bot-token',
-              key: 'bot_token',
-            },
-          },
+  describe('TriggerDeclaration', () => {
+    it('HTTP trigger를 정의할 수 있다', () => {
+      const trigger: HttpTrigger = {
+        type: 'http',
+        endpoint: {
+          path: '/webhook/slack/events',
+          method: 'POST',
         },
       };
 
-      expect(auth.staticToken?.valueFrom?.secretRef?.ref).toBe(
-        'Secret/slack-bot-token'
-      );
+      expect(trigger.type).toBe('http');
+      expect(trigger.endpoint.path).toBe('/webhook/slack/events');
+      expect(trigger.endpoint.method).toBe('POST');
     });
-  });
 
-  describe('IngressRule', () => {
-    it('route는 필수이다', () => {
-      const rule: IngressRule = {
-        route: {
-          swarmRef: { kind: 'Swarm', name: 'default' },
-        },
+    it('Cron trigger를 정의할 수 있다', () => {
+      const trigger: CronTrigger = {
+        type: 'cron',
+        schedule: '0 9 * * MON-FRI',
       };
 
-      expect(rule.route.swarmRef).toEqual({ kind: 'Swarm', name: 'default' });
+      expect(trigger.type).toBe('cron');
+      expect(trigger.schedule).toBe('0 9 * * MON-FRI');
     });
 
-    it('match로 조건을 지정할 수 있다', () => {
-      const rule: IngressRule = {
-        match: {
-          command: '/swarm',
-          eventType: 'message',
-          channel: '#general',
-        },
-        route: {
-          swarmRef: { kind: 'Swarm', name: 'default' },
-          instanceKeyFrom: '$.event.thread_ts',
-          inputFrom: '$.event.text',
-        },
+    it('CLI trigger를 정의할 수 있다', () => {
+      const trigger: CliTrigger = {
+        type: 'cli',
       };
 
-      expect(rule.match?.command).toBe('/swarm');
-      expect(rule.route.instanceKeyFrom).toBe('$.event.thread_ts');
-    });
-  });
-
-  describe('EgressConfig', () => {
-    it('updatePolicy로 업데이트 정책을 설정할 수 있다', () => {
-      const egress: EgressConfig = {
-        updatePolicy: {
-          mode: 'updateInThread',
-          debounceMs: 1500,
-        },
-      };
-
-      expect(egress.updatePolicy?.mode).toBe('updateInThread');
-      expect(egress.updatePolicy?.debounceMs).toBe(1500);
+      expect(trigger.type).toBe('cli');
     });
 
-    it('모든 업데이트 모드를 지원해야 한다', () => {
-      const modes: UpdatePolicy['mode'][] = [
-        'replace',
-        'updateInThread',
-        'newMessage',
+    it('discriminated union으로 trigger 타입을 구분할 수 있다', () => {
+      const triggers: TriggerDeclaration[] = [
+        { type: 'http', endpoint: { path: '/webhook', method: 'POST' } },
+        { type: 'cron', schedule: '* * * * *' },
+        { type: 'cli' },
       ];
 
-      expect(modes.length).toBe(3);
+      expect(triggers).toHaveLength(3);
+      expect(triggers[0]?.type).toBe('http');
+      expect(triggers[1]?.type).toBe('cron');
+      expect(triggers[2]?.type).toBe('cli');
     });
   });
 
-  describe('TriggerConfig', () => {
-    it('handler로 핸들러 함수를 지정할 수 있다', () => {
-      const trigger: TriggerConfig = {
-        handler: 'onWebhook',
+  describe('EventSchema', () => {
+    it('이벤트 이름만으로 정의할 수 있다', () => {
+      const schema: EventSchema = {
+        name: 'user_input',
       };
 
-      expect(trigger.handler).toBe('onWebhook');
+      expect(schema.name).toBe('user_input');
+      expect(schema.properties).toBeUndefined();
+    });
+
+    it('이벤트 속성 타입을 정의할 수 있다', () => {
+      const schema: EventSchema = {
+        name: 'app_mention',
+        properties: {
+          channel_id: { type: 'string' },
+          ts: { type: 'string' },
+          thread_ts: { type: 'string', optional: true },
+        },
+      };
+
+      expect(schema.name).toBe('app_mention');
+      expect(schema.properties?.['channel_id']?.type).toBe('string');
+      expect(schema.properties?.['thread_ts']?.optional).toBe(true);
+    });
+
+    it('EventPropertyType는 string, number, boolean 타입을 지원한다', () => {
+      const stringProp: EventPropertyType = { type: 'string' };
+      const numberProp: EventPropertyType = { type: 'number' };
+      const boolProp: EventPropertyType = { type: 'boolean', optional: true };
+
+      expect(stringProp.type).toBe('string');
+      expect(numberProp.type).toBe('number');
+      expect(boolProp.type).toBe('boolean');
+      expect(boolProp.optional).toBe(true);
     });
   });
 
   describe('ConnectorResource 타입', () => {
-    it('Slack Connector (OAuth) 리소스를 정의할 수 있다', () => {
+    it('Slack Connector 리소스를 정의할 수 있다', () => {
       const resource: ConnectorResource = {
         apiVersion: 'agents.example.io/v1alpha1',
         kind: 'Connector',
-        metadata: {
-          name: 'slack-main',
-        },
+        metadata: { name: 'slack' },
         spec: {
-          type: 'slack',
-          auth: {
-            oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
-          },
-          ingress: [
+          runtime: 'node',
+          entry: './connectors/slack/index.ts',
+          triggers: [
+            { type: 'http', endpoint: { path: '/webhook/slack/events', method: 'POST' } },
+          ],
+          events: [
             {
-              match: { command: '/swarm' },
-              route: {
-                swarmRef: { kind: 'Swarm', name: 'default' },
-                instanceKeyFrom: '$.event.thread_ts',
-                inputFrom: '$.event.text',
+              name: 'app_mention',
+              properties: {
+                channel_id: { type: 'string' },
+                ts: { type: 'string' },
+                thread_ts: { type: 'string', optional: true },
+              },
+            },
+            {
+              name: 'message.im',
+              properties: {
+                channel_id: { type: 'string' },
+                ts: { type: 'string' },
               },
             },
           ],
-          egress: {
-            updatePolicy: {
-              mode: 'updateInThread',
-              debounceMs: 1500,
-            },
-          },
         },
       };
 
       expect(resource.kind).toBe('Connector');
-      expect(resource.spec.type).toBe('slack');
-      expect(resource.spec.auth?.oauthAppRef?.name).toBe('slack-bot');
+      expect(resource.spec.runtime).toBe('node');
+      expect(resource.spec.entry).toBe('./connectors/slack/index.ts');
+      expect(resource.spec.triggers).toHaveLength(1);
+      expect(resource.spec.events).toHaveLength(2);
     });
 
     it('CLI Connector 리소스를 정의할 수 있다', () => {
       const resource: ConnectorResource = {
         apiVersion: 'agents.example.io/v1alpha1',
         kind: 'Connector',
-        metadata: {
-          name: 'cli',
-        },
+        metadata: { name: 'cli' },
         spec: {
-          type: 'cli',
-          ingress: [
-            {
-              route: {
-                swarmRef: { kind: 'Swarm', name: 'default' },
-                instanceKeyFrom: '$.instanceKey',
-                inputFrom: '$.text',
-              },
-            },
-          ],
+          runtime: 'node',
+          entry: './connectors/cli/index.ts',
+          triggers: [{ type: 'cli' }],
+          events: [{ name: 'user_input' }],
         },
       };
 
       expect(resource.kind).toBe('Connector');
-      expect(resource.spec.type).toBe('cli');
+      expect(resource.spec.triggers[0]?.type).toBe('cli');
     });
 
-    it('Custom Connector 리소스를 정의할 수 있다', () => {
+    it('Cron Connector 리소스를 정의할 수 있다', () => {
       const resource: ConnectorResource = {
         apiVersion: 'agents.example.io/v1alpha1',
         kind: 'Connector',
-        metadata: {
-          name: 'custom-webhook',
-        },
+        metadata: { name: 'daily-reporter' },
         spec: {
-          type: 'custom',
           runtime: 'node',
-          entry: './connectors/webhook/index.js',
-          triggers: [{ handler: 'onWebhook' }, { handler: 'onCron' }],
-          ingress: [
+          entry: './connectors/daily-reporter/index.ts',
+          triggers: [{ type: 'cron', schedule: '0 9 * * MON-FRI' }],
+          events: [
             {
-              route: {
-                swarmRef: { kind: 'Swarm', name: 'default' },
-                instanceKeyFrom: '$.payload.id',
-                inputFrom: '$.payload.message',
+              name: 'daily_report',
+              properties: {
+                scheduled_at: { type: 'string' },
               },
             },
           ],
@@ -217,8 +207,25 @@ describe('ConnectorSpec 타입', () => {
       };
 
       expect(resource.kind).toBe('Connector');
-      expect(resource.spec.type).toBe('custom');
-      expect(resource.spec.triggers?.length).toBe(2);
+      expect(resource.spec.triggers[0]?.type).toBe('cron');
+    });
+
+    it('여러 trigger를 가진 Connector를 정의할 수 있다', () => {
+      const resource: ConnectorResource = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connector',
+        metadata: { name: 'multi-trigger' },
+        spec: {
+          runtime: 'node',
+          entry: './connectors/multi/index.ts',
+          triggers: [
+            { type: 'http', endpoint: { path: '/webhook', method: 'POST' } },
+            { type: 'cron', schedule: '*/5 * * * *' },
+          ],
+        },
+      };
+
+      expect(resource.spec.triggers).toHaveLength(2);
     });
   });
 });

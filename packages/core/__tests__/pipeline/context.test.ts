@@ -61,13 +61,19 @@ describe('Pipeline Context 타입', () => {
       const turn: Turn = {
         id: 'turn-1',
         input: 'Hello, agent!',
-        messages: [],
+        messageState: {
+          baseMessages: [],
+          events: [],
+          nextMessages: [],
+        },
         toolResults: [],
       };
 
       expect(turn.id).toBe('turn-1');
       expect(turn.input).toBe('Hello, agent!');
-      expect(turn.messages).toEqual([]);
+      expect(turn.messageState.baseMessages).toEqual([]);
+      expect(turn.messageState.events).toEqual([]);
+      expect(turn.messageState.nextMessages).toEqual([]);
       expect(turn.toolResults).toEqual([]);
     });
 
@@ -75,7 +81,11 @@ describe('Pipeline Context 타입', () => {
       const turn: Turn = {
         id: 'turn-1',
         input: 'Hello',
-        messages: [],
+        messageState: {
+          baseMessages: [],
+          events: [],
+          nextMessages: [],
+        },
         toolResults: [],
         origin: { connector: 'telegram', chatId: '123' },
         auth: {
@@ -141,7 +151,7 @@ describe('Pipeline Context 타입', () => {
         startedAt: new Date(),
         endedAt: new Date(),
         llmResult: {
-          message: { role: 'assistant', content: 'Hello!' },
+          message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
           toolCalls: [],
         },
       };
@@ -154,7 +164,7 @@ describe('Pipeline Context 타입', () => {
   describe('LlmResult', () => {
     it('LLM 응답 결과를 정의해야 한다', () => {
       const result: LlmResult = {
-        message: { role: 'assistant', content: 'Hello!' },
+        message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
         toolCalls: [],
       };
 
@@ -164,7 +174,7 @@ describe('Pipeline Context 타입', () => {
 
     it('meta 정보를 포함할 수 있다', () => {
       const result: LlmResult = {
-        message: { role: 'assistant', content: 'Hello!' },
+        message: { id: 'msg-2', role: 'assistant', content: 'Hello!' },
         toolCalls: [],
         meta: {
           usage: {
@@ -188,12 +198,12 @@ describe('Pipeline Context 타입', () => {
       const toolCall: ToolCall = {
         id: 'call-1',
         name: 'readFile',
-        input: { path: '/tmp/test.txt' },
+        args: { path: '/tmp/test.txt' },
       };
 
       expect(toolCall.id).toBe('call-1');
       expect(toolCall.name).toBe('readFile');
-      expect(toolCall.input).toEqual({ path: '/tmp/test.txt' });
+      expect(toolCall.args).toEqual({ path: '/tmp/test.txt' });
     });
   });
 
@@ -203,10 +213,10 @@ describe('Pipeline Context 타입', () => {
         toolCallId: 'call-1',
         toolName: 'readFile',
         output: 'file contents',
-        status: 'success',
+        status: 'ok',
       };
 
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('ok');
       expect(result.output).toBe('file contents');
     });
 
@@ -220,12 +230,29 @@ describe('Pipeline Context 타입', () => {
           name: 'FileNotFoundError',
           message: 'File not found',
           code: 'ENOENT',
+          suggestion: 'Check file path',
+          helpUrl: 'https://example.com/docs',
         },
       };
 
       expect(result.status).toBe('error');
       expect(result.error?.name).toBe('FileNotFoundError');
       expect(result.error?.code).toBe('ENOENT');
+      expect(result.error?.suggestion).toBe('Check file path');
+      expect(result.error?.helpUrl).toBe('https://example.com/docs');
+    });
+
+    it('pending 상태를 지원해야 한다', () => {
+      const result: ToolResult = {
+        toolCallId: 'call-1',
+        toolName: 'longRunningTask',
+        output: null,
+        status: 'pending',
+        handle: 'handle-123',
+      };
+
+      expect(result.status).toBe('pending');
+      expect(result.handle).toBe('handle-123');
     });
   });
 
@@ -310,7 +337,11 @@ describe('Pipeline Context 타입', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
       };
@@ -341,7 +372,11 @@ describe('Pipeline Context 타입', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         step: {
@@ -382,7 +417,11 @@ describe('Pipeline Context 타입', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         step: {
@@ -396,7 +435,7 @@ describe('Pipeline Context 타입', () => {
         toolCall: {
           id: 'call-1',
           name: 'readFile',
-          input: { path: '/tmp/test.txt' },
+          args: { path: '/tmp/test.txt' },
         },
       };
 
@@ -424,7 +463,11 @@ describe('Pipeline Context 타입', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         step: {
@@ -438,17 +481,17 @@ describe('Pipeline Context 타입', () => {
         toolCall: {
           id: 'call-1',
           name: 'readFile',
-          input: { path: '/tmp/test.txt' },
+          args: { path: '/tmp/test.txt' },
         },
         toolResult: {
           toolCallId: 'call-1',
           toolName: 'readFile',
           output: 'contents',
-          status: 'success',
+          status: 'ok',
         },
       };
 
-      expect(ctx.toolResult?.status).toBe('success');
+      expect(ctx.toolResult?.status).toBe('ok');
     });
   });
 
@@ -502,7 +545,11 @@ describe('Pipeline Context 타입', () => {
         turn: {
           id: 'turn-1',
           input: 'Hello',
-          messages: [],
+          messageState: {
+            baseMessages: [],
+            events: [],
+            nextMessages: [],
+          },
           toolResults: [],
         },
         step: {
@@ -530,17 +577,20 @@ describe('Pipeline Context 타입', () => {
       // 타입 수준 테스트 - 컴파일이 통과하면 타입이 올바르게 매핑된 것
       type TurnPreCtx = PipelineContextMap['turn.pre'];
       type StepToolsCtx = PipelineContextMap['step.tools'];
+      type StepLlmInputCtx = PipelineContextMap['step.llmInput'];
       type ToolCallExecCtx = PipelineContextMap['toolCall.exec'];
       type WorkspaceCtx = PipelineContextMap['workspace.repoAvailable'];
 
       // 런타임에서 검증할 수 있는 간단한 테스트
       const turnPreCtx: TurnPreCtx = {} as TurnPreCtx;
       const stepToolsCtx: StepToolsCtx = {} as StepToolsCtx;
+      const stepLlmInputCtx: StepLlmInputCtx = {} as StepLlmInputCtx;
       const toolCallExecCtx: ToolCallExecCtx = {} as ToolCallExecCtx;
       const workspaceCtx: WorkspaceCtx = {} as WorkspaceCtx;
 
       expect(turnPreCtx).toBeDefined();
       expect(stepToolsCtx).toBeDefined();
+      expect(stepLlmInputCtx).toBeDefined();
       expect(toolCallExecCtx).toBeDefined();
       expect(workspaceCtx).toBeDefined();
     });
@@ -551,18 +601,21 @@ describe('Pipeline Context 타입', () => {
       // 타입 수준 테스트
       type Ctx1 = ContextForPoint<'turn.pre'>;
       type Ctx2 = ContextForPoint<'step.llmCall'>;
-      type Ctx3 = ContextForPoint<'toolCall.exec'>;
-      type Ctx4 = ContextForPoint<'workspace.worktreeMounted'>;
+      type Ctx3 = ContextForPoint<'step.llmInput'>;
+      type Ctx4 = ContextForPoint<'toolCall.exec'>;
+      type Ctx5 = ContextForPoint<'workspace.worktreeMounted'>;
 
       const ctx1: Ctx1 = {} as Ctx1;
       const ctx2: Ctx2 = {} as Ctx2;
       const ctx3: Ctx3 = {} as Ctx3;
       const ctx4: Ctx4 = {} as Ctx4;
+      const ctx5: Ctx5 = {} as Ctx5;
 
       expect(ctx1).toBeDefined();
       expect(ctx2).toBeDefined();
       expect(ctx3).toBeDefined();
       expect(ctx4).toBeDefined();
+      expect(ctx5).toBeDefined();
     });
   });
 

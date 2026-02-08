@@ -26,16 +26,19 @@ function createMessages(count: number): ExtLlmMessage[] {
   const messages: ExtLlmMessage[] = [];
 
   messages.push({
+    id: 'msg-sys-0',
     role: 'system',
     content: 'You are a helpful assistant.',
   });
 
   for (let i = 0; i < count; i++) {
     messages.push({
+      id: `msg-user-${i}`,
       role: 'user',
       content: `User message ${i + 1}: ${'x'.repeat(100)}`,
     });
     messages.push({
+      id: `msg-asst-${i}`,
       role: 'assistant',
       content: `Assistant response ${i + 1}: ${'y'.repeat(100)}`,
     });
@@ -74,6 +77,7 @@ describe('Strategy Registry', () => {
 describe('Token Estimation', () => {
   it('should estimate tokens for user message', () => {
     const message: ExtLlmMessage = {
+      id: 'msg-1',
       role: 'user',
       content: 'Hello, how are you?', // 20 characters ~= 5 tokens
     };
@@ -83,10 +87,11 @@ describe('Token Estimation', () => {
 
   it('should estimate tokens for assistant message with tool calls', () => {
     const message: ExtLlmMessage = {
+      id: 'msg-asst-1',
       role: 'assistant',
       content: 'Let me help you.',
       toolCalls: [
-        { id: '1', name: 'search', input: { query: 'test' } },
+        { id: '1', name: 'search', args: { query: 'test' } },
       ],
     };
     const tokens = estimateTokens(message);

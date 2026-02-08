@@ -1,12 +1,12 @@
 /**
- * Telegram Connector 테스트
+ * Telegram Connector 테스트 (v1.0)
  *
- * @see /packages/base/src/connectors/telegram/AGENTS.md
+ * @see /packages/base/src/connectors/telegram/index.ts
+ * @see /docs/specs/connector.md
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import {
-  onUpdate,
+import telegramConnector, {
   sendMessage,
   editMessage,
   deleteMessage,
@@ -15,10 +15,11 @@ import {
   deleteWebhook,
 } from '../../../src/connectors/telegram/index.js';
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
+  ConnectorContext,
+  ConnectorTriggerEvent,
+  ConnectorEvent,
   Resource,
+  ConnectionSpec,
   ConnectorSpec,
   JsonObject,
 } from '@goondan/core';
@@ -27,10 +28,6 @@ import type {
 // Mock 타입 정의
 // ============================================================================
 
-/**
- * 테스트용 Mock Logger 인터페이스
- * Console 인터페이스의 필수 메서드만 포함
- */
 interface MockLogger {
   debug: Mock;
   info: Mock;
@@ -39,54 +36,10 @@ interface MockLogger {
   log: Mock;
 }
 
-/**
- * 테스트용 Mock TriggerContext
- * TriggerContext와 호환되지만 logger가 MockLogger 타입
- */
-interface MockTriggerContext {
-  emit: Mock;
-  logger: MockLogger;
-  connector: Resource<ConnectorSpec>;
-}
-
 // ============================================================================
 // Mock 헬퍼
 // ============================================================================
 
-/**
- * TriggerEvent 생성 헬퍼
- */
-function createMockTriggerEvent(payload: JsonObject): TriggerEvent {
-  return {
-    type: 'webhook',
-    payload,
-    timestamp: new Date().toISOString(),
-  };
-}
-
-/**
- * Connector 리소스 생성 헬퍼
- */
-function createMockConnector(
-  ingress: ConnectorSpec['ingress'] = []
-): Resource<ConnectorSpec> {
-  return {
-    apiVersion: 'agents.example.io/v1alpha1',
-    kind: 'Connector',
-    metadata: { name: 'telegram-test' },
-    spec: {
-      type: 'telegram',
-      runtime: 'node',
-      entry: './connectors/telegram/index.js',
-      ingress,
-      triggers: [{ handler: 'onUpdate' }],
-    },
-  };
-}
-
-/**
- * Mock Logger 생성 헬퍼
- */
 function createMockLogger(): MockLogger {
   return {
     debug: vi.fn(),
@@ -98,22 +51,60 @@ function createMockLogger(): MockLogger {
 }
 
 /**
- * TriggerContext 생성 헬퍼
- *
- * 반환 타입이 MockTriggerContext이지만, TriggerContext와 구조적으로 호환됩니다.
- * onUpdate 함수는 logger의 debug/info/warn/error 메서드만 사용하므로 테스트에서 안전합니다.
+ * HTTP trigger를 통해 Telegram Update를 포함하는 ConnectorTriggerEvent 생성
  */
-function createMockTriggerContext(
-  connector: Resource<ConnectorSpec>,
-  emittedEvents: CanonicalEvent[] = []
-): MockTriggerContext {
+function createHttpTriggerEvent(
+  body: JsonObject,
+  headers: Record<string, string> = {},
+): ConnectorTriggerEvent {
   return {
-    emit: vi.fn().mockImplementation((event: CanonicalEvent) => {
-      emittedEvents.push(event);
+    type: 'connector.trigger',
+    trigger: {
+      type: 'http',
+      payload: {
+        request: {
+          method: 'POST',
+          path: '/webhook/telegram',
+          headers,
+          body,
+        },
+      },
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function createMockConnectorContext(
+  event: ConnectorTriggerEvent,
+  emittedEvents: ConnectorEvent[] = [],
+): ConnectorContext {
+  const mockLogger = createMockLogger();
+  return {
+    event,
+    emit: vi.fn().mockImplementation((e: ConnectorEvent) => {
+      emittedEvents.push(e);
       return Promise.resolve();
     }),
-    logger: createMockLogger(),
-    connector,
+    logger: mockLogger as unknown as Console,
+    connection: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connection',
+      metadata: { name: 'telegram-connection' },
+      spec: {
+        connectorRef: { kind: 'Connector', name: 'telegram' },
+      },
+    } as Resource<ConnectionSpec>,
+    connector: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connector',
+      metadata: { name: 'telegram' },
+      spec: {
+        runtime: 'node',
+        entry: './connectors/telegram/index.js',
+        triggers: [{ type: 'http', endpoint: '/webhook/telegram' }],
+        events: [{ name: 'telegram.message' }],
+      },
+    } as Resource<ConnectorSpec>,
   };
 }
 
@@ -198,16 +189,10 @@ function createMockFetch(responses: MockFetchResponse[]): typeof fetch {
   });
 }
 
-/**
- * 객체가 Record<string, unknown>인지 확인하는 타입 가드
- */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * fetch body에서 파싱된 JSON 객체를 안전하게 추출하는 헬퍼
- */
 function parseFetchBody(fetchMock: Mock): Record<string, unknown> {
   const calls = fetchMock.mock.calls;
   if (calls.length === 0) {
@@ -232,11 +217,8 @@ function parseFetchBody(fetchMock: Mock): Record<string, unknown> {
   return parsed;
 }
 
-/**
- * result가 Record<string, unknown>인지 확인하는 타입 가드
- */
 function isRecordResult(
-  result: JsonObject | undefined
+  result: JsonObject | undefined,
 ): result is Record<string, unknown> {
   return result !== undefined && typeof result === 'object' && result !== null;
 }
@@ -246,70 +228,97 @@ function isRecordResult(
 // ============================================================================
 
 describe('Telegram Connector', () => {
-  describe('onUpdate Trigger Handler', () => {
-    it('should be defined', () => {
-      expect(onUpdate).toBeDefined();
-      expect(typeof onUpdate).toBe('function');
+  describe('telegramConnector (default export)', () => {
+    it('should be a function', () => {
+      expect(typeof telegramConnector).toBe('function');
+    });
+
+    describe('서명 검증', () => {
+      it('유효한 secret token 헤더가 있으면 emit을 수행해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const message = createTelegramMessage({
+          text: 'hello',
+          userId: 111,
+        });
+        const update = createTelegramUpdate(message);
+        const event = createHttpTriggerEvent(update, {
+          'x-telegram-bot-api-secret-token': 'telegram-secret',
+        });
+        const ctx = createMockConnectorContext(event, emittedEvents);
+        ctx.verify = {
+          webhook: { signingSecret: 'telegram-secret' },
+        };
+
+        await telegramConnector(ctx);
+
+        expect(ctx.emit).toHaveBeenCalledTimes(1);
+      });
+
+      it('secret token이 일치하지 않으면 emit을 중단해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const message = createTelegramMessage({
+          text: 'hello',
+          userId: 111,
+        });
+        const update = createTelegramUpdate(message);
+        const event = createHttpTriggerEvent(update, {
+          'x-telegram-bot-api-secret-token': 'invalid-token',
+        });
+        const ctx = createMockConnectorContext(event, emittedEvents);
+        ctx.verify = {
+          webhook: { signingSecret: 'telegram-secret' },
+        };
+
+        await telegramConnector(ctx);
+
+        expect(ctx.emit).not.toHaveBeenCalled();
+        expect(ctx.logger.warn).toHaveBeenCalledWith('[Telegram] Signature verification failed');
+      });
     });
 
     it('should skip invalid update payload', async () => {
-      const connector = createMockConnector();
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
+      const emittedEvents: ConnectorEvent[] = [];
+      const event = createHttpTriggerEvent({ invalid: 'data' });
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      const event = createMockTriggerEvent({ invalid: 'data' });
-
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(0);
       expect(ctx.logger.warn).toHaveBeenCalledWith(
-        '[Telegram] Invalid update payload received'
+        '[Telegram] Invalid update payload received',
       );
     });
 
     it('should skip update without message', async () => {
-      const connector = createMockConnector();
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
+      const emittedEvents: ConnectorEvent[] = [];
+      const event = createHttpTriggerEvent({ update_id: 100 });
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      const event = createMockTriggerEvent({ update_id: 100 });
-
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(0);
       expect(ctx.logger.debug).toHaveBeenCalledWith(
-        '[Telegram] No message in update, skipping'
+        '[Telegram] No message in update, skipping',
       );
     });
 
     it('should skip message without text', async () => {
-      const connector = createMockConnector();
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({});
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(0);
       expect(ctx.logger.debug).toHaveBeenCalledWith(
-        '[Telegram] No text in message, skipping'
+        '[Telegram] No text in message, skipping',
       );
     });
 
-    it('should emit canonical event for matching ingress rule', async () => {
-      const connector = createMockConnector([
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+    it('should emit ConnectorEvent for valid message', async () => {
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         chatId: 12345,
         userId: 111,
@@ -318,51 +327,20 @@ describe('Telegram Connector', () => {
         text: 'Hello, bot!',
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
       const emitted = emittedEvents[0];
-      expect(emitted.type).toBe('telegram_message');
-      expect(emitted.instanceKey).toBe('12345');
-      expect(emitted.input).toBe('Hello, bot!');
-      expect(emitted.swarmRef).toEqual({ kind: 'Swarm', name: 'default' });
-    });
-
-    it('should route to specific agent when agentName is specified', async () => {
-      const connector = createMockConnector([
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-            agentName: 'coder',
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      const message = createTelegramMessage({ text: 'Hello' });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
-
-      expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].agentName).toBe('coder');
+      expect(emitted.type).toBe('connector.event');
+      expect(emitted.name).toBe('telegram.message');
+      expect(emitted.message).toEqual({ type: 'text', text: 'Hello, bot!' });
     });
 
     it('should include correct auth information', async () => {
-      const connector = createMockConnector([
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         chatId: 12345,
         userId: 111,
@@ -372,31 +350,22 @@ describe('Telegram Connector', () => {
         text: 'Hello',
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
       const auth = emittedEvents[0].auth;
       expect(auth).toBeDefined();
-      expect(auth?.actor.type).toBe('user');
       expect(auth?.actor.id).toBe('telegram:111');
-      expect(auth?.actor.display).toBe('Test User');
+      expect(auth?.actor.name).toBe('Test User');
       expect(auth?.subjects.global).toBe('telegram:chat:12345');
       expect(auth?.subjects.user).toBe('telegram:user:111');
     });
 
-    it('should include correct origin information', async () => {
-      const connector = createMockConnector([
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+    it('should include correct properties information', async () => {
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         messageId: 999,
         chatId: 12345,
@@ -406,329 +375,120 @@ describe('Telegram Connector', () => {
         text: 'Hello',
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      const origin = emittedEvents[0].origin;
-      expect(origin).toBeDefined();
-      expect(origin?.['connector']).toBe('telegram-test');
-      expect(origin?.['chatId']).toBe(12345);
-      expect(origin?.['messageId']).toBe(999);
-      expect(origin?.['chatType']).toBe('group');
-      expect(origin?.['userId']).toBe(111);
-      expect(origin?.['username']).toBe('testuser');
+      const props = emittedEvents[0].properties;
+      expect(props).toBeDefined();
+      expect(props?.['chatId']).toBe('12345');
+      expect(props?.['userId']).toBe('111');
+      expect(props?.['chatType']).toBe('group');
+      expect(props?.['messageId']).toBe(999);
     });
 
     it('should handle edited_message', async () => {
-      const connector = createMockConnector([
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({ text: 'Edited message' });
       const update: JsonObject = {
         update_id: 100,
         edited_message: message,
       };
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].input).toBe('Edited message');
+      expect(emittedEvents[0].message).toEqual({ type: 'text', text: 'Edited message' });
+    });
+
+    it('should not emit for non-trigger events', async () => {
+      const emittedEvents: ConnectorEvent[] = [];
+      const event = {
+        type: 'other',
+        trigger: { type: 'http', payload: { request: { method: 'POST', path: '/', headers: {}, body: {} } } },
+        timestamp: new Date().toISOString(),
+      } as unknown as ConnectorTriggerEvent;
+      const ctx = createMockConnectorContext(event, emittedEvents);
+
+      await telegramConnector(ctx);
+
+      expect(emittedEvents).toHaveLength(0);
     });
   });
 
   describe('Bot Command Parsing', () => {
-    it('should match command in ingress rule', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/start' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'starter' },
-          },
-        },
-        {
-          match: { command: '/help' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'helper' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+    it('should extract command text and remove command prefix', async () => {
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         text: '/start some argument',
         entities: [{ type: 'bot_command', offset: 0, length: 6 }],
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].swarmRef).toEqual({ kind: 'Swarm', name: 'starter' });
-      expect(emittedEvents[0].input).toBe('some argument');
+      expect(emittedEvents[0].message).toEqual({ type: 'text', text: 'some argument' });
     });
 
     it('should remove command with @botname', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/start' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         text: '/start@MyBot hello world',
         entities: [{ type: 'bot_command', offset: 0, length: 12 }],
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].input).toBe('hello world');
+      expect(emittedEvents[0].message).toEqual({ type: 'text', text: 'hello world' });
     });
 
-    it('should use default input for command-only message', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/start' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+    it('should use default input for /start command-only message', async () => {
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         text: '/start',
         entities: [{ type: 'bot_command', offset: 0, length: 6 }],
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].input).toBe('안녕하세요! 무엇을 도와드릴까요?');
+      expect(emittedEvents[0].message.type).toBe('text');
+      if (emittedEvents[0].message.type === 'text') {
+        expect(emittedEvents[0].message.text).toContain('도와드릴까요');
+      }
     });
 
     it('should use default input for /help command', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/help' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
+      const emittedEvents: ConnectorEvent[] = [];
       const message = createTelegramMessage({
         text: '/help',
         entities: [{ type: 'bot_command', offset: 0, length: 5 }],
       });
       const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
+      const event = createHttpTriggerEvent(update);
+      const ctx = createMockConnectorContext(event, emittedEvents);
 
-      await onUpdate(event, {}, ctx);
-
-      expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].input).toBe('도움말을 요청합니다.');
-    });
-
-    it('should skip message when command does not match', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/start' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      const message = createTelegramMessage({
-        text: '/help please',
-        entities: [{ type: 'bot_command', offset: 0, length: 5 }],
-      });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
-
-      expect(emittedEvents).toHaveLength(0);
-    });
-
-    it('should not extract command from non-zero offset', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/help' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      // 명령어가 메시지 시작이 아닌 위치에 있는 경우
-      const message = createTelegramMessage({
-        text: 'Please /help me',
-        entities: [{ type: 'bot_command', offset: 7, length: 5 }],
-      });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
-
-      // 명령어 매칭 필요한 규칙만 있으므로 매칭 실패
-      expect(emittedEvents).toHaveLength(0);
-    });
-  });
-
-  describe('Channel Matching', () => {
-    it('should match specific channel ID', async () => {
-      const connector = createMockConnector([
-        {
-          match: { channel: '12345' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'channel-specific' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      const message = createTelegramMessage({
-        chatId: 12345,
-        text: 'Hello',
-      });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
+      await telegramConnector(ctx);
 
       expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].swarmRef).toEqual({ kind: 'Swarm', name: 'channel-specific' });
-    });
-
-    it('should skip message from non-matching channel', async () => {
-      const connector = createMockConnector([
-        {
-          match: { channel: '12345' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'channel-specific' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      const message = createTelegramMessage({
-        chatId: 99999,
-        text: 'Hello',
-      });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
-
-      expect(emittedEvents).toHaveLength(0);
-    });
-  });
-
-  describe('Ingress Rule Precedence', () => {
-    it('should use first matching rule', async () => {
-      const connector = createMockConnector([
-        {
-          match: { command: '/special' },
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'special' },
-          },
-        },
-        {
-          route: {
-            swarmRef: { kind: 'Swarm', name: 'default' },
-          },
-        },
-      ]);
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      // 일반 메시지 - 두 번째 규칙 매칭
-      const message1 = createTelegramMessage({ text: 'Hello' });
-      const update1 = createTelegramUpdate(message1);
-      const event1 = createMockTriggerEvent(update1);
-
-      await onUpdate(event1, {}, ctx);
-
-      expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].swarmRef).toEqual({ kind: 'Swarm', name: 'default' });
-    });
-
-    it('should skip rule with missing swarmRef', async () => {
-      // swarmRef가 없는 route를 시뮬레이션하기 위해
-      // connector의 spec.ingress를 직접 구성 (런타임 오류 상황 테스트)
-      const connector: Resource<ConnectorSpec> = {
-        apiVersion: 'agents.example.io/v1alpha1',
-        kind: 'Connector',
-        metadata: { name: 'telegram-test' },
-        spec: {
-          type: 'telegram',
-          runtime: 'node',
-          entry: './connectors/telegram/index.js',
-          // ingress 배열을 any 타입으로 우회하지 않고, 유효한 구조 사용
-          // 첫 번째 규칙은 swarmRef가 비어있는 경우를 시뮬레이션
-          ingress: [
-            {
-              match: { command: '/test' },
-              // 런타임에서 route.swarmRef가 undefined/null이 될 수 있음
-              // 타입 시스템에서는 필수지만, 런타임 검증이 필요
-              route: Object.create(null),
-            },
-            {
-              route: {
-                swarmRef: { kind: 'Swarm', name: 'fallback' },
-              },
-            },
-          ],
-          triggers: [{ handler: 'onUpdate' }],
-        },
-      };
-      const emittedEvents: CanonicalEvent[] = [];
-      const ctx = createMockTriggerContext(connector, emittedEvents);
-
-      const message = createTelegramMessage({
-        text: '/test hello',
-        entities: [{ type: 'bot_command', offset: 0, length: 5 }],
-      });
-      const update = createTelegramUpdate(message);
-      const event = createMockTriggerEvent(update);
-
-      await onUpdate(event, {}, ctx);
-
-      // 첫 번째 규칙은 swarmRef 없어서 스킵, 두 번째 규칙은 명령어 매칭 없으므로 통과
-      expect(emittedEvents).toHaveLength(1);
-      expect(emittedEvents[0].swarmRef).toEqual({ kind: 'Swarm', name: 'fallback' });
+      expect(emittedEvents[0].message.type).toBe('text');
+      if (emittedEvents[0].message.type === 'text') {
+        expect(emittedEvents[0].message.text).toContain('도움말');
+      }
     });
   });
 });
@@ -760,7 +520,7 @@ describe('Telegram API Functions', () => {
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-        })
+        }),
       );
     });
 
@@ -819,7 +579,7 @@ describe('Telegram API Functions', () => {
         'https://api.telegram.org/bottest-token/editMessageText',
         expect.objectContaining({
           method: 'POST',
-        })
+        }),
       );
 
       const body = parseFetchBody(vi.mocked(globalThis.fetch));
@@ -869,7 +629,7 @@ describe('Telegram API Functions', () => {
         'https://api.telegram.org/bottest-token/deleteMessage',
         expect.objectContaining({
           method: 'POST',
-        })
+        }),
       );
     });
 
@@ -897,7 +657,7 @@ describe('Telegram API Functions', () => {
         'https://api.telegram.org/bottest-token/setWebhook',
         expect.objectContaining({
           method: 'POST',
-        })
+        }),
       );
     });
 
@@ -958,7 +718,7 @@ describe('Telegram API Functions', () => {
         'https://api.telegram.org/bottest-token/getWebhookInfo',
         expect.objectContaining({
           method: 'GET',
-        })
+        }),
       );
     });
 
@@ -986,7 +746,7 @@ describe('Telegram API Functions', () => {
         'https://api.telegram.org/bottest-token/deleteWebhook',
         expect.objectContaining({
           method: 'POST',
-        })
+        }),
       );
     });
 

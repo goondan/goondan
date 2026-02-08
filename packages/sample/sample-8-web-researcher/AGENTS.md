@@ -6,7 +6,9 @@
 
 ```
 sample-8-web-researcher/
-├── goondan.yaml      # Bundle 정의 (Model + 3 Tool + 2 Agent + Swarm + Connector + Connection)
+├── package.yaml      # Bundle Package 정의 (@goondan/base 의존성)
+├── goondan.yaml      # Bundle 정의 (Model + 로컬 Tool + 2 Agent + Swarm + Connection)
+├── delegate-tool.ts  # agent.delegate 로컬 구현 (summarizer 위임)
 ├── prompts/
 │   ├── researcher.md # 웹 리서치 전문 프롬프트
 │   └── summarizer.md # 요약 전문 프롬프트
@@ -21,10 +23,10 @@ sample-8-web-researcher/
 - `default-model`: Anthropic Claude Sonnet 4.5
 
 ### Tool
-- `http-fetch`: HTTP GET/POST 요청 (base 패키지 도구)
+- `http-fetch`: HTTP GET/POST 요청 (`@goondan/base` 패키지 Tool 참조)
   - `http.get`: GET 요청
   - `http.post`: POST 요청
-- `json-query`: JSON 데이터 처리 (base 패키지 도구)
+- `json-query`: JSON 데이터 처리 (`@goondan/base` 패키지 Tool 참조)
   - `json.query`: JSONPath로 값 추출
   - `json.transform`: JSON 변환 (pick, omit, flatten 등)
 - `delegate-tool`: 에이전트 위임 도구
@@ -37,14 +39,14 @@ sample-8-web-researcher/
 ### Swarm
 - `web-research-swarm`: 2개 에이전트로 구성
 
-### Connector
-- `cli`: CLI 인터페이스
+### Connection
+- `cli-to-web-research`: `@goondan/base`의 `Connector/cli`를 스웜에 바인딩
 
 ## 핵심 개념
 
 - **도구 조합**: http-fetch + json-query로 웹 데이터 수집 파이프라인 구성
 - **역할 분리**: 수집(researcher)과 요약(summarizer)을 분리하여 각 에이전트가 전문 역할 수행
-- **base 패키지 활용**: `@goondan/base`의 공통 도구를 샘플에서 재사용하는 패턴
+- **base 패키지 활용**: `@goondan/base`의 공통 도구/커넥터 구현 엔트리를 재사용하는 패턴
 
 ## 참조 스펙
 - `/docs/specs/bundle.md` - Bundle YAML 스펙

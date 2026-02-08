@@ -55,7 +55,7 @@ changesets:
 
 ## 도구
 
-### self.readPrompt
+### self.read-prompt
 
 현재 시스템 프롬프트를 읽습니다.
 
@@ -73,7 +73,7 @@ changesets:
 }
 ```
 
-### self.updatePrompt
+### self.update-prompt
 
 시스템 프롬프트를 수정합니다. Changeset을 통해 안전하게 변경을 관리합니다.
 
@@ -111,7 +111,7 @@ changesets:
 }
 ```
 
-### self.viewChanges
+### self.view-changes
 
 프롬프트 변경 이력을 조회합니다.
 
@@ -143,14 +143,14 @@ changesets:
 ```
 User: 너의 현재 시스템 프롬프트를 보여줘.
 
-Agent: [self.readPrompt 호출]
+Agent: [self.read-prompt 호출]
 현재 시스템 프롬프트입니다:
 # Self-Evolving Agent
 You are a self-evolving AI agent...
 
 User: 한국어로 응답하도록 프롬프트를 수정해줘.
 
-Agent: [self.updatePrompt 호출]
+Agent: [self.update-prompt 호출]
 프롬프트를 수정했습니다. 변경 이유: "사용자 요청에 따라 한국어 응답 지침 추가"
 
 변경 사항:
@@ -161,7 +161,7 @@ Agent: [self.updatePrompt 호출]
 
 User: 변경 이력을 보여줘.
 
-Agent: [self.viewChanges 호출]
+Agent: [self.view-changes 호출]
 최근 변경 이력입니다:
 1. def456... - Update prompt: prompts/evolving.system.md (방금)
 2. abc123... - Initial creation (1시간 전)
@@ -171,7 +171,7 @@ Agent: [self.viewChanges 호출]
 
 ```
 Step N:
-  1. LLM이 self.updatePrompt 호출
+  1. LLM이 self.update-prompt 호출
   2. swarmBundle.openChangeset() - Git worktree 생성
   3. worktree에서 프롬프트 파일 수정
   4. swarmBundle.commitChangeset() - Git commit 생성

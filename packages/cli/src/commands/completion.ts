@@ -34,9 +34,9 @@ _${CLI_NAME}_completions() {
   local cur prev words cword
   _init_completion || return
 
-  local commands="init run validate package instance logs config completion"
-  local package_commands="install add remove update list publish login logout pack info cache"
-  local instance_commands="list inspect delete resume"
+  local commands="init run validate package instance logs config completion doctor"
+  local package_commands="install add remove update list publish unpublish deprecate login logout pack info cache"
+  local instance_commands="list inspect pause delete resume terminate"
   local config_commands="get set list delete path"
   local global_options="--help --version --verbose --quiet --config --state-root --no-color --json"
 
@@ -69,6 +69,12 @@ _${CLI_NAME}_completions() {
         remove|update|info)
           COMPREPLY=( $(compgen -W "\${global_options}" -- "\${cur}") )
           ;;
+        unpublish)
+          COMPREPLY=( $(compgen -W "--force --registry \${global_options}" -- "\${cur}") )
+          ;;
+        deprecate)
+          COMPREPLY=( $(compgen -W "--message --registry \${global_options}" -- "\${cur}") )
+          ;;
         list)
           COMPREPLY=( $(compgen -W "--depth --all \${global_options}" -- "\${cur}") )
           ;;
@@ -95,7 +101,7 @@ _${CLI_NAME}_completions() {
         list)
           COMPREPLY=( $(compgen -W "--swarm --limit --all \${global_options}" -- "\${cur}") )
           ;;
-        inspect|delete|resume)
+        inspect|pause|delete|resume|terminate)
           COMPREPLY=( $(compgen -W "\${global_options}" -- "\${cur}") )
           ;;
         *)
@@ -122,6 +128,9 @@ _${CLI_NAME}_completions() {
       ;;
     completion)
       COMPREPLY=( $(compgen -W "bash zsh fish powershell" -- "\${cur}") )
+      ;;
+    doctor)
+      COMPREPLY=( $(compgen -W "--fix --runtime --port \${global_options}" -- "\${cur}") )
       ;;
     *)
       if [[ "\${cur}" == -* ]]; then
@@ -163,6 +172,7 @@ _${CLI_NAME}() {
         'logs:View instance logs'
         'config:Manage CLI configuration'
         'completion:Generate shell completion script'
+        'doctor:Check environment and diagnose common issues'
       )
       _describe 'command' commands
       ;;
@@ -207,6 +217,8 @@ _${CLI_NAME}() {
             'update:Update dependencies'
             'list:List installed packages'
             'publish:Publish package to registry'
+            'unpublish:Unpublish package version'
+            'deprecate:Set package deprecation notice'
             'login:Login to registry'
             'logout:Logout from registry'
             'pack:Create local tarball'
@@ -220,8 +232,10 @@ _${CLI_NAME}() {
           instance_cmds=(
             'list:List instances'
             'inspect:Inspect an instance'
+            'pause:Pause an instance'
             'delete:Delete an instance'
             'resume:Resume an instance'
+            'terminate:Terminate an instance'
           )
           _describe 'instance command' instance_cmds
           ;;
@@ -248,6 +262,12 @@ _${CLI_NAME}() {
           ;;
         completion)
           _arguments '1:shell:(bash zsh fish powershell)'
+          ;;
+        doctor)
+          _arguments \\
+            '--fix[Attempt to fix issues automatically]' \\
+            '--runtime[Run runtime health check]' \\
+            '(-p --port)'{-p,--port}'[Port for HTTP mode health check]:port:'
           ;;
       esac
       ;;
@@ -277,6 +297,7 @@ complete -c ${CLI_NAME} -n "__fish_use_subcommand" -a "instance" -d "Manage Swar
 complete -c ${CLI_NAME} -n "__fish_use_subcommand" -a "logs" -d "View instance logs"
 complete -c ${CLI_NAME} -n "__fish_use_subcommand" -a "config" -d "Manage CLI configuration"
 complete -c ${CLI_NAME} -n "__fish_use_subcommand" -a "completion" -d "Generate shell completion script"
+complete -c ${CLI_NAME} -n "__fish_use_subcommand" -a "doctor" -d "Check environment and diagnose issues"
 
 # Global options
 complete -c ${CLI_NAME} -l help -s h -d "Show help"
@@ -314,23 +335,27 @@ complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from validate" -l fix -d "Aut
 complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from validate" -l format -a "text json github" -d "Output format"
 
 # package subcommands
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "install" -d "Install dependencies"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "add" -d "Add a dependency"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "remove" -d "Remove a dependency"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "update" -d "Update dependencies"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "list" -d "List installed packages"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "publish" -d "Publish package"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "login" -d "Login to registry"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "logout" -d "Logout from registry"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "pack" -d "Create tarball"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "info" -d "Package info"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish login logout pack info cache" -a "cache" -d "Manage cache"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "install" -d "Install dependencies"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "add" -d "Add a dependency"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "remove" -d "Remove a dependency"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "update" -d "Update dependencies"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "list" -d "List installed packages"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "publish" -d "Publish package"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "unpublish" -d "Unpublish package"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "deprecate" -d "Deprecate package"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "login" -d "Login to registry"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "logout" -d "Logout from registry"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "pack" -d "Create tarball"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "info" -d "Package info"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from package; and not __fish_seen_subcommand_from install add remove update list publish unpublish deprecate login logout pack info cache" -a "cache" -d "Manage cache"
 
 # instance subcommands
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect delete resume" -a "list" -d "List instances"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect delete resume" -a "inspect" -d "Inspect instance"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect delete resume" -a "delete" -d "Delete instance"
-complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect delete resume" -a "resume" -d "Resume instance"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "list" -d "List instances"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "inspect" -d "Inspect instance"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "pause" -d "Pause instance"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "delete" -d "Delete instance"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "resume" -d "Resume instance"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from instance; and not __fish_seen_subcommand_from list inspect pause delete resume terminate" -a "terminate" -d "Terminate instance"
 
 # logs options
 complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from logs" -l agent -s a -d "Filter by agent name"
@@ -353,6 +378,11 @@ complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from config; and __fish_seen_
 
 # completion shells
 complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from completion" -a "bash zsh fish powershell" -d "Shell type"
+
+# doctor options
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from doctor" -l fix -d "Attempt to fix issues automatically"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from doctor" -l runtime -d "Run runtime health check"
+complete -c ${CLI_NAME} -n "__fish_seen_subcommand_from doctor" -l port -s p -d "Port for HTTP mode health check"
 `;
 }
 
@@ -363,9 +393,9 @@ function generatePowerShellCompletion(): string {
   return `# PowerShell completion for ${CLI_NAME}
 # Add to your $PROFILE: . (${CLI_NAME} completion powershell)
 
-$script:commands = @('init', 'run', 'validate', 'package', 'instance', 'logs', 'config', 'completion')
-$script:packageCommands = @('install', 'add', 'remove', 'update', 'list', 'publish', 'login', 'logout', 'pack', 'info', 'cache')
-$script:instanceCommands = @('list', 'inspect', 'delete', 'resume')
+$script:commands = @('init', 'run', 'validate', 'package', 'instance', 'logs', 'config', 'completion', 'doctor')
+$script:packageCommands = @('install', 'add', 'remove', 'update', 'list', 'publish', 'unpublish', 'deprecate', 'login', 'logout', 'pack', 'info', 'cache')
+$script:instanceCommands = @('list', 'inspect', 'pause', 'delete', 'resume', 'terminate')
 $script:configCommands = @('get', 'set', 'list', 'delete', 'path')
 $script:configKeys = @('registry', 'stateRoot', 'logLevel', 'color', 'editor')
 $script:shells = @('bash', 'zsh', 'fish', 'powershell')

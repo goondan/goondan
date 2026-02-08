@@ -6,8 +6,25 @@ metadata:
     tier: base
     category: messaging
 spec:
-  type: discord
   runtime: node
   entry: "./connectors/discord/index.js"
   triggers:
-    - handler: onDiscordMessage
+    - type: http
+      endpoint:
+        path: /discord/interactions
+        method: POST
+  events:
+    - name: discord.message
+      properties:
+        channelId:
+          type: string
+        guildId:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        messageId:
+          type: string
+        timestamp:
+          type: string

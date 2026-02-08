@@ -150,10 +150,34 @@ describe('WorkspacePaths', () => {
       expect(instancePath).toBe(expected);
     });
 
+    it('instanceMetadataPath로 메타데이터 경로를 생성해야 한다', () => {
+      const metadataPath = paths.instanceMetadataPath('default-cli');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/metadata.json`;
+      expect(metadataPath).toBe(expected);
+    });
+
     it('swarmEventsLogPath로 swarm 이벤트 로그 경로를 생성해야 한다', () => {
       const logPath = paths.swarmEventsLogPath('default-cli');
       const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/swarm/events/events.jsonl`;
       expect(logPath).toBe(expected);
+    });
+
+    it('instanceMetricsLogPath로 메트릭 로그 경로를 생성해야 한다', () => {
+      const logPath = paths.instanceMetricsLogPath('default-cli');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/metrics/turns.jsonl`;
+      expect(logPath).toBe(expected);
+    });
+
+    it('extensionSharedStatePath로 공유 상태 경로를 생성해야 한다', () => {
+      const statePath = paths.extensionSharedStatePath('default-cli');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/extensions/_shared.json`;
+      expect(statePath).toBe(expected);
+    });
+
+    it('extensionStatePath로 Extension별 상태 경로를 생성해야 한다', () => {
+      const statePath = paths.extensionStatePath('default-cli', 'basicCompaction');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/extensions/basicCompaction/state.json`;
+      expect(statePath).toBe(expected);
     });
 
     it('agentPath로 특정 에이전트 경로를 생성해야 한다', () => {
@@ -162,9 +186,15 @@ describe('WorkspacePaths', () => {
       expect(agentPath).toBe(expected);
     });
 
-    it('agentMessagesLogPath로 에이전트 메시지 로그 경로를 생성해야 한다', () => {
-      const logPath = paths.agentMessagesLogPath('default-cli', 'planner');
-      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/agents/planner/messages/llm.jsonl`;
+    it('agentMessageBaseLogPath로 메시지 base 로그 경로를 생성해야 한다', () => {
+      const logPath = paths.agentMessageBaseLogPath('default-cli', 'planner');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/agents/planner/messages/base.jsonl`;
+      expect(logPath).toBe(expected);
+    });
+
+    it('agentMessageEventsLogPath로 메시지 이벤트 로그 경로를 생성해야 한다', () => {
+      const logPath = paths.agentMessageEventsLogPath('default-cli', 'planner');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/agents/planner/messages/events.jsonl`;
       expect(logPath).toBe(expected);
     });
 
@@ -227,7 +257,17 @@ describe('WorkspacePaths', () => {
       expect(instancePaths.root).toBe(
         `/home/test/.goondan/instances/${paths.workspaceId}/default-cli`
       );
+      expect(instancePaths.metadataFile).toContain('metadata.json');
       expect(instancePaths.swarmEventsLog).toContain('events.jsonl');
+      expect(instancePaths.metricsLog).toContain('turns.jsonl');
+      expect(instancePaths.extensionSharedState).toContain('_shared.json');
+    });
+
+    it('extensionState 함수로 Extension별 상태 경로를 생성해야 한다', () => {
+      const instancePaths = paths.createInstanceStatePaths('default-cli');
+      const extStatePath = instancePaths.extensionState('basicCompaction');
+
+      expect(extStatePath).toContain('extensions/basicCompaction/state.json');
     });
 
     it('agent 함수로 AgentStatePaths를 생성해야 한다', () => {
@@ -235,8 +275,9 @@ describe('WorkspacePaths', () => {
       const agentPaths = instancePaths.agent('planner');
 
       expect(agentPaths.root).toContain('agents/planner');
-      expect(agentPaths.messagesLog).toContain('llm.jsonl');
-      expect(agentPaths.eventsLog).toContain('events.jsonl');
+      expect(agentPaths.messageBaseLog).toContain('base.jsonl');
+      expect(agentPaths.messageEventsLog).toContain('messages/events.jsonl');
+      expect(agentPaths.eventsLog).toContain('events/events.jsonl');
     });
   });
 
@@ -258,6 +299,8 @@ describe('WorkspacePaths', () => {
       expect(systemPaths.bundlesCache).toBe('/home/test/.goondan/bundles');
       expect(systemPaths.worktrees).toBe('/home/test/.goondan/worktrees');
       expect(systemPaths.secrets).toBe('/home/test/.goondan/secrets');
+      expect(systemPaths.metricsDir).toBe('/home/test/.goondan/metrics');
+      expect(systemPaths.runtimeMetricsLog).toBe('/home/test/.goondan/metrics/runtime.jsonl');
       expect(systemPaths.instances).toBe('/home/test/.goondan/instances');
     });
 

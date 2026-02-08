@@ -12,6 +12,7 @@ import type { AgentSpec } from '../types/specs/agent.js';
 import type { ToolSpec } from '../types/specs/tool.js';
 import type { ModelSpec } from '../types/specs/model.js';
 import type { ConnectorSpec } from '../types/specs/connector.js';
+import type { ConnectionSpec } from '../types/specs/connection.js';
 import type { OAuthAppSpec } from '../types/specs/oauth-app.js';
 
 // ============================================================================
@@ -30,6 +31,7 @@ export type PipelinePoint =
   | 'step.config'
   | 'step.tools'
   | 'step.blocks'
+  | 'step.llmInput'
   | 'step.llmCall'
   | 'step.llmError'
   | 'step.post'
@@ -51,6 +53,7 @@ export type MutatorPoint =
   | 'step.config'
   | 'step.tools'
   | 'step.blocks'
+  | 'step.llmInput'
   | 'step.llmError'
   | 'step.post'
   | 'toolCall.pre'
@@ -111,11 +114,13 @@ export type LlmMessage =
   | ToolMessage;
 
 export interface SystemMessage {
+  id: string;
   role: 'system';
   content: string;
 }
 
 export interface UserMessage {
+  id: string;
   role: 'user';
   content: string;
   attachments?: MessageAttachment[];
@@ -129,12 +134,14 @@ export interface MessageAttachment {
 }
 
 export interface AssistantMessage {
+  id: string;
   role: 'assistant';
   content?: string;
   toolCalls?: ToolCall[];
 }
 
 export interface ToolMessage {
+  id: string;
   role: 'tool';
   toolCallId: string;
   toolName: string;
@@ -147,7 +154,7 @@ export interface ToolMessage {
 export interface ToolCall {
   id: string;
   name: string;
-  input: JsonObject;
+  args: JsonObject;
 }
 
 /**
@@ -157,13 +164,29 @@ export interface ToolResult {
   toolCallId: string;
   toolName: string;
   output: JsonValue;
-  status: 'success' | 'error';
+  status: 'ok' | 'error' | 'pending';
+  /** 비동기 제출 시 핸들 */
+  handle?: string;
   error?: {
     name: string;
     message: string;
     code?: string;
+    /** 사용자 복구를 위한 제안 (SHOULD) */
+    suggestion?: string;
+    /** 관련 문서 링크 (SHOULD) */
+    helpUrl?: string;
   };
 }
+
+/**
+ * 메시지 이벤트 (Turn 중 메시지 변경 이벤트)
+ */
+export type MessageEvent =
+  | { type: 'system_message'; seq: number; message: SystemMessage }
+  | { type: 'llm_message'; seq: number; message: UserMessage | AssistantMessage | ToolMessage }
+  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
+  | { type: 'remove'; seq: number; targetId: string }
+  | { type: 'truncate'; seq: number };
 
 /**
  * Turn 인증 컨텍스트
@@ -187,7 +210,12 @@ export interface TurnAuth {
 export interface Turn {
   id: string;
   input: string;
-  messages: LlmMessage[];
+  /** Turn 메시지 상태 (NextMessages = BaseMessages + SUM(Events)) */
+  messageState: {
+    baseMessages: LlmMessage[];
+    events: MessageEvent[];
+    nextMessages: LlmMessage[];
+  };
   toolResults: ToolResult[];
   origin?: JsonObject;
   auth?: TurnAuth;
@@ -270,6 +298,7 @@ export interface EffectiveConfig {
   tools: Map<string, Resource<ToolSpec>>;
   extensions: Map<string, Resource<ExtensionSpec>>;
   connectors: Map<string, Resource<ConnectorSpec>>;
+  connections: Map<string, Resource<ConnectionSpec>>;
   oauthApps: Map<string, Resource<OAuthAppSpec>>;
   revision: number;
   swarmBundleRef: string;
@@ -283,6 +312,12 @@ export interface TurnContext extends PipelineContext {
   swarm: Resource<SwarmSpec>;
   agent: Resource<AgentSpec>;
   effectiveConfig: EffectiveConfig;
+  /** turn 시작 기준 메시지 (turn.post에서 제공) */
+  baseMessages?: LlmMessage[];
+  /** turn 중 누적 메시지 이벤트 (turn.post에서 제공) */
+  messageEvents?: MessageEvent[];
+  /** turn 메시지 이벤트 발행 */
+  emitMessageEvent?: (event: MessageEvent) => Promise<void>;
 }
 
 /**
@@ -292,7 +327,16 @@ export interface StepContext extends TurnContext {
   step: Step;
   blocks: ContextBlock[];
   toolCatalog: ToolCatalogItem[];
+  llmInput?: LlmMessage[];
   activeSwarmRef: string;
+}
+
+/**
+ * LLM Input 컨텍스트
+ * step.llmInput 파이프라인 포인트에서 사용
+ */
+export interface LlmInputContext extends StepContext {
+  llmInput: LlmMessage[];
 }
 
 /**
@@ -386,6 +430,7 @@ export interface PipelineApi {
  */
 export type ContextForPoint<T extends PipelinePoint> =
   T extends 'turn.pre' | 'turn.post' ? TurnContext :
+  T extends 'step.llmInput' ? LlmInputContext :
   T extends 'step.pre' | 'step.config' | 'step.tools' | 'step.blocks' | 'step.llmCall' | 'step.post' ? StepContext :
   T extends 'step.llmError' ? LlmErrorContext :
   T extends 'toolCall.pre' | 'toolCall.exec' | 'toolCall.post' ? ToolCallContext :
@@ -511,7 +556,7 @@ export interface CommitChangesetInput {
 }
 
 export interface CommitChangesetResult {
-  status: 'ok' | 'rejected' | 'failed';
+  status: 'ok' | 'rejected' | 'conflict' | 'failed';
   changesetId: string;
   baseRef: string;
   newRef?: string;
@@ -650,14 +695,14 @@ export interface ExtensionApi<
   events: EventBus;
 
   /**
-   * SwarmBundle Changeset API
+   * SwarmBundle Changeset API (선택 - Runtime capability에 따라 제공)
    */
-  swarmBundle: SwarmBundleApi;
+  swarmBundle?: SwarmBundleApi;
 
   /**
-   * Live Config API
+   * Live Config API (선택 - Runtime capability에 따라 제공)
    */
-  liveConfig: LiveConfigApi;
+  liveConfig?: LiveConfigApi;
 
   /**
    * OAuth API
@@ -665,9 +710,27 @@ export interface ExtensionApi<
   oauth: OAuthApi;
 
   /**
-   * 확장별 상태 저장소
+   * 확장별 상태 접근 API
+   * Extension 인스턴스별 격리된 상태
    */
-  extState: () => TState;
+  state: {
+    /** 현재 상태를 반환 */
+    get(): TState;
+    /** 상태를 교체 (불변 패턴) */
+    set(next: TState): void;
+  };
+
+  /**
+   * 확장별 상태 조회 (top-level shorthand)
+   * state.get()과 동일
+   */
+  getState: () => TState;
+
+  /**
+   * 확장별 상태 저장 (top-level shorthand)
+   * state.set()과 동일
+   */
+  setState: (next: TState) => void;
 
   /**
    * 인스턴스 공유 상태
@@ -696,17 +759,69 @@ export type RegisterFunction<TState = JsonObject, TConfig = JsonObject> = (
 /**
  * 상태 저장소 인터페이스
  */
+export interface StateStorePersistence {
+  /**
+   * Extension 상태 변경 시 호출
+   */
+  onExtensionStateChange?: (extensionName: string, state: JsonObject) => void | Promise<void>;
+
+  /**
+   * 공유 상태 변경 시 호출
+   */
+  onSharedStateChange?: (state: JsonObject) => void | Promise<void>;
+}
+
+/**
+ * StateStore 전체 스냅샷
+ */
+export interface StateStoreSnapshot {
+  extensionStates: Record<string, JsonObject>;
+  sharedState: JsonObject;
+}
+
+/**
+ * StateStore 생성 옵션
+ */
+export interface CreateStateStoreOptions {
+  /**
+   * 초기 Extension 상태 (복원용)
+   */
+  initialExtensionStates?: Record<string, JsonObject>;
+
+  /**
+   * 초기 공유 상태 (복원용)
+   */
+  initialSharedState?: JsonObject;
+
+  /**
+   * 영속화 콜백
+   */
+  persistence?: StateStorePersistence;
+}
+
+/**
+ * 상태 저장소 인터페이스
+ */
 export interface StateStore {
   /**
    * Extension별 상태 조회
-   * 반환된 객체를 원하는 타입으로 사용 가능
    */
   getExtensionState(extensionName: string): JsonObject;
+
+  /**
+   * Extension별 상태 저장 (불변 패턴 — 새 객체로 교체)
+   */
+  setExtensionState(extensionName: string, state: JsonObject): void;
 
   /**
    * 인스턴스 공유 상태 조회
    */
   getSharedState(): JsonObject;
+
+  /**
+   * 인스턴스 공유 상태 교체 (불변 패턴)
+   */
+  setSharedState(state: JsonObject): void;
 
   /**
    * Extension 상태 초기화
@@ -717,6 +832,16 @@ export interface StateStore {
    * 모든 상태 초기화
    */
   clearAll(): void;
+
+  /**
+   * dirty 상태를 영속 스토리지로 flush
+   */
+  flush(): Promise<void>;
+
+  /**
+   * 외부 스냅샷으로 상태를 재동기화
+   */
+  rehydrate(snapshot: StateStoreSnapshot): void;
 }
 
 // ============================================================================

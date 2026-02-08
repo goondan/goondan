@@ -1,25 +1,19 @@
 /**
- * GitHub Connector 구현
+ * GitHub Connector 구현 (v1.0)
  *
- * GitHub Webhook 이벤트를 처리하여 canonical event로 변환하고,
- * 에이전트 응답을 GitHub API를 통해 전송한다.
+ * GitHub Webhook 이벤트를 처리하여 ConnectorEvent로 변환하고 emit한다.
+ * 단일 default export 패턴을 따른다.
  *
- * @see /docs/specs/connector.md
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
  * @packageDocumentation
  */
 
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-  ConnectorTurnAuth,
-} from '@goondan/core/connector';
-import type { JsonObject } from '@goondan/core';
-
-/**
- * TurnAuth 타입 별칭
- */
-type TurnAuth = ConnectorTurnAuth;
+  ConnectorContext,
+  ConnectorEvent,
+  HttpTriggerPayload,
+} from '@goondan/core';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 // ============================================================================
 // Types
@@ -180,6 +174,103 @@ function isString(value: unknown): value is string {
  */
 function isNumber(value: unknown): value is number {
   return typeof value === 'number';
+}
+
+/**
+ * HttpTriggerPayload 타입 가드
+ */
+function isHttpTrigger(trigger: { type: string }): trigger is HttpTriggerPayload {
+  return trigger.type === 'http';
+}
+
+/**
+ * 헤더 키를 대소문자 구분 없이 조회한다.
+ */
+function getHeaderValue(
+  headers: Record<string, string>,
+  headerName: string,
+): string | undefined {
+  const direct = headers[headerName];
+  if (isString(direct)) {
+    return direct;
+  }
+
+  const normalizedHeaderName = headerName.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedHeaderName && isString(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * 요청 본문을 서명 검증용 문자열로 직렬화한다.
+ */
+function getRequestRawBody(request: HttpTriggerPayload['payload']['request']): string | undefined {
+  if (isString(request.rawBody)) {
+    return request.rawBody;
+  }
+
+  try {
+    return JSON.stringify(request.body);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * GitHub 요청 서명을 검증한다.
+ */
+function verifyGithubSignature(
+  request: HttpTriggerPayload['payload']['request'],
+  signingSecret: string,
+): boolean {
+  const signature = getHeaderValue(request.headers, 'x-hub-signature-256');
+  if (!signature || !signature.startsWith('sha256=')) {
+    return false;
+  }
+
+  const rawBody = getRequestRawBody(request);
+  if (rawBody === undefined) {
+    return false;
+  }
+
+  const expected = `sha256=${createHmac('sha256', signingSecret).update(rawBody).digest('hex')}`;
+  const actualBuffer = Buffer.from(signature, 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+/**
+ * Connection verify 설정이 있을 때 GitHub 서명을 검증한다.
+ *
+ * 검증 실패 시 emit을 중단해야 한다.
+ */
+function runVerifyHook(
+  context: ConnectorContext,
+  request: HttpTriggerPayload['payload']['request'],
+): boolean {
+  const signingSecret = context.verify?.webhook?.signingSecret;
+
+  if (!signingSecret) {
+    return true;
+  }
+
+  const verified = verifyGithubSignature(request, signingSecret);
+  if (verified) {
+    context.logger.debug('[GitHub] Signature verification passed');
+    return true;
+  }
+
+  context.logger.warn('[GitHub] Signature verification failed');
+  return false;
 }
 
 /**
@@ -380,7 +471,6 @@ function parseGitHubCommit(obj: unknown): GitHubCommit | undefined {
  * GitHub Webhook 페이로드를 파싱한다.
  *
  * @param obj - 파싱할 객체
- * @param eventType - X-GitHub-Event 헤더에서 추출한 이벤트 타입
  * @returns GitHubWebhookPayload 또는 undefined
  */
 function parseGitHubWebhookPayload(obj: unknown): GitHubWebhookPayload | undefined {
@@ -458,19 +548,16 @@ function parseGitHubWebhookPayload(obj: unknown): GitHubWebhookPayload | undefin
 }
 
 /**
- * TriggerEvent에서 GitHub 이벤트 타입을 추출한다.
- * metadata.githubEvent에 X-GitHub-Event 헤더 값을 기대한다.
- *
- * @param event - TriggerEvent
- * @returns 이벤트 타입 문자열
+ * 이벤트 타입을 payload 구조에서 추론한다.
  */
-function resolveEventType(event: TriggerEvent, payload: GitHubWebhookPayload): string {
-  // metadata에서 이벤트 타입 추출 시도
-  if (event.metadata) {
-    const githubEvent = event.metadata['githubEvent'];
-    if (isString(githubEvent)) {
-      return githubEvent;
-    }
+function resolveEventType(
+  requestHeaders: Record<string, string>,
+  payload: GitHubWebhookPayload,
+): string {
+  // X-GitHub-Event 헤더에서 이벤트 타입 추출
+  const githubEvent = getHeaderValue(requestHeaders, 'x-github-event');
+  if (githubEvent) {
+    return githubEvent;
   }
 
   // payload 구조에서 이벤트 타입 추론
@@ -490,114 +577,15 @@ function resolveEventType(event: TriggerEvent, payload: GitHubWebhookPayload): s
   return 'unknown';
 }
 
-// ============================================================================
-// Trigger Handler
-// ============================================================================
+const SUPPORTED_EVENT_TYPES = new Set([
+  'issues',
+  'issue_comment',
+  'pull_request',
+  'push',
+]);
 
-/**
- * GitHub Webhook 이벤트를 처리하는 트리거 핸들러
- *
- * @param event - 트리거 이벤트
- * @param _connection - 연결 설정 (현재 미사용)
- * @param ctx - 트리거 컨텍스트
- */
-export async function onGitHubEvent(
-  event: TriggerEvent,
-  _connection: JsonObject,
-  ctx: TriggerContext
-): Promise<void> {
-  // 페이로드 파싱
-  const payload = parseGitHubWebhookPayload(event.payload);
-  if (!payload) {
-    ctx.logger.warn('[GitHub] Invalid webhook payload received');
-    return;
-  }
-
-  // 이벤트 타입 결정
-  const eventType = resolveEventType(event, payload);
-
-  // 리포지토리 정보
-  const repo = payload.repository;
-  if (!repo) {
-    ctx.logger.warn('[GitHub] No repository info in payload');
-    return;
-  }
-
-  // 봇 이벤트 무시 (무한 루프 방지)
-  if (payload.sender?.type === 'Bot') {
-    ctx.logger.debug('[GitHub] Ignoring bot event');
-    return;
-  }
-
-  const connector = ctx.connector;
-  const connectorName = connector.metadata?.name ?? 'github';
-  const ingressRules = connector.spec?.ingress ?? [];
-
-  // Ingress 규칙 매칭
-  for (const rule of ingressRules) {
-    const match = rule.match ?? {};
-    const route = rule.route;
-
-    if (!route?.swarmRef) {
-      ctx.logger.warn('[GitHub] No swarmRef in route');
-      continue;
-    }
-
-    // eventType 매칭
-    if (match.eventType && match.eventType !== eventType) {
-      continue;
-    }
-
-    // channel 매칭 (repo full_name으로 매칭)
-    if (match.channel && match.channel !== repo.full_name) {
-      continue;
-    }
-
-    // instanceKey 생성
-    const instanceKey = buildInstanceKey(eventType, repo, payload);
-
-    // input 추출
-    const input = buildInput(eventType, payload);
-
-    // TurnAuth 생성
-    const auth = createTurnAuth(payload.sender, repo);
-
-    // Origin 정보 생성
-    const origin = createOrigin(eventType, payload, connectorName);
-
-    // metadata 생성
-    const metadata = buildMetadata(eventType, payload);
-
-    // Canonical event 생성
-    const canonicalEvent: CanonicalEvent = {
-      type: eventType,
-      swarmRef: route.swarmRef,
-      instanceKey,
-      input,
-      origin,
-      auth,
-    };
-
-    if (Object.keys(metadata).length > 0) {
-      canonicalEvent.metadata = metadata;
-    }
-
-    if (route.agentName) {
-      canonicalEvent.agentName = route.agentName;
-    }
-
-    await ctx.emit(canonicalEvent);
-
-    ctx.logger.info(
-      `[GitHub] Emitted canonical event: type=${eventType}, ` +
-      `repo=${repo.full_name}, action=${payload.action ?? 'none'}`
-    );
-    return;
-  }
-
-  ctx.logger.debug(
-    `[GitHub] No matching ingress rule for event: type=${eventType}, repo=${repo.full_name}`
-  );
+function isSupportedEventType(eventType: string): boolean {
+  return SUPPORTED_EVENT_TYPES.has(eventType);
 }
 
 // ============================================================================
@@ -605,48 +593,7 @@ export async function onGitHubEvent(
 // ============================================================================
 
 /**
- * instanceKey를 생성한다.
- *
- * @param eventType - GitHub 이벤트 타입
- * @param repo - 리포지토리 정보
- * @param payload - Webhook 페이로드
- * @returns instanceKey
- */
-function buildInstanceKey(
-  eventType: string,
-  repo: GitHubRepository,
-  payload: GitHubWebhookPayload
-): string {
-  const repoKey = repo.full_name;
-
-  switch (eventType) {
-    case 'issues':
-    case 'issue_comment':
-      if (payload.issue) {
-        return `github:${repoKey}:issue:${payload.issue.number}`;
-      }
-      break;
-    case 'pull_request':
-      if (payload.pull_request) {
-        return `github:${repoKey}:pr:${payload.pull_request.number}`;
-      }
-      break;
-    case 'push':
-      if (payload.ref) {
-        return `github:${repoKey}:push:${payload.ref}`;
-      }
-      break;
-  }
-
-  return `github:${repoKey}:${eventType}`;
-}
-
-/**
  * 이벤트에서 LLM 입력 텍스트를 생성한다.
- *
- * @param eventType - GitHub 이벤트 타입
- * @param payload - Webhook 페이로드
- * @returns 입력 텍스트
  */
 function buildInput(eventType: string, payload: GitHubWebhookPayload): string {
   switch (eventType) {
@@ -680,115 +627,126 @@ function buildInput(eventType: string, payload: GitHubWebhookPayload): string {
   return `[${eventType}] ${payload.action ?? 'event'}`;
 }
 
-/**
- * TurnAuth를 생성한다.
- *
- * @param sender - 이벤트 발생자
- * @param repo - 리포지토리 정보
- * @returns TurnAuth 객체
- */
-function createTurnAuth(
-  sender: GitHubUser | undefined,
-  repo: GitHubRepository
-): TurnAuth {
-  const userId = sender?.login ?? 'unknown';
-  const userIdNum = sender?.id?.toString() ?? 'unknown';
-
-  return {
-    actor: {
-      type: 'user',
-      id: `github:${userId}`,
-      display: userId,
-    },
-    subjects: {
-      global: `github:repo:${repo.full_name}`,
-      user: `github:user:${userIdNum}`,
-    },
-  };
-}
+// ============================================================================
+// Connector Entry Function (단일 default export)
+// ============================================================================
 
 /**
- * Origin 정보를 생성한다.
+ * GitHub Connector Entry Function
  *
- * @param eventType - GitHub 이벤트 타입
- * @param payload - Webhook 페이로드
- * @param connectorName - Connector 이름
- * @returns Origin 객체
+ * GitHub Webhook으로부터 이벤트를 받아
+ * ConnectorEvent로 변환하여 emit한다.
  */
-function createOrigin(
-  eventType: string,
-  payload: GitHubWebhookPayload,
-  connectorName: string
-): JsonObject {
-  const origin: JsonObject = {
-    connector: connectorName,
-    eventType,
-    repository: payload.repository?.full_name ?? '',
-  };
+const githubConnector = async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, logger } = context;
 
-  if (payload.action !== undefined) {
-    origin['action'] = payload.action;
+  // connector.trigger 이벤트만 처리
+  if (event.type !== 'connector.trigger') {
+    return;
   }
 
-  if (payload.sender) {
-    origin['sender'] = payload.sender.login;
+  const trigger = event.trigger;
+
+  // HTTP trigger만 처리
+  if (!isHttpTrigger(trigger)) {
+    logger.debug('[GitHub] Not an HTTP trigger, skipping');
+    return;
   }
 
-  if (payload.issue) {
-    origin['issueNumber'] = payload.issue.number;
+  const requestBody = trigger.payload.request.body;
+  const requestHeaders = trigger.payload.request.headers;
+
+  // verify.webhook.signingSecret이 제공된 경우 서명 검증
+  if (!runVerifyHook(context, trigger.payload.request)) {
+    return;
   }
 
-  if (payload.pull_request) {
-    origin['prNumber'] = payload.pull_request.number;
+  // 페이로드 파싱
+  const payload = parseGitHubWebhookPayload(requestBody);
+  if (!payload) {
+    logger.warn('[GitHub] Invalid webhook payload received');
+    return;
   }
 
-  if (payload.ref !== undefined) {
-    origin['ref'] = payload.ref;
+  // 이벤트 타입 결정
+  const eventType = resolveEventType(requestHeaders, payload);
+  if (!isSupportedEventType(eventType)) {
+    logger.warn('[GitHub] Unsupported webhook event type');
+    return;
   }
 
-  return origin;
-}
-
-/**
- * metadata 정보를 생성한다.
- *
- * @param eventType - GitHub 이벤트 타입
- * @param payload - Webhook 페이로드
- * @returns metadata 객체
- */
-function buildMetadata(
-  eventType: string,
-  payload: GitHubWebhookPayload
-): JsonObject {
-  const metadata: JsonObject = {};
-
-  if (payload.action !== undefined) {
-    metadata['action'] = payload.action;
-  }
-
+  let pushRef: string | undefined;
   if (eventType === 'push') {
-    if (payload.before !== undefined) {
-      metadata['before'] = payload.before;
-    }
-    if (payload.after !== undefined) {
-      metadata['after'] = payload.after;
-    }
-    if (payload.commits) {
-      metadata['commitCount'] = payload.commits.length;
+    pushRef = payload.ref;
+    // github.push events.properties.ref는 필수다.
+    if (!pushRef || pushRef.length === 0) {
+      logger.warn('[GitHub] Missing ref for push event');
+      return;
     }
   }
 
-  if (eventType === 'pull_request' && payload.pull_request) {
-    if (payload.pull_request.head) {
-      metadata['headRef'] = payload.pull_request.head.ref;
-    }
-    if (payload.pull_request.base) {
-      metadata['baseRef'] = payload.pull_request.base.ref;
-    }
+  // 리포지토리 정보
+  const repo = payload.repository;
+  if (!repo) {
+    logger.warn('[GitHub] No repository info in payload');
+    return;
   }
 
-  return metadata;
-}
+  // 봇 이벤트 무시 (무한 루프 방지)
+  if (payload.sender?.type === 'Bot') {
+    logger.debug('[GitHub] Ignoring bot event');
+    return;
+  }
+
+  // 이벤트 이름 결정 (events 스키마에 맞게)
+  const eventName = `github.${eventType}`;
+
+  // input 추출
+  const input = buildInput(eventType, payload);
+
+  // properties 생성
+  const properties: Record<string, string> = {
+    repository: repo.full_name,
+  };
+  if (pushRef) {
+    properties['ref'] = pushRef;
+  }
+  if (payload.action) {
+    properties['action'] = payload.action;
+  }
+
+  const userId = payload.sender?.login ?? 'unknown';
+
+  // ConnectorEvent 생성 및 발행
+  const connectorEvent: ConnectorEvent = {
+    type: 'connector.event',
+    name: eventName,
+    message: {
+      type: 'text',
+      text: input,
+    },
+    properties,
+    auth: {
+      actor: {
+        id: `github:${userId}`,
+        name: userId,
+      },
+      subjects: {
+        global: `github:repo:${repo.full_name}`,
+        user: `github:user:${payload.sender?.id?.toString() ?? 'unknown'}`,
+      },
+    },
+  };
+
+  await emit(connectorEvent);
+
+  logger.info(
+    `[GitHub] Emitted connector event: name=${eventName}, ` +
+    `repo=${repo.full_name}, action=${payload.action ?? 'none'}`
+  );
+};
+
+export default githubConnector;
 
 // ============================================================================
 // GitHub API Helpers (Egress용)

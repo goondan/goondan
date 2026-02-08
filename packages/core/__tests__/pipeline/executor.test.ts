@@ -38,7 +38,11 @@ function createStepContext(overrides: Partial<StepContext> = {}): StepContext {
     turn: {
       id: 'turn-1',
       input: 'Hello',
-      messages: [],
+      messageState: {
+        baseMessages: [],
+        events: [],
+        nextMessages: [],
+      },
       toolResults: [],
     },
     step: {
@@ -198,7 +202,7 @@ describe('PipelineExecutor', () => {
     it('등록된 Middleware가 없으면 core 함수만 실행해야 한다', async () => {
       const ctx = createStepContext();
       const coreFn = vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Hello!' },
+        message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
         toolCalls: [],
       } satisfies LlmResult);
 
@@ -286,7 +290,7 @@ describe('PipelineExecutor', () => {
       const ctx = createStepContext();
       const coreFn = vi.fn().mockImplementation(async (c: StepContext) => {
         return {
-          message: { role: 'assistant', content: 'Hello!' },
+          message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
           toolCalls: [],
           receivedToolCount: c.toolCatalog.length,
         } as LlmResult & { receivedToolCount: number };
@@ -319,7 +323,7 @@ describe('PipelineExecutor', () => {
 
       const ctx = createStepContext();
       const coreFn = vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Original' },
+        message: { id: 'msg-1', role: 'assistant', content: 'Original' },
         toolCalls: [],
       } satisfies LlmResult);
 
@@ -331,7 +335,7 @@ describe('PipelineExecutor', () => {
     it('Middleware가 next()를 호출하지 않으면 core가 실행되지 않아야 한다', async () => {
       const middleware: MiddlewareHandler<StepContext, LlmResult> = async () => {
         return {
-          message: { role: 'assistant', content: 'Intercepted' },
+          message: { id: 'msg-intercepted', role: 'assistant', content: 'Intercepted' },
           toolCalls: [],
         };
       };
@@ -340,7 +344,7 @@ describe('PipelineExecutor', () => {
 
       const ctx = createStepContext();
       const coreFn = vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Core' },
+        message: { id: 'msg-core', role: 'assistant', content: 'Core' },
         toolCalls: [],
       } satisfies LlmResult);
 
@@ -382,7 +386,7 @@ describe('PipelineExecutor', () => {
       const coreFn = vi.fn().mockImplementation(async () => {
         executionOrder.push('core');
         return {
-          message: { role: 'assistant', content: 'Hello!' },
+          message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
           toolCalls: [],
         } satisfies LlmResult;
       });
@@ -407,7 +411,7 @@ describe('PipelineExecutor', () => {
 
       const ctx = createStepContext();
       const coreFn = vi.fn().mockResolvedValue({
-        message: { role: 'assistant', content: 'Hello!' },
+        message: { id: 'msg-1', role: 'assistant', content: 'Hello!' },
         toolCalls: [],
       } satisfies LlmResult);
 
@@ -425,7 +429,7 @@ describe('PipelineExecutor', () => {
           return await next(ctx);
         } catch {
           return {
-            message: { role: 'assistant', content: 'Error handled' },
+            message: { id: 'msg-err', role: 'assistant', content: 'Error handled' },
             toolCalls: [],
           };
         }
@@ -463,7 +467,7 @@ describe('PipelineExecutor', () => {
         toolCall: {
           id: 'call-1',
           name: 'readFile',
-          input: { path: '/tmp/test.txt' },
+          args: { path: '/tmp/test.txt' },
         },
       };
 
@@ -473,7 +477,7 @@ describe('PipelineExecutor', () => {
           toolCallId: 'call-1',
           toolName: 'readFile',
           output: 'file contents',
-          status: 'success',
+          status: 'ok',
         } satisfies ToolResult;
       });
 
@@ -484,7 +488,7 @@ describe('PipelineExecutor', () => {
         'core',
         'middleware-after',
       ]);
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('ok');
     });
   });
 });

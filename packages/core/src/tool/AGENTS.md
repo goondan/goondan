@@ -62,7 +62,8 @@ interface ToolResult {
 
 1. **예외 전파 금지**: Tool 실행 중 오류는 `ToolResult.error`로 변환
 2. **errorMessageLimit**: 오류 메시지는 `Tool.spec.errorMessageLimit` 길이로 제한 (기본: 1000)
-3. **타입 단언 금지**: `as` 사용하지 않고 타입 가드로 처리
+3. **Catalog 기본 허용**: `catalog`가 전달된 실행에서는 Catalog 밖 Tool 호출을 구조화된 `ToolResult(error)`로 거부
+4. **타입 단언 금지**: `as` 사용하지 않고 타입 가드로 처리
 
 ## 사용 예시
 

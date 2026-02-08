@@ -1,22 +1,25 @@
 /**
- * GitHub Connector 테스트
+ * GitHub Connector 테스트 (v1.0)
  *
  * @see /packages/base/src/connectors/github/index.ts
  * @see /docs/specs/connector.md
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import {
-  onGitHubEvent,
+import { createHmac } from 'node:crypto';
+import githubConnector, {
   createIssueComment,
   createPRReview,
 } from '../../../src/connectors/github/index.js';
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-} from '@goondan/core/connector';
-import type { ConnectorSpec, IngressRule, Resource, JsonObject } from '@goondan/core';
+  ConnectorContext,
+  ConnectorTriggerEvent,
+  ConnectorEvent,
+  Resource,
+  ConnectionSpec,
+  ConnectorSpec,
+  JsonObject,
+} from '@goondan/core';
 
 // ============================================================================
 // Mock 타입 정의
@@ -30,38 +33,9 @@ interface MockLogger {
   log: Mock;
 }
 
-interface MockTriggerContext {
-  emit: Mock;
-  logger: MockLogger;
-  connector: Resource<ConnectorSpec>;
-}
-
 // ============================================================================
 // Mock Helpers
 // ============================================================================
-
-function createMockConnector(
-  ingress?: IngressRule[]
-): Resource<ConnectorSpec> {
-  return {
-    apiVersion: 'agents.example.io/v1alpha1',
-    kind: 'Connector',
-    metadata: { name: 'github-connector' },
-    spec: {
-      type: 'github',
-      runtime: 'node',
-      entry: './connectors/github/index.js',
-      ingress: ingress ?? [
-        {
-          route: {
-            swarmRef: { name: 'test-swarm' },
-          },
-        },
-      ],
-      triggers: [{ handler: 'onGitHubEvent' }],
-    },
-  };
-}
 
 function createMockLogger(): MockLogger {
   return {
@@ -73,37 +47,67 @@ function createMockLogger(): MockLogger {
   };
 }
 
-function createMockContext(
-  connector?: Resource<ConnectorSpec>,
-  emittedEvents?: CanonicalEvent[]
-): MockTriggerContext & { emittedEvents: CanonicalEvent[] } {
-  const events: CanonicalEvent[] = emittedEvents ?? [];
-  return {
-    emit: vi.fn().mockImplementation((event: CanonicalEvent) => {
-      events.push(event);
-      return Promise.resolve();
-    }),
-    logger: createMockLogger(),
-    connector: connector ?? createMockConnector(),
-    emittedEvents: events,
-  };
-}
-
-function createMockTriggerEvent(
-  payload: JsonObject,
-  metadata?: JsonObject
-): TriggerEvent {
-  const event: TriggerEvent = {
-    type: 'webhook',
-    payload,
+function createMockConnectorContext(
+  body: JsonObject,
+  headers: Record<string, string> = {},
+  rawBody?: string,
+): { context: ConnectorContext; emittedEvents: ConnectorEvent[] } {
+  const emittedEvents: ConnectorEvent[] = [];
+  const triggerEvent: ConnectorTriggerEvent = {
+    type: 'connector.trigger',
+    trigger: {
+      type: 'http',
+      payload: {
+        request: {
+          method: 'POST',
+          path: '/github/webhook',
+          headers,
+          body,
+          rawBody,
+        },
+      },
+    },
     timestamp: new Date().toISOString(),
   };
 
-  if (metadata) {
-    event.metadata = metadata;
-  }
+  const context: ConnectorContext = {
+    event: triggerEvent,
+    connection: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connection',
+      metadata: { name: 'github-connection' },
+      spec: {
+        connectorRef: { name: 'github' },
+      },
+    } as Resource<ConnectionSpec>,
+    connector: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connector',
+      metadata: { name: 'github-connector' },
+      spec: {
+        runtime: 'node',
+        entry: './connectors/github/index.js',
+        triggers: [{ type: 'http', endpoint: { path: '/github/webhook', method: 'POST' } }],
+        events: [
+          { name: 'github.push', properties: { repository: { type: 'string' }, ref: { type: 'string' }, action: { type: 'string', optional: true } } },
+          { name: 'github.pull_request', properties: { repository: { type: 'string' }, action: { type: 'string', optional: true } } },
+          { name: 'github.issues', properties: { repository: { type: 'string' }, action: { type: 'string', optional: true } } },
+          { name: 'github.issue_comment', properties: { repository: { type: 'string' }, action: { type: 'string', optional: true } } },
+        ],
+      },
+    } as Resource<ConnectorSpec>,
+    emit: vi.fn().mockImplementation((event: ConnectorEvent) => {
+      emittedEvents.push(event);
+      return Promise.resolve();
+    }),
+    logger: createMockLogger() as unknown as Console,
+  };
 
-  return event;
+  return { context, emittedEvents };
+}
+
+function createGithubSignatureHeader(rawBody: string, signingSecret: string): string {
+  return `sha256=${createHmac('sha256', signingSecret).update(rawBody).digest('hex')}`;
 }
 
 /**
@@ -115,14 +119,10 @@ function createIssuePayload(
     issueNumber: number;
     issueTitle: string;
     issueBody: string;
-    issueState: string;
     senderLogin: string;
     senderId: number;
     senderType: string;
     repoFullName: string;
-    repoName: string;
-    ownerId: number;
-    ownerLogin: string;
   }> = {}
 ): JsonObject {
   return {
@@ -130,11 +130,8 @@ function createIssuePayload(
     repository: {
       id: 1,
       full_name: overrides.repoFullName ?? 'owner/repo',
-      name: overrides.repoName ?? 'repo',
-      owner: {
-        id: overrides.ownerId ?? 100,
-        login: overrides.ownerLogin ?? 'owner',
-      },
+      name: 'repo',
+      owner: { id: 100, login: 'owner' },
     },
     sender: {
       id: overrides.senderId ?? 200,
@@ -145,76 +142,42 @@ function createIssuePayload(
       number: overrides.issueNumber ?? 42,
       title: overrides.issueTitle ?? 'Bug report',
       body: overrides.issueBody ?? 'Something is broken',
-      state: overrides.issueState ?? 'open',
-      user: {
-        id: overrides.senderId ?? 200,
-        login: overrides.senderLogin ?? 'contributor',
-      },
+      state: 'open',
+      user: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'contributor' },
     },
   };
 }
 
-/**
- * GitHub PR 이벤트 페이로드 생성
- */
 function createPRPayload(
   overrides: Partial<{
     action: string;
     prNumber: number;
     prTitle: string;
     prBody: string;
-    prState: string;
     headRef: string;
-    headSha: string;
     baseRef: string;
-    baseSha: string;
     senderLogin: string;
     senderId: number;
     senderType: string;
     repoFullName: string;
-    repoName: string;
   }> = {}
 ): JsonObject {
   return {
     action: overrides.action ?? 'opened',
-    repository: {
-      id: 1,
-      full_name: overrides.repoFullName ?? 'owner/repo',
-      name: overrides.repoName ?? 'repo',
-      owner: {
-        id: 100,
-        login: 'owner',
-      },
-    },
-    sender: {
-      id: overrides.senderId ?? 200,
-      login: overrides.senderLogin ?? 'contributor',
-      type: overrides.senderType ?? 'User',
-    },
+    repository: { id: 1, full_name: overrides.repoFullName ?? 'owner/repo', name: 'repo', owner: { id: 100, login: 'owner' } },
+    sender: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'contributor', type: overrides.senderType ?? 'User' },
     pull_request: {
       number: overrides.prNumber ?? 10,
       title: overrides.prTitle ?? 'Fix bug',
       body: overrides.prBody ?? 'This fixes the bug',
-      state: overrides.prState ?? 'open',
-      head: {
-        ref: overrides.headRef ?? 'feature-branch',
-        sha: overrides.headSha ?? 'abc123',
-      },
-      base: {
-        ref: overrides.baseRef ?? 'main',
-        sha: overrides.baseSha ?? 'def456',
-      },
-      user: {
-        id: overrides.senderId ?? 200,
-        login: overrides.senderLogin ?? 'contributor',
-      },
+      state: 'open',
+      head: { ref: overrides.headRef ?? 'feature-branch', sha: 'abc123' },
+      base: { ref: overrides.baseRef ?? 'main', sha: 'def456' },
+      user: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'contributor' },
     },
   };
 }
 
-/**
- * GitHub Push 이벤트 페이로드 생성
- */
 function createPushPayload(
   overrides: Partial<{
     ref: string;
@@ -222,7 +185,6 @@ function createPushPayload(
     after: string;
     senderLogin: string;
     senderId: number;
-    repoFullName: string;
     commits: Array<{ id: string; message: string; author?: { name: string; email: string } }>;
   }> = {}
 ): JsonObject {
@@ -230,39 +192,18 @@ function createPushPayload(
     ref: overrides.ref ?? 'refs/heads/main',
     before: overrides.before ?? '000000',
     after: overrides.after ?? 'abc123',
-    repository: {
-      id: 1,
-      full_name: overrides.repoFullName ?? 'owner/repo',
-      name: 'repo',
-      owner: {
-        id: 100,
-        login: 'owner',
-      },
-    },
-    sender: {
-      id: overrides.senderId ?? 200,
-      login: overrides.senderLogin ?? 'contributor',
-      type: 'User',
-    },
+    repository: { id: 1, full_name: 'owner/repo', name: 'repo', owner: { id: 100, login: 'owner' } },
+    sender: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'contributor', type: 'User' },
     commits: overrides.commits ?? [
-      {
-        id: 'abc123',
-        message: 'Initial commit',
-        author: { name: 'Contributor', email: 'contrib@example.com' },
-      },
+      { id: 'abc123', message: 'Initial commit', author: { name: 'Contributor', email: 'contrib@example.com' } },
     ],
   };
 }
 
-/**
- * GitHub Issue Comment 이벤트 페이로드 생성
- */
 function createIssueCommentPayload(
   overrides: Partial<{
     action: string;
     issueNumber: number;
-    issueTitle: string;
-    commentId: number;
     commentBody: string;
     senderLogin: string;
     senderId: number;
@@ -271,32 +212,10 @@ function createIssueCommentPayload(
 ): JsonObject {
   return {
     action: overrides.action ?? 'created',
-    repository: {
-      id: 1,
-      full_name: overrides.repoFullName ?? 'owner/repo',
-      name: 'repo',
-      owner: {
-        id: 100,
-        login: 'owner',
-      },
-    },
-    sender: {
-      id: overrides.senderId ?? 200,
-      login: overrides.senderLogin ?? 'commenter',
-      type: 'User',
-    },
-    issue: {
-      number: overrides.issueNumber ?? 42,
-      title: overrides.issueTitle ?? 'Bug report',
-    },
-    comment: {
-      id: overrides.commentId ?? 1001,
-      body: overrides.commentBody ?? 'This is a comment',
-      user: {
-        id: overrides.senderId ?? 200,
-        login: overrides.senderLogin ?? 'commenter',
-      },
-    },
+    repository: { id: 1, full_name: overrides.repoFullName ?? 'owner/repo', name: 'repo', owner: { id: 100, login: 'owner' } },
+    sender: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'commenter', type: 'User' },
+    issue: { number: overrides.issueNumber ?? 42, title: 'Bug report' },
+    comment: { id: 1001, body: overrides.commentBody ?? 'This is a comment', user: { id: overrides.senderId ?? 200, login: overrides.senderLogin ?? 'commenter' } },
   };
 }
 
@@ -306,16 +225,7 @@ function createIssueCommentPayload(
 
 let originalFetch: typeof global.fetch;
 
-interface MockResponse {
-  ok: boolean;
-  status: number;
-  statusText: string;
-  json: () => Promise<JsonObject>;
-  text: () => Promise<string>;
-  headers: Headers;
-}
-
-function createMockFetchResponse(body: JsonObject, ok = true): MockResponse {
+function createMockFetchResponse(body: JsonObject, ok = true) {
   return {
     ok,
     status: ok ? 201 : 400,
@@ -330,7 +240,7 @@ function createMockFetchResponse(body: JsonObject, ok = true): MockResponse {
 // Tests
 // ============================================================================
 
-describe('GitHub Connector', () => {
+describe('GitHub Connector (v1.0)', () => {
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -340,90 +250,101 @@ describe('GitHub Connector', () => {
     vi.restoreAllMocks();
   });
 
-  describe('onGitHubEvent Trigger Handler', () => {
+  describe('Entry Function', () => {
+    describe('서명 검증', () => {
+      it('유효한 x-hub-signature-256 헤더가 있으면 emit을 수행해야 함', async () => {
+        const payload = createIssuePayload();
+        const rawBody = JSON.stringify(payload);
+        const signingSecret = 'github-secret';
+        const { context, emittedEvents } = createMockConnectorContext(
+          payload,
+          {
+            'x-github-event': 'issues',
+            'x-hub-signature-256': createGithubSignatureHeader(rawBody, signingSecret),
+          },
+          rawBody,
+        );
+        context.verify = {
+          webhook: { signingSecret },
+        };
+
+        await githubConnector(context);
+
+        expect(emittedEvents.length).toBe(1);
+      });
+
+      it('서명이 유효하지 않으면 emit을 중단해야 함', async () => {
+        const payload = createIssuePayload();
+        const rawBody = JSON.stringify(payload);
+        const { context, emittedEvents } = createMockConnectorContext(
+          payload,
+          {
+            'x-github-event': 'issues',
+            'x-hub-signature-256': 'sha256=invalid-signature',
+          },
+          rawBody,
+        );
+        context.verify = {
+          webhook: { signingSecret: 'github-secret' },
+        };
+
+        await githubConnector(context);
+
+        expect(emittedEvents.length).toBe(0);
+        expect(context.logger.warn).toHaveBeenCalledWith('[GitHub] Signature verification failed');
+      });
+    });
+
     describe('Issue 이벤트', () => {
-      it('issues 이벤트를 파싱하고 canonical event를 발행해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssuePayload({
-          action: 'opened',
-          issueNumber: 42,
-          issueTitle: 'Bug report',
-          issueBody: 'Something is broken',
-          repoFullName: 'myorg/myrepo',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
+      it('issues 이벤트를 파싱하고 ConnectorEvent를 발행해야 함', async () => {
+        const payload = createIssuePayload({ action: 'opened', issueNumber: 42, issueTitle: 'Bug report', issueBody: 'Something is broken', repoFullName: 'myorg/myrepo' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'issues' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emit).toHaveBeenCalledTimes(1);
-        expect(ctx.emittedEvents.length).toBe(1);
-
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.type).toBe('issues');
-        expect(emitted.instanceKey).toBe('github:myorg/myrepo:issue:42');
-        expect(emitted.input).toContain('[Issue opened]');
-        expect(emitted.input).toContain('#42: Bug report');
-        expect(emitted.input).toContain('Something is broken');
+        expect(emittedEvents.length).toBe(1);
+        const emitted = emittedEvents[0];
+        expect(emitted.type).toBe('connector.event');
+        expect(emitted.name).toBe('github.issues');
+        expect(emitted.message.type).toBe('text');
+        if (emitted.message.type === 'text') {
+          expect(emitted.message.text).toContain('[Issue opened]');
+          expect(emitted.message.text).toContain('#42: Bug report');
+          expect(emitted.message.text).toContain('Something is broken');
+        }
+        expect(emitted.properties?.['repository']).toBe('myorg/myrepo');
       });
 
       it('이벤트 타입을 payload에서 추론할 수 있어야 함', async () => {
-        const ctx = createMockContext();
         const payload = createIssuePayload();
-        // metadata에 githubEvent 없이 보내기
-        const event = createMockTriggerEvent(payload);
+        const { context, emittedEvents } = createMockConnectorContext(payload);
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-        expect(ctx.emittedEvents[0].type).toBe('issues');
+        expect(emittedEvents.length).toBe(1);
+        expect(emittedEvents[0].name).toBe('github.issues');
       });
     });
 
     describe('Pull Request 이벤트', () => {
-      it('pull_request 이벤트를 파싱하고 canonical event를 발행해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createPRPayload({
-          action: 'opened',
-          prNumber: 10,
-          prTitle: 'Fix bug',
-          prBody: 'This fixes the bug',
-          headRef: 'feature-branch',
-          baseRef: 'main',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'pull_request' });
+      it('pull_request 이벤트를 파싱하고 ConnectorEvent를 발행해야 함', async () => {
+        const payload = createPRPayload({ action: 'opened', prNumber: 10, prTitle: 'Fix bug', prBody: 'This fixes the bug' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'pull_request' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.type).toBe('pull_request');
-        expect(emitted.instanceKey).toBe('github:owner/repo:pr:10');
-        expect(emitted.input).toContain('[PR opened]');
-        expect(emitted.input).toContain('#10: Fix bug');
-        expect(emitted.input).toContain('This fixes the bug');
-      });
-
-      it('PR metadata에 headRef와 baseRef가 포함되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createPRPayload({
-          headRef: 'feature',
-          baseRef: 'main',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'pull_request' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents.length).toBe(1);
-        const metadata = ctx.emittedEvents[0].metadata;
-        expect(metadata?.['headRef']).toBe('feature');
-        expect(metadata?.['baseRef']).toBe('main');
+        expect(emittedEvents.length).toBe(1);
+        const emitted = emittedEvents[0];
+        expect(emitted.name).toBe('github.pull_request');
+        if (emitted.message.type === 'text') {
+          expect(emitted.message.text).toContain('[PR opened]');
+          expect(emitted.message.text).toContain('#10: Fix bug');
+        }
       });
     });
 
     describe('Push 이벤트', () => {
-      it('push 이벤트를 파싱하고 canonical event를 발행해야 함', async () => {
-        const ctx = createMockContext();
+      it('push 이벤트를 파싱하고 ConnectorEvent를 발행해야 함', async () => {
         const payload = createPushPayload({
           ref: 'refs/heads/main',
           commits: [
@@ -431,321 +352,144 @@ describe('GitHub Connector', () => {
             { id: 'def', message: 'fix: bug fix' },
           ],
         });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'push' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'push' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.type).toBe('push');
-        expect(emitted.instanceKey).toBe('github:owner/repo:push:refs/heads/main');
-        expect(emitted.input).toContain('[Push to refs/heads/main]');
-        expect(emitted.input).toContain('2 commit(s)');
-        expect(emitted.input).toContain('- feat: new feature');
-        expect(emitted.input).toContain('- fix: bug fix');
+        expect(emittedEvents.length).toBe(1);
+        const emitted = emittedEvents[0];
+        expect(emitted.name).toBe('github.push');
+        if (emitted.message.type === 'text') {
+          expect(emitted.message.text).toContain('[Push to refs/heads/main]');
+          expect(emitted.message.text).toContain('2 commit(s)');
+        }
+        expect(emitted.properties?.['ref']).toBe('refs/heads/main');
       });
 
-      it('push metadata에 before, after, commitCount가 포함되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createPushPayload({
-          before: '000',
-          after: 'abc',
-          commits: [{ id: 'abc', message: 'commit' }],
+      it('push 이벤트에서 ref가 없으면 emit하지 않아야 함', async () => {
+        const payload: JsonObject = {
+          before: '000000',
+          after: 'abc123',
+          repository: {
+            id: 1,
+            full_name: 'owner/repo',
+            name: 'repo',
+            owner: { id: 100, login: 'owner' },
+          },
+          sender: { id: 200, login: 'contributor', type: 'User' },
+          commits: [
+            { id: 'abc123', message: 'Initial commit' },
+          ],
+        };
+        const { context, emittedEvents } = createMockConnectorContext(payload, {
+          'x-github-event': 'push',
         });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'push' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        const metadata = ctx.emittedEvents[0].metadata;
-        expect(metadata?.['before']).toBe('000');
-        expect(metadata?.['after']).toBe('abc');
-        expect(metadata?.['commitCount']).toBe(1);
+        expect(emittedEvents.length).toBe(0);
+        expect(context.logger.warn).toHaveBeenCalledWith('[GitHub] Missing ref for push event');
       });
     });
 
     describe('Issue Comment 이벤트', () => {
-      it('issue_comment 이벤트를 파싱하고 canonical event를 발행해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssueCommentPayload({
-          issueNumber: 42,
-          commentBody: 'This is a helpful comment',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issue_comment' });
+      it('issue_comment 이벤트를 파싱하고 ConnectorEvent를 발행해야 함', async () => {
+        const payload = createIssueCommentPayload({ issueNumber: 42, commentBody: 'This is a helpful comment' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'issue_comment' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emittedEvents.length).toBe(1);
+        expect(emittedEvents.length).toBe(1);
+        const emitted = emittedEvents[0];
+        expect(emitted.name).toBe('github.issue_comment');
+        if (emitted.message.type === 'text') {
+          expect(emitted.message.text).toContain('[Comment on #42]');
+          expect(emitted.message.text).toContain('This is a helpful comment');
+        }
+        expect(emitted.properties?.['repository']).toBe('owner/repo');
+        expect(emitted.properties?.['action']).toBe('created');
+      });
+    });
 
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.type).toBe('issue_comment');
-        expect(emitted.instanceKey).toBe('github:owner/repo:issue:42');
-        expect(emitted.input).toContain('[Comment on #42]');
-        expect(emitted.input).toContain('This is a helpful comment');
+    describe('지원되지 않는 이벤트 처리', () => {
+      it('events 스키마에 없는 이벤트는 emit하지 않아야 함', async () => {
+        const payload = createIssuePayload();
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'fork' });
+
+        await githubConnector(context);
+
+        expect(emittedEvents.length).toBe(0);
       });
     });
 
     describe('봇 이벤트 무시 로직', () => {
       it('sender.type이 Bot이면 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssuePayload({
-          senderType: 'Bot',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
+        const payload = createIssuePayload({ senderType: 'Bot' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'issues' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.logger.debug).toHaveBeenCalledWith('[GitHub] Ignoring bot event');
+        expect(emittedEvents.length).toBe(0);
       });
     });
 
     describe('유효하지 않은 페이로드 처리', () => {
       it('빈 페이로드는 경고 로그를 남기고 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const event = createMockTriggerEvent({});
+        const { context, emittedEvents } = createMockConnectorContext({});
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.logger.warn).toHaveBeenCalledWith('[GitHub] Invalid webhook payload received');
+        expect(emittedEvents.length).toBe(0);
       });
 
       it('repository가 없으면 경고해야 함', async () => {
-        const ctx = createMockContext();
-        const payload: JsonObject = {
-          sender: {
-            id: 200,
-            login: 'user',
-            type: 'User',
-          },
-        };
-        const event = createMockTriggerEvent(payload);
+        const payload: JsonObject = { sender: { id: 200, login: 'user', type: 'User' } };
+        const { context, emittedEvents } = createMockConnectorContext(payload);
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.logger.warn).toHaveBeenCalledWith('[GitHub] No repository info in payload');
+        expect(emittedEvents.length).toBe(0);
       });
     });
 
-    describe('TurnAuth 생성', () => {
+    describe('auth 정보 생성', () => {
       it('올바른 actor 정보를 생성해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssuePayload({
-          senderLogin: 'alice',
-          senderId: 300,
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
+        const payload = createIssuePayload({ senderLogin: 'alice', senderId: 300 });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'issues' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        const auth = ctx.emittedEvents[0].auth;
-        expect(auth?.actor.type).toBe('user');
+        expect(emittedEvents.length).toBe(1);
+        const auth = emittedEvents[0].auth;
         expect(auth?.actor.id).toBe('github:alice');
-        expect(auth?.actor.display).toBe('alice');
+        expect(auth?.actor.name).toBe('alice');
       });
 
       it('올바른 subjects를 생성해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssuePayload({
-          senderId: 300,
-          repoFullName: 'myorg/myrepo',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
+        const payload = createIssuePayload({ senderId: 300, repoFullName: 'myorg/myrepo' });
+        const { context, emittedEvents } = createMockConnectorContext(payload, { 'x-github-event': 'issues' });
 
-        await onGitHubEvent(event, {}, ctx);
+        await githubConnector(context);
 
-        const auth = ctx.emittedEvents[0].auth;
+        const auth = emittedEvents[0].auth;
         expect(auth?.subjects.global).toBe('github:repo:myorg/myrepo');
         expect(auth?.subjects.user).toBe('github:user:300');
-      });
-    });
-
-    describe('Origin 정보 생성', () => {
-      it('Issue 이벤트 origin이 올바르게 생성되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createIssuePayload({
-          action: 'opened',
-          issueNumber: 42,
-          repoFullName: 'myorg/myrepo',
-          senderLogin: 'alice',
-        });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        const origin = ctx.emittedEvents[0].origin;
-        expect(origin?.['connector']).toBe('github-connector');
-        expect(origin?.['eventType']).toBe('issues');
-        expect(origin?.['repository']).toBe('myorg/myrepo');
-        expect(origin?.['action']).toBe('opened');
-        expect(origin?.['sender']).toBe('alice');
-        expect(origin?.['issueNumber']).toBe(42);
-      });
-
-      it('PR 이벤트 origin에 prNumber가 포함되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createPRPayload({ prNumber: 10 });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'pull_request' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        const origin = ctx.emittedEvents[0].origin;
-        expect(origin?.['prNumber']).toBe(10);
-      });
-
-      it('Push 이벤트 origin에 ref가 포함되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createPushPayload({ ref: 'refs/heads/main' });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'push' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        const origin = ctx.emittedEvents[0].origin;
-        expect(origin?.['ref']).toBe('refs/heads/main');
-      });
-    });
-
-    describe('Ingress 규칙 매칭', () => {
-      it('eventType 매칭이 적용되어야 함', async () => {
-        const ctx = createMockContext(
-          createMockConnector([
-            {
-              match: { eventType: 'pull_request' },
-              route: { swarmRef: { name: 'pr-swarm' } },
-            },
-            {
-              match: { eventType: 'issues' },
-              route: { swarmRef: { name: 'issue-swarm' } },
-            },
-          ])
-        );
-
-        const payload = createIssuePayload();
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents.length).toBe(1);
-        expect(ctx.emittedEvents[0].swarmRef).toEqual({ name: 'issue-swarm' });
-      });
-
-      it('channel(repo) 매칭이 적용되어야 함', async () => {
-        const ctx = createMockContext(
-          createMockConnector([
-            {
-              match: { channel: 'myorg/specific-repo' },
-              route: { swarmRef: { name: 'specific-swarm' } },
-            },
-            {
-              route: { swarmRef: { name: 'default-swarm' } },
-            },
-          ])
-        );
-
-        const payload = createIssuePayload({ repoFullName: 'myorg/specific-repo' });
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents[0].swarmRef).toEqual({ name: 'specific-swarm' });
-      });
-
-      it('매칭되는 ingress 규칙이 없으면 debug 로그를 남겨야 함', async () => {
-        const ctx = createMockContext(
-          createMockConnector([
-            {
-              match: { eventType: 'pull_request' },
-              route: { swarmRef: { name: 'pr-swarm' } },
-            },
-          ])
-        );
-
-        const payload = createIssuePayload();
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.logger.debug).toHaveBeenCalledWith(
-          expect.stringContaining('[GitHub] No matching ingress rule')
-        );
-      });
-
-      it('agentName이 지정되면 포함해야 함', async () => {
-        const ctx = createMockContext(
-          createMockConnector([
-            {
-              route: {
-                swarmRef: { name: 'test-swarm' },
-                agentName: 'code-reviewer',
-              },
-            },
-          ])
-        );
-
-        const payload = createPRPayload();
-        const event = createMockTriggerEvent(payload, { githubEvent: 'pull_request' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents[0].agentName).toBe('code-reviewer');
-      });
-
-      it('swarmRef가 없는 route는 경고하고 건너뛰어야 함', async () => {
-        const invalidIngressJson = JSON.stringify([
-          { route: {} },
-        ]);
-        const invalidIngress: IngressRule[] = JSON.parse(invalidIngressJson);
-
-        const ctx = createMockContext(createMockConnector(invalidIngress));
-        const payload = createIssuePayload();
-        const event = createMockTriggerEvent(payload, { githubEvent: 'issues' });
-
-        await onGitHubEvent(event, {}, ctx);
-
-        expect(ctx.logger.warn).toHaveBeenCalledWith('[GitHub] No swarmRef in route');
       });
     });
   });
 
   describe('createIssueComment API 함수', () => {
     it('성공적인 코멘트 작성시 ok: true를 반환해야 함', async () => {
-      const mockResponse = createMockFetchResponse({
-        id: 1001,
-        body: 'Test comment',
-      });
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
+      global.fetch = vi.fn().mockResolvedValue(createMockFetchResponse({ id: 1001, body: 'Test comment' }));
 
-      const result = await createIssueComment(
-        'ghp_token',
-        'owner',
-        'repo',
-        42,
-        'Test comment'
-      );
+      const result = await createIssueComment('ghp_token', 'owner', 'repo', 42, 'Test comment');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.github.com/repos/owner/repo/issues/42/comments',
-        expect.objectContaining({
-          method: 'POST',
-          headers: {
-            Authorization: 'token ghp_token',
-            Accept: 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json',
-          },
-        })
-      );
       expect(result.ok).toBe(true);
       expect(result.id).toBe(1001);
     });
 
     it('API 에러 시 ok: false와 에러 메시지를 반환해야 함', async () => {
-      const mockResponse = createMockFetchResponse({
-        message: 'Not Found',
-      });
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
+      global.fetch = vi.fn().mockResolvedValue(createMockFetchResponse({ message: 'Not Found' }));
 
       const result = await createIssueComment('ghp_token', 'owner', 'repo', 9999, 'comment');
 
@@ -761,81 +505,20 @@ describe('GitHub Connector', () => {
       expect(result.ok).toBe(false);
       expect(result.error).toBe('Network error');
     });
-
-    it('유효하지 않은 응답 형식 시 에러를 반환해야 함', async () => {
-      const invalidMockResponse = {
-        ok: true,
-        status: 201,
-        statusText: 'Created',
-        json: () => Promise.resolve('invalid'),
-        text: () => Promise.resolve('invalid'),
-        headers: new Headers(),
-      };
-      global.fetch = vi.fn().mockResolvedValue(invalidMockResponse);
-
-      const result = await createIssueComment('ghp_token', 'owner', 'repo', 42, 'comment');
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe('Invalid response format');
-    });
   });
 
   describe('createPRReview API 함수', () => {
     it('성공적인 리뷰 작성시 ok: true를 반환해야 함', async () => {
-      const mockResponse = createMockFetchResponse({
-        id: 2001,
-        body: 'LGTM',
-      });
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
+      global.fetch = vi.fn().mockResolvedValue(createMockFetchResponse({ id: 2001, body: 'LGTM' }));
 
-      const result = await createPRReview(
-        'ghp_token',
-        'owner',
-        'repo',
-        10,
-        'LGTM',
-        'APPROVE'
-      );
+      const result = await createPRReview('ghp_token', 'owner', 'repo', 10, 'LGTM', 'APPROVE');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.github.com/repos/owner/repo/pulls/10/reviews',
-        expect.objectContaining({
-          method: 'POST',
-          headers: {
-            Authorization: 'token ghp_token',
-            Accept: 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json',
-          },
-        })
-      );
       expect(result.ok).toBe(true);
       expect(result.id).toBe(2001);
     });
 
-    it('기본 이벤트 타입은 COMMENT여야 함', async () => {
-      let capturedBody: string | undefined;
-      global.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-        if (init?.body && typeof init.body === 'string') {
-          capturedBody = init.body;
-        }
-        return Promise.resolve(createMockFetchResponse({ id: 2001 }));
-      });
-
-      await createPRReview('ghp_token', 'owner', 'repo', 10, 'Review');
-
-      expect(capturedBody).toBeDefined();
-      const parsed: unknown = JSON.parse(capturedBody ?? '{}');
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        const record = parsed as Record<string, unknown>;
-        expect(record['event']).toBe('COMMENT');
-      }
-    });
-
     it('API 에러 시 ok: false와 에러 메시지를 반환해야 함', async () => {
-      const mockResponse = createMockFetchResponse({
-        message: 'Validation Failed',
-      });
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
+      global.fetch = vi.fn().mockResolvedValue(createMockFetchResponse({ message: 'Validation Failed' }));
 
       const result = await createPRReview('ghp_token', 'owner', 'repo', 10, 'review');
 

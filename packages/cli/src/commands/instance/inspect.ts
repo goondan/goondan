@@ -77,7 +77,7 @@ function getAgentInfo(instancePath: string): AgentInfo[] {
       }
 
       const eventsPath = path.join(agentPath, "events", "events.jsonl");
-      const messagesPath = path.join(agentPath, "messages", "llm.jsonl");
+      const messagesPath = path.join(agentPath, "messages", "base.jsonl");
 
       const events = readJsonlFile<AgentEventRecord>(eventsPath, isAgentEventRecord);
       const messages = countJsonlLines(messagesPath);
@@ -174,9 +174,15 @@ function getInstanceDetails(
 /**
  * Execute the inspect command
  */
-async function executeInspect(instanceId: string, json: boolean): Promise<void> {
+async function executeInspect(
+  instanceId: string,
+  json: boolean,
+  stateRoot?: string,
+): Promise<void> {
   try {
-    const config = await loadConfig();
+    const config = await loadConfig({
+      cliStateRoot: stateRoot,
+    });
     const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
@@ -278,8 +284,11 @@ export function createInspectCommand(): Command {
     .description("Show detailed instance information")
     .argument("<id>", "Instance ID")
     .option("--json", "Output in JSON format", false)
-    .action(async (instanceId: string, options: Record<string, unknown>) => {
-      await executeInspect(instanceId, options["json"] === true);
+    .action(async (instanceId: string, options: Record<string, unknown>, command: Command) => {
+      const globalOpts = command.optsWithGlobals<{ stateRoot?: string }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
+      await executeInspect(instanceId, options["json"] === true, stateRoot);
     });
 
   return command;

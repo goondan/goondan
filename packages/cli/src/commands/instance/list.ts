@@ -22,17 +22,42 @@ import {
 import type { InstanceInfo } from "./utils.js";
 
 /**
+ * Instance status filter values
+ */
+export type StatusFilter = "running" | "paused" | "terminated";
+
+/**
  * List command options
  */
 export interface ListOptions {
   /** Filter by Swarm name */
   swarm?: string;
+  /** Filter by instance status */
+  status?: StatusFilter;
   /** Maximum number of instances to show */
   limit: number;
   /** Show all instances (including other workspaces) */
   all: boolean;
   /** JSON output */
   json: boolean;
+  /** Global --state-root override */
+  stateRoot?: string;
+}
+
+/**
+ * Map status filter values to internal InstanceStatus values
+ */
+function matchesStatusFilter(instanceStatus: string, filter: StatusFilter): boolean {
+  switch (filter) {
+    case "running":
+      return instanceStatus === "active";
+    case "paused":
+      return instanceStatus === "idle";
+    case "terminated":
+      return instanceStatus === "completed";
+    default:
+      return true;
+  }
 }
 
 /**
@@ -40,7 +65,9 @@ export interface ListOptions {
  */
 async function executeList(options: ListOptions): Promise<void> {
   try {
-    const config = await loadConfig();
+    const config = await loadConfig({
+      cliStateRoot: options.stateRoot,
+    });
     const goondanHome = getGoondanHomeSync(config.stateRoot);
     const instancesRoot = path.join(goondanHome, "instances");
 
@@ -112,6 +139,14 @@ async function executeList(options: ListOptions): Promise<void> {
           // Filter by swarm name if specified
           if (options.swarm && instanceInfo.swarmName !== options.swarm) {
             continue;
+          }
+
+          // Filter by status if specified
+          if (options.status) {
+            const statusMatches = matchesStatusFilter(instanceInfo.status, options.status);
+            if (!statusMatches) {
+              continue;
+            }
           }
 
           instances.push(instanceInfo);
@@ -207,15 +242,34 @@ export function createListCommand(): Command {
   const command = new Command("list")
     .description("List Swarm instances")
     .option("-s, --swarm <name>", "Filter by Swarm name")
+    .option("--status <status>", "Filter by status (running, paused, terminated)")
     .option("-n, --limit <n>", "Maximum number of instances to show", (v) => parseInt(v, 10), 20)
     .option("-a, --all", "Show all instances (including other workspaces)", false)
     .option("--json", "Output in JSON format", false)
-    .action(async (options: Record<string, unknown>) => {
+    .action(async (options: Record<string, unknown>, command: Command) => {
+      // Validate status option
+      const statusValue = typeof options["status"] === "string" ? options["status"] : undefined;
+      let status: StatusFilter | undefined;
+      const globalOpts = command.optsWithGlobals<{ stateRoot?: string }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
+
+      if (statusValue) {
+        if (statusValue !== "running" && statusValue !== "paused" && statusValue !== "terminated") {
+          logError(`Invalid status filter: ${statusValue}. Must be one of: running, paused, terminated`);
+          process.exitCode = 2;
+          return;
+        }
+        status = statusValue;
+      }
+
       const listOptions: ListOptions = {
         swarm: typeof options["swarm"] === "string" ? options["swarm"] : undefined,
+        status,
         limit: typeof options["limit"] === "number" ? options["limit"] : 20,
         all: options["all"] === true,
         json: options["json"] === true,
+        stateRoot,
       };
 
       await executeList(listOptions);

@@ -109,6 +109,12 @@ Documentation: https://github.com/goondan/goondan`
       new Option("--json", "Output in JSON format").default(false)
     );
 
+  // Apply global logger/config options before every command action,
+  // including nested subcommands (e.g. `gdn package add`).
+  program.hook("preAction", async (_thisCommand, actionCommand) => {
+    await setupGlobalOptions(actionCommand);
+  });
+
   // Register implemented commands
   program.addCommand(createInitCommand());
   program.addCommand(createRunCommand());
@@ -141,7 +147,6 @@ async function setupGlobalOptions(
 
   // Load configuration
   const config = await loadConfig({
-    configPath: opts.config,
     cliStateRoot: opts.stateRoot,
   });
 

@@ -10,6 +10,7 @@ import type { AgentSpec, AgentResource } from '../types/specs/agent.js';
 import type { ModelSpec, ModelResource } from '../types/specs/model.js';
 import type { ToolResource } from '../types/specs/tool.js';
 import type { ExtensionResource } from '../types/specs/extension.js';
+import type { ConnectionResource } from '../types/specs/connection.js';
 import type { SwarmBundleRef } from './types.js';
 
 /**
@@ -32,6 +33,9 @@ export interface EffectiveConfig {
 
   /** 활성화된 Extension 목록 */
   readonly extensions: readonly ExtensionResource[];
+
+  /** Connection 목록 */
+  readonly connections: readonly ConnectionResource[];
 
   /** Model 구성 */
   readonly model: ModelResource;
@@ -165,6 +169,7 @@ class EffectiveConfigLoaderImpl implements EffectiveConfigLoader {
       model,
       tools,
       extensions,
+      connections: [],
       systemPrompt,
       revision: computeRevision(swarmBundleRef),
     };

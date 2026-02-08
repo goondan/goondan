@@ -1,116 +1,133 @@
 /**
- * Slack Connector 테스트
+ * Slack Connector 테스트 (v1.0)
  *
  * @see /packages/base/src/connectors/slack/index.ts
  * @see /docs/specs/connector.md
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  onSlackEvent,
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { createHmac } from 'node:crypto';
+import slackConnector, {
   postMessage,
   updateMessage,
   getErrorMessage,
 } from '../../../src/connectors/slack/index.js';
 import type {
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
-} from '@goondan/core/connector';
-import type { ConnectorSpec, IngressRule } from '@goondan/core';
-import type { Resource, JsonObject } from '@goondan/core';
+  ConnectorContext,
+  ConnectorTriggerEvent,
+  ConnectorEvent,
+  Resource,
+  ConnectionSpec,
+  ConnectorSpec,
+  JsonObject,
+} from '@goondan/core';
 
 // ============================================================================
 // Type Guards
 // ============================================================================
 
-/**
- * JsonObject 타입 가드
- */
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ============================================================================
+// Mock 타입 정의
+// ============================================================================
+
+interface MockLogger {
+  debug: Mock;
+  info: Mock;
+  warn: Mock;
+  error: Mock;
+  log: Mock;
 }
 
 // ============================================================================
 // Mock Helpers
 // ============================================================================
 
-/**
- * 기본 ingress 규칙 생성
- */
-function createDefaultIngressRules(): IngressRule[] {
-  return [
-    {
-      match: { eventType: 'message' },
-      route: {
-        swarmRef: { name: 'test-swarm' },
-      },
-    },
-    {
-      match: { eventType: 'app_mention' },
-      route: {
-        swarmRef: { name: 'mention-swarm' },
-        agentName: 'responder',
-      },
-    },
-  ];
-}
-
-/**
- * Mock Connector 설정 생성
- */
-function createMockConnector(
-  overrides: Partial<{ metadata: { name: string }; spec: Partial<ConnectorSpec> }> = {}
-): Resource<ConnectorSpec> {
-  const defaultSpec: ConnectorSpec = {
-    type: 'slack',
-    ingress: createDefaultIngressRules(),
-  };
-
+function createMockLogger(): MockLogger {
   return {
-    apiVersion: 'agents.example.io/v1alpha1',
-    kind: 'Connector',
-    metadata: { name: 'slack-connector', ...overrides.metadata },
-    spec: { ...defaultSpec, ...overrides.spec },
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    log: vi.fn(),
   };
 }
 
 /**
- * Mock TriggerContext 생성
+ * HTTP trigger를 통해 Slack 페이로드를 포함하는 ConnectorTriggerEvent 생성
  */
-function createMockContext(
-  overrides: Partial<{
-    connector: Resource<ConnectorSpec>;
-    emittedEvents: CanonicalEvent[];
-  }> = {}
-): TriggerContext & { emittedEvents: CanonicalEvent[] } {
-  const emittedEvents: CanonicalEvent[] = overrides.emittedEvents ?? [];
+function createHttpTriggerEvent(
+  body: JsonObject,
+  headers: Record<string, string> = {},
+  rawBody?: string,
+): ConnectorTriggerEvent {
+  return {
+    type: 'connector.trigger',
+    trigger: {
+      type: 'http',
+      payload: {
+        request: {
+          method: 'POST',
+          path: '/webhook/slack',
+          headers,
+          body,
+          rawBody,
+        },
+      },
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function createSlackSignatureHeaders(
+  body: JsonObject,
+  signingSecret: string,
+  timestamp = '1700000000',
+): Record<string, string> {
+  const rawBody = JSON.stringify(body);
+  const baseString = `v0:${timestamp}:${rawBody}`;
+  const signature = `v0=${createHmac('sha256', signingSecret).update(baseString).digest('hex')}`;
 
   return {
-    emit: vi.fn().mockImplementation((event: CanonicalEvent) => {
-      emittedEvents.push(event);
+    'x-slack-request-timestamp': timestamp,
+    'x-slack-signature': signature,
+  };
+}
+
+function createMockConnectorContext(
+  event: ConnectorTriggerEvent,
+  emittedEvents: ConnectorEvent[] = [],
+): ConnectorContext {
+  const mockLogger = createMockLogger();
+  return {
+    event,
+    emit: vi.fn().mockImplementation((e: ConnectorEvent) => {
+      emittedEvents.push(e);
       return Promise.resolve();
     }),
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      log: vi.fn(),
-    } as unknown as Console,
-    connector: overrides.connector ?? createMockConnector(),
-    emittedEvents,
-  };
-}
-
-/**
- * Mock TriggerEvent 생성
- */
-function createMockTriggerEvent(payload: JsonObject): TriggerEvent {
-  return {
-    type: 'webhook',
-    payload,
-    timestamp: new Date().toISOString(),
+    logger: mockLogger as unknown as Console,
+    connection: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connection',
+      metadata: { name: 'slack-connection' },
+      spec: {
+        connectorRef: { kind: 'Connector', name: 'slack' },
+      },
+    } as Resource<ConnectionSpec>,
+    connector: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Connector',
+      metadata: { name: 'slack' },
+      spec: {
+        runtime: 'node',
+        entry: './connectors/slack/index.js',
+        triggers: [{ type: 'http', endpoint: '/webhook/slack' }],
+        events: [{ name: 'slack.message' }],
+      },
+    } as Resource<ConnectorSpec>,
   };
 }
 
@@ -130,7 +147,7 @@ function createSlackMessagePayload(
     eventId: string;
     eventTime: number;
     apiAppId: string;
-  }> = {}
+  }> = {},
 ): JsonObject {
   const event: JsonObject = {
     type: 'message',
@@ -179,7 +196,7 @@ function createSlackMentionPayload(
     channel: string;
     text: string;
     ts: string;
-  }> = {}
+  }> = {},
 ): JsonObject {
   return {
     type: 'event_callback',
@@ -198,12 +215,8 @@ function createSlackMentionPayload(
 // Fetch Mock Setup
 // ============================================================================
 
-// 글로벌 fetch mock 저장
 let originalFetch: typeof global.fetch;
 
-/**
- * Mock Response 타입 (테스트용)
- */
 interface MockResponse {
   ok: boolean;
   status: number;
@@ -213,9 +226,6 @@ interface MockResponse {
   headers: Headers;
 }
 
-/**
- * Mock fetch response 생성
- */
 function createMockFetchResponse(body: JsonObject, ok = true): MockResponse {
   return {
     ok,
@@ -241,10 +251,54 @@ describe('Slack Connector', () => {
     vi.restoreAllMocks();
   });
 
-  describe('onSlackEvent Trigger Handler', () => {
+  describe('slackConnector (default export)', () => {
+    it('should be a function', () => {
+      expect(typeof slackConnector).toBe('function');
+    });
+
+    describe('서명 검증', () => {
+      it('유효한 서명 헤더가 있으면 emit을 수행해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload = createSlackMessagePayload();
+        const signingSecret = 'slack-secret';
+        const headers = createSlackSignatureHeaders(payload, signingSecret);
+        const event = createHttpTriggerEvent(payload, headers, JSON.stringify(payload));
+        const ctx = createMockConnectorContext(event, emittedEvents);
+        ctx.verify = {
+          webhook: { signingSecret: 'slack-secret' },
+        };
+
+        await slackConnector(ctx);
+
+        expect(ctx.emit).toHaveBeenCalledTimes(1);
+      });
+
+      it('서명이 유효하지 않으면 emit을 중단해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload = createSlackMessagePayload();
+        const event = createHttpTriggerEvent(
+          payload,
+          {
+            'x-slack-request-timestamp': '1700000000',
+            'x-slack-signature': 'v0=invalid-signature',
+          },
+          JSON.stringify(payload),
+        );
+        const ctx = createMockConnectorContext(event, emittedEvents);
+        ctx.verify = {
+          webhook: { signingSecret: 'slack-secret' },
+        };
+
+        await slackConnector(ctx);
+
+        expect(ctx.emit).not.toHaveBeenCalled();
+        expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] Signature verification failed');
+      });
+    });
+
     describe('페이로드 파싱', () => {
-      it('유효한 message 이벤트를 파싱하고 canonical event를 발행해야 함', async () => {
-        const ctx = createMockContext();
+      it('유효한 message 이벤트를 파싱하고 ConnectorEvent를 발행해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           teamId: 'T001',
           userId: 'U001',
@@ -252,158 +306,139 @@ describe('Slack Connector', () => {
           text: 'Test message',
           ts: '1234567890.000001',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).toHaveBeenCalledTimes(1);
-        expect(ctx.emittedEvents.length).toBe(1);
+        expect(emittedEvents.length).toBe(1);
 
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted).toBeDefined();
-        expect(emitted.type).toBe('message');
-        expect(emitted.input).toBe('Test message');
-        expect(emitted.instanceKey).toBe('1234567890.000001');
+        const emitted = emittedEvents[0];
+        expect(emitted.type).toBe('connector.event');
+        expect(emitted.name).toBe('slack.message');
+        expect(emitted.message).toEqual({ type: 'text', text: 'Test message' });
       });
 
-      it('thread_ts가 있으면 instanceKey로 사용해야 함', async () => {
-        const ctx = createMockContext();
+      it('app_mention 이벤트도 파싱할 수 있어야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload = createSlackMentionPayload({
+          text: '<@U789> help me',
+        });
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
+
+        await slackConnector(ctx);
+
+        expect(emittedEvents.length).toBe(1);
+        const emitted = emittedEvents[0];
+        expect(emitted.message).toEqual({ type: 'text', text: '<@U789> help me' });
+      });
+
+      it('thread_ts가 있으면 properties에 포함해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           ts: '1234567890.000001',
           threadTs: '1234567890.000000',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.instanceKey).toBe('1234567890.000000');
-      });
-
-      it('app_mention 이벤트도 파싱할 수 있어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createSlackMentionPayload({
-          text: '<@U789> help me',
-        });
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents.length).toBe(1);
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.type).toBe('app_mention');
-        expect(emitted.input).toBe('<@U789> help me');
-      });
-
-      it('metadata 필드가 올바르게 포함되어야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createSlackMessagePayload({
-          eventId: 'Ev001',
-          eventTime: 1234567890,
-          apiAppId: 'A001',
-        });
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents.length).toBe(1);
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.metadata).toBeDefined();
-        expect(emitted.metadata?.['eventId']).toBe('Ev001');
-        expect(emitted.metadata?.['eventTime']).toBe(1234567890);
-        expect(emitted.metadata?.['apiAppId']).toBe('A001');
+        expect(emittedEvents.length).toBe(1);
+        expect(emittedEvents[0].properties?.['threadTs']).toBe('1234567890.000000');
       });
     });
 
     describe('봇 메시지 무시 로직', () => {
       it('bot_id가 있는 메시지는 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createSlackMessagePayload({
-          botId: 'B123456',
-        });
-        const event = createMockTriggerEvent(payload);
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload = createSlackMessagePayload({ botId: 'B123456' });
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.emittedEvents.length).toBe(0);
+        expect(emittedEvents.length).toBe(0);
         expect(ctx.logger.debug).toHaveBeenCalledWith('[Slack] Ignoring bot message');
       });
 
       it('subtype이 bot_message인 경우 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createSlackMessagePayload({
-          subtype: 'bot_message',
-        });
-        const event = createMockTriggerEvent(payload);
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload = createSlackMessagePayload({ subtype: 'bot_message' });
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.emittedEvents.length).toBe(0);
+        expect(emittedEvents.length).toBe(0);
       });
     });
 
     describe('URL verification 처리', () => {
       it('url_verification 이벤트는 로깅만 하고 emit하지 않아야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload: JsonObject = {
           type: 'url_verification',
           challenge: 'test-challenge-string',
           token: 'test-token',
         };
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.emittedEvents.length).toBe(0);
+        expect(emittedEvents.length).toBe(0);
         expect(ctx.logger.debug).toHaveBeenCalledWith(
-          '[Slack] URL verification challenge received'
+          '[Slack] URL verification challenge received',
         );
       });
     });
 
     describe('유효하지 않은 페이로드 처리', () => {
       it('빈 페이로드는 경고 로그를 남기고 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const event = createMockTriggerEvent({});
+        const emittedEvents: ConnectorEvent[] = [];
+        const event = createHttpTriggerEvent({});
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
         expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] Invalid payload received');
       });
 
       it('event_callback이 아닌 타입은 무시해야 함', async () => {
-        const ctx = createMockContext();
-        const payload: JsonObject = {
-          type: 'app_rate_limited',
-        };
-        const event = createMockTriggerEvent(payload);
+        const emittedEvents: ConnectorEvent[] = [];
+        const payload: JsonObject = { type: 'app_rate_limited' };
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
       });
 
       it('event 객체가 없는 event_callback은 경고해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload: JsonObject = {
           type: 'event_callback',
           team_id: 'T123',
         };
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
         expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] No event object in payload');
       });
 
       it('team_id가 없으면 경고해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload: JsonObject = {
           type: 'event_callback',
           event: {
@@ -414,16 +449,17 @@ describe('Slack Connector', () => {
             ts: '123.456',
           },
         };
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
         expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] No team ID found');
       });
 
       it('user가 없으면 경고해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload: JsonObject = {
           type: 'event_callback',
           team_id: 'T123',
@@ -434,16 +470,17 @@ describe('Slack Connector', () => {
             ts: '123.456',
           },
         };
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
         expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] No user ID found');
       });
 
       it('channel이 없으면 경고해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload: JsonObject = {
           type: 'event_callback',
           team_id: 'T123',
@@ -454,237 +491,104 @@ describe('Slack Connector', () => {
             ts: '123.456',
           },
         };
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
         expect(ctx.emit).not.toHaveBeenCalled();
         expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] No channel found');
       });
     });
 
-    describe('TurnAuth 생성', () => {
+    describe('Auth 정보 생성', () => {
       it('올바른 actor 정보를 생성해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           teamId: 'T001',
           userId: 'U001',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-        const auth = ctx.emittedEvents[0].auth;
+        expect(emittedEvents.length).toBe(1);
+        const auth = emittedEvents[0].auth;
         expect(auth).toBeDefined();
-        expect(auth?.actor.type).toBe('user');
         expect(auth?.actor.id).toBe('slack:U001');
-        expect(auth?.actor.display).toBe('U001');
+        expect(auth?.actor.name).toBe('U001');
       });
 
       it('올바른 subjects를 생성해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           teamId: 'T001',
           userId: 'U001',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        const auth = ctx.emittedEvents[0].auth;
+        const auth = emittedEvents[0].auth;
         expect(auth?.subjects.global).toBe('slack:team:T001');
         expect(auth?.subjects.user).toBe('slack:user:T001:U001');
       });
     });
 
-    describe('Origin 정보 생성', () => {
-      it('기본 origin 필드가 포함되어야 함', async () => {
-        const ctx = createMockContext();
+    describe('Properties 정보 생성', () => {
+      it('기본 properties 필드가 포함되어야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           teamId: 'T001',
           userId: 'U001',
           channel: 'C001',
           ts: '123.456',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        const origin = ctx.emittedEvents[0].origin;
-        expect(origin).toBeDefined();
-        expect(origin?.['connector']).toBe('slack-connector');
-        expect(origin?.['teamId']).toBe('T001');
-        expect(origin?.['userId']).toBe('U001');
-        expect(origin?.['channel']).toBe('C001');
-        expect(origin?.['eventType']).toBe('message');
-        expect(origin?.['ts']).toBe('123.456');
+        expect(emittedEvents.length).toBe(1);
+        const props = emittedEvents[0].properties;
+        expect(props).toBeDefined();
+        expect(props?.['channelId']).toBe('C001');
+        expect(props?.['userId']).toBe('U001');
+        expect(props?.['teamId']).toBe('T001');
+        expect(props?.['eventType']).toBe('message');
       });
 
       it('thread_ts가 있으면 threadTs로 포함해야 함', async () => {
-        const ctx = createMockContext();
+        const emittedEvents: ConnectorEvent[] = [];
         const payload = createSlackMessagePayload({
           ts: '123.456',
           threadTs: '123.000',
         });
-        const event = createMockTriggerEvent(payload);
+        const event = createHttpTriggerEvent(payload);
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        const origin = ctx.emittedEvents[0].origin;
-        expect(origin?.['threadTs']).toBe('123.000');
+        const props = emittedEvents[0].properties;
+        expect(props?.['threadTs']).toBe('123.000');
       });
     });
 
-    describe('Ingress 규칙 매칭', () => {
-      it('eventType 매칭에 따라 올바른 swarmRef를 설정해야 함', async () => {
-        const ctx = createMockContext();
-        const payload = createSlackMentionPayload();
-        const event = createMockTriggerEvent(payload);
+    describe('non-trigger 이벤트 무시', () => {
+      it('connector.trigger가 아닌 이벤트는 무시해야 함', async () => {
+        const emittedEvents: ConnectorEvent[] = [];
+        const event = {
+          type: 'other',
+          trigger: { type: 'http', payload: { request: { method: 'POST', path: '/', headers: {}, body: {} } } },
+          timestamp: new Date().toISOString(),
+        } as unknown as ConnectorTriggerEvent;
+        const ctx = createMockConnectorContext(event, emittedEvents);
 
-        await onSlackEvent(event, {}, ctx);
+        await slackConnector(ctx);
 
-        expect(ctx.emittedEvents.length).toBe(1);
-        const emitted = ctx.emittedEvents[0];
-        expect(emitted.swarmRef).toEqual({ name: 'mention-swarm' });
-        expect(emitted.agentName).toBe('responder');
-      });
-
-      it('매칭되는 ingress 규칙이 없으면 debug 로그를 남겨야 함', async () => {
-        const ctx = createMockContext({
-          connector: createMockConnector({
-            spec: {
-              type: 'slack',
-              ingress: [
-                {
-                  match: { eventType: 'reaction_added' },
-                  route: { swarmRef: { name: 'reaction-swarm' } },
-                },
-              ],
-            },
-          }),
-        });
-        const payload = createSlackMessagePayload();
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.emit).not.toHaveBeenCalled();
-        expect(ctx.logger.debug).toHaveBeenCalledWith(
-          '[Slack] No matching ingress rule for event type: message'
-        );
-      });
-
-      it('channel 매칭 조건이 적용되어야 함', async () => {
-        const ctx = createMockContext({
-          connector: createMockConnector({
-            spec: {
-              type: 'slack',
-              ingress: [
-                {
-                  match: { eventType: 'message', channel: 'C-specific' },
-                  route: { swarmRef: { name: 'specific-swarm' } },
-                },
-                {
-                  match: { eventType: 'message' },
-                  route: { swarmRef: { name: 'default-swarm' } },
-                },
-              ],
-            },
-          }),
-        });
-
-        // 특정 채널 메시지
-        const payload1 = createSlackMessagePayload({ channel: 'C-specific' });
-        await onSlackEvent(createMockTriggerEvent(payload1), {}, ctx);
-        expect(ctx.emittedEvents[0].swarmRef).toEqual({ name: 'specific-swarm' });
-
-        // 다른 채널 메시지 - 두 번째 규칙 매칭
-        const ctx2 = createMockContext({
-          connector: ctx.connector,
-        });
-        const payload2 = createSlackMessagePayload({ channel: 'C-other' });
-        await onSlackEvent(createMockTriggerEvent(payload2), {}, ctx2);
-        expect(ctx2.emittedEvents[0].swarmRef).toEqual({ name: 'default-swarm' });
-      });
-
-      it('swarmRef가 없는 route는 경고하고 건너뛰어야 함', async () => {
-        // 런타임에 잘못된 설정이 들어올 수 있으므로
-        // JSON.parse를 통해 타입 검증 없이 객체를 생성
-        const invalidIngressJson = JSON.stringify([
-          {
-            match: { eventType: 'message' },
-            route: {},
-          },
-        ]);
-        const invalidIngress: IngressRule[] = JSON.parse(invalidIngressJson);
-
-        const connector = createMockConnector({
-          spec: {
-            type: 'slack',
-            ingress: invalidIngress,
-          },
-        });
-
-        const ctx = createMockContext({ connector });
-        const payload = createSlackMessagePayload();
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.logger.warn).toHaveBeenCalledWith('[Slack] No swarmRef in route');
-      });
-    });
-
-    describe('JSONPath를 통한 값 추출', () => {
-      it('instanceKeyFrom이 지정되면 해당 경로에서 값을 추출해야 함', async () => {
-        const ctx = createMockContext({
-          connector: createMockConnector({
-            spec: {
-              type: 'slack',
-              ingress: [
-                {
-                  match: { eventType: 'message' },
-                  route: {
-                    swarmRef: { name: 'test-swarm' },
-                    instanceKeyFrom: '$.team_id',
-                  },
-                },
-              ],
-            },
-          }),
-        });
-        const payload = createSlackMessagePayload({ teamId: 'CUSTOM_TEAM_KEY' });
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents[0].instanceKey).toBe('CUSTOM_TEAM_KEY');
-      });
-
-      it('inputFrom이 지정되면 해당 경로에서 입력을 추출해야 함', async () => {
-        const ctx = createMockContext({
-          connector: createMockConnector({
-            spec: {
-              type: 'slack',
-              ingress: [
-                {
-                  match: { eventType: 'message' },
-                  route: {
-                    swarmRef: { name: 'test-swarm' },
-                    inputFrom: '$.team_id',
-                  },
-                },
-              ],
-            },
-          }),
-        });
-        const payload = createSlackMessagePayload({ teamId: 'T999' });
-        const event = createMockTriggerEvent(payload);
-
-        await onSlackEvent(event, {}, ctx);
-
-        expect(ctx.emittedEvents[0].input).toBe('T999');
+        expect(emittedEvents).toHaveLength(0);
       });
     });
   });
@@ -708,7 +612,7 @@ describe('Slack Connector', () => {
             Authorization: 'Bearer xoxb-token',
             'Content-Type': 'application/json; charset=utf-8',
           },
-        })
+        }),
       );
       expect(result.ok).toBe(true);
       expect(result.ts).toBe('1234567890.123456');
@@ -786,7 +690,7 @@ describe('Slack Connector', () => {
         'xoxb-token',
         'C123',
         '1234567890.123456',
-        'Updated message'
+        'Updated message',
       );
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -797,7 +701,7 @@ describe('Slack Connector', () => {
             Authorization: 'Bearer xoxb-token',
             'Content-Type': 'application/json; charset=utf-8',
           },
-        })
+        }),
       );
       expect(result.ok).toBe(true);
     });

@@ -77,6 +77,26 @@ export function createToolErrorResult(
 }
 
 /**
+ * Tool Catalog에 없는 도구 호출 거부 결과 생성
+ */
+export function createToolNotInCatalogResult(
+  toolCallId: string,
+  toolName: string
+): ToolResult {
+  return {
+    toolCallId,
+    toolName,
+    status: 'error',
+    error: {
+      name: 'ToolNotInCatalogError',
+      code: 'E_TOOL_NOT_IN_CATALOG',
+      message: `Tool '${toolName}' is not available in the current Tool Catalog.`,
+      suggestion: 'Agent 구성의 spec.tools에 해당 도구를 추가하거나, step.tools 파이프라인에서 동적으로 등록하세요.',
+    },
+  };
+}
+
+/**
  * 성공 ToolResult를 생성
  * @param toolCallId - tool call ID
  * @param toolName - tool 이름

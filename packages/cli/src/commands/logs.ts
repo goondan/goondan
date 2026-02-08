@@ -2,10 +2,10 @@
  * gdn logs command
  *
  * View instance logs with various filtering options.
- * Reads from ~/.goondan/instances/<workspaceId>/<instanceId>/agents/<agent>/messages/llm.jsonl
+ * Reads from ~/.goondan/instances/<workspaceId>/<instanceId>/agents/<agent>/messages/base.jsonl
  *
  * @see /docs/specs/cli.md - Section 8 (gdn logs)
- * @see /docs/specs/workspace.md - Section 6 (LLM Message Log Schema)
+ * @see /docs/specs/workspace.md - Section 6 (Message State Log Schema)
  */
 
 import { Command, Option } from "commander";
@@ -40,34 +40,54 @@ export interface LogsOptions {
   until?: string;
   /** Filter by turn ID */
   turn?: string;
+  /** Filter by trace ID */
+  trace?: string;
   /** JSON output mode */
   json?: boolean;
 }
 
 /**
- * LLM Message Log Record structure
- * @see /docs/specs/workspace.md - Section 6.2
+ * Message Base Log Record structure
+ * @see /docs/specs/workspace.md - Section 6.3
  */
-interface LlmMessageLogRecord {
-  type: "llm.message";
+interface MessageBaseLogRecord {
+  type: "message.base";
   recordedAt: string;
+  traceId: string;
   instanceId: string;
   instanceKey: string;
   agentName: string;
   turnId: string;
+  messages: LlmMessage[];
+  sourceEventCount?: number;
+}
+
+/**
+ * Message Event Log Record structure
+ * @see /docs/specs/workspace.md - Section 6.4
+ */
+interface MessageEventLogRecord {
+  type: "message.event";
+  recordedAt: string;
+  traceId: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId: string;
+  seq: number;
+  eventType: string;
+  payload: Record<string, unknown>;
   stepId?: string;
-  stepIndex?: number;
-  message: LlmMessage;
 }
 
 /**
  * LLM Message types
  */
 type LlmMessage =
-  | { role: "system"; content: string }
-  | { role: "user"; content: string }
-  | { role: "assistant"; content?: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; toolCallId: string; toolName: string; output: unknown };
+  | { id: string; role: "system"; content: string }
+  | { id: string; role: "user"; content: string }
+  | { id: string; role: "assistant"; content?: string; toolCalls?: ToolCall[] }
+  | { id: string; role: "tool"; toolCallId: string; toolName: string; output: unknown };
 
 /**
  * Tool call structure
@@ -85,6 +105,7 @@ interface ToolCall {
 interface AgentEventLogRecord {
   type: "agent.event";
   recordedAt: string;
+  traceId: string;
   kind: string;
   instanceId: string;
   instanceKey: string;
@@ -102,6 +123,7 @@ interface AgentEventLogRecord {
 interface SwarmEventLogRecord {
   type: "swarm.event";
   recordedAt: string;
+  traceId: string;
   kind: string;
   instanceId: string;
   instanceKey: string;
@@ -113,7 +135,7 @@ interface SwarmEventLogRecord {
 /**
  * Combined log record type
  */
-type LogRecord = LlmMessageLogRecord | AgentEventLogRecord | SwarmEventLogRecord;
+type LogRecord = MessageBaseLogRecord | MessageEventLogRecord | AgentEventLogRecord | SwarmEventLogRecord;
 
 /**
  * Instance information
@@ -128,8 +150,10 @@ interface InstanceInfo {
 /**
  * Get the goondan home directory
  */
-async function getGoondanHome(): Promise<string> {
-  const config = await loadConfig();
+async function getGoondanHome(stateRoot?: string): Promise<string> {
+  const config = await loadConfig({
+    cliStateRoot: stateRoot,
+  });
   if (config.stateRoot) {
     return expandPath(config.stateRoot);
   }
@@ -310,6 +334,13 @@ function filterRecord(record: LogRecord, options: LogsOptions): boolean {
     }
   }
 
+  // Filter by trace ID
+  if (options.trace) {
+    if ("traceId" in record && record.traceId !== options.trace) {
+      return false;
+    }
+  }
+
   // Filter by time (since)
   if (options.since) {
     const sinceDate = parseTimeFilter(options.since);
@@ -344,40 +375,36 @@ function formatTimestamp(isoTimestamp: string): string {
 }
 
 /**
- * Format LLM message for display
+ * Format message base record for display
  */
-function formatLlmMessage(record: LlmMessageLogRecord): string {
+function formatMessageBase(record: MessageBaseLogRecord): string {
   const timestamp = formatTimestamp(record.recordedAt);
   const agent = record.agentName;
-  const msg = record.message;
-
   const c = chalk;
   const prefix = c.gray(`[${timestamp}] [${agent}]`);
 
-  switch (msg.role) {
-    case "system":
-      return `${prefix} ${c.magenta("system:")} ${msg.content}`;
-    case "user":
-      return `${prefix} ${c.cyan("user:")} ${msg.content}`;
-    case "assistant":
-      if (msg.toolCalls && msg.toolCalls.length > 0) {
-        const toolCallsStr = msg.toolCalls
-          .map((tc) => `${tc.name}(${JSON.stringify(tc.arguments)})`)
-          .join(", ");
-        return `${prefix} ${c.green("assistant:")} ${c.yellow("[tool_call]")} ${toolCallsStr}`;
-      }
-      return `${prefix} ${c.green("assistant:")} ${msg.content ?? ""}`;
-    case "tool":
-      const outputStr =
-        typeof msg.output === "string"
-          ? msg.output
-          : JSON.stringify(msg.output);
-      const truncatedOutput =
-        outputStr.length > 200 ? outputStr.slice(0, 200) + "..." : outputStr;
-      return `${prefix} ${c.blue("tool:")} ${truncatedOutput}`;
-    default:
-      return `${prefix} ${JSON.stringify(msg)}`;
+  const msgCount = record.messages.length;
+  const lastMsg = record.messages[msgCount - 1];
+  if (!lastMsg) {
+    return `${prefix} ${c.magenta("base:")} snapshot (${msgCount} messages)`;
   }
+
+  return `${prefix} ${c.magenta("base:")} snapshot (${msgCount} messages, last: ${lastMsg.role})`;
+}
+
+/**
+ * Format message event record for display
+ */
+function formatMessageEvent(record: MessageEventLogRecord): string {
+  const timestamp = formatTimestamp(record.recordedAt);
+  const agent = record.agentName;
+  const c = chalk;
+  const prefix = c.gray(`[${timestamp}] [${agent}]`);
+
+  const payloadStr = JSON.stringify(record.payload);
+  const truncated = payloadStr.length > 200 ? payloadStr.slice(0, 200) + "..." : payloadStr;
+
+  return `${prefix} ${c.cyan(`event[${record.eventType}]:`)} seq=${record.seq} ${truncated}`;
 }
 
 /**
@@ -437,8 +464,10 @@ function formatRecord(record: LogRecord, jsonOutput: boolean): string {
     return JSON.stringify(record);
   }
 
-  if (record.type === "llm.message") {
-    return formatLlmMessage(record);
+  if (record.type === "message.base") {
+    return formatMessageBase(record);
+  } else if (record.type === "message.event") {
+    return formatMessageEvent(record);
   } else {
     return formatEventRecord(record);
   }
@@ -459,15 +488,32 @@ async function collectLogs(
   // Collect message logs
   if (options.type === "messages" || options.type === "all") {
     for (const agent of agents) {
-      const messagesPath = path.join(
+      // Read base.jsonl (message snapshots)
+      const basePath = path.join(
         instanceInfo.path,
         "agents",
         agent,
         "messages",
-        "llm.jsonl"
+        "base.jsonl"
       );
-      for await (const record of readJsonlFile<LlmMessageLogRecord>(
-        messagesPath
+      for await (const record of readJsonlFile<MessageBaseLogRecord>(
+        basePath
+      )) {
+        if (filterRecord(record, options)) {
+          records.push(record);
+        }
+      }
+
+      // Read events.jsonl (message events)
+      const messageEventsPath = path.join(
+        instanceInfo.path,
+        "agents",
+        agent,
+        "messages",
+        "events.jsonl"
+      );
+      for await (const record of readJsonlFile<MessageEventLogRecord>(
+        messageEventsPath
       )) {
         if (filterRecord(record, options)) {
           records.push(record);
@@ -537,7 +583,10 @@ async function watchLogs(
   if (options.type === "messages" || options.type === "all") {
     for (const agent of agents) {
       watchedFiles.push(
-        path.join(instanceInfo.path, "agents", agent, "messages", "llm.jsonl")
+        path.join(instanceInfo.path, "agents", agent, "messages", "base.jsonl")
+      );
+      watchedFiles.push(
+        path.join(instanceInfo.path, "agents", agent, "messages", "events.jsonl")
       );
     }
   }
@@ -650,10 +699,11 @@ async function watchLogs(
  */
 async function executeLogs(
   instanceId: string | undefined,
-  options: LogsOptions
+  options: LogsOptions,
+  stateRoot?: string,
 ): Promise<void> {
   try {
-    const goondanHome = await getGoondanHome();
+    const goondanHome = await getGoondanHome(stateRoot);
 
     // Find instance
     const instanceInfo = await findInstance(goondanHome, instanceId);
@@ -744,11 +794,18 @@ export function createLogsCommand(): Command {
     .addOption(
       new Option("--turn <id>", "Filter by turn ID")
     )
+    .addOption(
+      new Option("--trace <id>", "Filter by trace ID")
+    )
     .action(
       async (
         instanceIdArg: string | undefined,
-        opts: Record<string, unknown>
+        opts: Record<string, unknown>,
+        command: Command,
       ) => {
+        const globalOpts = command.optsWithGlobals<{ stateRoot?: string }>();
+        const stateRoot =
+          typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
         const logsOptions: LogsOptions = {
           agent: opts.agent as string | undefined,
           type: (opts.type as LogType) ?? "all",
@@ -757,10 +814,11 @@ export function createLogsCommand(): Command {
           since: opts.since as string | undefined,
           until: opts.until as string | undefined,
           turn: opts.turn as string | undefined,
+          trace: opts.trace as string | undefined,
           json: opts.json as boolean | undefined,
         };
 
-        await executeLogs(instanceIdArg, logsOptions);
+        await executeLogs(instanceIdArg, logsOptions, stateRoot);
       }
     );
 

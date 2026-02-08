@@ -39,7 +39,14 @@ export type PackageRefLike = string | PackageRef;
  * Package Kind의 spec
  * @see /docs/specs/bundle_package.md - 6. package.yaml 스키마
  */
+/**
+ * 패키지 접근 수준
+ */
+export type PackageAccess = 'public' | 'restricted';
+
 export interface PackageSpec {
+  /** 접근 수준 (기본값: 'public') */
+  access?: PackageAccess;
   /** Bundle Package Ref 목록 */
   dependencies?: string[];
   /** 패키지로 export될 YAML 파일 경로 목록 */
@@ -72,6 +79,8 @@ export interface PackageVersionInfo {
   version: string;
   /** 의존성 목록 */
   dependencies: string[];
+  /** 폐기 메시지 (빈 문자열이면 폐기 해제) */
+  deprecated?: string;
   /** 배포 정보 */
   dist: PackageDistInfo;
   /** Bundle 설정 */
@@ -101,6 +110,8 @@ export interface PackageMetadata {
   name: string;
   /** 설명 */
   description?: string;
+  /** 접근 수준 */
+  access?: PackageAccess;
   /** 버전별 정보 */
   versions: Record<string, PackageVersionInfo>;
   /** dist-tag 매핑 */

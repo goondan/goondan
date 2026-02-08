@@ -405,7 +405,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
   try {
     // Load config for registry URL
     const config = await loadConfig();
-    const registryUrl = config.registry ?? "https://goondan-registry.yechanny.workers.dev";
+    const registryUrl = config.registry ?? "https://registry.goondan.io";
 
     // Load package.yaml
     spinner.start("Reading package.yaml...");

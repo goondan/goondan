@@ -3,7 +3,7 @@
  */
 
 // Model
-export type { ModelSpec, ModelResource } from './model.js';
+export type { ModelSpec, ModelCapabilities, ModelResource } from './model.js';
 
 // Tool
 export type {
@@ -42,6 +42,7 @@ export type {
 export type {
   SwarmSpec,
   SwarmPolicy,
+  SwarmLifecyclePolicy,
   SwarmChangesetPolicy,
   LiveConfigPolicy,
   SwarmResource,
@@ -50,20 +51,24 @@ export type {
 // Connector
 export type {
   ConnectorSpec,
-  ConnectorAuth,
-  IngressRule,
-  IngressMatch,
-  IngressRoute,
-  EgressConfig,
-  UpdatePolicy,
-  TriggerConfig,
+  TriggerDeclaration,
+  HttpTrigger,
+  CronTrigger,
+  CliTrigger,
+  EventSchema,
+  EventPropertyType,
   ConnectorResource,
 } from './connector.js';
 
 // Connection
 export type {
   ConnectionSpec,
-  ConnectionRule,
+  ConnectorAuth,
+  ConnectionVerify,
+  IngressConfig,
+  IngressRule,
+  IngressMatch,
+  IngressRoute,
   ConnectionResource,
 } from './connection.js';
 

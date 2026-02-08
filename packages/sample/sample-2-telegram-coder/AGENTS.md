@@ -15,7 +15,7 @@ sample-2-telegram-coder/
 │   ├── coder.system.md
 │   └── reviewer.system.md
 ├── tools/                # 로컬 Tool 구현
-│   ├── delegate/         # delegate.toAgent 도구
+│   ├── delegate/         # delegate.to-agent 도구
 │   ├── file-read/        # file.read 도구
 │   └── file-write/       # file.write 도구
 ├── .goondan/             # 설치된 패키지 (symlink)
@@ -50,7 +50,8 @@ Bundle 정의 파일로 다음 리소스를 포함합니다:
   - `file-write`: 파일 쓰기 (로컬 정의)
   - `bash`: bash 명령어 실행 (**@goondan/base에서 자동 로드**)
 - **Swarm**: coding-swarm 스웜 정의
-- **Connector**: telegram (기본 entry는 @goondan/base에서 제공, ingress만 오버라이드)
+- **Connector**: 로컬 정의 없이 `@goondan/base`의 `Connector/telegram` 참조
+- **Connection**: telegram-to-coding-swarm (Connector와 Swarm 간 배포 바인딩, auth/ingress 설정)
 
 ## @goondan/base 패키지 사용
 
@@ -60,49 +61,36 @@ Bundle 정의 파일로 다음 리소스를 포함합니다:
 gdn package install
 ```
 
-### Connector 오버라이드
+### Connection 설정 (v1.0)
 
-@goondan/base의 telegram connector를 기반으로, `annotations.base`로 상속을 표시하고 ingress/auth만 설정:
+v1.0에서 Connector와 Connection은 분리됩니다. Connector는 프로토콜 수신과 이벤트 스키마를 선언하고, Connection에서 auth/ingress를 설정합니다:
 
 ```yaml
 apiVersion: agents.example.io/v1alpha1
-kind: Connector
+kind: Connection
 metadata:
-  name: telegram
-  annotations:
-    base: "@goondan/base"
+  name: telegram-to-coding-swarm
 spec:
-  type: telegram
+  connectorRef: { kind: Connector, name: telegram, package: "@goondan/base" }
   auth:
     staticToken:
       valueFrom:
         env: "TELEGRAM_BOT_TOKEN"
   ingress:
-    - match:
-        command: "/start"
-      route:
-        swarmRef: { kind: Swarm, name: coding-swarm }
-        instanceKeyFrom: "$.message.chat.id"
-        inputFrom: "$.message.text"
-        agentRef: { kind: Agent, name: planner }
+    rules:
+      - match:
+          event: telegram.message
+        route:
+          agentRef: { kind: Agent, name: planner }
+      - route: {}
 ```
 
-> **주의**: entry 경로를 직접 하드코딩하지 않는다. `annotations.base`를 통해 패키지 시스템이 자동으로 resolve한다. ingress의 `agentRef`는 ObjectRef 형식을 사용한다 (문자열 `agentName`이 아님).
+> **주의**: v1.0에서 Connection의 route에는 `agentRef`만 허용됩니다 (선택적). `swarmRef`, `instanceKeyFrom`, `inputFrom`은 삭제되었습니다. match.event 값은 Connector의 events[].name과 일치해야 합니다.
 
 ## Ingress 규칙
 
-1. `/start` 명령어 매칭 - planner 에이전트로 라우팅
-2. `/code` 명령어 매칭 - planner 에이전트로 라우팅
-3. 기본 라우팅 - 명령어 없는 일반 메시지
-
-## Egress 설정
-
-```yaml
-egress:
-  updatePolicy:
-    mode: updateInThread
-    debounceMs: 1500
-```
+1. `telegram.message` 이벤트 매칭 - planner 에이전트로 라우팅
+2. catch-all 라우팅 - entrypoint로 라우팅
 
 ## 개발 규칙
 
@@ -113,5 +101,6 @@ egress:
 ## 참고 문서
 
 - `/docs/specs/connector.md` - Connector 시스템 스펙
+- `/docs/specs/connection.md` - Connection 시스템 스펙
 - `/docs/specs/bundle_package.md` - Bundle Package 스펙
 - `/packages/base/` - @goondan/base 패키지

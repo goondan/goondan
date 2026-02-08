@@ -6,8 +6,12 @@ metadata:
     tier: base
     category: interactive
 spec:
-  type: cli
   runtime: node
   entry: "./connectors/cli/index.js"
   triggers:
-    - handler: onCliInput
+    - type: cli
+  events:
+    - name: user_input
+      properties:
+        instanceKey:
+          type: string

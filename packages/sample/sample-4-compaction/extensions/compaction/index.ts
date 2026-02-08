@@ -66,12 +66,20 @@ function createDefaultSummarizer(
 }
 
 /**
- * Get typed state from the untyped ExtensionApi state
+ * Type guard for CompactionState
  */
-function getTypedState(api: ExtensionApi): CompactionState {
-  const rawState = api.extState();
-  // Cast is safe because we initialize all fields
-  return rawState as unknown as CompactionState;
+function isCompactionState(value: unknown): value is CompactionState {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'compactionCount' in value &&
+    typeof value.compactionCount === 'number' &&
+    'totalMessagesCompacted' in value &&
+    typeof value.totalMessagesCompacted === 'number' &&
+    'summaries' in value &&
+    Array.isArray(value.summaries) &&
+    'estimatedTokens' in value &&
+    typeof value.estimatedTokens === 'number'
+  );
 }
 
 /**
@@ -81,16 +89,22 @@ function getTypedState(api: ExtensionApi): CompactionState {
 export async function register(
   api: ExtensionApi
 ): Promise<void> {
-  // Initialize state - rawState is JsonObject, we treat it as CompactionState
-  const rawState = api.extState();
-  rawState['compactionCount'] = 0;
-  rawState['totalMessagesCompacted'] = 0;
-  rawState['lastCompactionAt'] = null;
-  rawState['summaries'] = [];
-  rawState['estimatedTokens'] = 0;
+  // Initialize state using getState/setState pattern
+  const initialState: CompactionState = {
+    compactionCount: 0,
+    totalMessagesCompacted: 0,
+    lastCompactionAt: null,
+    summaries: [],
+    estimatedTokens: 0,
+  };
+  api.setState(initialState);
 
-  // Get typed accessor
-  const state = getTypedState(api);
+  // Helper to get current state (always returns valid state since we initialized)
+  function currentState(): CompactionState {
+    const raw = api.getState();
+    if (isCompactionState(raw)) return raw;
+    return initialState;
+  }
 
   // Get config with defaults
   const rawConfig = api.extension.spec?.config ?? {};
@@ -117,10 +131,12 @@ export async function register(
 
   // Register turn.pre mutator to perform compaction before processing
   api.pipelines.mutate('turn.pre', async (ctx: ExtTurnContext) => {
-    const messages = ctx.turn.messages;
+    const messages = ctx.turn.messageState.nextMessages;
+    const state = currentState();
 
     // Update token estimate
     state.estimatedTokens = estimateTotalTokens(messages);
+    api.setState(state);
 
     // Check if compaction is needed
     if (!strategy.shouldCompact(messages, config)) {
@@ -140,14 +156,19 @@ export async function register(
       state.lastCompactionAt = result.summary.timestamp;
       state.summaries.push(toSummaryRecord(result.summary));
       state.estimatedTokens = estimateTotalTokens(result.messages);
+      api.setState(state);
 
       logger?.info?.(
         `Compacted ${result.summary.messageCount} messages, ` +
         `saved ~${result.summary.tokensSaved} tokens`
       );
 
-      // Update turn messages
-      ctx.turn.messages = result.messages;
+      // Update turn messageState with compacted messages as new base
+      ctx.turn.messageState = {
+        baseMessages: result.messages,
+        events: [],
+        nextMessages: result.messages,
+      };
 
       // Add compaction metadata to turn
       ctx.turn.metadata = {
@@ -169,15 +190,16 @@ export async function register(
     const blocks: ExtContextBlock[] = [...ctx.blocks];
 
     // Add compaction status block if compaction has occurred
-    if (state.compactionCount > 0) {
+    const cState = currentState();
+    if (cState.compactionCount > 0) {
       blocks.push({
         type: 'compaction.status',
         data: {
           strategy: config.strategy,
-          compactionCount: state.compactionCount,
-          totalMessagesCompacted: state.totalMessagesCompacted,
-          lastCompactionAt: state.lastCompactionAt ?? null,
-          estimatedTokens: state.estimatedTokens,
+          compactionCount: cState.compactionCount,
+          totalMessagesCompacted: cState.totalMessagesCompacted,
+          lastCompactionAt: cState.lastCompactionAt ?? null,
+          estimatedTokens: cState.estimatedTokens,
           maxTokens: config.maxTokens,
         },
         priority: 100, // Low priority, informational
@@ -189,17 +211,20 @@ export async function register(
 
   // Register compaction tools
   api.tools.register({
-    name: 'compaction.getStatus',
+    name: 'compaction.get-status',
     description: 'Get the current compaction status and statistics',
-    handler: async () => ({
-      strategy: config.strategy,
-      compactionCount: state.compactionCount,
-      totalMessagesCompacted: state.totalMessagesCompacted,
-      lastCompactionAt: state.lastCompactionAt ?? null,
-      estimatedTokens: state.estimatedTokens,
-      maxTokens: config.maxTokens,
-      summaryCount: state.summaries.length,
-    }),
+    handler: async () => {
+      const s = currentState();
+      return {
+        strategy: config.strategy,
+        compactionCount: s.compactionCount,
+        totalMessagesCompacted: s.totalMessagesCompacted,
+        lastCompactionAt: s.lastCompactionAt ?? null,
+        estimatedTokens: s.estimatedTokens,
+        maxTokens: config.maxTokens,
+        summaryCount: s.summaries.length,
+      };
+    },
     metadata: {
       source: 'compaction-extension',
       version: '1.0.0',
@@ -207,7 +232,7 @@ export async function register(
   });
 
   api.tools.register({
-    name: 'compaction.getSummaries',
+    name: 'compaction.get-summaries',
     description: 'Get the list of generated summaries from previous compactions',
     parameters: {
       type: 'object',
@@ -220,9 +245,10 @@ export async function register(
     },
     handler: async (_ctx, input) => {
       const limit = Number(input.limit) || 10;
-      const summaries = state.summaries.slice(-limit);
+      const s = currentState();
+      const summaries = s.summaries.slice(-limit);
       return {
-        total: state.summaries.length,
+        total: s.summaries.length,
         returned: summaries.length,
         summaries: summaries.map((s) => ({
           timestamp: s.timestamp,
@@ -239,18 +265,20 @@ export async function register(
   });
 
   api.tools.register({
-    name: 'compaction.forceCompact',
+    name: 'compaction.force-compact',
     description: 'Force a compaction operation on the current conversation',
     handler: async (ctx) => {
-      const messages = ctx.turn.messages;
+      const messages = ctx.turn.messageState.nextMessages;
 
       const result = await strategy.compact(messages, config, summarize);
 
       if (result.compacted && result.summary) {
-        state.compactionCount++;
-        state.totalMessagesCompacted += result.summary.messageCount;
-        state.lastCompactionAt = result.summary.timestamp;
-        state.summaries.push(toSummaryRecord(result.summary));
+        const s = currentState();
+        s.compactionCount++;
+        s.totalMessagesCompacted += result.summary.messageCount;
+        s.lastCompactionAt = result.summary.timestamp;
+        s.summaries.push(toSummaryRecord(result.summary));
+        api.setState(s);
 
         // Note: This doesn't actually modify the turn messages in real-time
         // It just performs the compaction and reports results

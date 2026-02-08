@@ -220,7 +220,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 // ============================================================
 
 /**
- * self.readPrompt: 현재 시스템 프롬프트를 읽습니다.
+ * self.read-prompt: 현재 시스템 프롬프트를 읽습니다.
  */
 async function readPrompt(
   ctx: ToolContext,
@@ -262,7 +262,7 @@ async function readPrompt(
 }
 
 /**
- * self.updatePrompt: 시스템 프롬프트를 수정합니다.
+ * self.update-prompt: 시스템 프롬프트를 수정합니다.
  *
  * Changeset을 열고 프롬프트 파일을 수정한 후 커밋합니다.
  * 변경 사항은 다음 Step부터 적용됩니다.
@@ -386,7 +386,7 @@ async function updatePrompt(
 }
 
 /**
- * self.viewChanges: 프롬프트 변경 이력을 조회합니다.
+ * self.view-changes: 프롬프트 변경 이력을 조회합니다.
  */
 async function viewChanges(
   ctx: ToolContext,
@@ -464,7 +464,7 @@ async function viewChanges(
  * Runtime은 이 객체를 사용하여 tool call을 핸들러에 매핑합니다.
  */
 export const handlers: Record<string, ToolHandler> = {
-  'self.readPrompt': readPrompt,
-  'self.updatePrompt': updatePrompt,
-  'self.viewChanges': viewChanges,
+  'self.read-prompt': readPrompt,
+  'self.update-prompt': updatePrompt,
+  'self.view-changes': viewChanges,
 };

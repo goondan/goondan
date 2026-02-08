@@ -59,6 +59,7 @@ export const slidingStrategy: CompactionStrategyHandler = {
 
     // Create sliding window context message
     const summaryMessage: ExtUserMessage = {
+      id: `msg-summary-${Date.now()}`,
       role: 'user',
       content: `[Context from previous ${oldMessages.length} messages]: ${summaryText}`,
     };

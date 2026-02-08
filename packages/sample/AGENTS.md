@@ -38,7 +38,7 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 ### sample-3-self-evolving
 스스로 프롬프트와 도구를 개선하는 자기 진화 에이전트입니다.
 - **Changeset**: 프롬프트/리소스 파일 수정 가능
-- **도구**: self.readPrompt, self.updatePrompt, self.viewChanges
+- **도구**: self.read-prompt, self.update-prompt, self.view-changes
 - **정책**: prompts/**, resources/** 허용
 
 ### sample-4-compaction
@@ -55,7 +55,7 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 
 ### sample-6-cli-chatbot
 가장 단순한 CLI 채팅봇입니다. 초보자가 Goondan을 처음 접할 때 권장됩니다.
-- **구성**: Model + Agent + Swarm + Connector + Connection (5개 리소스)
+- **구성**: Model + Agent + Swarm + Connection (Connector는 `@goondan/base` 패키지 참조)
 - **도구 없음**: LLM 대화만으로 동작
 - **최소 파일**: goondan.yaml + 시스템 프롬프트
 
@@ -65,17 +65,18 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 - **라우팅**: Router Agent가 작업 성격에 따라 위임
 - **에이전트**: router (라우팅) / creative-writer (창작) / analyst (분석)
 - **도구**: agent.delegate (작업 위임)
+- **Connector**: `@goondan/base`의 `Connector/cli` 참조
 
 ### sample-8-web-researcher
 웹에서 정보를 수집하고 요약하는 리서치 에이전트 스웜입니다.
-- **도구**: http-fetch (http.get, http.post), json-query (json.query, json.transform)
+- **도구**: `@goondan/base`의 http-fetch/json-query + 로컬 delegate-tool
 - **에이전트**: researcher (정보 수집) / summarizer (결과 요약)
 - **핵심**: base 패키지 도구 활용, 수집-요약 역할 분리
 
 ### sample-9-devops-assistant
 시스템 관리, 배포, 로그 분석 등 DevOps 작업을 지원하는 에이전트 스웜입니다.
-- **도구**: bash (bash.exec)
-- **확장**: logging (작업 이력 기록)
+- **도구**: `@goondan/base`의 bash + 로컬 delegate-tool
+- **확장**: `@goondan/base`의 logging (작업 이력 기록)
 - **에이전트**: devops (명령 실행/진단) / planner (작업 계획)
 - **핵심**: 안전 정책 (읽기 우선, 위험 명령 차단), 계획-실행 분리
 
@@ -84,6 +85,7 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 각 샘플은 다음 구조를 따릅니다:
 ```
 sample-X-name/
+├── package.yaml      # 선택: Bundle Package 의존성 선언 (@goondan/base 등)
 ├── goondan.yaml      # 필수: Bundle 정의
 ├── prompts/          # 시스템 프롬프트 파일들
 ├── tools/            # 커스텀 도구 구현 (선택)

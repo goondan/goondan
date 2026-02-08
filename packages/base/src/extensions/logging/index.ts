@@ -162,12 +162,12 @@ export async function register(api: ExtensionApi): Promise<void> {
 
   // step.llmCall middleware: LLM 요청/응답 로깅
   api.pipelines.wrap('step.llmCall', async (ctx: ExtStepContext, next: (ctx: ExtStepContext) => Promise<ExtLlmResult>) => {
-    const messageCount = ctx.turn.messages.length;
+    const messageCount = ctx.turn.messageState.nextMessages.length;
     const agentName = ctx.agent?.metadata?.name ?? 'unknown';
 
     // 요청 로깅
     if (shouldLog('info', config.logLevel)) {
-      const summary = summarizeMessages(ctx.turn.messages);
+      const summary = summarizeMessages(ctx.turn.messageState.nextMessages);
       await writeLogEntry(
         config.logDir,
         `[LLM_REQUEST] agent=${agentName} messages=${messageCount}\n${summary}`,
@@ -182,7 +182,7 @@ export async function register(api: ExtensionApi): Promise<void> {
     // 응답 로깅
     if (shouldLog('info', config.logLevel)) {
       const responseContent = result.message.content ?? '(no content)';
-      const toolCallCount = result.message.toolCalls?.length ?? 0;
+      const toolCallCount = result.toolCalls?.length ?? 0;
       await writeLogEntry(
         config.logDir,
         `[LLM_RESPONSE] agent=${agentName} elapsed=${elapsed}ms toolCalls=${toolCallCount} content=${summarizeContent(responseContent, 200)}`,
@@ -200,7 +200,7 @@ export async function register(api: ExtensionApi): Promise<void> {
     }
 
     const agentName = ctx.agent?.metadata?.name ?? 'unknown';
-    const messageCount = ctx.turn.messages.length;
+    const messageCount = ctx.turn.messageState.nextMessages.length;
     const turnId = ctx.turn.metadata?.['turnId'] ?? 'unknown';
 
     await writeLogEntry(

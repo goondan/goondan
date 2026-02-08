@@ -13,12 +13,16 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
 }
 import type {
-  LlmMessageLogRecord,
   LlmMessage,
+  MessageBaseLogRecord,
+  MessageEventLogRecord,
+  MessageEventType,
   SwarmEventLogRecord,
   SwarmEventKind,
   AgentEventLogRecord,
   AgentEventKind,
+  TurnMetricsLogRecord,
+  TokenUsage,
 } from './types.js';
 
 /**
@@ -81,42 +85,42 @@ export class JsonlWriter<T> {
 }
 
 /**
- * LlmMessageLogger 로그 입력 타입
+ * MessageBaseLogger 로그 입력 타입
  */
-export interface LlmMessageLogInput {
+export interface MessageBaseLogInput {
+  traceId: string;
   instanceId: string;
   instanceKey: string;
   agentName: string;
   turnId: string;
-  stepId?: string;
-  stepIndex?: number;
-  message: LlmMessage;
+  messages: LlmMessage[];
+  sourceEventCount?: number;
 }
 
 /**
- * LlmMessageLogger - LLM 메시지 로거
+ * MessageBaseLogger - Message base 스냅샷 로거
  */
-export class LlmMessageLogger {
-  private readonly writer: JsonlWriter<LlmMessageLogRecord>;
+export class MessageBaseLogger {
+  private readonly writer: JsonlWriter<MessageBaseLogRecord>;
 
   constructor(filePath: string) {
-    this.writer = new JsonlWriter<LlmMessageLogRecord>(filePath);
+    this.writer = new JsonlWriter<MessageBaseLogRecord>(filePath);
   }
 
   /**
-   * LLM 메시지 기록
+   * Message base 스냅샷 기록
    */
-  async log(input: LlmMessageLogInput): Promise<void> {
-    const record: LlmMessageLogRecord = {
-      type: 'llm.message',
+  async log(input: MessageBaseLogInput): Promise<void> {
+    const record: MessageBaseLogRecord = {
+      type: 'message.base',
       recordedAt: new Date().toISOString(),
+      traceId: input.traceId,
       instanceId: input.instanceId,
       instanceKey: input.instanceKey,
       agentName: input.agentName,
       turnId: input.turnId,
-      stepId: input.stepId,
-      stepIndex: input.stepIndex,
-      message: input.message,
+      messages: input.messages,
+      sourceEventCount: input.sourceEventCount,
     };
 
     await this.writer.append(record);
@@ -125,15 +129,86 @@ export class LlmMessageLogger {
   /**
    * 모든 레코드 읽기
    */
-  async readAll(): Promise<LlmMessageLogRecord[]> {
+  async readAll(): Promise<MessageBaseLogRecord[]> {
     return this.writer.readAll();
   }
 
   /**
    * 레코드 순회
    */
-  read(): AsyncGenerator<LlmMessageLogRecord> {
+  read(): AsyncGenerator<MessageBaseLogRecord> {
     return this.writer.read();
+  }
+}
+
+/**
+ * MessageEventLogger 로그 입력 타입
+ */
+export interface MessageEventLogInput {
+  traceId: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId: string;
+  seq: number;
+  eventType: MessageEventType;
+  payload: JsonObject;
+  stepId?: string;
+}
+
+/**
+ * MessageEventLogger - Turn 메시지 이벤트 로거
+ */
+export class MessageEventLogger {
+  private readonly writer: JsonlWriter<MessageEventLogRecord>;
+  private readonly logFilePath: string;
+
+  constructor(filePath: string) {
+    this.logFilePath = filePath;
+    this.writer = new JsonlWriter<MessageEventLogRecord>(filePath);
+  }
+
+  /**
+   * 메시지 이벤트 기록
+   */
+  async log(input: MessageEventLogInput): Promise<void> {
+    const record: MessageEventLogRecord = {
+      type: 'message.event',
+      recordedAt: new Date().toISOString(),
+      traceId: input.traceId,
+      instanceId: input.instanceId,
+      instanceKey: input.instanceKey,
+      agentName: input.agentName,
+      turnId: input.turnId,
+      seq: input.seq,
+      eventType: input.eventType,
+      payload: input.payload,
+      stepId: input.stepId,
+    };
+
+    await this.writer.append(record);
+  }
+
+  /**
+   * 모든 레코드 읽기
+   */
+  async readAll(): Promise<MessageEventLogRecord[]> {
+    return this.writer.readAll();
+  }
+
+  /**
+   * 레코드 순회
+   */
+  read(): AsyncGenerator<MessageEventLogRecord> {
+    return this.writer.read();
+  }
+
+  /**
+   * 파일 내용 비우기 (base 반영 성공 후)
+   */
+  async clear(): Promise<void> {
+    await fs.mkdir(path.dirname(this.logFilePath), { recursive: true });
+    await fs.writeFile(this.logFilePath, '', 'utf8');
   }
 }
 
@@ -141,6 +216,7 @@ export class LlmMessageLogger {
  * SwarmEventLogger 로그 입력 타입
  */
 export interface SwarmEventLogInput {
+  traceId: string;
   kind: SwarmEventKind;
   instanceId: string;
   instanceKey: string;
@@ -166,6 +242,7 @@ export class SwarmEventLogger {
     const record: SwarmEventLogRecord = {
       type: 'swarm.event',
       recordedAt: new Date().toISOString(),
+      traceId: input.traceId,
       kind: input.kind,
       instanceId: input.instanceId,
       instanceKey: input.instanceKey,
@@ -196,6 +273,7 @@ export class SwarmEventLogger {
  * AgentEventLogger 로그 입력 타입
  */
 export interface AgentEventLogInput {
+  traceId: string;
   kind: AgentEventKind;
   instanceId: string;
   instanceKey: string;
@@ -223,6 +301,7 @@ export class AgentEventLogger {
     const record: AgentEventLogRecord = {
       type: 'agent.event',
       recordedAt: new Date().toISOString(),
+      traceId: input.traceId,
       kind: input.kind,
       instanceId: input.instanceId,
       instanceKey: input.instanceKey,
@@ -247,6 +326,67 @@ export class AgentEventLogger {
    * 레코드 순회
    */
   read(): AsyncGenerator<AgentEventLogRecord> {
+    return this.writer.read();
+  }
+}
+
+/**
+ * TurnMetricsLogger 로그 입력 타입
+ */
+export interface TurnMetricsLogInput {
+  traceId: string;
+  turnId: string;
+  stepId?: string;
+  instanceId: string;
+  agentName: string;
+  latencyMs: number;
+  tokenUsage: TokenUsage;
+  toolCallCount: number;
+  errorCount: number;
+}
+
+/**
+ * TurnMetricsLogger - Turn/Step 메트릭 로거
+ */
+export class TurnMetricsLogger {
+  private readonly writer: JsonlWriter<TurnMetricsLogRecord>;
+
+  constructor(filePath: string) {
+    this.writer = new JsonlWriter<TurnMetricsLogRecord>(filePath);
+  }
+
+  /**
+   * Turn 메트릭 기록
+   */
+  async log(input: TurnMetricsLogInput): Promise<void> {
+    const record: TurnMetricsLogRecord = {
+      type: 'metrics.turn',
+      recordedAt: new Date().toISOString(),
+      traceId: input.traceId,
+      turnId: input.turnId,
+      stepId: input.stepId,
+      instanceId: input.instanceId,
+      agentName: input.agentName,
+      latencyMs: input.latencyMs,
+      tokenUsage: input.tokenUsage,
+      toolCallCount: input.toolCallCount,
+      errorCount: input.errorCount,
+    };
+
+    await this.writer.append(record);
+  }
+
+  /**
+   * 모든 레코드 읽기
+   */
+  async readAll(): Promise<TurnMetricsLogRecord[]> {
+    return this.writer.readAll();
+  }
+
+  /**
+   * 레코드 순회
+   */
+  read(): AsyncGenerator<TurnMetricsLogRecord> {
     return this.writer.read();
   }
 }

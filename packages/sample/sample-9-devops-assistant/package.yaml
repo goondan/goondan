@@ -1,0 +1,12 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-devops-assistant"
+  version: "0.0.1"
+  annotations:
+    description: "DevOps Assistant Sample"
+spec:
+  dependencies:
+    - "@goondan/base"
+  resources:
+    - goondan.yaml

@@ -79,18 +79,18 @@ describe("LlmCallerImpl", () => {
       });
 
       const messages: LlmMessage[] = [
-        { role: "system", content: "You are helpful." },
-        { role: "user", content: "Hello!" },
+        { id: "msg-1", role: "system", content: "You are helpful." },
+        { id: "msg-2", role: "user", content: "Hello!" },
       ];
 
       const result = await caller.call(messages, [], testModel);
 
       expect(result.message.role).toBe("assistant");
       expect(result.message.content).toBe("Hello, I am Claude!");
-      expect(result.finishReason).toBe("stop");
-      expect(result.usage?.promptTokens).toBe(10);
-      expect(result.usage?.completionTokens).toBe(5);
-      expect(result.usage?.totalTokens).toBe(15);
+      expect(result.meta.finishReason).toBe("stop");
+      expect(result.meta.usage?.promptTokens).toBe(10);
+      expect(result.meta.usage?.completionTokens).toBe(5);
+      expect(result.meta.usage?.totalTokens).toBe(15);
 
       expect(mockGenerateText).toHaveBeenCalledOnce();
     });
@@ -130,8 +130,8 @@ describe("LlmCallerImpl", () => {
       });
 
       const messages: LlmMessage[] = [
-        { role: "system", content: "You are helpful." },
-        { role: "user", content: "Run the test" },
+        { id: "msg-1", role: "system", content: "You are helpful." },
+        { id: "msg-2", role: "user", content: "Run the test" },
       ];
 
       const toolCatalog: ToolCatalogItem[] = [
@@ -151,8 +151,8 @@ describe("LlmCallerImpl", () => {
       expect(result.message.toolCalls).toHaveLength(1);
       expect(result.message.toolCalls?.[0]?.id).toBe("call-1");
       expect(result.message.toolCalls?.[0]?.name).toBe("test.run");
-      expect(result.message.toolCalls?.[0]?.input).toEqual({ param: "value" });
-      expect(result.finishReason).toBe("tool_calls");
+      expect(result.message.toolCalls?.[0]?.args).toEqual({ param: "value" });
+      expect(result.meta.finishReason).toBe("tool_calls");
     });
 
     it("tool call이 없는 assistant 메시지에서 toolCalls는 undefined여야 한다", async () => {
@@ -179,7 +179,7 @@ describe("LlmCallerImpl", () => {
       });
 
       const messages: LlmMessage[] = [
-        { role: "user", content: "Hi" },
+        { id: "msg-1", role: "user", content: "Hi" },
       ];
 
       const result = await caller.call(messages, [], testModel);

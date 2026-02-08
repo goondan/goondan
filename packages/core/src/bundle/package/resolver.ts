@@ -14,6 +14,59 @@ import { parsePackageRef } from './ref-parser.js';
 import { DependencyResolutionError } from './errors.js';
 import type { ResourceMetadata } from '../../types/resource.js';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafePackageRelativePath(pathValue: string): boolean {
+  if (path.isAbsolute(pathValue)) {
+    return false;
+  }
+
+  const normalized = pathValue.replace(/\\/g, '/');
+  return !normalized.split('/').includes('..');
+}
+
+function assertSafePackagePath(
+  pathValue: string,
+  fieldPath: string,
+  packageRef: string
+): void {
+  if (!isSafePackageRelativePath(pathValue)) {
+    throw new DependencyResolutionError(
+      `Unsafe path in ${fieldPath}: "${pathValue}"`,
+      {
+        packageRef,
+        suggestion:
+          'Use paths relative to package root/spec.dist without absolute paths or ".." segments.',
+      }
+    );
+  }
+}
+
+function assertSafeResourceEntryPath(resource: Resource, packageRef: string): void {
+  const spec = resource.spec;
+  if (!isRecord(spec)) {
+    return;
+  }
+
+  const entry = spec.entry;
+  if (typeof entry !== 'string') {
+    return;
+  }
+
+  if (!isSafePackageRelativePath(entry)) {
+    throw new DependencyResolutionError(
+      `Unsafe path in resource spec.entry: "${entry}"`,
+      {
+        packageRef,
+        suggestion:
+          'Use spec.entry as a spec.dist-relative path without absolute paths or ".." segments.',
+      }
+    );
+  }
+}
+
 /**
  * Package 메타데이터에서 버전 추출
  */
@@ -64,9 +117,31 @@ export function createDependencyResolver(
     const resolved = new Map<string, ResolvedDependency>();
     const order = new ResolutionOrder();
     const visiting = new Set<string>();
+    const resolvedVersionsByName = new Map<string, Set<string>>();
 
     // 현재 패키지 키 (Package의 metadata에는 version 필드가 포함될 수 있음)
     const currentKey = `${pkg.metadata.name}@${getPackageVersion(pkg.metadata)}`;
+
+    function registerResolvedVersion(packageName: string, packageVersion: string): void {
+      const existing = resolvedVersionsByName.get(packageName);
+      if (!existing) {
+        resolvedVersionsByName.set(packageName, new Set([packageVersion]));
+        return;
+      }
+
+      existing.add(packageVersion);
+      if (existing.size > 1) {
+        throw new DependencyResolutionError(
+          `Version conflict for ${packageName}`,
+          {
+            packageRef: packageName,
+            conflictingVersions: Array.from(existing),
+            suggestion:
+              'Manually align dependency version ranges or use explicit overrides.',
+          }
+        );
+      }
+    }
 
     // 재귀적으로 의존성 해석
     async function resolveRecursive(
@@ -91,6 +166,10 @@ export function createDependencyResolver(
       }
 
       visiting.add(packageKey);
+      registerResolvedVersion(
+        packageResource.metadata.name,
+        getPackageVersion(packageResource.metadata)
+      );
 
       const deps = packageResource.spec.dependencies ?? [];
       const depKeys: string[] = [];
@@ -154,6 +233,10 @@ export function createDependencyResolver(
     resources: string[] | undefined,
     dist: string[]
   ): Promise<Resource[]> {
+    for (let i = 0; i < dist.length; i++) {
+      assertSafePackagePath(dist[i] ?? '', `spec.dist[${i}]`, pkgPath);
+    }
+
     if (!resources || resources.length === 0) {
       return [];
     }
@@ -163,7 +246,10 @@ export function createDependencyResolver(
     // dist 폴더 기준으로 리소스 경로 해석
     const distPath = dist.length > 0 ? path.join(pkgPath, dist[0] ?? '') : pkgPath;
 
-    for (const resourcePath of resources) {
+    for (let i = 0; i < resources.length; i++) {
+      const resourcePath = resources[i] ?? '';
+      assertSafePackagePath(resourcePath, `spec.resources[${i}]`, pkgPath);
+
       const fullPath = path.join(distPath, resourcePath);
 
       try {
@@ -171,9 +257,13 @@ export function createDependencyResolver(
         const parsed = yaml.parse(content) as Resource;
 
         if (parsed && typeof parsed === 'object') {
+          assertSafeResourceEntryPath(parsed, pkgPath);
           result.push(parsed);
         }
       } catch (error) {
+        if (error instanceof DependencyResolutionError) {
+          throw error;
+        }
         // 파일을 읽을 수 없는 경우 경고하고 계속
         console.warn(`Failed to load resource: ${fullPath}`, error);
       }

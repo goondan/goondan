@@ -98,16 +98,36 @@ export class WorkspacePaths {
     return path.join(this.instancesRoot, instanceId);
   }
 
+  instanceMetadataPath(instanceId: string): string {
+    return path.join(this.instancePath(instanceId), 'metadata.json');
+  }
+
   swarmEventsLogPath(instanceId: string): string {
     return path.join(this.instancePath(instanceId), 'swarm', 'events', 'events.jsonl');
+  }
+
+  instanceMetricsLogPath(instanceId: string): string {
+    return path.join(this.instancePath(instanceId), 'metrics', 'turns.jsonl');
+  }
+
+  extensionSharedStatePath(instanceId: string): string {
+    return path.join(this.instancePath(instanceId), 'extensions', '_shared.json');
+  }
+
+  extensionStatePath(instanceId: string, extensionName: string): string {
+    return path.join(this.instancePath(instanceId), 'extensions', extensionName, 'state.json');
   }
 
   agentPath(instanceId: string, agentName: string): string {
     return path.join(this.instancePath(instanceId), 'agents', agentName);
   }
 
-  agentMessagesLogPath(instanceId: string, agentName: string): string {
-    return path.join(this.agentPath(instanceId, agentName), 'messages', 'llm.jsonl');
+  agentMessageBaseLogPath(instanceId: string, agentName: string): string {
+    return path.join(this.agentPath(instanceId, agentName), 'messages', 'base.jsonl');
+  }
+
+  agentMessageEventsLogPath(instanceId: string, agentName: string): string {
+    return path.join(this.agentPath(instanceId, agentName), 'messages', 'events.jsonl');
   }
 
   agentEventsLogPath(instanceId: string, agentName: string): string {
@@ -151,16 +171,26 @@ export class WorkspacePaths {
    */
   createInstanceStatePaths(instanceId: string): InstanceStatePaths {
     const root = this.instancePath(instanceId);
+    const metadataFile = this.instanceMetadataPath(instanceId);
     const swarmEventsLog = this.swarmEventsLogPath(instanceId);
+    const metricsLog = this.instanceMetricsLogPath(instanceId);
+    const extensionSharedState = this.extensionSharedStatePath(instanceId);
     const self = this;
 
     return {
       root,
+      metadataFile,
       swarmEventsLog,
+      metricsLog,
+      extensionSharedState,
+      extensionState(extensionName: string): string {
+        return self.extensionStatePath(instanceId, extensionName);
+      },
       agent(agentName: string): AgentStatePaths {
         return {
           root: self.agentPath(instanceId, agentName),
-          messagesLog: self.agentMessagesLogPath(instanceId, agentName),
+          messageBaseLog: self.agentMessageBaseLogPath(instanceId, agentName),
+          messageEventsLog: self.agentMessageEventsLogPath(instanceId, agentName),
           eventsLog: self.agentEventsLogPath(instanceId, agentName),
         };
       },
@@ -192,6 +222,8 @@ export class WorkspacePaths {
       worktrees: path.join(goondanHome, 'worktrees'),
       oauth: oauthPaths,
       secrets: path.join(goondanHome, 'secrets'),
+      metricsDir: path.join(goondanHome, 'metrics'),
+      runtimeMetricsLog: path.join(goondanHome, 'metrics', 'runtime.jsonl'),
       instances: path.join(goondanHome, 'instances'),
       bundleCachePath(scope: string, name: string, version: string): string {
         return path.join(goondanHome, 'bundles', scope, name, version);

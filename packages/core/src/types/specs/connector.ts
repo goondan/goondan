@@ -1,102 +1,87 @@
 /**
- * Connector Spec 타입 정의
+ * Connector Spec 타입 정의 (v1.0)
+ * @see /docs/specs/connector.md
  * @see /docs/specs/resources.md - 6.6 Connector
+ *
+ * Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 실행 패키지이다.
+ * 인증, 라우팅, 서명 검증 시크릿은 Connection 리소스에서 관리한다.
  */
 
 import type { Resource } from '../resource.js';
-import type { ObjectRef } from '../object-ref.js';
-import type { ObjectRefLike } from '../object-ref.js';
-import type { ValueSource } from '../value-source.js';
 
 /**
  * Connector 리소스 스펙
  *
- * Connector는 순수 프로토콜 구현체(패키지 배포 단위)이다.
- * 인증, 라우팅, Egress 설정은 Connection 리소스에서 관리한다.
- * @see /docs/specs/connection.md
+ * @see /docs/specs/connector.md - 2.2 ConnectorSpec TypeScript 인터페이스
  */
 export interface ConnectorSpec {
-  /** Connector 타입 (slack, cli, github, custom 등) */
-  type: string;
-  /** 런타임 환경 (custom 타입용) */
-  runtime?: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 (custom 타입용) */
-  entry?: string;
-  /** Trigger 핸들러 목록 (custom 타입용) */
-  triggers?: TriggerConfig[];
+  /** 런타임 환경 */
+  runtime: 'node';
+  /** 엔트리 파일 경로 (단일 default export) */
+  entry: string;
+  /** Trigger 프로토콜 선언 목록 */
+  triggers: TriggerDeclaration[];
+  /** 커넥터가 emit할 수 있는 이벤트 스키마 */
+  events?: EventSchema[];
 }
 
 /**
- * Connector 인증 설정
- * - oauthAppRef: OAuth 앱 참조
- * - staticToken: 정적 토큰
- *
- * MUST: oauthAppRef와 staticToken은 동시에 존재할 수 없음
+ * Trigger 프로토콜 선언
  */
-export type ConnectorAuth =
-  | { oauthAppRef: ObjectRef; staticToken?: never }
-  | { oauthAppRef?: never; staticToken: ValueSource };
+export type TriggerDeclaration =
+  | HttpTrigger
+  | CronTrigger
+  | CliTrigger;
 
 /**
- * Ingress 규칙
+ * HTTP Trigger
+ * HTTP Webhook을 통해 이벤트를 수신한다.
  */
-export interface IngressRule {
-  /** 매칭 조건 */
-  match?: IngressMatch;
-  /** 라우팅 설정 */
-  route: IngressRoute;
+export interface HttpTrigger {
+  type: 'http';
+  endpoint: {
+    /** Webhook 수신 경로. '/'로 시작해야 한다(MUST) */
+    path: string;
+    /** HTTP 메서드 */
+    method: 'POST' | 'GET' | 'PUT' | 'DELETE';
+  };
 }
 
 /**
- * Ingress 매칭 조건
+ * Cron Trigger
+ * 주기적 스케줄에 따라 이벤트를 생성한다.
  */
-export interface IngressMatch {
-  /** 명령어 매칭 (예: "/swarm") */
-  command?: string;
-  /** 이벤트 타입 매칭 */
-  eventType?: string;
-  /** 채널 매칭 */
-  channel?: string;
+export interface CronTrigger {
+  type: 'cron';
+  /** cron 표현식 (5-field 또는 6-field) */
+  schedule: string;
 }
 
 /**
- * Ingress 라우팅 설정
+ * CLI Trigger
+ * CLI 입력을 통해 이벤트를 수신한다.
  */
-export interface IngressRoute {
-  /** 대상 Swarm */
-  swarmRef: ObjectRefLike;
-  /** instanceKey 추출 표현식 (JSONPath) */
-  instanceKeyFrom?: string;
-  /** 입력 텍스트 추출 표현식 (JSONPath) */
-  inputFrom?: string;
-  /** 대상 에이전트 이름 (선택) */
-  agentName?: string;
+export interface CliTrigger {
+  type: 'cli';
 }
 
 /**
- * Egress 설정
+ * 이벤트 스키마 선언
+ * Connector가 emit할 수 있는 이벤트의 이름과 속성 타입을 선언한다.
  */
-export interface EgressConfig {
-  /** 업데이트 정책 */
-  updatePolicy?: UpdatePolicy;
+export interface EventSchema {
+  /** 이벤트 이름 (Connector 내 고유, MUST) */
+  name: string;
+  /** 이벤트 속성 타입 선언 */
+  properties?: Record<string, EventPropertyType>;
 }
 
 /**
- * 업데이트 정책
+ * 이벤트 속성 타입
  */
-export interface UpdatePolicy {
-  /** 업데이트 모드 */
-  mode: 'replace' | 'updateInThread' | 'newMessage';
-  /** 디바운스 시간 (밀리초) */
-  debounceMs?: number;
-}
-
-/**
- * Trigger 설정
- */
-export interface TriggerConfig {
-  /** 핸들러 함수 이름 */
-  handler: string;
+export interface EventPropertyType {
+  type: 'string' | 'number' | 'boolean';
+  optional?: boolean;
 }
 
 /**

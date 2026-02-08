@@ -47,7 +47,7 @@ sample-1-coding-swarm/
 Bundle Package 매니페스트로, 다음을 정의합니다:
 - `metadata.name`: 패키지 이름 (coding-swarm)
 - `metadata.version`: 패키지 버전 (1.0.0)
-- `spec.dependencies`: 의존하는 다른 패키지
+- `spec.dependencies`: 의존하는 다른 패키지 (`@goondan/base` 포함)
 - `spec.resources`: export할 리소스 YAML 목록
 - `spec.dist`: tarball에 포함될 폴더
 
@@ -82,7 +82,7 @@ spec:
 - `coding-swarm`: 세 에이전트로 구성된 스웜
 
 ### Connector
-- `cli`: CLI 인터페이스
+- `Connection`은 `@goondan/base`의 `Connector/cli`를 참조
 
 ## 참조 스펙
 - `/docs/specs/bundle.md` - Bundle YAML 스펙

@@ -27,6 +27,51 @@ import {
 } from './git.js';
 import { validateChangesetPolicy } from './policy.js';
 
+function parsePorcelainLines(output: string): string[] {
+  return output
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+}
+
+function parseConflictingFilesFromPorcelain(output: string): string[] {
+  const files = new Set<string>();
+  for (const line of parsePorcelainLines(output)) {
+    const statusPart = line.substring(0, 2);
+    if (
+      statusPart.includes('U') ||
+      statusPart === 'AA' ||
+      statusPart === 'DD'
+    ) {
+      const filePath = line.substring(3).trim();
+      if (filePath.length > 0) {
+        files.add(filePath);
+      }
+    }
+  }
+  return Array.from(files);
+}
+
+function extractCommitSha(ref: SwarmBundleRef): string | null {
+  if (!ref.startsWith('git:')) {
+    return null;
+  }
+  const commitSha = ref.slice(4);
+  return commitSha.length > 0 ? commitSha : null;
+}
+
+function isConflictError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('conflict') ||
+    message.includes('not possible to fast-forward') ||
+    message.includes('merge') && message.includes('abort')
+  );
+}
+
 /**
  * SwarmBundleManager 생성 옵션
  */
@@ -213,6 +258,21 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
 
     // 4. 변경된 파일 목록 조회
     const statusOutput = await execGit(workdir, ['status', '--porcelain']);
+    const conflictingFiles = parseConflictingFilesFromPorcelain(statusOutput);
+    if (conflictingFiles.length > 0) {
+      return {
+        status: 'conflict',
+        changesetId,
+        baseRef,
+        error: {
+          code: 'MERGE_CONFLICT',
+          message:
+            '충돌 파일이 남아 있습니다. 충돌을 해결한 뒤 다시 commitChangeset을 호출하세요.',
+          conflictingFiles,
+        },
+      };
+    }
+
     const changedEntries = parseGitStatus(statusOutput);
 
     // 5. 변경 사항이 없으면 early return
@@ -258,6 +318,9 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
     }
 
     // 7. Git 작업 수행
+    const branchName = `changeset-${changesetId}`;
+    const summary = categorizeChangedFiles(changedEntries);
+
     try {
       // 7.1. 모든 변경 사항 스테이징
       await execGit(workdir, ['add', '-A']);
@@ -266,18 +329,63 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
       const commitMessage = message ?? `Changeset ${changesetId}`;
       await execGit(workdir, ['commit', '-m', commitMessage]);
 
-      // 7.3. 새 commit SHA 조회
+      // 7.3. baseRef 이후 정본이 앞섰다면 workdir에서 먼저 병합 시도
+      const rootHeadSha = await getHeadCommitSha(this.swarmBundleRoot);
+      const baseCommitSha = extractCommitSha(baseRef);
+      if (baseCommitSha && baseCommitSha !== rootHeadSha) {
+        try {
+          await execGit(workdir, ['merge', '--no-ff', '--no-edit', rootHeadSha]);
+        } catch (error) {
+          const unmergedFiles = await this.collectUnmergedFiles(workdir);
+          if (unmergedFiles.length > 0 || isConflictError(error)) {
+            return {
+              status: 'conflict',
+              changesetId,
+              baseRef,
+              error: {
+                code: 'MERGE_CONFLICT',
+                message:
+                  '다른 changeset이 먼저 반영되었습니다. 충돌 파일을 해결한 뒤 다시 commitChangeset을 호출하세요.',
+                conflictingFiles:
+                  unmergedFiles.length > 0 ? unmergedFiles : changedFilePaths,
+              },
+            };
+          }
+          throw error;
+        }
+      }
+
+      // 7.4. 새 commit SHA 조회
       const newSha = await getHeadCommitSha(workdir);
       const newRef = formatSwarmBundleRef(newSha);
 
-      // 7.4. SwarmBundleRoot로 변경 사항 반영
-      const branchName = `changeset-${changesetId}`;
+      // 7.5. SwarmBundleRoot로 변경 사항 반영
       await execGit(this.swarmBundleRoot, ['fetch', workdir, `HEAD:${branchName}`]);
-      await execGit(this.swarmBundleRoot, ['merge', '--ff-only', branchName]);
+      try {
+        await execGit(this.swarmBundleRoot, ['merge', '--ff-only', branchName]);
+      } catch (error) {
+        const conflictFiles = await this.collectConflictFiles(workdir, changedFilePaths);
+        if (!isConflictError(error) && conflictFiles.length === 0) {
+          throw error;
+        }
 
-      // 7.5. 정리
+        await this.deleteBranch(branchName);
+        return {
+          status: 'conflict',
+          changesetId,
+          baseRef,
+          error: {
+            code: 'MERGE_CONFLICT',
+            message:
+              'ff-only merge 실패: 다른 changeset이 먼저 반영되었습니다. 충돌 파일을 수정한 뒤 재시도하세요.',
+            conflictingFiles: conflictFiles.length > 0 ? conflictFiles : changedFilePaths,
+          },
+        };
+      }
+
+      // 7.6. 정리
       await this.cleanupWorktree(changesetId, workdir);
-      await execGit(this.swarmBundleRoot, ['branch', '-d', branchName]);
+      await this.deleteBranch(branchName);
 
       // 캐시 업데이트
       this.cachedActiveRef = newRef;
@@ -288,7 +396,7 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
         changesetId,
         baseRef,
         newRef,
-        summary: categorizeChangedFiles(changedEntries),
+        summary,
       };
     } catch (error) {
       // worktree 정리 시도
@@ -297,6 +405,7 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
       } catch {
         // 정리 실패 무시
       }
+      await this.deleteBranch(branchName);
 
       return {
         status: 'failed',
@@ -341,5 +450,37 @@ export class SwarmBundleManagerImpl implements SwarmBundleManager {
   private async cleanupWorktree(changesetId: string, workdir: string): Promise<void> {
     this.openChangesets.delete(changesetId);
     await removeWorktree(this.swarmBundleRoot, workdir);
+  }
+
+  private async collectUnmergedFiles(workdir: string): Promise<string[]> {
+    try {
+      const output = await execGit(workdir, ['diff', '--name-only', '--diff-filter=U']);
+      const fromDiff = output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      return Array.from(new Set(fromDiff));
+    } catch {
+      return [];
+    }
+  }
+
+  private async collectConflictFiles(
+    workdir: string,
+    fallbackFiles: string[]
+  ): Promise<string[]> {
+    const unmergedFiles = await this.collectUnmergedFiles(workdir);
+    if (unmergedFiles.length > 0) {
+      return unmergedFiles;
+    }
+    return Array.from(new Set(fallbackFiles));
+  }
+
+  private async deleteBranch(branchName: string): Promise<void> {
+    try {
+      await execGit(this.swarmBundleRoot, ['branch', '-D', branchName]);
+    } catch {
+      // ignore
+    }
   }
 }

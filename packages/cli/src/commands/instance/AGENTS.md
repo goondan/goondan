@@ -8,10 +8,12 @@
 |------|--------|------|
 | `index.ts` | `gdn instance` | 인스턴스 명령어 그룹 (하위 명령어 등록, utils re-export) |
 | `utils.ts` | - | 공유 유틸리티 (type guards, path/JSONL/formatting 함수) |
-| `list.ts` | `gdn instance list` | 인스턴스 목록 조회 (`--json` 출력 지원) |
+| `list.ts` | `gdn instance list` | 인스턴스 목록 조회 (`--json`, `--status` 필터 지원) |
 | `inspect.ts` | `gdn instance inspect <id>` | 인스턴스 상세 정보 조회 (`--json` 출력 지원) |
-| `delete.ts` | `gdn instance delete <id>` | 인스턴스 상태 삭제 |
+| `pause.ts` | `gdn instance pause <id>` | 인스턴스 일시 중지 (`--force` 즉시 중지) |
 | `resume.ts` | `gdn instance resume <id>` | 저장된 인스턴스 재개 (stub) |
+| `terminate.ts` | `gdn instance terminate <id>` | 인스턴스 종료 (`--force`, `--reason`) |
+| `delete.ts` | `gdn instance delete <id>` | 인스턴스 상태 삭제 |
 
 ## 구현 상태
 
@@ -37,7 +39,19 @@
   - Agent turn 이벤트: turn.started, turn.completed, turn.error
   - 커넥터 모드(Telegram 등)에서도 이벤트 로깅 지원
 
+- 인스턴스 일시 중지 (`pause`)
+  - `--force` 옵션으로 진행 중 Turn 즉시 중지
+  - 확인 후 paused 상태로 전환
+- 인스턴스 종료 (`terminate`)
+  - 확인 프롬프트 (`--force`로 스킵 가능)
+  - `--reason` 옵션으로 종료 사유 기록
+  - terminated 상태로 전환
+- 인스턴스 목록 상태 필터 (`list --status`)
+  - `running`, `paused`, `terminated` 상태 필터링
+
 ### 미구현 기능 (TODO)
+- `pause` 명령어의 실제 런타임 신호 전달
+- `terminate` 명령어의 실제 런타임 중지 로직
 - `resume` 명령어의 실제 인스턴스 재개 기능
   - SwarmBundle 로딩
   - 상태 복원
@@ -77,15 +91,23 @@
 
 ```
 ~/.goondan/instances/<workspaceId>/<instanceId>/
+├── metadata.json              # 인스턴스 상태 메타데이터
 ├── swarm/
 │   └── events/
-│       └── events.jsonl     # Swarm 이벤트 로그
-└── agents/
-    └── <agentName>/
-        ├── messages/
-        │   └── llm.jsonl    # LLM 메시지 로그
-        └── events/
-            └── events.jsonl # Agent 이벤트 로그
+│       └── events.jsonl       # Swarm 이벤트 로그
+├── agents/
+│   └── <agentName>/
+│       ├── messages/
+│       │   ├── base.jsonl     # Message base 스냅샷 로그
+│       │   └── events.jsonl   # Turn 메시지 이벤트 로그
+│       └── events/
+│           └── events.jsonl   # Agent 이벤트 로그
+├── extensions/                # Extension 상태 영속화
+│   ├── _shared.json           # instance.shared 공유 상태
+│   └── <extensionName>/
+│       └── state.json         # Extension별 격리 상태
+└── metrics/
+    └── turns.jsonl            # Turn/Step 메트릭 로그
 ```
 
 ## 데이터 플로우

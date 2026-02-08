@@ -1,33 +1,35 @@
 /**
  * MessageBuilder 구현
- * @see /docs/specs/runtime.md - 7. Turn.messages 누적 규칙
+ * @see /docs/specs/runtime.md - 7. Turn 메시지 상태 모델 (Base + Events)
  */
 
-import type { LlmMessage } from './types.js';
+import type { LlmMessage, TurnMessageState, MessageEvent, SystemMessageEvent, LlmMessageEvent } from './types.js';
+import { computeNextMessages } from './types.js';
 
 /**
  * Turn 인터페이스 (순환 참조 방지용)
  */
 interface TurnLike {
+  readonly messageState: TurnMessageState;
+  /** @deprecated messageState.nextMessages를 사용 */
   readonly messages: LlmMessage[];
 }
 
 /**
- * MessageBuilder: Turn.messages 누적 관리
+ * MessageBuilder: Turn messageState 관리
  *
  * 규칙:
- * - MUST: 각 Step의 LLM 응답을 순서대로 append
- * - MUST: 각 Tool 결과를 순서대로 append
- * - MUST: 다음 Step의 입력 컨텍스트로 사용
+ * - MUST: NextMessages = BaseMessages + SUM(Events)
+ * - MUST: events는 append order를 보존
  */
 export interface MessageBuilder {
   /**
-   * 메시지 추가
+   * 메시지를 이벤트로 추가하고 nextMessages 재계산
    */
   append(turn: TurnLike, message: LlmMessage): void;
 
   /**
-   * 현재 메시지 목록 조회
+   * 현재 메시지 목록 조회 (nextMessages)
    */
   getMessages(turn: TurnLike): readonly LlmMessage[];
 
@@ -42,15 +44,41 @@ export interface MessageBuilder {
  */
 class MessageBuilderImpl implements MessageBuilder {
   append(turn: TurnLike, message: LlmMessage): void {
-    turn.messages.push(message);
+    let event: MessageEvent;
+    if (message.role === 'system') {
+      const sysEvent: SystemMessageEvent = {
+        type: 'system_message',
+        seq: turn.messageState.events.length,
+        message,
+      };
+      event = sysEvent;
+    } else {
+      const llmEvent: LlmMessageEvent = {
+        type: 'llm_message',
+        seq: turn.messageState.events.length,
+        message,
+      };
+      event = llmEvent;
+    }
+    turn.messageState.events.push(event);
+    // nextMessages 재계산
+    const recomputed = computeNextMessages(
+      turn.messageState.baseMessages,
+      turn.messageState.events
+    );
+    turn.messageState.nextMessages.splice(
+      0,
+      turn.messageState.nextMessages.length,
+      ...recomputed
+    );
   }
 
   getMessages(turn: TurnLike): readonly LlmMessage[] {
-    return turn.messages;
+    return turn.messageState.nextMessages;
   }
 
   buildLlmMessages(turn: TurnLike, systemPrompt: string): LlmMessage[] {
-    return buildLlmMessages(turn.messages, systemPrompt);
+    return buildLlmMessages(turn.messageState.nextMessages, systemPrompt);
   }
 }
 
@@ -76,6 +104,7 @@ export function buildLlmMessages(
 
   // 1. 시스템 프롬프트
   result.push({
+    id: 'msg-sys-0',
     role: 'system',
     content: systemPrompt,
   });

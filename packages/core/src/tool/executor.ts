@@ -11,6 +11,7 @@ import type { ToolCatalog } from './catalog.js';
 import type { ToolCall, ToolResult, ToolContext } from './types.js';
 import {
   createToolErrorResult,
+  createToolNotInCatalogResult,
   createToolSuccessResult,
   createToolPendingResult,
   isAsyncToolResult,
@@ -49,7 +50,12 @@ export class ToolExecutor {
     context: ToolContext,
     catalog?: ToolCatalog
   ): Promise<ToolResult> {
-    const { id: toolCallId, name: toolName, arguments: args } = toolCall;
+    const { id: toolCallId, name: toolName, args } = toolCall;
+
+    // 기본 정책: 현재 Step의 Tool Catalog에 없는 도구는 거부
+    if (catalog && !catalog.has(toolName)) {
+      return createToolNotInCatalogResult(toolCallId, toolName);
+    }
 
     try {
       // Registry에서 Tool 조회

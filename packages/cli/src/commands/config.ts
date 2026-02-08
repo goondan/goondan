@@ -96,7 +96,8 @@ function parseValue(key: ConfigKey, valueStr: string): GoondanConfig[ConfigKey] 
  */
 async function executeConfigGet(
   key: string,
-  jsonOutput: boolean
+  jsonOutput: boolean,
+  stateRoot?: string,
 ): Promise<void> {
   if (!isValidConfigKey(key)) {
     logError(`Invalid config key: ${key}`);
@@ -106,7 +107,10 @@ async function executeConfigGet(
   }
 
   try {
-    const value = await getConfigValue(key);
+    const config = await loadConfig({
+      cliStateRoot: stateRoot,
+    });
+    const value = config[key];
 
     if (jsonOutput) {
       console.log(JSON.stringify({ key, value }));
@@ -160,9 +164,14 @@ async function executeConfigSet(
 /**
  * Execute config list subcommand
  */
-async function executeConfigList(jsonOutput: boolean): Promise<void> {
+async function executeConfigList(
+  jsonOutput: boolean,
+  stateRoot?: string,
+): Promise<void> {
   try {
-    const config = await loadConfig();
+    const config = await loadConfig({
+      cliStateRoot: stateRoot,
+    });
     const globalConfig = await loadConfigFile(getGlobalConfigPath());
     const projectConfigPath = getProjectConfigPath();
     const projectConfig = projectConfigPath
@@ -311,8 +320,13 @@ function createGetCommand(): Command {
     .description("Get a configuration value")
     .argument("<key>", `Config key (${CONFIG_KEYS.join(", ")})`)
     .action(async (key: string, _opts: unknown, cmd: Command) => {
-      const parentOpts = cmd.parent?.opts() as { json?: boolean } | undefined;
-      await executeConfigGet(key, parentOpts?.json === true);
+      const globalOpts = cmd.optsWithGlobals<{
+        json?: boolean;
+        stateRoot?: string;
+      }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
+      await executeConfigGet(key, globalOpts.json === true, stateRoot);
     });
 }
 
@@ -337,8 +351,13 @@ function createListConfigCommand(): Command {
   return new Command("list")
     .description("List all configuration values")
     .action(async (_opts: unknown, cmd: Command) => {
-      const parentOpts = cmd.parent?.opts() as { json?: boolean } | undefined;
-      await executeConfigList(parentOpts?.json === true);
+      const globalOpts = cmd.optsWithGlobals<{
+        json?: boolean;
+        stateRoot?: string;
+      }>();
+      const stateRoot =
+        typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
+      await executeConfigList(globalOpts.json === true, stateRoot);
     });
 }
 
@@ -391,8 +410,13 @@ export function createConfigCommand(): Command {
 
   // If no subcommand provided, show list by default
   command.action(async (_opts: unknown, cmd: Command) => {
-    const parentOpts = cmd.opts() as { json?: boolean } | undefined;
-    await executeConfigList(parentOpts?.json === true);
+    const globalOpts = cmd.optsWithGlobals<{
+      json?: boolean;
+      stateRoot?: string;
+    }>();
+    const stateRoot =
+      typeof globalOpts.stateRoot === "string" ? globalOpts.stateRoot : undefined;
+    await executeConfigList(globalOpts.json === true, stateRoot);
   });
 
   return command;

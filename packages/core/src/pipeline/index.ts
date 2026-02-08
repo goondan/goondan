@@ -33,6 +33,7 @@ export type {
   BasePipelineContext,
   TurnContext as PipelineTurnContext,
   StepContext as PipelineStepContext,
+  LlmInputContext as PipelineLlmInputContext,
   ToolCallContext as PipelineToolCallContext,
   WorkspaceContext as PipelineWorkspaceContext,
   LlmErrorContext as PipelineLlmErrorContext,
@@ -45,6 +46,7 @@ export type {
   ToolCatalogItem as PipelineToolCatalogItem,
   ContextBlock,
   LlmMessage as PipelineLlmMessage,
+  MessageEvent as PipelineMessageEvent,
   SwarmInstanceRef,
   EventBus as PipelineEventBus,
   PipelineContextMap,
@@ -57,6 +59,7 @@ export type {
 export type {
   TurnContext,
   StepContext,
+  LlmInputContext,
   ToolCallContext,
   WorkspaceContext,
   LlmErrorContext,
@@ -68,6 +71,7 @@ export type {
   LlmResult,
   ToolCatalogItem,
   LlmMessage,
+  MessageEvent,
   EventBus,
 } from './context.js';
 

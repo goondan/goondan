@@ -6,13 +6,31 @@
 import { ReferenceError, ValidationError } from './errors.js';
 import { validateScopesSubset } from './validator.js';
 import type { Resource, ObjectRefLike, ObjectRef } from '../types/index.js';
-import { normalizeObjectRef, isSelectorWithOverrides, getSpec } from '../types/index.js';
+import {
+  normalizeObjectRef,
+  isSelectorWithOverrides,
+  isObjectRefLike,
+  getSpec,
+} from '../types/index.js';
+
+/** unknown 값이 Record<string, unknown> 형태인지 확인하는 타입 가드 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
 
 /**
  * 리소스 인덱스 타입
  * key: "Kind/name" 형식
  */
 export type ResourceIndex = Map<string, Resource>;
+
+interface ReferenceLookup {
+  byKey: Map<string, Resource[]>;
+}
 
 /**
  * 리소스 배열을 인덱스로 변환
@@ -31,6 +49,22 @@ export function createResourceIndex(resources: Resource[]): ResourceIndex {
   return index;
 }
 
+function createReferenceLookup(resources: Resource[]): ReferenceLookup {
+  const byKey = new Map<string, Resource[]>();
+
+  for (const resource of resources) {
+    const key = `${resource.kind}/${resource.metadata.name}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.push(resource);
+    } else {
+      byKey.set(key, [resource]);
+    }
+  }
+
+  return { byKey };
+}
+
 /**
  * ObjectRef를 해석하여 리소스 반환
  *
@@ -45,7 +79,14 @@ export function resolveObjectRef(
   try {
     const normalized = normalizeObjectRef(ref);
     const key = `${normalized.kind}/${normalized.name}`;
-    return index.get(key);
+    const resolved = index.get(key);
+    if (!resolved) {
+      return undefined;
+    }
+    if (normalized.package && !matchesPackageScope(resolved, normalized.package)) {
+      return undefined;
+    }
+    return resolved;
   } catch {
     return undefined;
   }
@@ -62,9 +103,10 @@ export function resolveAllReferences(
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
   const index = createResourceIndex(resources);
+  const lookup = createReferenceLookup(resources);
 
   for (const resource of resources) {
-    const resourceErrors = validateResourceReferences(resource, index);
+    const resourceErrors = validateResourceReferences(resource, index, lookup);
     errors.push(...resourceErrors);
   }
 
@@ -76,7 +118,8 @@ export function resolveAllReferences(
  */
 function validateResourceReferences(
   resource: Resource,
-  index: ResourceIndex
+  index: ResourceIndex,
+  lookup: ReferenceLookup
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
   const ctx = {
@@ -86,22 +129,22 @@ function validateResourceReferences(
 
   switch (resource.kind) {
     case 'Agent':
-      errors.push(...validateAgentReferences(resource, index, ctx));
+      errors.push(...validateAgentReferences(resource, index, lookup, ctx));
       break;
     case 'Swarm':
-      errors.push(...validateSwarmReferences(resource, index, ctx));
+      errors.push(...validateSwarmReferences(resource, index, lookup, ctx));
       break;
     case 'Tool':
-      errors.push(...validateToolReferences(resource, index, ctx));
+      errors.push(...validateToolReferences(resource, index, lookup, ctx));
       break;
     case 'Connector':
-      errors.push(...validateConnectorReferences(resource, index, ctx));
+      errors.push(...validateConnectorReferences(resource, index, lookup, ctx));
       break;
     case 'Connection':
-      errors.push(...validateConnectionReferences(resource, index, ctx));
+      errors.push(...validateConnectionReferences(resource, index, lookup, ctx));
       break;
     case 'ResourceType':
-      errors.push(...validateResourceTypeReferences(resource, index, ctx));
+      errors.push(...validateResourceTypeReferences(resource, index, lookup, ctx));
       break;
   }
 
@@ -113,7 +156,8 @@ function validateResourceReferences(
  */
 function validateAgentReferences(
   resource: Resource,
-  index: ResourceIndex,
+  _index: ResourceIndex,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
@@ -123,7 +167,7 @@ function validateAgentReferences(
   const modelConfig = spec.modelConfig as Record<string, unknown> | undefined;
   if (modelConfig?.modelRef) {
     const ref = modelConfig.modelRef;
-    const error = validateSingleRef(ref, 'Model', index, ctx);
+    const error = validateSingleRef(ref, 'Model', lookup, ctx);
     if (error) errors.push(error);
   }
 
@@ -135,7 +179,7 @@ function validateAgentReferences(
       if (isSelectorWithOverrides(item)) {
         continue;
       }
-      const error = validateSingleRef(item, 'Tool', index, ctx);
+      const error = validateSingleRef(item, 'Tool', lookup, ctx);
       if (error) errors.push(error);
     }
   }
@@ -147,7 +191,7 @@ function validateAgentReferences(
       if (isSelectorWithOverrides(item)) {
         continue;
       }
-      const error = validateSingleRef(item, 'Extension', index, ctx);
+      const error = validateSingleRef(item, 'Extension', lookup, ctx);
       if (error) errors.push(error);
     }
   }
@@ -160,7 +204,8 @@ function validateAgentReferences(
  */
 function validateSwarmReferences(
   resource: Resource,
-  index: ResourceIndex,
+  _index: ResourceIndex,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
@@ -168,7 +213,7 @@ function validateSwarmReferences(
 
   // entrypoint 검증
   if (spec.entrypoint) {
-    const error = validateSingleRef(spec.entrypoint, 'Agent', index, ctx);
+    const error = validateSingleRef(spec.entrypoint, 'Agent', lookup, ctx);
     if (error) errors.push(error);
   }
 
@@ -176,7 +221,7 @@ function validateSwarmReferences(
   const agents = spec.agents as unknown[] | undefined;
   if (Array.isArray(agents)) {
     for (const item of agents) {
-      const error = validateSingleRef(item, 'Agent', index, ctx);
+      const error = validateSingleRef(item, 'Agent', lookup, ctx);
       if (error) errors.push(error);
     }
   }
@@ -184,15 +229,14 @@ function validateSwarmReferences(
   // entrypoint가 agents에 포함되어 있는지 검증
   if (spec.entrypoint && Array.isArray(agents)) {
     const entrypointNormalized = safeNormalizeRef(spec.entrypoint);
-    const agentsNormalized = agents
-      .map((a) => safeNormalizeRef(a))
-      .filter((a): a is ObjectRef => a !== null);
+    const entrypointResolved = resolveUniqueRef(spec.entrypoint, 'Agent', lookup);
+    const resolvedAgents = agents
+      .map((agentRef) => resolveUniqueRef(agentRef, 'Agent', lookup))
+      .filter((agent): agent is Resource => agent !== null);
 
-    if (entrypointNormalized) {
-      const isIncluded = agentsNormalized.some(
-        (a) =>
-          a.kind === entrypointNormalized.kind &&
-          a.name === entrypointNormalized.name
+    if (entrypointNormalized && entrypointResolved) {
+      const isIncluded = resolvedAgents.some(
+        (agent) => agent === entrypointResolved
       );
 
       if (!isIncluded) {
@@ -214,30 +258,33 @@ function validateSwarmReferences(
  */
 function validateToolReferences(
   resource: Resource,
-  index: ResourceIndex,
+  _index: ResourceIndex,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
   const spec = getSpec(resource);
+  const auth = isRecord(spec.auth) ? spec.auth : undefined;
+  const toolAuthScopes =
+    auth && isStringArray(auth.scopes) ? auth.scopes : undefined;
+  const toolExports = Array.isArray(spec.exports) ? spec.exports : [];
 
   // auth.oauthAppRef 검증
-  const auth = spec.auth as Record<string, unknown> | undefined;
   if (auth?.oauthAppRef) {
-    const error = validateSingleRef(auth.oauthAppRef, 'OAuthApp', index, ctx);
+    const error = validateSingleRef(auth.oauthAppRef, 'OAuthApp', lookup, ctx);
     if (error) {
       errors.push(error);
     } else {
       // scopes 부분집합 검증
-      const oauthApp = resolveObjectRef(
-        auth.oauthAppRef as ObjectRefLike,
-        index
-      );
-      if (oauthApp && auth.scopes && Array.isArray(auth.scopes)) {
-        const oauthAppSpec = oauthApp.spec as Record<string, unknown>;
-        const parentScopes = oauthAppSpec.scopes as string[] | undefined;
-        if (parentScopes) {
+      const oauthApp = resolveUniqueRef(auth.oauthAppRef, 'OAuthApp', lookup);
+      if (oauthApp && toolAuthScopes) {
+        const oauthAppSpec = getSpec(oauthApp);
+        const parentScopes = isStringArray(oauthAppSpec.scopes)
+          ? oauthAppSpec.scopes
+          : undefined;
+        if (parentScopes && parentScopes.length > 0) {
           const scopeErrors = validateScopesSubset(
-            auth.scopes as string[],
+            toolAuthScopes,
             parentScopes,
             '/spec/auth/scopes'
           );
@@ -245,6 +292,39 @@ function validateToolReferences(
         }
       }
     }
+  }
+
+  for (let i = 0; i < toolExports.length; i++) {
+    const exportSpec = toolExports[i];
+    if (!isRecord(exportSpec) || !isRecord(exportSpec.auth)) {
+      continue;
+    }
+
+    const exportAuthScopes = isStringArray(exportSpec.auth.scopes)
+      ? exportSpec.auth.scopes
+      : undefined;
+    if (!exportAuthScopes || exportAuthScopes.length === 0) {
+      continue;
+    }
+
+    if (!toolAuthScopes) {
+      errors.push(
+        new ValidationError(
+          'Export auth.scopes requires Tool.auth.scopes to be declared',
+          {
+            path: `/spec/exports/${i}/auth/scopes`,
+          }
+        )
+      );
+      continue;
+    }
+
+    const scopeErrors = validateScopesSubset(
+      exportAuthScopes,
+      toolAuthScopes,
+      `/spec/exports/${i}/auth/scopes`
+    );
+    errors.push(...scopeErrors);
   }
 
   return errors;
@@ -257,6 +337,7 @@ function validateToolReferences(
 function validateConnectorReferences(
   _resource: Resource,
   _index: ResourceIndex,
+  _lookup: ReferenceLookup,
   _ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   return [];
@@ -267,7 +348,8 @@ function validateConnectorReferences(
  */
 function validateConnectionReferences(
   resource: Resource,
-  index: ResourceIndex,
+  _index: ResourceIndex,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
@@ -275,28 +357,29 @@ function validateConnectionReferences(
 
   // connectorRef → Connector 참조 검증
   if (spec.connectorRef) {
-    const error = validateSingleRef(spec.connectorRef, 'Connector', index, ctx);
+    const error = validateSingleRef(spec.connectorRef, 'Connector', lookup, ctx);
     if (error) errors.push(error);
   }
 
   // auth.oauthAppRef → OAuthApp 참조 검증
   const auth = spec.auth as Record<string, unknown> | undefined;
   if (auth?.oauthAppRef) {
-    const error = validateSingleRef(auth.oauthAppRef, 'OAuthApp', index, ctx);
+    const error = validateSingleRef(auth.oauthAppRef, 'OAuthApp', lookup, ctx);
     if (error) errors.push(error);
   }
 
-  // rules[].route.swarmRef → Swarm 참조 검증
-  const rules = spec.rules as unknown[] | undefined;
-  if (Array.isArray(rules)) {
-    for (const rule of rules) {
-      if (rule && typeof rule === 'object') {
-        const route = (rule as Record<string, unknown>).route as
-          | Record<string, unknown>
-          | undefined;
-        if (route?.swarmRef) {
-          const error = validateSingleRef(route.swarmRef, 'Swarm', index, ctx);
-          if (error) errors.push(error);
+  // ingress.rules[].route.agentRef → Agent 참조 검증
+  const ingress = spec.ingress;
+  if (isRecord(ingress)) {
+    const rules = ingress.rules;
+    if (Array.isArray(rules)) {
+      for (const rule of rules) {
+        if (isRecord(rule)) {
+          const route = rule.route;
+          if (isRecord(route) && route.agentRef) {
+            const error = validateSingleRef(route.agentRef, 'Agent', lookup, ctx);
+            if (error) errors.push(error);
+          }
         }
       }
     }
@@ -310,7 +393,8 @@ function validateConnectionReferences(
  */
 function validateResourceTypeReferences(
   resource: Resource,
-  index: ResourceIndex,
+  _index: ResourceIndex,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): (ReferenceError | ValidationError)[] {
   const errors: (ReferenceError | ValidationError)[] = [];
@@ -321,7 +405,7 @@ function validateResourceTypeReferences(
     const error = validateSingleRef(
       spec.handlerRef,
       'ExtensionHandler',
-      index,
+      lookup,
       ctx
     );
     if (error) errors.push(error);
@@ -335,8 +419,8 @@ function validateResourceTypeReferences(
  */
 function validateSingleRef(
   ref: unknown,
-  _expectedKind: string,
-  index: ResourceIndex,
+  expectedKind: string,
+  lookup: ReferenceLookup,
   ctx: { sourceKind: string; sourceName: string }
 ): ReferenceError | null {
   // null/undefined 체크
@@ -344,13 +428,31 @@ function validateSingleRef(
     return null;
   }
 
-  try {
-    const normalized = normalizeObjectRef(ref as ObjectRefLike);
-    const key = `${normalized.kind}/${normalized.name}`;
+  const normalized = safeNormalizeRef(ref);
+  if (!normalized) {
+    const refStr = typeof ref === 'string' ? ref : JSON.stringify(ref);
+    return new ReferenceError(
+      `Invalid reference format: ${refStr}`,
+      ctx
+    );
+  }
 
-    if (!index.has(key)) {
+  if (normalized.kind !== expectedKind) {
+    return new ReferenceError(
+      `Invalid reference kind: expected ${expectedKind}, got ${normalized.kind}`,
+      {
+        ...ctx,
+        targetKind: normalized.kind,
+        targetName: normalized.name,
+      }
+    );
+  }
+
+  const matches = findReferenceMatches(normalized, lookup);
+  if (matches.length === 0) {
+    if (normalized.package) {
       return new ReferenceError(
-        `Referenced resource not found: ${key}`,
+        `Referenced resource not found in package "${normalized.package}": ${normalized.kind}/${normalized.name}`,
         {
           ...ctx,
           targetKind: normalized.kind,
@@ -359,23 +461,118 @@ function validateSingleRef(
       );
     }
 
-    return null;
-  } catch {
-    // 잘못된 형식의 참조
-    const refStr = typeof ref === 'string' ? ref : JSON.stringify(ref);
     return new ReferenceError(
-      `Invalid reference format: ${refStr}`,
-      ctx
+      `Referenced resource not found: ${normalized.kind}/${normalized.name}`,
+      {
+        ...ctx,
+        targetKind: normalized.kind,
+        targetName: normalized.name,
+      }
     );
   }
+
+  if (!normalized.package && matches.length > 1) {
+    const namespaces = matches.map((match) => describeResourceNamespace(match));
+    return new ReferenceError(
+      `Ambiguous reference "${normalized.kind}/${normalized.name}". Multiple resources matched (${namespaces.join(', ')}). Specify ObjectRef.package to disambiguate.`,
+      {
+        ...ctx,
+        targetKind: normalized.kind,
+        targetName: normalized.name,
+      }
+    );
+  }
+
+  return null;
+}
+
+function findReferenceMatches(
+  normalized: ObjectRef,
+  lookup: ReferenceLookup
+): Resource[] {
+  const key = `${normalized.kind}/${normalized.name}`;
+  const candidates = lookup.byKey.get(key) ?? [];
+
+  if (!normalized.package) {
+    return candidates;
+  }
+
+  return candidates.filter((candidate) =>
+    matchesPackageScope(candidate, normalized.package ?? '')
+  );
+}
+
+function getPackageAnnotation(resource: Resource, key: string): string | undefined {
+  const annotations = resource.metadata.annotations;
+  if (!isRecord(annotations)) {
+    return undefined;
+  }
+
+  const value = annotations[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function matchesPackageScope(resource: Resource, packageScope: string): boolean {
+  const packageName = getPackageAnnotation(resource, 'goondan.io/package');
+  if (!packageName) {
+    return false;
+  }
+
+  if (packageScope === packageName) {
+    return true;
+  }
+
+  const packageVersion = getPackageAnnotation(
+    resource,
+    'goondan.io/package-version'
+  );
+  if (packageVersion) {
+    return packageScope === `${packageName}@${packageVersion}`;
+  }
+
+  return false;
+}
+
+function describeResourceNamespace(resource: Resource): string {
+  const packageName = getPackageAnnotation(resource, 'goondan.io/package');
+  if (!packageName) {
+    return 'root';
+  }
+
+  const packageVersion = getPackageAnnotation(
+    resource,
+    'goondan.io/package-version'
+  );
+  return packageVersion ? `${packageName}@${packageVersion}` : packageName;
+}
+
+function resolveUniqueRef(
+  ref: unknown,
+  expectedKind: string,
+  lookup: ReferenceLookup
+): Resource | null {
+  const normalized = safeNormalizeRef(ref);
+  if (!normalized || normalized.kind !== expectedKind) {
+    return null;
+  }
+
+  const matches = findReferenceMatches(normalized, lookup);
+  if (normalized.package) {
+    return matches.length > 0 ? matches[0] ?? null : null;
+  }
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 /**
  * 안전한 ObjectRef 정규화 (오류 시 null 반환)
  */
 function safeNormalizeRef(ref: unknown): ObjectRef | null {
+  if (!isObjectRefLike(ref)) {
+    return null;
+  }
+
   try {
-    return normalizeObjectRef(ref as ObjectRefLike);
+    return normalizeObjectRef(ref);
   } catch {
     return null;
   }

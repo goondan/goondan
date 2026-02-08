@@ -1,231 +1,127 @@
 /**
- * TriggerHandler 실행
- * @see /docs/specs/connector.md - 6. Trigger Handler 시스템, 7. Trigger Execution Model
+ * Connector Entry Function 로딩 및 실행 (v1.0)
+ * @see /docs/specs/connector.md - 5. Entry Function 실행 모델
+ *
+ * Connector의 entry 모듈을 로드하고 ConnectorContext를 생성하여
+ * Connection마다 entry 함수를 호출한다.
  */
 
 import type { Resource, ConnectorSpec, ConnectionSpec } from '../types/index.js';
-import type { TriggerConfig } from '../types/specs/connector.js';
 import type {
-  TriggerHandler,
-  TriggerEvent,
-  TriggerContext,
-  CanonicalEvent,
+  ConnectorEntryFunction,
+  ConnectorContext,
+  ConnectorTriggerEvent,
+  ConnectorEvent,
   OAuthTokenRequest,
   OAuthTokenResult,
-  LiveConfigPatch,
 } from './types.js';
 
 /**
- * TriggerExecutor 옵션
+ * ConnectorContext 생성 옵션
  */
-export interface TriggerExecutorOptions {
-  /** Canonical event 발행 콜백 */
-  onEmit: (event: CanonicalEvent) => Promise<void>;
-  /** 로거 */
-  logger: Console;
-  /** Connector 설정 (선택) */
-  connector?: Resource<ConnectorSpec>;
-  /** Connection 설정 (선택) */
-  connection?: Resource<ConnectionSpec>;
-  /** OAuth API (선택) */
-  oauth?: {
-    getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
-  };
-  /** LiveConfig API (선택) */
-  liveConfig?: {
-    proposePatch(patch: LiveConfigPatch): Promise<void>;
-  };
-}
-
-/**
- * TriggerContext 생성 옵션
- */
-export interface CreateTriggerContextOptions {
-  /** Connector 설정 */
+export interface CreateConnectorContextOptions {
+  /** Connector 리소스 */
   connector: Resource<ConnectorSpec>;
-  /** Connection 설정 */
+  /** Connection 리소스 */
   connection: Resource<ConnectionSpec>;
-  /** Canonical event 발행 콜백 */
-  onEmit: (event: CanonicalEvent) => Promise<void>;
+  /** 트리거 이벤트 */
+  event: ConnectorTriggerEvent;
+  /** ConnectorEvent 발행 콜백 */
+  onEmit: (event: ConnectorEvent) => Promise<void>;
   /** 로거 */
   logger: Console;
   /** OAuth API (선택) */
   oauth?: {
     getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
   };
-  /** LiveConfig API (선택) */
-  liveConfig?: {
-    proposePatch(patch: LiveConfigPatch): Promise<void>;
+  /** 서명 검증 정보 (선택, Connection의 verify 블록에서 해석된 값) */
+  verify?: {
+    webhook?: {
+      signingSecret: string;
+    };
   };
 }
 
 /**
- * TriggerContext를 생성한다.
+ * ConnectorContext를 생성한다.
  *
  * @param options - 생성 옵션
- * @returns TriggerContext
+ * @returns ConnectorContext
  */
-export function createTriggerContext(options: CreateTriggerContextOptions): TriggerContext {
-  const ctx: TriggerContext = {
+export function createConnectorContext(options: CreateConnectorContextOptions): ConnectorContext {
+  const ctx: ConnectorContext = {
+    event: options.event,
+    connection: options.connection,
+    connector: options.connector,
     emit: options.onEmit,
     logger: options.logger,
-    connector: options.connector,
-    connection: options.connection,
   };
 
   if (options.oauth) {
     ctx.oauth = options.oauth;
   }
 
-  if (options.liveConfig) {
-    ctx.liveConfig = options.liveConfig;
+  if (options.verify) {
+    ctx.verify = options.verify;
   }
 
   return ctx;
 }
 
 /**
- * Trigger 실행기
- * Trigger handler를 등록하고 실행한다.
+ * Entry Function 검증 결과
  */
-export class TriggerExecutor {
-  private readonly handlers: Map<string, TriggerHandler> = new Map();
-  private readonly options: TriggerExecutorOptions;
-
-  constructor(options: TriggerExecutorOptions) {
-    this.options = options;
-  }
-
-  /**
-   * Handler를 등록한다.
-   *
-   * @param name - Handler 이름
-   * @param handler - Handler 함수
-   */
-  registerHandler(name: string, handler: TriggerHandler): void {
-    this.handlers.set(name, handler);
-  }
-
-  /**
-   * Handler가 등록되어 있는지 확인한다.
-   *
-   * @param name - Handler 이름
-   * @returns 등록 여부
-   */
-  hasHandler(name: string): boolean {
-    return this.handlers.has(name);
-  }
-
-  /**
-   * Handler를 실행한다.
-   *
-   * @param handlerName - Handler 이름
-   * @param event - Trigger 이벤트
-   * @param connection - Connection 설정
-   */
-  async execute(
-    handlerName: string,
-    event: TriggerEvent,
-    connection: Resource<ConnectionSpec>
-  ): Promise<void> {
-    const handler = this.handlers.get(handlerName);
-    if (!handler) {
-      throw new Error(`Handler not found: ${handlerName}`);
-    }
-
-    // 기본 Connector 설정
-    const defaultConnector: Resource<ConnectorSpec> = {
-      apiVersion: 'agents.example.io/v1alpha1',
-      kind: 'Connector',
-      metadata: { name: 'default' },
-      spec: { type: 'custom' },
-    };
-
-    // 기본 Connection 설정
-    const defaultConnection: Resource<ConnectionSpec> = {
-      apiVersion: 'agents.example.io/v1alpha1',
-      kind: 'Connection',
-      metadata: { name: 'default' },
-      spec: { connectorRef: { kind: 'Connector', name: 'default' } },
-    };
-
-    const ctx = createTriggerContext({
-      connector: this.options.connector ?? defaultConnector,
-      connection: this.options.connection ?? connection ?? defaultConnection,
-      onEmit: this.options.onEmit,
-      logger: this.options.logger,
-      oauth: this.options.oauth,
-      liveConfig: this.options.liveConfig,
-    });
-
-    await handler(event, connection, ctx);
-  }
-}
-
-/**
- * Handler 검증 결과
- */
-export interface ValidateResult {
+export interface ValidateEntryResult {
   valid: boolean;
   errors: string[];
 }
 
 /**
- * 모듈에서 trigger handler를 로드한다.
+ * 모듈에서 default export 함수를 로드한다.
  *
  * @param module - 로드된 모듈
- * @param handlerNames - 로드할 handler 이름 목록
- * @returns Handler Map
- * @throws Handler가 존재하지 않거나 함수가 아닌 경우
+ * @returns ConnectorEntryFunction
+ * @throws default export가 존재하지 않거나 함수가 아닌 경우
  */
-export function loadTriggerModule(
-  module: Record<string, unknown>,
-  handlerNames: string[]
-): Map<string, TriggerHandler> {
-  const handlers = new Map<string, TriggerHandler>();
+export function loadConnectorEntry(
+  module: Record<string, unknown>
+): ConnectorEntryFunction {
+  const entry = module['default'];
 
-  for (const name of handlerNames) {
-    const handler = module[name];
-
-    if (handler === undefined) {
-      throw new Error(`Handler not exported: ${name}`);
-    }
-
-    if (typeof handler !== 'function') {
-      throw new Error(`Handler is not a function: ${name}`);
-    }
-
-    // typeof handler === 'function'이 위에서 검증됨
-    handlers.set(name, handler as TriggerHandler);
+  if (entry === undefined) {
+    throw new Error('Connector entry module must have a default export');
   }
 
-  return handlers;
+  if (typeof entry !== 'function') {
+    throw new Error('Connector entry default export must be a function');
+  }
+
+  // typeof entry === 'function'이 위에서 검증됨
+  // ConnectorEntryFunction 시그니처를 런타임에 완전히 검증할 수는 없으므로
+  // 함수 타입을 신뢰한다
+  const entryFn: ConnectorEntryFunction = (ctx: ConnectorContext) =>
+    (entry as (...args: unknown[]) => Promise<void>)(ctx);
+
+  return entryFn;
 }
 
 /**
- * trigger handler의 유효성을 검증한다.
+ * Connector entry 모듈의 유효성을 검증한다.
  *
  * @param module - 검증할 모듈
- * @param triggers - Trigger 설정 목록
  * @returns 검증 결과
  */
-export function validateTriggerHandlers(
-  module: Record<string, unknown>,
-  triggers: TriggerConfig[]
-): ValidateResult {
+export function validateConnectorEntry(
+  module: Record<string, unknown>
+): ValidateEntryResult {
   const errors: string[] = [];
 
-  for (const trigger of triggers) {
-    const handler = module[trigger.handler];
+  const entry = module['default'];
 
-    if (handler === undefined) {
-      errors.push(`Handler not exported: ${trigger.handler}`);
-      continue;
-    }
-
-    if (typeof handler !== 'function') {
-      errors.push(`Handler is not a function: ${trigger.handler}`);
-    }
+  if (entry === undefined) {
+    errors.push('default export not found');
+  } else if (typeof entry !== 'function') {
+    errors.push('default export is not a function');
   }
 
   return {

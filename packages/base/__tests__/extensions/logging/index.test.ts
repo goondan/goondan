@@ -131,9 +131,13 @@ function createMockStepContext(overrides: Partial<ExtStepContext> = {}): ExtStep
       spec: { model: { ref: '' } },
     },
     turn: {
-      messages: [
-        { role: 'user', content: 'Hello!' },
-      ] as ExtLlmMessage[],
+      messageState: {
+        baseMessages: [],
+        events: [],
+        nextMessages: [
+          { id: 'msg-1', role: 'user', content: 'Hello!' },
+        ] as ExtLlmMessage[],
+      },
       metadata: {},
     },
     step: {
@@ -157,10 +161,14 @@ function createMockTurnContext(overrides: Partial<ExtTurnContext> = {}): ExtTurn
       spec: { model: { ref: '' } },
     },
     turn: {
-      messages: [
-        { role: 'user', content: 'Hello!' },
-        { role: 'assistant', content: 'Hi there!' },
-      ] as ExtLlmMessage[],
+      messageState: {
+        baseMessages: [],
+        events: [],
+        nextMessages: [
+          { id: 'msg-1', role: 'user', content: 'Hello!' },
+          { id: 'msg-2', role: 'assistant', content: 'Hi there!' },
+        ] as ExtLlmMessage[],
+      },
       metadata: { turnId: 'turn-123' },
     },
     ...overrides,
@@ -276,10 +284,8 @@ describe('Logging Extension', () => {
 
       const ctx = createMockStepContext();
       const mockNext = vi.fn().mockResolvedValue({
-        message: {
-          content: 'Hello! I can help you.',
-          toolCalls: [],
-        },
+        message: { id: 'resp-1', role: 'assistant', content: 'Hello! I can help you.' },
+        toolCalls: [],
       });
 
       const result = await middleware(ctx, mockNext);
@@ -308,7 +314,8 @@ describe('Logging Extension', () => {
 
       const ctx = createMockStepContext();
       const mockNext = vi.fn().mockResolvedValue({
-        message: { content: 'Response' },
+        message: { id: 'resp-1', role: 'assistant', content: 'Response' },
+        toolCalls: [],
       });
 
       await middleware(ctx, mockNext);
@@ -331,7 +338,8 @@ describe('Logging Extension', () => {
         // 약간의 지연
         await new Promise(resolve => setTimeout(resolve, 10));
         return {
-          message: { content: 'Response', toolCalls: [] },
+          message: { id: 'resp-1', role: 'assistant', content: 'Response' },
+        toolCalls: [],
         };
       });
 
@@ -359,7 +367,8 @@ describe('Logging Extension', () => {
         agent: undefined,
       });
       const mockNext = vi.fn().mockResolvedValue({
-        message: { content: 'Response' },
+        message: { id: 'resp-1', role: 'assistant', content: 'Response' },
+        toolCalls: [],
       });
 
       await middleware(ctx, mockNext);
@@ -475,7 +484,8 @@ describe('Logging Extension', () => {
 
       const ctx = createMockStepContext();
       const mockNext = vi.fn().mockResolvedValue({
-        message: { content: 'Response' },
+        message: { id: 'resp-1', role: 'assistant', content: 'Response' },
+        toolCalls: [],
       });
 
       // 에러가 전파되지 않아야 함

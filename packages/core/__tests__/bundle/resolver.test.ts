@@ -74,6 +74,37 @@ describe('Bundle Resolver', () => {
       const result = resolveObjectRef('Model/unknown', index);
       expect(result).toBeUndefined();
     });
+
+    it('package 스코프가 지정되면 해당 패키지와 일치할 때만 해석해야 한다', () => {
+      const scopedResources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: {
+            name: 'fileRead',
+            annotations: {
+              'goondan.io/package': '@goondan/base',
+              'goondan.io/package-version': '1.0.0',
+            },
+          },
+          spec: { runtime: 'node', entry: './index.ts', exports: [] },
+        },
+      ];
+      const scopedIndex = createResourceIndex(scopedResources);
+
+      expect(
+        resolveObjectRef(
+          { kind: 'Tool', name: 'fileRead', package: '@goondan/base' },
+          scopedIndex
+        )
+      ).toBeDefined();
+      expect(
+        resolveObjectRef(
+          { kind: 'Tool', name: 'fileRead', package: '@goondan/other@1.0.0' },
+          scopedIndex
+        )
+      ).toBeUndefined();
+    });
   });
 
   describe('resolveAllReferences', () => {
@@ -106,6 +137,182 @@ describe('Bundle Resolver', () => {
       ];
       const errors = resolveAllReferences(resources);
       expect(errors).toHaveLength(0);
+    });
+
+    it('ObjectRef.package가 지정되면 해당 패키지 스코프로 참조를 제한해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: {
+            name: 'shared-oauth',
+            annotations: {
+              'goondan.io/package': '@goondan/base',
+              'goondan.io/package-version': '1.0.0',
+            },
+          },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: { value: 'id' },
+              clientSecret: { value: 'secret' },
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/callback' },
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: { name: 'scoped-tool' },
+          spec: {
+            runtime: 'node',
+            entry: './index.ts',
+            auth: {
+              oauthAppRef: {
+                kind: 'OAuthApp',
+                name: 'shared-oauth',
+                package: '@goondan/base',
+              },
+              scopes: ['chat:write'],
+            },
+            exports: [
+              { name: 'test', description: 'test', parameters: { type: 'object' } },
+            ],
+          },
+        },
+      ];
+
+      const errors = resolveAllReferences(resources);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('ObjectRef.package가 잘못되면 참조를 실패해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: {
+            name: 'shared-oauth',
+            annotations: {
+              'goondan.io/package': '@goondan/base',
+              'goondan.io/package-version': '1.0.0',
+            },
+          },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: { value: 'id' },
+              clientSecret: { value: 'secret' },
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write'],
+            redirect: { callbackPath: '/callback' },
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: { name: 'wrong-scope-tool' },
+          spec: {
+            runtime: 'node',
+            entry: './index.ts',
+            auth: {
+              oauthAppRef: {
+                kind: 'OAuthApp',
+                name: 'shared-oauth',
+                package: '@goondan/other@2.0.0',
+              },
+              scopes: ['chat:write'],
+            },
+            exports: [
+              { name: 'test', description: 'test', parameters: { type: 'object' } },
+            ],
+          },
+        },
+      ];
+
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.message.includes('not found in package'))).toBe(
+        true
+      );
+    });
+
+    it('package 미지정 참조는 유일 매칭을 강제해야 한다', () => {
+      const baseOAuthSpec = {
+        provider: 'slack',
+        flow: 'authorizationCode',
+        subjectMode: 'global',
+        client: {
+          clientId: { value: 'id' },
+          clientSecret: { value: 'secret' },
+        },
+        endpoints: {
+          authorizationUrl: 'https://example.com/auth',
+          tokenUrl: 'https://example.com/token',
+        },
+        scopes: ['chat:write'],
+        redirect: { callbackPath: '/callback' },
+      };
+
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: {
+            name: 'shared-oauth',
+            annotations: {
+              'goondan.io/package': '@goondan/base',
+              'goondan.io/package-version': '1.0.0',
+            },
+          },
+          spec: baseOAuthSpec,
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: {
+            name: 'shared-oauth',
+            annotations: {
+              'goondan.io/package': '@goondan/tools',
+              'goondan.io/package-version': '2.0.0',
+            },
+          },
+          spec: baseOAuthSpec,
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: { name: 'ambiguous-tool' },
+          spec: {
+            runtime: 'node',
+            entry: './index.ts',
+            auth: {
+              oauthAppRef: { kind: 'OAuthApp', name: 'shared-oauth' },
+              scopes: ['chat:write'],
+            },
+            exports: [
+              { name: 'test', description: 'test', parameters: { type: 'object' } },
+            ],
+          },
+        },
+      ];
+
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.message.includes('Ambiguous reference'))).toBe(
+        true
+      );
     });
 
     it('존재하지 않는 참조에 대해 오류를 반환해야 한다', () => {
@@ -228,6 +435,86 @@ describe('Bundle Resolver', () => {
       expect(errors.some((e) => e.message.includes('files:write'))).toBe(true);
     });
 
+    it('Tool.exports[].auth.scopes가 Tool.auth.scopes의 부분집합인지 검증해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'OAuthApp',
+          metadata: { name: 'slack-bot' },
+          spec: {
+            provider: 'slack',
+            flow: 'authorizationCode',
+            subjectMode: 'global',
+            client: {
+              clientId: { value: 'id' },
+              clientSecret: { value: 'secret' },
+            },
+            endpoints: {
+              authorizationUrl: 'https://example.com/auth',
+              tokenUrl: 'https://example.com/token',
+            },
+            scopes: ['chat:write', 'channels:read'],
+            redirect: { callbackPath: '/callback' },
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: { name: 'slack-tool' },
+          spec: {
+            runtime: 'node',
+            entry: './index.ts',
+            auth: {
+              oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
+              scopes: ['chat:write', 'channels:read'],
+            },
+            exports: [
+              {
+                name: 'slack.postMessage',
+                description: 'post message',
+                parameters: { type: 'object' },
+                auth: { scopes: ['chat:write'] },
+              },
+              {
+                name: 'slack.uploadFile',
+                description: 'upload file',
+                parameters: { type: 'object' },
+                auth: { scopes: ['files:write'] },
+              },
+            ],
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.path === '/spec/exports/1/auth/scopes')).toBe(true);
+      expect(errors.some((e) => e.message.includes('files:write'))).toBe(true);
+    });
+
+    it('Tool.auth.scopes가 없는데 export-level scopes가 있으면 오류를 반환해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Tool',
+          metadata: { name: 'no-tool-scopes' },
+          spec: {
+            runtime: 'node',
+            entry: './index.ts',
+            exports: [
+              {
+                name: 'slack.postMessage',
+                description: 'post message',
+                parameters: { type: 'object' },
+                auth: { scopes: ['chat:write'] },
+              },
+            ],
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.path === '/spec/exports/0/auth/scopes')).toBe(true);
+      expect(errors.some((e) => e.message.includes('Tool.auth.scopes'))).toBe(true);
+    });
+
     it('Connection의 connectorRef를 검증해야 한다', () => {
       const resources: Resource[] = [
         {
@@ -260,15 +547,15 @@ describe('Bundle Resolver', () => {
           metadata: { name: 'cli-to-default' },
           spec: {
             connectorRef: { kind: 'Connector', name: 'cli' },
-            rules: [
-              {
-                route: {
-                  swarmRef: { kind: 'Swarm', name: 'default' },
-                  instanceKeyFrom: '$.instanceKey',
-                  inputFrom: '$.text',
+            ingress: {
+              rules: [
+                {
+                  route: {
+                    agentRef: { kind: 'Agent', name: 'agent-1' },
+                  },
                 },
-              },
-            ],
+              ],
+            },
           },
         },
       ];
@@ -296,13 +583,13 @@ describe('Bundle Resolver', () => {
       expect(errors.some((e) => e.message.includes('Connector/nonexistent'))).toBe(true);
     });
 
-    it('Connection의 rules[].route.swarmRef를 검증해야 한다', () => {
+    it('Connection의 ingress.rules[].route.agentRef를 검증해야 한다', () => {
       const resources: Resource[] = [
         {
           apiVersion: 'agents.example.io/v1alpha1',
           kind: 'Connector',
           metadata: { name: 'cli' },
-          spec: { type: 'cli' },
+          spec: { runtime: 'node', entry: './index.ts', triggers: [{ type: 'cli' }] },
         },
         {
           apiVersion: 'agents.example.io/v1alpha1',
@@ -310,18 +597,20 @@ describe('Bundle Resolver', () => {
           metadata: { name: 'bad-rules' },
           spec: {
             connectorRef: { kind: 'Connector', name: 'cli' },
-            rules: [
-              {
-                route: {
-                  swarmRef: { kind: 'Swarm', name: 'nonexistent' },
+            ingress: {
+              rules: [
+                {
+                  route: {
+                    agentRef: { kind: 'Agent', name: 'nonexistent' },
+                  },
                 },
-              },
-            ],
+              ],
+            },
           },
         },
       ];
       const errors = resolveAllReferences(resources);
-      expect(errors.some((e) => e.message.includes('Swarm/nonexistent'))).toBe(true);
+      expect(errors.some((e) => e.message.includes('Agent/nonexistent'))).toBe(true);
     });
 
     it('Selector를 가진 참조도 처리해야 한다', () => {

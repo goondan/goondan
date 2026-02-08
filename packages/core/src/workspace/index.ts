@@ -20,6 +20,13 @@ export type {
   ToolCall as WorkspaceToolCall,
   LlmMessage as WorkspaceLlmMessage,
   LlmMessageLogRecord,
+  MessageBaseLogRecord,
+  MessageEventLogRecord,
+  MessageEventType,
+  InstanceMetadata,
+  SwarmInstanceStatus,
+  TurnMetricsLogRecord,
+  TokenUsage,
   SwarmEventKind,
   SwarmEventLogRecord,
   AgentEventKind,
@@ -51,15 +58,19 @@ export { SecretsStore } from './secrets.js';
 // Logs
 export {
   JsonlWriter,
-  LlmMessageLogger,
+  MessageBaseLogger,
+  MessageEventLogger,
   SwarmEventLogger,
   AgentEventLogger,
+  TurnMetricsLogger,
 } from './logs.js';
 
 export type {
-  LlmMessageLogInput,
+  MessageBaseLogInput,
+  MessageEventLogInput,
   SwarmEventLogInput,
   AgentEventLogInput,
+  TurnMetricsLogInput,
 } from './logs.js';
 
 // Manager

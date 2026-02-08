@@ -6,7 +6,7 @@ Connector 모듈은 외부 프로토콜 이벤트에 반응하여 정규화된 C
 
 ## 핵심 책임
 
-1. **프로토콜 수신 선언**: 어떤 방식(HTTP webhook, cron, CLI 등)으로 외부 이벤트를 수신할지 선언
+1. **프로토콜 수신 선언**: 어떤 방식(HTTP webhook, cron, CLI, custom 등)으로 외부 이벤트를 수신할지 선언
 2. **이벤트 정규화**: 외부 프로토콜별 페이로드를 ConnectorEvent로 변환
 3. **Ingress 라우팅**: ConnectorEvent의 name/properties를 기반으로 Agent에 라우팅
 4. **Entry Function 로딩**: Connector의 단일 default export 함수를 로드하고 ConnectorContext를 생성
@@ -16,6 +16,7 @@ Connector 모듈은 외부 프로토콜 이벤트에 반응하여 정규화된 C
 - `ConnectorAdapter`, `CanonicalEvent`, `TriggerHandler`, `TriggerEvent`, `TriggerContext` 삭제
 - `EgressHandler`, `JSONPath`, `BaseConnectorAdapter` 삭제
 - `ConnectorEntryFunction`, `ConnectorContext`, `ConnectorTriggerEvent`, `ConnectorEvent` 추가
+- `CustomTriggerPayload` 추가: Connector 자체 이벤트 소스 관리 (롱 폴링, WebSocket 등)
 - IngressMatch: `command/eventType/channel` -> `event/properties` 기반
 - IngressRoute: `swarmRef/instanceKeyFrom/inputFrom/agentName` -> `agentRef` (선택)
 - ConnectorSpec: `type` 제거, `runtime/entry/triggers(프로토콜 선언)/events(이벤트 스키마)` 추가
@@ -74,6 +75,13 @@ interface ConnectorTriggerEvent {
   timestamp: string;
 }
 ```
+
+### TriggerPayload (4가지)
+
+- `HttpTriggerPayload` - HTTP Webhook 수신
+- `CronTriggerPayload` - 스케줄 기반 실행
+- `CliTriggerPayload` - CLI 입력 수신
+- `CustomTriggerPayload` - Connector 자체 이벤트 소스 관리 (`signal: AbortSignal`)
 
 ## 참고 문서
 

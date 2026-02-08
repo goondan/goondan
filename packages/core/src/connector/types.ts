@@ -95,12 +95,26 @@ export interface CliTriggerPayload {
 }
 
 /**
+ * Custom Trigger 페이로드
+ * Connector가 자체적으로 이벤트 소스를 관리할 때 사용한다.
+ * @see /docs/specs/connector.md - 3.4 Custom Trigger
+ */
+export interface CustomTriggerPayload {
+  type: 'custom';
+  payload: {
+    /** Runtime이 shutdown할 때 abort되는 시그널 */
+    signal: AbortSignal;
+  };
+}
+
+/**
  * Trigger 페이로드 (union)
  */
 export type TriggerPayload =
   | HttpTriggerPayload
   | CronTriggerPayload
-  | CliTriggerPayload;
+  | CliTriggerPayload
+  | CustomTriggerPayload;
 
 /**
  * ConnectorTriggerEvent - 트리거 프로토콜별 페이로드를 캡슐화

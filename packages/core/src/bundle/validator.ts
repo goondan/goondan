@@ -917,7 +917,7 @@ function validateSwarm(resource: Resource): ValidationError[] {
 /**
  * 유효한 trigger 타입
  */
-const VALID_TRIGGER_TYPES = ['http', 'cron', 'cli'];
+const VALID_TRIGGER_TYPES = ['http', 'cron', 'cli', 'custom'];
 
 /**
  * 유효한 HTTP 메서드

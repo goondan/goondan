@@ -12,6 +12,7 @@ import type {
   ConnectorContext,
   ConnectorEvent,
   HttpTriggerPayload,
+  CustomTriggerPayload,
 } from '@goondan/core';
 import type { JsonObject } from '@goondan/core';
 import { timingSafeEqual } from 'node:crypto';
@@ -118,6 +119,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 function isHttpTrigger(trigger: { type: string }): trigger is HttpTriggerPayload {
   return trigger.type === 'http';
+}
+
+/**
+ * CustomTriggerPayload 타입 가드
+ */
+function isCustomTrigger(trigger: { type: string }): trigger is CustomTriggerPayload {
+  return trigger.type === 'custom';
 }
 
 /**
@@ -284,41 +292,16 @@ function getDefaultInputForCommand(command: string): string {
 // ============================================================================
 
 /**
- * Telegram Connector Entry Function
- *
- * Telegram Webhook으로부터 Update를 받아 ConnectorEvent로 변환하여 emit한다.
+ * Telegram Update를 ConnectorEvent로 변환하여 emit한다.
  */
-const telegramConnector = async function (context: ConnectorContext): Promise<void> {
-  const { event, emit, logger } = context;
-
-  // connector.trigger 이벤트만 처리
-  if (event.type !== 'connector.trigger') {
-    return;
-  }
-
-  const trigger = event.trigger;
-
-  // HTTP trigger만 처리
-  if (!isHttpTrigger(trigger)) {
-    logger.debug('[Telegram] Not an HTTP trigger, skipping');
-    return;
-  }
-
-  const requestBody = trigger.payload.request.body;
-
-  // verify.webhook.signingSecret이 제공된 경우 서명 검증
-  if (!runVerifyHook(context, trigger.payload.request)) {
-    return;
-  }
-
-  // Telegram Update 검증
-  if (!isTelegramUpdate(requestBody)) {
-    logger.warn('[Telegram] Invalid update payload received');
-    return;
-  }
+async function processUpdate(
+  update: TelegramUpdate,
+  context: ConnectorContext,
+): Promise<void> {
+  const { emit, logger } = context;
 
   // 메시지 추출 (일반 메시지 또는 수정된 메시지)
-  const message = requestBody.message ?? requestBody.edited_message;
+  const message = update.message ?? update.edited_message;
   if (!message || !isTelegramMessage(message)) {
     logger.debug('[Telegram] No message in update, skipping');
     return;
@@ -380,6 +363,163 @@ const telegramConnector = async function (context: ConnectorContext): Promise<vo
   logger.info(
     `[Telegram] Message emitted: chat=${message.chat.id}, command=${command ?? 'none'}`
   );
+}
+
+/**
+ * HTTP Webhook trigger 핸들러
+ */
+async function handleWebhookTrigger(
+  context: ConnectorContext,
+  trigger: HttpTriggerPayload,
+): Promise<void> {
+  const { logger } = context;
+  const requestBody = trigger.payload.request.body;
+
+  // verify.webhook.signingSecret이 제공된 경우 서명 검증
+  if (!runVerifyHook(context, trigger.payload.request)) {
+    return;
+  }
+
+  // Telegram Update 검증
+  if (!isTelegramUpdate(requestBody)) {
+    logger.warn('[Telegram] Invalid update payload received');
+    return;
+  }
+
+  await processUpdate(requestBody, context);
+}
+
+/**
+ * AbortSignal을 지원하는 sleep 유틸리티
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+/**
+ * Connection의 auth.staticToken에서 Bot Token을 가져온다.
+ */
+function getBotToken(context: ConnectorContext): string | undefined {
+  const spec = context.connection.spec;
+  if (!isObject(spec)) return undefined;
+  const auth = spec.auth;
+  if (!isObject(auth)) return undefined;
+  const staticToken = auth.staticToken;
+  if (typeof staticToken === 'string') return staticToken;
+  return undefined;
+}
+
+/**
+ * Custom trigger 핸들러: Telegram getUpdates 롱 폴링
+ *
+ * @see https://core.telegram.org/bots/api#getupdates
+ */
+async function handleCustomTrigger(
+  context: ConnectorContext,
+  trigger: CustomTriggerPayload,
+): Promise<void> {
+  const { logger } = context;
+  const { signal } = trigger.payload;
+
+  const token = getBotToken(context);
+  if (!token) {
+    logger.error('[Telegram] Bot token not found in connection auth.staticToken');
+    return;
+  }
+
+  logger.info('[Telegram] Starting long polling...');
+
+  let offset = 0;
+  const POLL_TIMEOUT = 30;
+  const ERROR_BACKOFF_MS = 5000;
+
+  while (!signal.aborted) {
+    try {
+      const url = `https://api.telegram.org/bot${token}/getUpdates`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offset,
+          timeout: POLL_TIMEOUT,
+          allowed_updates: ['message', 'edited_message'],
+        }),
+        signal,
+      });
+
+      const data: unknown = await response.json();
+
+      if (!isTelegramApiResponse(data)) {
+        logger.warn('[Telegram] Invalid getUpdates response');
+        await sleep(ERROR_BACKOFF_MS, signal);
+        continue;
+      }
+
+      if (!data.ok) {
+        logger.warn(`[Telegram] getUpdates error: ${data.description ?? 'unknown'}`);
+        await sleep(ERROR_BACKOFF_MS, signal);
+        continue;
+      }
+
+      const updates = data.result;
+      if (!Array.isArray(updates)) {
+        continue;
+      }
+
+      for (const raw of updates) {
+        if (!isTelegramUpdate(raw)) continue;
+        offset = raw.update_id + 1;
+        await processUpdate(raw, context);
+      }
+    } catch (err) {
+      // AbortError는 정상 종료
+      if (signal.aborted) break;
+      logger.warn('[Telegram] Polling error, retrying...', err);
+      await sleep(ERROR_BACKOFF_MS, signal);
+    }
+  }
+
+  logger.info('[Telegram] Long polling stopped gracefully');
+}
+
+/**
+ * Telegram Connector Entry Function
+ *
+ * HTTP Webhook과 Custom(롱 폴링) 두 가지 trigger를 지원한다.
+ * - HTTP trigger: Telegram setWebhook을 통해 외부에서 Push
+ * - Custom trigger: getUpdates 롱 폴링으로 직접 Pull
+ */
+const telegramConnector = async function (context: ConnectorContext): Promise<void> {
+  const { event, logger } = context;
+
+  // connector.trigger 이벤트만 처리
+  if (event.type !== 'connector.trigger') {
+    return;
+  }
+
+  const trigger = event.trigger;
+
+  if (isHttpTrigger(trigger)) {
+    await handleWebhookTrigger(context, trigger);
+    return;
+  }
+
+  if (isCustomTrigger(trigger)) {
+    await handleCustomTrigger(context, trigger);
+    return;
+  }
+
+  logger.debug(`[Telegram] Unsupported trigger type: ${trigger.type}`);
 };
 
 export default telegramConnector;

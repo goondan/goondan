@@ -84,7 +84,8 @@ interface ConnectorSpec {
 type TriggerDeclaration =
   | HttpTrigger
   | CronTrigger
-  | CliTrigger;
+  | CliTrigger
+  | CustomTrigger;
 
 interface HttpTrigger {
   type: 'http';
@@ -101,6 +102,10 @@ interface CronTrigger {
 
 interface CliTrigger {
   type: 'cli';
+}
+
+interface CustomTrigger {
+  type: 'custom';
 }
 
 interface EventSchema {
@@ -204,6 +209,29 @@ interface CliTrigger {
 규칙:
 1. CLI trigger는 Runtime의 인터랙티브 모드에서 사용자 입력을 수신한다(MUST).
 2. 하나의 Connector에 CLI trigger는 최대 1개만 허용된다(SHOULD).
+
+### 3.4 Custom Trigger
+
+Connector가 자체적으로 이벤트 소스를 관리하는 경우 사용한다. Telegram 롱 폴링, Discord WebSocket Gateway, MQTT 구독 등 Runtime이 직접 제공하지 않는 프로토콜을 Connector가 자체 구현할 때 사용한다.
+
+```yaml
+triggers:
+  - type: custom
+```
+
+```ts
+interface CustomTrigger {
+  type: 'custom';
+}
+```
+
+규칙:
+1. Runtime은 Custom trigger의 entry 함수를 **Connection마다 한 번** 호출해야 한다(MUST).
+2. Entry 함수는 자체적으로 이벤트 수신 루프(폴링, WebSocket, 구독 등)를 실행하고, `ctx.emit()`으로 이벤트를 발행해야 한다(MUST).
+3. Runtime은 `ConnectorTriggerEvent.trigger.payload.signal`로 `AbortSignal`을 제공해야 한다(MUST). Entry 함수는 signal이 abort되면 정리(cleanup) 후 반환해야 한다(MUST).
+4. Entry 함수가 예기치 않게 reject되면 Runtime은 retry 정책에 따라 재시작할 수 있다(MAY).
+5. Entry 함수가 정상적으로 resolve되면 해당 Connection의 이벤트 수신이 종료된 것으로 간주한다(MUST).
+6. Custom trigger는 추가 설정 필드가 없다. Connector가 필요로 하는 설정은 Connection의 auth/config에서 제공한다.
 
 ---
 
@@ -319,7 +347,8 @@ interface ConnectorTriggerEvent {
 type TriggerPayload =
   | HttpTriggerPayload
   | CronTriggerPayload
-  | CliTriggerPayload;
+  | CliTriggerPayload
+  | CustomTriggerPayload;
 
 interface HttpTriggerPayload {
   type: 'http';
@@ -347,6 +376,14 @@ interface CliTriggerPayload {
   payload: {
     text: string;
     instanceKey?: string;
+  };
+}
+
+interface CustomTriggerPayload {
+  type: 'custom';
+  payload: {
+    /** Runtime이 shutdown할 때 abort되는 시그널 */
+    signal: AbortSignal;
   };
 }
 ```
@@ -668,7 +705,96 @@ export default async function (context: ConnectorContext): Promise<void> {
 
 ---
 
-## 10. Validation 규칙
+## 10. 예시: Custom Trigger (Telegram 롱 폴링)
+
+### 10.1 YAML 정의
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Connector
+metadata:
+  name: telegram
+spec:
+  runtime: node
+  entry: "./connectors/telegram/index.ts"
+
+  triggers:
+    - type: custom
+    - type: http
+      endpoint:
+        path: /telegram/webhook
+        method: POST
+
+  events:
+    - name: telegram.message
+      properties:
+        chatId: { type: string }
+        userId: { type: string }
+        chatType: { type: string }
+        messageId: { type: number }
+```
+
+> 하나의 Connector가 `custom`과 `http` 두 가지 trigger를 모두 선언할 수 있다. Runtime이 어떤 trigger로 entry를 호출하는지에 따라 Connector는 분기 처리한다.
+
+### 10.2 Entry Function 구현
+
+```ts
+// ./connectors/telegram/index.ts
+import type { ConnectorContext, CustomTriggerPayload } from '@goondan/core';
+
+export default async function (context: ConnectorContext): Promise<void> {
+  const { event, emit, logger } = context;
+
+  if (event.type !== "connector.trigger") return;
+
+  if (event.trigger.type === "http") {
+    // Webhook 모드: 기존 HTTP trigger 처리
+    return handleWebhook(context);
+  }
+
+  if (event.trigger.type === "custom") {
+    // 롱 폴링 모드: 자체 이벤트 소스 관리
+    const { signal } = event.trigger.payload;
+    const token = getBotToken(context);
+
+    let offset = 0;
+    while (!signal.aborted) {
+      try {
+        const updates = await getUpdates(token, offset, 30);
+        for (const update of updates) {
+          offset = update.update_id + 1;
+          await emit({
+            type: "connector.event",
+            name: "telegram.message",
+            message: { type: "text", text: update.message?.text ?? "" },
+            properties: {
+              chatId: String(update.message?.chat.id),
+              userId: String(update.message?.from?.id),
+              chatType: update.message?.chat.type ?? "private",
+              messageId: update.message?.message_id ?? 0,
+            },
+            auth: {
+              actor: { id: `telegram:${update.message?.from?.id}` },
+              subjects: {
+                global: `telegram:chat:${update.message?.chat.id}`,
+                user: `telegram:user:${update.message?.from?.id}`,
+              },
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn("[Telegram] Polling error, retrying...", err);
+        await sleep(5000, signal);
+      }
+    }
+    logger.info("[Telegram] Polling stopped gracefully");
+  }
+}
+```
+
+---
+
+## 11. Validation 규칙
 
 Runtime/Validator는 Connector 리소스에 대해 다음 규칙을 검증해야 한다.
 
@@ -677,7 +803,7 @@ Runtime/Validator는 Connector 리소스에 대해 다음 규칙을 검증해야
 | `spec.runtime` | 필수, `"node"` | MUST |
 | `spec.entry` | 필수, 유효한 파일 경로 | MUST |
 | `spec.triggers` | 필수, 최소 1개 이상의 trigger 선언 | MUST |
-| `spec.triggers[].type` | `"http"`, `"cron"`, `"cli"` 중 하나 | MUST |
+| `spec.triggers[].type` | `"http"`, `"cron"`, `"cli"`, `"custom"` 중 하나 | MUST |
 | `spec.triggers[].endpoint.path` | http trigger에서 필수, `/`로 시작 | MUST |
 | `spec.triggers[].endpoint.method` | http trigger에서 필수 | MUST |
 | `spec.triggers[].schedule` | cron trigger에서 필수, 유효한 cron 표현식 | MUST |
@@ -690,7 +816,7 @@ Connection 리소스의 검증 규칙은 [`docs/specs/connection.md`](./connecti
 
 ---
 
-## 11. 참고 문서
+## 12. 참고 문서
 
 - `docs/specs/connection.md` - Connection 리소스 스펙 (auth, verify, ingress rules)
 - `docs/specs/resources.md` - Config Plane 리소스 정의 스펙

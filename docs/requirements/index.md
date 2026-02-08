@@ -189,6 +189,7 @@ Instance → Turn → Step 실행 흐름과 핵심 파이프라인 포인트를 
 
 ## 변경 이력 및 정합성 검토
 
+- 2026-02-08: §5.4.1 Connector 이벤트 수신 방식 구분(Runtime 관리 vs Custom) 추가, §7.6 `custom` trigger 규칙 추가, §9.1.3 Custom Trigger 실행 모델 추가. 관련 스펙 동기화: `docs/specs/connector.md`, `docs/specs/resources.md`.
 - 2026-02-07: Turn 메시지 처리 모델을 `NextMessages = BaseMessages + SUM(Events)`로 전환. `base.jsonl`/`events.jsonl` 저장 구조, turn.post `(base, events)` 전달 및 최종 fold-commit 규칙 추가. 관련 요구사항/구현 스펙 동기화 완료.
 - 2026-02-07: 영향 스펙 동기화: `docs/specs/runtime.md`, `docs/specs/workspace.md`, `docs/specs/pipeline.md`, `docs/specs/api.md`, `docs/specs/extension.md`, `docs/specs/tool.md`, `docs/specs/bundle.md`, `docs/specs/resources.md` 업데이트.
 - 2026-02-07: `_improve-claude.md`, `_improve-codex.md` 반영.

@@ -55,6 +55,7 @@ export type {
   HttpTrigger,
   CronTrigger,
   CliTrigger,
+  CustomTrigger,
   EventSchema,
   EventPropertyType,
   ConnectorResource,

@@ -524,6 +524,49 @@ describe('Bundle Validator', () => {
         );
         expect(connectorErrors).toHaveLength(0);
       });
+
+      it('custom trigger를 포함한 Connector는 유효해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'telegram-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/telegram/index.ts',
+            triggers: [
+              { type: 'custom' },
+              { type: 'http', endpoint: { path: '/telegram/webhook', method: 'POST' } },
+            ],
+            events: [
+              { name: 'telegram.message', properties: { chatId: { type: 'string' } } },
+            ],
+          },
+        };
+        const errors = validateResources([resource]);
+        const connectorErrors = errors.filter(
+          (e) => e.kind === 'Connector' && e.level !== 'warning'
+        );
+        expect(connectorErrors).toHaveLength(0);
+      });
+
+      it('custom trigger만 있는 Connector도 유효해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'polling-conn' },
+          spec: {
+            runtime: 'node',
+            entry: './connectors/polling/index.ts',
+            triggers: [{ type: 'custom' }],
+            events: [{ name: 'update' }],
+          },
+        };
+        const errors = validateResources([resource]);
+        const connectorErrors = errors.filter(
+          (e) => e.kind === 'Connector' && e.level !== 'warning'
+        );
+        expect(connectorErrors).toHaveLength(0);
+      });
     });
 
     describe('Connection', () => {

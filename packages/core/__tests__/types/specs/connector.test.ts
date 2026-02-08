@@ -10,6 +10,7 @@ import type {
   HttpTrigger,
   CronTrigger,
   CliTrigger,
+  CustomTrigger,
   EventSchema,
   EventPropertyType,
   ConnectorResource,
@@ -79,17 +80,27 @@ describe('ConnectorSpec 타입 (v1.0)', () => {
       expect(trigger.type).toBe('cli');
     });
 
+    it('Custom trigger를 정의할 수 있다', () => {
+      const trigger: CustomTrigger = {
+        type: 'custom',
+      };
+
+      expect(trigger.type).toBe('custom');
+    });
+
     it('discriminated union으로 trigger 타입을 구분할 수 있다', () => {
       const triggers: TriggerDeclaration[] = [
         { type: 'http', endpoint: { path: '/webhook', method: 'POST' } },
         { type: 'cron', schedule: '* * * * *' },
         { type: 'cli' },
+        { type: 'custom' },
       ];
 
-      expect(triggers).toHaveLength(3);
+      expect(triggers).toHaveLength(4);
       expect(triggers[0]?.type).toBe('http');
       expect(triggers[1]?.type).toBe('cron');
       expect(triggers[2]?.type).toBe('cli');
+      expect(triggers[3]?.type).toBe('custom');
     });
   });
 

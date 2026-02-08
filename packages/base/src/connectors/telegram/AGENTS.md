@@ -1,6 +1,7 @@
 # Telegram Connector (v1.0)
 
-Telegram Bot API Webhook을 통해 메시지를 수신하고 ConnectorEvent로 변환하는 Connector 구현.
+Telegram Bot API를 통해 메시지를 수신하고 ConnectorEvent로 변환하는 Connector 구현.
+두 가지 trigger 모드를 지원합니다: HTTP Webhook (push)과 Custom (long polling, pull).
 단일 default export 패턴을 따릅니다.
 
 ## 파일 구조
@@ -12,13 +13,15 @@ Telegram Bot API Webhook을 통해 메시지를 수신하고 ConnectorEvent로 �
 
 ### Entry Function (default export)
 
-- `telegramConnector(context: ConnectorContext)` - Telegram Webhook 업데이트 처리
+- `telegramConnector(context: ConnectorContext)` - Telegram 업데이트 처리
   - `event.type === 'connector.trigger'` 확인
-  - `event.trigger` 타입 가드: `isHttpTrigger()`로 HTTP trigger 확인
-  - `trigger.payload.request.body`에서 Telegram Update 파싱
-  - `message` 또는 `edited_message` 처리
+  - **HTTP Webhook 모드**: `isHttpTrigger()`로 분기 → `handleWebhookTrigger()` 호출
+  - **Custom (롱 폴링) 모드**: `isCustomTrigger()`로 분기 → `handleCustomTrigger()` 호출
+    - `getUpdates` API를 사용한 long polling 루프
+    - `AbortSignal`로 graceful shutdown 지원
+    - 에러 발생 시 5초 backoff 후 재시도
+  - 공통 처리: `processUpdate()` → `message` 또는 `edited_message` 파싱 → `emit()` 호출
   - 봇 명령어 파싱 (/start, /help 등, @botname 제거)
-  - `emit()` 호출로 ConnectorEvent 발행
 
 ### ConnectorEvent 발행
 
@@ -45,7 +48,8 @@ spec:
   runtime: node
   entry: "./connectors/telegram/index.js"
   triggers:
-    - type: http
+    - type: custom       # Long polling (pull) 모드
+    - type: http          # Webhook (push) 모드
       endpoint:
         path: /telegram/webhook
         method: POST
@@ -60,7 +64,7 @@ spec:
 
 ## 타입 import
 
-- `ConnectorContext`, `ConnectorEvent`, `HttpTriggerPayload` from `@goondan/core`
+- `ConnectorContext`, `ConnectorEvent`, `HttpTriggerPayload`, `CustomTriggerPayload` from `@goondan/core`
 
 ## 수정 시 참고사항
 

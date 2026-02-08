@@ -261,11 +261,13 @@ Middleware A (전처리)
 |--------|------|------|
 | `turn.pre` | Mutator | Turn 시작 전 |
 | `turn.post` | Mutator | Turn 종료 훅 (`base/events` 전달, 추가 이벤트 발행 가능) |
-| `step.config` | Mutator | Step 설정 결정 |
+| `step.pre` | Mutator | Step 시작 직전 |
+| `step.config` | Mutator | SwarmBundleRef 활성화 및 Effective Config 로드 |
 | `step.tools` | Mutator | Tool Catalog 구성 |
 | `step.blocks` | Mutator | 컨텍스트 블록 구성 |
 | `step.llmCall` | Middleware | LLM 호출 래핑 |
 | `step.llmError` | Mutator | LLM 에러 처리 |
+| `step.post` | Mutator | Step 종료 직후 |
 | `toolCall.pre` | Mutator | 도구 호출 전 |
 | `toolCall.exec` | Middleware | 도구 실행 래핑 |
 | `toolCall.post` | Mutator | 도구 호출 후 |
@@ -345,10 +347,11 @@ spec:
     - point: turn.post
       priority: 0
       action:
-        toolCall:
-          tool: log.info
-          input:
-            message: { expr: "$.turn.summary" }
+        runtime: node
+        entry: "./hooks/post-turn.js"
+        export: default
+        input:
+          summary: { expr: "$.turn.summary" }
 ```
 
 **중요 규칙:**
@@ -705,30 +708,37 @@ spec:
 
 ```typescript
 interface ToolContext {
-  /** 현재 Turn 정보 */
-  turn: {
-    id: string;
-    origin: TurnOrigin;
-    auth: TurnAuth;
-  };
-  /** 현재 Agent 정보 */
-  agent: {
-    name: string;
-  };
-  /** 현재 Swarm 정보 */
-  swarm: {
-    name: string;
-    instanceKey: string;
-  };
-  /** 이벤트 발행 */
-  emit: (type: string, payload: JsonValue) => void;
-  /** 로깅 */
-  log: {
-    debug: (msg: string) => void;
-    info: (msg: string) => void;
-    warn: (msg: string) => void;
-    error: (msg: string) => void;
-  };
+  /** SwarmInstance 참조 */
+  instance: SwarmInstance;
+  /** Swarm 리소스 정의 */
+  swarm: Resource<SwarmSpec>;
+  /** Agent 리소스 정의 */
+  agent: Resource<AgentSpec>;
+  /** 현재 Turn */
+  turn: Turn;
+  /** 현재 Step */
+  step: Step;
+  /** 현재 Step의 Tool Catalog */
+  toolCatalog: ToolCatalogItem[];
+  /** SwarmBundle 변경 API */
+  swarmBundle: SwarmBundleApi;
+  /** OAuth 토큰 접근 API */
+  oauth: OAuthApi;
+  /** 이벤트 버스 */
+  events: EventBus;
+  /** 로거 */
+  logger: Console;
+  /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
+  workdir: string;
+  /** Agent 위임/관리 API */
+  agents: ToolAgentsApi;
+}
+
+interface ToolAgentsApi {
+  /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
+  delegate(agentName: string, task: string, context?: string): Promise<AgentDelegateResult>;
+  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
+  listInstances(): Promise<AgentInstanceInfo[]>;
 }
 ```
 
@@ -760,7 +770,8 @@ import type { ExtensionApi } from '@goondan/core';
  * 런타임 초기화 시 한 번 호출됩니다.
  */
 export function register(api: ExtensionApi): void {
-  const config = api.config;  // extension.yaml의 spec.config
+  // extension.yaml의 spec.config에 접근
+  const config = api.extension.spec?.config;
 
   // Mutator: Tool Catalog에 동적 도구 추가
   api.pipelines.mutate('step.tools', async (ctx) => {
@@ -780,15 +791,15 @@ export function register(api: ExtensionApi): void {
   // Middleware: LLM 호출 래핑 (로깅, 재시도 등)
   api.pipelines.wrap('step.llmCall', async (ctx, next) => {
     const startTime = Date.now();
-    api.log.info(`LLM 호출 시작 (agent: ${ctx.agentName})`);
+    api.logger?.info?.(`LLM 호출 시작 (agent: ${ctx.agentName})`);
 
     try {
       const result = await next(ctx);
       const elapsed = Date.now() - startTime;
-      api.log.info(`LLM 호출 완료 (${elapsed}ms)`);
+      api.logger?.info?.(`LLM 호출 완료 (${elapsed}ms)`);
       return result;
     } catch (error) {
-      api.log.error(`LLM 호출 실패: ${String(error)}`);
+      api.logger?.error?.(`LLM 호출 실패: ${String(error)}`);
       throw error;
     }
   });
@@ -807,9 +818,13 @@ export function register(api: ExtensionApi): void {
     };
   });
 
+  // 상태 관리 (whole-object 패턴)
+  const state = api.state.get();
+  api.state.set({ ...state, initialized: true });
+
   // 이벤트 구독
   api.events.on('turn.completed', (payload) => {
-    api.log.info(`Turn 완료: ${JSON.stringify(payload)}`);
+    api.logger?.info?.(`Turn 완료: ${JSON.stringify(payload)}`);
   });
 }
 ```
@@ -844,38 +859,43 @@ spec:
 ### 6.5 ExtensionApi 주요 인터페이스
 
 ```typescript
-interface ExtensionApi {
-  /** Extension 설정 (spec.config) */
-  config: JsonObject;
+interface ExtensionApi<TState = JsonObject, TConfig = JsonObject> {
+  /** Extension 리소스 정의 (YAML에 정의된 Extension 리소스 전체) */
+  extension: Resource<ExtensionSpec<TConfig>>;
 
-  /** 파이프라인 등록 */
-  pipelines: {
-    /** Mutator 등록 (순차 변형) */
-    mutate(point: PipelinePoint, handler: Mutator): void;
-    /** Middleware 등록 (래핑) */
-    wrap(point: PipelinePoint, handler: Middleware): void;
-  };
+  /** 파이프라인 등록 API */
+  pipelines: PipelineApi;  // mutate(point, handler), wrap(point, handler)
 
-  /** 동적 Tool 등록 */
-  tools: {
-    register(toolDef: DynamicToolDef): void;
-    unregister(name: string): void;
-  };
+  /** 동적 Tool 등록 API */
+  tools: ToolRegistryApi;  // register(toolDef), unregister(name)
 
-  /** 이벤트 시스템 */
-  events: {
-    on(type: string, handler: EventHandler): void;
-    emit(type: string, payload: JsonValue): void;
-  };
+  /** 이벤트 버스 (발행/구독) */
+  events: EventBus;  // on(type, handler), emit(type, payload)
 
-  /** 상태 저장소 */
+  /** SwarmBundle Changeset API */
+  swarmBundle: SwarmBundleApi;
+
+  /** Live Config API (동적 Config 패치 제안) */
+  liveConfig: LiveConfigApi;
+
+  /** OAuth 토큰 접근 API */
+  oauth: OAuthApi;
+
+  /** 확장별 상태 접근 API (whole-object 패턴) */
   state: {
-    get(key: string): JsonValue | undefined;
-    set(key: string, value: JsonValue): void;
+    /** 현재 상태를 반환 */
+    get(): TState;
+    /** 상태를 교체 (불변 패턴) */
+    set(next: TState): void;
   };
 
-  /** 로깅 */
-  log: Logger;
+  /** 인스턴스 공유 상태 (동일 SwarmInstance 내 Extension 간 공유) */
+  instance: {
+    shared: JsonObject;
+  };
+
+  /** 로거 */
+  logger?: Console;
 }
 ```
 
@@ -1199,29 +1219,25 @@ A: 가능합니다. 하나의 `goondan.yaml`에 모든 리소스를 `---`로 구
 
 ### Q: 에이전트 간 위임(delegate)은 어떻게 구현하나요?
 
-A: 위임 도구(delegate Tool)를 만들어 Agent에 연결합니다. sample-7-multi-model이 이 패턴을 보여줍니다.
+A: `@goondan/base` 패키지의 built-in `agents` Tool을 사용합니다. 이 도구는 `agents.delegate`와 `agents.listInstances` 두 가지 export를 제공합니다.
 
 ```yaml
-# 위임 도구 정의
-kind: Tool
+# Agent에 agents Tool 연결
+kind: Agent
 metadata:
-  name: delegate-tool
+  name: router
 spec:
-  runtime: node
-  entry: "./tools/delegate/index.ts"
-  exports:
-    - name: agent.delegate
-      description: "다른 에이전트에게 작업을 위임합니다."
-      parameters:
-        type: object
-        properties:
-          agentName:
-            type: string
-            description: "위임할 에이전트 이름"
-          task:
-            type: string
-            description: "작업 내용"
-        required: ["agentName", "task"]
+  tools:
+    - { kind: Tool, name: agents }  # @goondan/base에서 제공
+```
+
+Tool 핸들러에서도 `ctx.agents` API를 통해 프로그래밍 방식으로 위임할 수 있습니다:
+
+```typescript
+// ctx.agents.delegate()로 다른 에이전트에 작업 위임
+const result = await ctx.agents.delegate('coder', '함수를 구현해줘', context);
+// ctx.agents.listInstances()로 현재 인스턴스 목록 조회
+const instances = await ctx.agents.listInstances();
 ```
 
 ### Q: 비밀 값(API 키 등)은 어떻게 관리하나요?
@@ -1319,5 +1335,5 @@ gdn validate --format json
 
 ---
 
-**문서 버전**: v0.0.2
-**최종 수정**: 2026-02-08
+**문서 버전**: v0.0.3
+**최종 수정**: 2026-02-09

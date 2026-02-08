@@ -61,7 +61,7 @@ metadata:
     tier: integration
 spec:
   runtime: node                     # 필수: 런타임 환경
-  entry: "./tools/slack/index.js"   # 필수: Bundle Package Root 기준 경로
+  entry: "./tools/slack/index.js"   # 필수: Package Root 기준 경로
   errorMessageLimit: 1200           # 선택: 오류 메시지 최대 길이 (기본값: 1000)
 
   # 선택: 이 Tool이 기본적으로 사용하는 OAuthApp
@@ -107,7 +107,7 @@ interface ToolSpec {
   /** 런타임 환경 (현재 'node'만 지원) */
   runtime: 'node';
 
-  /** 핸들러 모듈 경로 (Bundle Package Root 기준) */
+  /** 핸들러 모듈 경로 (Package Root 기준) */
   entry: string;
 
   /** Tool 오류 메시지 최대 길이 (기본값: 1000) */

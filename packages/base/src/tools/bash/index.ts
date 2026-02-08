@@ -161,10 +161,10 @@ export const handlers: Record<string, ToolHandler> = {
       ? timeout
       : DEFAULT_TIMEOUT_MS;
 
-    // cwd 검증
+    // cwd 검증: 명시적 cwd가 없으면 ctx.workdir 사용
     const effectiveCwd = cwd !== undefined && typeof cwd === 'string' && cwd.trim() !== ''
       ? cwd
-      : undefined;
+      : (typeof ctx.workdir === 'string' && ctx.workdir.trim() !== '' ? ctx.workdir : undefined);
 
     ctx.logger?.debug?.(`[bash.exec] Executing: ${command}`);
     if (effectiveCwd) {

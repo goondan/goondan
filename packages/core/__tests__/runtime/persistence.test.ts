@@ -44,12 +44,13 @@ describe('Runtime persistence wiring', () => {
     const bindings = createRuntimePersistenceBindings(workspaceManager);
     const logger = bindings.messageStateLogger(agentInstance);
 
-    await logger.base.log({
+    await logger.base.appendDelta({
       traceId: 'trace-1',
       instanceId: swarmInstance.id,
       instanceKey: swarmInstance.instanceKey,
       agentName: agentInstance.agentName,
       turnId: 'turn-1',
+      startSeq: 0,
       messages: [{ id: 'msg-base', role: 'user', content: 'base' }],
     });
 

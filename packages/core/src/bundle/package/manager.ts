@@ -61,7 +61,7 @@ export interface PackageManager {
   fetch(ref: PackageRef, options?: PackageFetchOptions): Promise<string>;
 
   /**
-   * 패키지 매니페스트(package.yaml) 읽기
+   * 패키지 매니페스트(goondan.yaml 첫 번째 문서) 읽기
    */
   getPackageManifest(pkgPath: string): Promise<Resource<PackageSpec>>;
 
@@ -133,25 +133,35 @@ export function createPackageManager(options: PackageManagerOptions = {}): Packa
   }
 
   async function getPackageManifest(pkgPath: string): Promise<Resource<PackageSpec>> {
-    const manifestPath = path.join(pkgPath, 'package.yaml');
+    const manifestPath = path.join(pkgPath, 'goondan.yaml');
 
     try {
       const content = await fs.readFile(manifestPath, 'utf-8');
-      const parsed = yaml.parse(content) as Resource<PackageSpec>;
+      // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+      const docs = yaml.parseAllDocuments(content);
+      if (docs.length === 0) {
+        throw new Error('Invalid goondan.yaml: empty file');
+      }
 
-      // 기본 검증
+      const firstDoc = docs[0];
+      if (!firstDoc || firstDoc.errors.length > 0) {
+        throw new Error('Invalid goondan.yaml: parse error in first document');
+      }
+
+      const parsed = firstDoc.toJSON() as Record<string, unknown>;
+
       if (!parsed || typeof parsed !== 'object') {
-        throw new Error('Invalid package.yaml: not an object');
+        throw new Error('Invalid goondan.yaml: first document is not an object');
       }
 
-      if (parsed.kind !== 'Package') {
-        throw new Error(`Invalid package.yaml: expected kind "Package", got "${parsed.kind}"`);
+      if (parsed['kind'] !== 'Package') {
+        throw new Error(`No Package document found in goondan.yaml (first document kind: "${String(parsed['kind'])}")`);
       }
 
-      return parsed;
+      return parsed as unknown as Resource<PackageSpec>;
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        throw new PackageNotFoundError(`package.yaml not found in ${pkgPath}`, {
+        throw new PackageNotFoundError(`goondan.yaml not found in ${pkgPath}`, {
           packageRef: pkgPath,
         });
       }

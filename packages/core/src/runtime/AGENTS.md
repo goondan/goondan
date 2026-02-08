@@ -66,6 +66,8 @@ Runtime
 - `maxStepsPerTurn` 정책 적용
 - Turn 완료 시 nextMessages가 AgentInstance.conversationHistory에 저장되어 다음 Turn으로 전달
 - (선택) `messageStateLogger` 연결 시 Turn 종료 시점에 events/base 로그 반영 후 events clear 수행
+  - **Delta Append**: mutation 없는 일반 Turn → `appendDelta()`로 새 메시지만 추가
+  - **Rewrite**: replace/remove/truncate mutation 발생 시 → `rewrite()`로 전체 파일 재기록
 - (선택) `messageStateRecovery` 연결 시 Turn 시작 시점에 base+events 복구 후 초기 baseMessages 구성
 - paused 상태의 SwarmInstance에서 Turn 실행 시 `interrupted` 상태로 즉시 반환
 

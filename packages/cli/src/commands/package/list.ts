@@ -34,7 +34,7 @@ interface PackageManifest {
   spec: {
     dependencies?: string[];
     devDependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
@@ -89,17 +89,28 @@ function parsePackageRef(ref: string): { scope: string | null; name: string; ver
 }
 
 /**
- * Load package.yaml manifest
+ * Load Package manifest from goondan.yaml (first YAML document)
  */
 function loadPackageManifest(projectPath: string): PackageManifest | null {
-  const manifestPath = path.join(projectPath, "package.yaml");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
 
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs.existsSync(goondanPath)) {
     return null;
   }
 
-  const content = fs.readFileSync(manifestPath, "utf-8");
-  const manifest = YAML.parse(content) as unknown;
+  const content = fs.readFileSync(goondanPath, "utf-8");
+  // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+  const docs = YAML.parseAllDocuments(content);
+  if (docs.length === 0) {
+    return null;
+  }
+
+  const firstDoc = docs[0];
+  if (!firstDoc || firstDoc.errors.length > 0) {
+    return null;
+  }
+
+  const manifest: unknown = firstDoc.toJSON();
 
   if (
     manifest !== null &&
@@ -117,7 +128,7 @@ function loadPackageManifest(projectPath: string): PackageManifest | null {
  * Load lockfile
  */
 function loadLockfile(projectPath: string): Lockfile | null {
-  const lockfilePath = path.join(projectPath, "packages.lock.yaml");
+  const lockfilePath = path.join(projectPath, "goondan.lock.yaml");
 
   if (!fs.existsSync(lockfilePath)) {
     return null;
@@ -280,11 +291,11 @@ async function executeList(options: ListOptions): Promise<void> {
   const projectPath = process.cwd();
 
   try {
-    // Load package.yaml
+    // Load Package from goondan.yaml
     const manifest = loadPackageManifest(projectPath);
 
     if (!manifest) {
-      logError("package.yaml not found");
+      logError("Package not found in goondan.yaml");
       info("Run 'gdn init --package' to create a new package project.");
       process.exitCode = 1;
       return;

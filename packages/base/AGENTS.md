@@ -23,7 +23,11 @@ packages/base/
 │   │   │   ├── tool.yaml    # Tool 리소스 정의
 │   │   │   ├── index.ts     # Tool 핸들러 구현
 │   │   │   └── AGENTS.md    # 폴더별 가이드
-│   │   └── text-transform/ # 텍스트 변환 Tool (템플릿, 정규식, 포맷)
+│   │   ├── text-transform/ # 텍스트 변환 Tool (템플릿, 정규식, 포맷)
+│   │   │   ├── tool.yaml    # Tool 리소스 정의
+│   │   │   ├── index.ts     # Tool 핸들러 구현
+│   │   │   └── AGENTS.md    # 폴더별 가이드
+│   │   └── agents/        # 에이전트 위임/관리 Tool (ctx.agents API 기반)
 │   │       ├── tool.yaml    # Tool 리소스 정의
 │   │       ├── index.ts     # Tool 핸들러 구현
 │   │       └── AGENTS.md    # 폴더별 가이드
@@ -63,7 +67,9 @@ packages/base/
 │   │   │   └── index.test.ts
 │   │   ├── file-system/
 │   │   │   └── index.test.ts
-│   │   └── text-transform/
+│   │   ├── text-transform/
+│   │   │   └── index.test.ts
+│   │   └── agents/
 │   │       └── index.test.ts
 │   ├── extensions/
 │   │   └── basicCompaction/
@@ -82,7 +88,7 @@ packages/base/
 ├── scripts/
 │   └── copy-yaml.mjs   # 빌드 시 src/ YAML 파일을 dist/로 복사
 ├── package.json         # npm 패키지 설정 (build: tsc + copy-yaml)
-├── package.yaml         # Bundle Package 정의
+├── goondan.yaml             # Package 정의
 ├── vitest.config.ts     # Vitest 테스트 설정
 └── tsconfig.json        # TypeScript 설정
 ```
@@ -95,7 +101,7 @@ packages/base/
    - `apiVersion: agents.example.io/v1alpha1`
    - `kind: Tool`
    - `spec.runtime: node`
-   - `spec.entry`: Bundle Package Root 기준 상대 경로 (예: `"./tools/bash/index.js"`)
+   - `spec.entry`: Package Root 기준 상대 경로 (예: `"./tools/bash/index.js"`)
    - `spec.exports`: 최소 1개 이상의 export 정의
 
 2. **index.ts**: Tool 핸들러 구현
@@ -111,7 +117,7 @@ packages/base/
    - `apiVersion: agents.example.io/v1alpha1`
    - `kind: Extension`
    - `spec.runtime: node`
-   - `spec.entry`: Bundle Package Root 기준 상대 경로 (예: `"./extensions/basicCompaction/index.js"`)
+   - `spec.entry`: Package Root 기준 상대 경로 (예: `"./extensions/basicCompaction/index.js"`)
    - `spec.config`: Extension별 설정
 
 2. **index.ts**: Extension 핸들러 구현
@@ -187,13 +193,23 @@ Node.js fs/promises 기반 파일 시스템 작업 도구.
 - `text.regex`: 정규식 매칭(match), 치환(replace), 존재 확인(test)
 - `text.format`: 포맷 변환 (JSON <-> YAML <-> CSV)
 
+#### agents Tool
+
+에이전트 위임 및 인스턴스 관리 도구. `ctx.agents` API를 통해 다른 에이전트에 작업을 위임하고 인스턴스 목록을 조회합니다. 기존 샘플별 inline delegate tool을 대체합니다.
+
+**exports:**
+- `agents.delegate`: 다른 에이전트에 작업 위임 (agentName, task, context 파라미터)
+- `agents.listInstances`: 현재 Swarm 내 에이전트 인스턴스 목록 조회
+
+**의존성:** ToolContext.agents (ToolAgentsApi) — CLI runtime에서 콜백 주입
+
 ### Connector 작성 규칙 (v1.0)
 
 1. **connector.yaml**: Connector 리소스 정의 (프로토콜 구현체만)
    - `apiVersion: agents.example.io/v1alpha1`
    - `kind: Connector`
    - `spec.runtime: node`
-   - `spec.entry`: Bundle Package Root 기준 상대 경로 (예: `"./connectors/slack/index.js"`)
+   - `spec.entry`: Package Root 기준 상대 경로 (예: `"./connectors/slack/index.js"`)
    - `spec.triggers`: Trigger 프로토콜 선언 목록 (http/cron/cli)
    - `spec.events`: emit할 수 있는 이벤트 스키마 (선택)
    - **주의**: `auth`, `ingress`, `verify`, `egress`는 Connector가 아닌 **Connection** 리소스에 정의
@@ -225,7 +241,7 @@ Node.js fs/promises 기반 파일 시스템 작업 도구.
 - 하나의 Connector에 여러 Connection을 바인딩할 수 있음
 - Entry 함수는 Connection마다 호출됨 (동일 trigger event에 대해 각 Connection별 호출)
 
-### package.yaml 리소스 export 규칙
+### goondan.yaml 리소스 export 규칙
 
 - 패키지는 사용 가능한 **모든 리소스를 export** 해야 한다.
 - 인증(OAuthApp, Secret 등)이 필요한 리소스라도 패키지에서 제외하지 않는다.

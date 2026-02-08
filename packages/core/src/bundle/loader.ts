@@ -15,7 +15,7 @@ import { BundleError, ParseError, ValidationError, ReferenceError } from './erro
 import type { Resource } from '../types/index.js';
 
 /**
- * Bundle Package 매니페스트 (package.yaml)
+ * Package 매니페스트 (goondan.yaml 첫 번째 문서)
  */
 interface PackageManifest {
   apiVersion: string;
@@ -27,7 +27,7 @@ interface PackageManifest {
   };
   spec: {
     dependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
@@ -250,14 +250,24 @@ function isPackageManifest(value: unknown): value is PackageManifest {
 }
 
 /**
- * package.yaml 파싱
+ * goondan.yaml에서 Package 매니페스트 파싱 (첫 번째 문서)
  */
 async function parsePackageManifest(
-  packageYamlPath: string
+  goondanYamlPath: string
 ): Promise<PackageManifest | null> {
   try {
-    const content = await fs.promises.readFile(packageYamlPath, 'utf-8');
-    const parsed: unknown = parseYaml(content);
+    const content = await fs.promises.readFile(goondanYamlPath, 'utf-8');
+    // multi-document YAML에서 첫 번째 문서만 확인
+    const { parseAllDocuments } = await import('yaml');
+    const docs = parseAllDocuments(content);
+    if (docs.length === 0) {
+      return null;
+    }
+    const firstDoc = docs[0];
+    if (!firstDoc || firstDoc.errors.length > 0) {
+      return null;
+    }
+    const parsed: unknown = firstDoc.toJSON();
     if (isPackageManifest(parsed)) {
       return parsed;
     }
@@ -285,7 +295,7 @@ function resolvePackagePath(projectDir: string, depRef: DependencyRef): string {
 /**
  * pnpm workspace에서 패키지를 찾는다.
  * projectDir에서 위로 올라가며 pnpm-workspace.yaml을 찾고,
- * workspace 패턴에 매칭되는 디렉토리의 package.yaml을 검색한다.
+ * workspace 패턴에 매칭되는 디렉토리의 goondan.yaml Package 문서를 검색한다.
  */
 async function findWorkspacePackagePath(
   startDir: string,
@@ -334,7 +344,7 @@ async function findWorkspacePackagePath(
     });
 
     for (const dir of dirs) {
-      const manifest = await parsePackageManifest(path.join(dir, 'package.yaml'));
+      const manifest = await parsePackageManifest(path.join(dir, 'goondan.yaml'));
       if (manifest && manifest.metadata.name === depRef.fullName) {
         return dir;
       }
@@ -400,17 +410,17 @@ async function loadDependencyResources(
     }
     loadedPackages.add(dedupeKey);
 
-    let packageYamlPath = path.join(resolvedPackagePath, 'package.yaml');
+    let goondanYamlPath = path.join(resolvedPackagePath, 'goondan.yaml');
 
-    let manifest = await parsePackageManifest(packageYamlPath);
+    let manifest = await parsePackageManifest(goondanYamlPath);
 
     // .goondan/packages에 없으면 pnpm workspace에서 검색
     if (!manifest && !depRef.filePath) {
       const wsPath = await findWorkspacePackagePath(projectDir, depRef);
       if (wsPath) {
         resolvedPackagePath = wsPath;
-        packageYamlPath = path.join(wsPath, 'package.yaml');
-        manifest = await parsePackageManifest(packageYamlPath);
+        goondanYamlPath = path.join(wsPath, 'goondan.yaml');
+        manifest = await parsePackageManifest(goondanYamlPath);
       }
     }
 
@@ -439,14 +449,14 @@ async function loadDependencyResources(
       continue;
     }
 
-    const invalidResourcePath = manifest.spec.resources?.find(
+    const invalidResourcePath = manifest.spec.exports?.find(
       (resourcePath) =>
         typeof resourcePath !== 'string' || !isSafePackageRelativePath(resourcePath)
     );
     if (invalidResourcePath) {
       errors.push(
         new BundleError(
-          `Unsafe package path in ${dep}: spec.resources contains "${invalidResourcePath}" (absolute path and ".." are not allowed)`
+          `Unsafe package path in ${dep}: spec.exports contains "${invalidResourcePath}" (absolute path and ".." are not allowed)`
         )
       );
       continue;
@@ -468,12 +478,12 @@ async function loadDependencyResources(
     }
 
     // 패키지의 리소스 로드
-    if (manifest.spec.resources && manifest.spec.resources.length > 0) {
+    if (manifest.spec.exports && manifest.spec.exports.length > 0) {
       // dist 폴더 경로 결정 (기본: dist/)
       const distPath = manifest.spec.dist?.[0]?.replace(/\/$/, '') ?? 'dist';
       const distDir = path.join(resolvedPackagePath, distPath);
 
-      for (const resourcePath of manifest.spec.resources) {
+      for (const resourcePath of manifest.spec.exports) {
         if (!isSafePackageRelativePath(resourcePath)) {
           errors.push(
             new BundleError(
@@ -671,9 +681,9 @@ export async function loadBundleFromFile(
 /**
  * 디렉토리에서 Bundle 로드
  *
- * Bundle Package 시스템을 지원:
- * 1. package.yaml이 있으면 spec.dependencies를 재귀적으로 해석
- * 2. 로드 순서: 의존성 → 현재 Bundle Package
+ * Package 시스템을 지원:
+ * 1. goondan.yaml 첫 번째 문서가 kind: Package이면 spec.dependencies를 재귀적으로 해석
+ * 2. 로드 순서: 의존성 → 현재 Package 인라인 리소스
  * 3. 동일 Kind/name이 중복되면 후순위 로드가 덮어씀
  *
  * @param dirPath 디렉토리 경로
@@ -703,9 +713,9 @@ export async function loadBundleFromDirectory(
     return createBundleLoadResult([], errors, []);
   }
 
-  // 1. package.yaml 확인 및 dependency 리소스 로드
-  const packageYamlPath = path.join(dirPath, 'package.yaml');
-  const manifest = await parsePackageManifest(packageYamlPath);
+  // 1. goondan.yaml에서 Package 문서 확인 및 dependency 리소스 로드
+  const goondanYamlPath = path.join(dirPath, 'goondan.yaml');
+  const manifest = await parsePackageManifest(goondanYamlPath);
 
   if (manifest && manifest.spec.dependencies && manifest.spec.dependencies.length > 0) {
     const loadedPackages = new Set<string>();
@@ -724,7 +734,7 @@ export async function loadBundleFromDirectory(
 
   // 2. 현재 프로젝트의 YAML 파일 검색
   const pattern = options.pattern ?? '**/*.{yaml,yml}';
-  const ignore = options.ignore ?? ['**/node_modules/**', '**/packages.lock.yaml', '**/.goondan/**', '**/package.yaml'];
+  const ignore = options.ignore ?? ['**/node_modules/**', '**/packages.lock.yaml', '**/goondan.lock.yaml', '**/.goondan/**'];
 
   let files: string[];
   try {
@@ -761,10 +771,11 @@ export async function loadBundleFromDirectory(
       continue;
     }
 
-    // YAML 파싱만 수행
+    // YAML 파싱만 수행 (kind: Package는 리소스에서 제외)
     try {
       const resources = parseMultiDocument(content, file);
-      allResources.push(...resources);
+      const nonPackageResources = resources.filter((r) => r.kind !== 'Package');
+      allResources.push(...nonPackageResources);
     } catch (error) {
       if (error instanceof ParseError) {
         errors.push(error);

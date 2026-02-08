@@ -6,16 +6,16 @@
 2. 로더는 단일 파일, 디렉터리, 다중 YAML 문서(`---`)를 처리해야 한다(MUST).
 3. 로딩 결과는 결정론적이어야 하며, 동일 입력에서 동일 리소스 집합을 생성해야 한다(MUST).
 
-### 8.2 Bundle Package 기본 개념
+### 8.2 Package 기본 개념
 
-Bundle Package는 재사용 가능한 배포 단위다. 다음 아티팩트를 포함할 수 있다.
+Package는 재사용 가능한 배포 단위다. 다음 아티팩트를 포함할 수 있다.
 
 - 리소스 YAML
 - 프롬프트 파일
 - 도구/확장/커넥터 스크립트
 - 스킬 번들
 
-Bundle Package 매니페스트는 패키지 메타데이터, 의존성, 배포 대상 리소스 목록을 정의해야 한다(MUST).
+Package 매니페스트는 패키지 메타데이터, 의존성, 배포 대상 리소스 목록을 정의해야 한다(MUST).
 
 ### 8.3 의존성 해석 규칙
 
@@ -61,7 +61,7 @@ values 병합 우선순위는 다음 순서를 따라야 한다(MUST).
 
 #### 8.8.1 게시(Publish)
 
-1. 게시 전 `package.yaml` 스키마 검증과 리소스 구성 검증(`gdn validate`)을 통과해야 한다(MUST).
+1. 게시 전 `goondan.yaml`의 Package 문서 스키마 검증과 리소스 구성 검증(`gdn validate`)을 통과해야 한다(MUST).
 2. 게시 시 tarball 생성과 SHA512 integrity hash 계산을 수행해야 한다(MUST).
 3. dist-tag(latest, beta 등) 지정을 지원해야 한다(SHOULD).
 4. `--dry-run` 모드로 게시 전 검증만 수행할 수 있어야 한다(SHOULD).
@@ -84,6 +84,6 @@ values 병합 우선순위는 다음 순서를 따라야 한다(MUST).
 3. scope별 레지스트리 분리 구성을 지원해야 한다(SHOULD).
 4. 인증 토큰은 설정 파일에 평문 저장하지 않는 것을 권장한다(SHOULD).
 
-### 8.10 Bundle Package 스펙 연동
+### 8.10 Package 스펙 연동
 
-구체적인 레지스트리 API, `package.yaml`, lockfile 형식, CLI 명령(`gdn package *`)은 구현 스펙 `docs/specs/bundle_package.md`를 따른다.
+구체적인 레지스트리 API, `goondan.yaml` Package 문서, `goondan.lock.yaml` lockfile 형식, CLI 명령(`gdn package *`)은 구현 스펙 `docs/specs/bundle_package.md`를 따른다.

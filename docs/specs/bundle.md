@@ -1,4 +1,4 @@
-# Goondan Bundle YAML 스펙 (v0.10)
+# Goondan Bundle YAML 스펙 (v0.11)
 
 본 문서는 `docs/requirements/index.md`(특히 6/7)의 구성 스펙을 YAML 관점에서 구체화한 문서이다. 런타임/툴링/검증기는 본 문서를 기준으로 구조를 해석한다.
 
@@ -52,7 +52,7 @@ Goondan이 지원하는 기본 kind 목록은 다음과 같다.
 | `OAuthApp` | OAuth 인증 구성 |
 | `ResourceType` | 사용자 정의 kind 등록 |
 | `ExtensionHandler` | ResourceType 처리 핸들러 |
-| `Bundle` | Bundle Package 매니페스트 |
+| `Package` | Package 매니페스트 (프로젝트 루트 리소스) |
 
 ### 1.4 metadata.name 유일성 규칙
 
@@ -82,7 +82,7 @@ metadata:
 - 빈 문서(--- 만 있는 경우)는 무시한다(SHOULD).
 
 ```yaml
-# goondan.yaml - 다중 문서 예시
+# goondan.yaml - 다중 문서 예시 (Package 없는 단순 구성)
 apiVersion: agents.example.io/v1alpha1
 kind: Model
 metadata:
@@ -108,6 +108,37 @@ spec:
 # 빈 문서는 무시됨
 ---
 
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entrypoint: { kind: Agent, name: planner }
+  agents:
+    - { kind: Agent, name: planner }
+```
+
+첫 번째 문서가 `kind: Package`이면 프로젝트의 패키지 메타데이터로 해석하고, 이후 문서들은 리소스로 해석한다. 상세 스펙은 `docs/specs/bundle_package.md`를 참조한다.
+
+```yaml
+# goondan.yaml - Package를 포함하는 다중 문서 예시
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: my-coding-swarm
+  version: "1.0.0"
+spec:
+  dependencies:
+    - "@goondan/base"
+---
+apiVersion: agents.example.io/v1alpha1
+kind: Model
+metadata:
+  name: claude
+spec:
+  provider: anthropic
+  name: claude-sonnet-4-5
+---
 apiVersion: agents.example.io/v1alpha1
 kind: Swarm
 metadata:
@@ -153,7 +184,7 @@ ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 # 3. 객체형 형식 (apiVersion 생략)
 { kind: Kind, name: name }
 
-# 4. 패키지 참조 형식 (Bundle Package 간 참조)
+# 4. 패키지 참조 형식 (Package 간 참조)
 { kind: Kind, name: name, package: package-name }
 ```
 
@@ -198,7 +229,7 @@ tools:
 
 1. `kind`와 `name`은 필수이다(MUST).
 2. `apiVersion` 생략 시 현재 문서의 apiVersion 또는 기본값(`agents.example.io/v1alpha1`)을 사용한다(SHOULD).
-3. `package`는 Bundle Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다(SHOULD).
+3. `package`는 Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다(SHOULD).
 4. `package` 외의 추가 필드는 무시한다(SHOULD).
 
 ### 2.4 apiVersion 생략 시 기본값 결정
@@ -1418,16 +1449,21 @@ triggers:
 # CLI Trigger
 triggers:
   - type: cli
+
+# Custom Trigger (Connector 자체 이벤트 루프)
+triggers:
+  - type: custom
 ```
 
 ##### triggers[] 필드
 
 | 필드 | 필수 | 타입 | 설명 |
 |------|------|------|------|
-| `type` | Y | string | `"http"`, `"cron"`, `"cli"` 중 하나 |
+| `type` | Y | string | `"http"`, `"cron"`, `"cli"`, `"custom"` 중 하나 |
 | `endpoint.path` | Y (http) | string | Webhook 수신 경로 (`/`로 시작) |
 | `endpoint.method` | Y (http) | string | HTTP 메서드 |
 | `schedule` | Y (cron) | string | cron 표현식 |
+| _(custom은 추가 설정 필드 없음)_ | | | Connector가 자체 이벤트 루프로 이벤트를 수집 |
 
 #### 5.6.3 events 스키마 상세
 
@@ -2508,6 +2544,6 @@ allowed:
 
 ---
 
-**문서 버전**: v0.9
-**최종 수정**: 2026-02-05
+**문서 버전**: v0.10
+**최종 수정**: 2026-02-08
 **참조**: @docs/requirements/index.md, @docs/requirements/06_config-spec.md, @docs/requirements/07_config-resources.md

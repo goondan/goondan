@@ -62,6 +62,8 @@ describe('ToolContextBuilder', () => {
         .setOAuthApi({} as ToolContext['oauth'])
         .setEventBus({} as ToolContext['events'])
         .setLogger(console)
+        .setWorkdir('/test/workdir')
+        .setAgentsApi({} as ToolContext['agents'])
         .build();
 
       expect(ctx.instance.id).toBe('instance_123');
@@ -71,6 +73,7 @@ describe('ToolContextBuilder', () => {
       expect(ctx.step.id).toBe('step_1');
       expect(ctx.toolCatalog).toHaveLength(2);
       expect(ctx.logger).toBe(console);
+      expect(ctx.workdir).toBe('/test/workdir');
     });
 
     it('필수 필드가 없으면 에러를 던진다', () => {
@@ -89,7 +92,9 @@ describe('ToolContextBuilder', () => {
         .setSwarmBundleApi({} as ToolContext['swarmBundle'])
         .setOAuthApi({} as ToolContext['oauth'])
         .setEventBus({} as ToolContext['events'])
-        .setLogger(console);
+        .setLogger(console)
+        .setWorkdir('/test')
+        .setAgentsApi({} as ToolContext['agents']);
 
       expect(() => builder.build()).toThrow('instance');
     });
@@ -104,7 +109,9 @@ describe('ToolContextBuilder', () => {
         .setSwarmBundleApi({} as ToolContext['swarmBundle'])
         .setOAuthApi({} as ToolContext['oauth'])
         .setEventBus({} as ToolContext['events'])
-        .setLogger(console);
+        .setLogger(console)
+        .setWorkdir('/test')
+        .setAgentsApi({} as ToolContext['agents']);
 
       expect(() => builder.build()).toThrow('swarm');
     });
@@ -123,6 +130,8 @@ describe('ToolContextBuilder', () => {
         oauth: {} as ToolContext['oauth'],
         events: {} as ToolContext['events'],
         logger: console,
+        workdir: '/test/workdir',
+        agents: {} as ToolContext['agents'],
       };
 
       const newCtx = ToolContextBuilder.from(existingCtx)
@@ -148,6 +157,8 @@ describe('ToolContextBuilder', () => {
         oauth: {} as ToolContext['oauth'],
         events: {} as ToolContext['events'],
         logger: console,
+        workdir: '/test/workdir',
+        agents: {} as ToolContext['agents'],
       };
 
       const newCatalog: ToolCatalogItem[] = [

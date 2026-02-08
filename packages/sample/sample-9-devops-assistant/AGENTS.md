@@ -6,8 +6,7 @@
 
 ```
 sample-9-devops-assistant/
-├── package.yaml      # Bundle Package 정의 (@goondan/base 의존성)
-├── goondan.yaml      # Bundle 정의 (Model + 로컬 Tool + 2 Agent + Swarm + Connection)
+├── goondan.yaml      # Package + Bundle 정의 (@goondan/base 의존성, Model + 로컬 Tool + 2 Agent + Swarm + Connection)
 ├── delegate-tool.ts  # agent.delegate 로컬 구현 (devops/planner 위임)
 ├── prompts/
 │   ├── devops.md     # DevOps 에이전트 프롬프트 (시스템 점검, 배포, 로그 분석)
@@ -39,7 +38,7 @@ sample-9-devops-assistant/
 - `devops-swarm`: 2개 에이전트로 구성
 
 ### Connection
-- `cli-to-devops`: `@goondan/base`의 `Connector/cli`를 스웜에 바인딩
+- `cli-to-devops`: `@goondan/base`의 `Connector/cli`를 `devops-swarm` Swarm에 바인딩 (`swarmRef` 명시)
 
 ## 핵심 개념
 

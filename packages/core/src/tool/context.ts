@@ -14,6 +14,7 @@ import type {
   SwarmBundleApi,
   OAuthApi,
   EventBus,
+  ToolAgentsApi,
 } from './types.js';
 import type { Resource } from '../types/resource.js';
 import type { SwarmSpec, AgentSpec } from '../types/specs/index.js';
@@ -34,6 +35,8 @@ export class ToolContextBuilder {
   private oauth?: OAuthApi;
   private events?: EventBus;
   private logger?: Console;
+  private workdir?: string;
+  private agents?: ToolAgentsApi;
 
   /**
    * SwarmInstance 설정
@@ -116,6 +119,22 @@ export class ToolContextBuilder {
   }
 
   /**
+   * Workdir 설정
+   */
+  setWorkdir(workdir: string): this {
+    this.workdir = workdir;
+    return this;
+  }
+
+  /**
+   * Agents API 설정
+   */
+  setAgentsApi(agents: ToolAgentsApi): this {
+    this.agents = agents;
+    return this;
+  }
+
+  /**
    * ToolContext 생성
    *
    * @throws 필수 필드가 설정되지 않은 경우
@@ -132,6 +151,8 @@ export class ToolContextBuilder {
     this.validateRequired('oauth', this.oauth);
     this.validateRequired('events', this.events);
     this.validateRequired('logger', this.logger);
+    this.validateRequired('workdir', this.workdir);
+    this.validateRequired('agents', this.agents);
 
     return {
       instance: this.instance,
@@ -144,6 +165,8 @@ export class ToolContextBuilder {
       oauth: this.oauth,
       events: this.events,
       logger: this.logger,
+      workdir: this.workdir,
+      agents: this.agents,
     };
   }
 
@@ -173,7 +196,9 @@ export class ToolContextBuilder {
       .setSwarmBundleApi(ctx.swarmBundle)
       .setOAuthApi(ctx.oauth)
       .setEventBus(ctx.events)
-      .setLogger(ctx.logger);
+      .setLogger(ctx.logger)
+      .setWorkdir(ctx.workdir)
+      .setAgentsApi(ctx.agents);
   }
 
   /**

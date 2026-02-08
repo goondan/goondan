@@ -270,6 +270,12 @@ export class WorkspaceManager {
     };
     await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
 
+    // Workspace 디렉터리 (Tool CWD 바인딩용)
+    await fs.mkdir(
+      this.paths.instanceWorkspacePath(instanceId),
+      { recursive: true }
+    );
+
     // Agent별 디렉터리
     for (const agentName of agents) {
       await fs.mkdir(
@@ -281,6 +287,13 @@ export class WorkspaceManager {
         { recursive: true }
       );
     }
+  }
+
+  /**
+   * 인스턴스별 workspace 디렉터리 경로 반환
+   */
+  instanceWorkspacePath(instanceId: string): string {
+    return this.paths.instanceWorkspacePath(instanceId);
   }
 
   /**
@@ -598,15 +611,25 @@ export class WorkspaceManager {
 
     return {
       base: {
-        log: async (input) => {
-          await baseLogger.log({
+        appendDelta: async (input) => {
+          await baseLogger.appendDelta({
+            traceId: input.traceId,
+            instanceId: input.instanceId,
+            instanceKey: input.instanceKey,
+            agentName: input.agentName,
+            turnId: input.turnId,
+            startSeq: input.startSeq,
+            messages: input.messages,
+          });
+        },
+        rewrite: async (input) => {
+          await baseLogger.rewrite({
             traceId: input.traceId,
             instanceId: input.instanceId,
             instanceKey: input.instanceKey,
             agentName: input.agentName,
             turnId: input.turnId,
             messages: input.messages,
-            sourceEventCount: input.sourceEventCount,
           });
         },
       },
@@ -669,20 +692,14 @@ export class WorkspaceManager {
   }
 
   private extractLatestBaseMessages(records: MessageBaseLogRecord[]): RuntimeLlmMessage[] {
-    const latestRecord = records.at(-1);
-    if (!latestRecord) {
+    if (records.length === 0) {
       return [];
     }
 
-    const messages: RuntimeLlmMessage[] = [];
-    for (const message of latestRecord.messages) {
-      const parsed = this.parseRuntimeLlmMessage(message);
-      if (parsed) {
-        messages.push(parsed);
-      }
-    }
-
-    return messages;
+    return records
+      .sort((a, b) => a.seq - b.seq)
+      .map((r) => this.parseRuntimeLlmMessage(r.message))
+      .filter((msg): msg is RuntimeLlmMessage => msg !== undefined);
   }
 
   private extractPendingMessageEvents(records: MessageEventLogRecord[]): RuntimeMessageEvent[] {

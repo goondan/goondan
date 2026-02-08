@@ -23,35 +23,35 @@ import type { Resource } from '../../../src/types/resource.js';
 
 describe('Bundle Package Types', () => {
   describe('PackageSpec', () => {
-    it('dependencies와 resources를 포함할 수 있어야 한다', () => {
+    it('dependencies와 exports를 포함할 수 있어야 한다', () => {
       const spec: PackageSpec = {
         dependencies: ['@goondan/core-utils@^0.5.0', '@myorg/slack-toolkit@1.2.0'],
-        resources: ['tools/fileRead/tool.yaml', 'extensions/skills/extension.yaml'],
+        exports: ['tools/fileRead/tool.yaml', 'extensions/skills/extension.yaml'],
         dist: ['dist/'],
       };
 
       expect(spec.dependencies).toHaveLength(2);
-      expect(spec.resources).toHaveLength(2);
+      expect(spec.exports).toHaveLength(2);
       expect(spec.dist).toEqual(['dist/']);
     });
 
     it('dependencies가 없어도 유효해야 한다', () => {
       const spec: PackageSpec = {
-        resources: ['tools/fileRead/tool.yaml'],
+        exports: ['tools/fileRead/tool.yaml'],
         dist: ['dist/'],
       };
 
       expect(spec.dependencies).toBeUndefined();
-      expect(spec.resources).toHaveLength(1);
+      expect(spec.exports).toHaveLength(1);
     });
 
-    it('resources가 없으면 consume 전용 패키지이다', () => {
+    it('exports가 없으면 consume 전용 패키지이다', () => {
       const spec: PackageSpec = {
         dependencies: ['@goondan/base@1.0.0'],
         dist: ['dist/'],
       };
 
-      expect(spec.resources).toBeUndefined();
+      expect(spec.exports).toBeUndefined();
     });
   });
 

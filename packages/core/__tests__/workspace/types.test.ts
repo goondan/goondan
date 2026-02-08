@@ -141,7 +141,7 @@ describe('Workspace 타입', () => {
   });
 
   describe('MessageBaseLogRecord', () => {
-    it('type이 message.base여야 한다', () => {
+    it('type이 message.base여야 하고 단일 메시지와 seq를 가져야 한다', () => {
       const record: MessageBaseLogRecord = {
         type: 'message.base',
         recordedAt: '2026-02-01T12:00:00.000Z',
@@ -150,14 +150,14 @@ describe('Workspace 타입', () => {
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-abc123',
-        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
-        sourceEventCount: 1,
+        message: { id: 'msg-001', role: 'user', content: 'Hello' },
+        seq: 0,
       };
 
       expect(record.type).toBe('message.base');
       expect(record.traceId).toBe('trace-a1b2c3');
-      expect(record.messages.length).toBe(1);
-      expect(record.sourceEventCount).toBe(1);
+      expect(record.message.role).toBe('user');
+      expect(record.seq).toBe(0);
     });
   });
 

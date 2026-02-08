@@ -47,8 +47,7 @@ describe('WorkspacePaths', () => {
       const paths = new WorkspacePaths({
         swarmBundleRoot: '/Users/alice/projects/my-agent',
       });
-      expect(paths.workspaceId).toHaveLength(12);
-      expect(/^[a-f0-9]+$/.test(paths.workspaceId)).toBe(true);
+      expect(paths.workspaceId).toMatch(/^my-agent-[a-f0-9]{8}$/);
     });
   });
 
@@ -203,6 +202,12 @@ describe('WorkspacePaths', () => {
       const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/agents/planner/events/events.jsonl`;
       expect(logPath).toBe(expected);
     });
+
+    it('instanceWorkspacePath로 인스턴스 워크스페이스 경로를 생성해야 한다', () => {
+      const workspacePath = paths.instanceWorkspacePath('default-cli');
+      const expected = `/home/test/.goondan/instances/${paths.workspaceId}/default-cli/workspace`;
+      expect(workspacePath).toBe(expected);
+    });
   });
 
   describe('SwarmBundle Paths', () => {
@@ -261,6 +266,7 @@ describe('WorkspacePaths', () => {
       expect(instancePaths.swarmEventsLog).toContain('events.jsonl');
       expect(instancePaths.metricsLog).toContain('turns.jsonl');
       expect(instancePaths.extensionSharedState).toContain('_shared.json');
+      expect(instancePaths.workspace).toContain('workspace');
     });
 
     it('extensionState 함수로 Extension별 상태 경로를 생성해야 한다', () => {

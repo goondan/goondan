@@ -21,7 +21,7 @@ yarn add @goondan-samples/coding-swarm
 
 ```
 @goondan-samples/coding-swarm/
-├── package.yaml          # Bundle Package 매니페스트
+├── goondan.yaml              # Package 매니페스트 + 리소스 정의
 ├── dist/                 # 배포되는 리소스
 │   ├── model.yaml        # 기본 모델 정의
 │   ├── swarm.yaml        # 스웜 정의
@@ -44,7 +44,6 @@ yarn add @goondan-samples/coding-swarm
 │   ├── file/index.ts
 │   └── delegate/index.ts
 ├── prompts/              # 소스 프롬프트
-├── goondan.yaml          # 직접 실행용 Bundle
 └── package.json
 ```
 

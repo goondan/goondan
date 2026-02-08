@@ -195,6 +195,36 @@ export interface EventBus {
 }
 
 /**
+ * Agent 위임/관리 API
+ */
+export interface ToolAgentsApi {
+  /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
+  delegate(agentName: string, task: string, context?: string): Promise<AgentDelegateResult>;
+  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
+  listInstances(): Promise<AgentInstanceInfo[]>;
+}
+
+/**
+ * Agent 위임 결과
+ */
+export interface AgentDelegateResult {
+  success: boolean;
+  agentName: string;
+  instanceId: string;
+  response?: string;
+  error?: string;
+}
+
+/**
+ * Agent 인스턴스 정보
+ */
+export interface AgentInstanceInfo {
+  instanceId: string;
+  agentName: string;
+  status: string;
+}
+
+/**
  * Tool 실행 컨텍스트
  */
 export interface ToolContext {
@@ -228,8 +258,11 @@ export interface ToolContext {
   /** 로거 */
   logger: Console;
 
-  /** 다른 에이전트에 작업 위임 */
-  delegate?(agentName: string, task: string, context?: string): Promise<JsonValue>;
+  /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
+  workdir: string;
+
+  /** Agent 위임/관리 API */
+  agents: ToolAgentsApi;
 }
 
 // =============================================================================

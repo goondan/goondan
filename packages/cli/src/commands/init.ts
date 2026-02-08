@@ -384,7 +384,7 @@ logs/
 }
 
 /**
- * Generate package.yaml for Bundle Package template
+ * Generate Package YAML fragment for inclusion in goondan.yaml
  */
 function generatePackageYaml(name: string): string {
   return `apiVersion: agents.example.io/v1alpha1
@@ -394,17 +394,9 @@ metadata:
   version: "0.1.0"
 spec:
   access: public
-
-  # Dependencies (optional)
   dependencies: []
-
-  # Resources to include in the package
-  # Paths are resolved relative to spec.dist
-  resources:
-    - "goondan.yaml"
+  exports:
     - "src/tools/example/tool.yaml"
-
-  # Distribution folders to include in tarball
   dist:
     - "."
 `;
@@ -418,7 +410,7 @@ function generateNpmPackageJson(name: string): string {
     {
       name,
       version: "0.1.0",
-      description: `${name} - Goondan Bundle Package`,
+      description: `${name} - Goondan Package`,
       type: "module",
       main: "./dist/index.js",
       types: "./dist/index.d.ts",
@@ -591,10 +583,12 @@ function getTemplateFiles(
   if (template === "package" || isPackage) {
     const exampleTool = generateExampleTool();
 
-    files.push({
-      path: "package.yaml",
-      content: generatePackageYaml(name),
-    });
+    // Prepend Package document to goondan.yaml
+    const packageDoc = generatePackageYaml(name);
+    const goondanFile = files.find((f) => f.path === "goondan.yaml");
+    if (goondanFile) {
+      goondanFile.content = packageDoc + "---\n\n" + goondanFile.content;
+    }
 
     files.push({
       path: "package.json",
@@ -841,7 +835,7 @@ Examples:
   $ gdn init ./my-agent                  Create project in new directory
   $ gdn init -t multi-agent              Multi-agent template
   $ gdn init -t minimal                  Minimal single-file config
-  $ gdn init --package -n @org/tools     Initialize as Bundle Package`
+  $ gdn init --package -n @org/tools     Initialize as Package`
     )
     .argument("[path]", "Project directory path", ".")
     .option("-n, --name <name>", "Swarm name")
@@ -850,7 +844,7 @@ Examples:
       "Template to use (default, multi-agent, package, minimal)",
       "default"
     )
-    .option("--package", "Initialize as a Bundle Package", false)
+    .option("--package", "Initialize as a Package", false)
     .option("--git", "Initialize git repository", true)
     .option("--no-git", "Skip git repository initialization")
     .option("-f, --force", "Overwrite existing files", false)

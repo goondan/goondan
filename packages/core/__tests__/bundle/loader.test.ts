@@ -333,11 +333,11 @@ spec:
       expect(result.resources[0]?.kind).toBe('Model');
     });
 
-    it('dependency package의 spec.resources 경로가 안전하지 않으면 오류를 반환해야 한다', async () => {
+    it('dependency package의 spec.exports 경로가 안전하지 않으면 오류를 반환해야 한다', async () => {
       const depDir = path.join(tempDir, 'dep');
       fs.mkdirSync(path.join(depDir, 'dist'), { recursive: true });
       fs.writeFileSync(
-        path.join(depDir, 'package.yaml'),
+        path.join(depDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -345,7 +345,7 @@ metadata:
   name: dep
   version: "1.0.0"
 spec:
-  resources:
+  exports:
     - ../escape.yaml
   dist:
     - dist/
@@ -355,7 +355,7 @@ spec:
       const rootDir = path.join(tempDir, 'root');
       fs.mkdirSync(rootDir, { recursive: true });
       fs.writeFileSync(
-        path.join(rootDir, 'package.yaml'),
+        path.join(rootDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -389,7 +389,7 @@ spec:
       const depDir = path.join(tempDir, 'dep-entry');
       fs.mkdirSync(path.join(depDir, 'dist', 'tools'), { recursive: true });
       fs.writeFileSync(
-        path.join(depDir, 'package.yaml'),
+        path.join(depDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -397,7 +397,7 @@ metadata:
   name: dep-entry
   version: "1.0.0"
 spec:
-  resources:
+  exports:
     - tools/tool.yaml
   dist:
     - dist/
@@ -423,7 +423,7 @@ spec:
       const rootDir = path.join(tempDir, 'root-entry');
       fs.mkdirSync(rootDir, { recursive: true });
       fs.writeFileSync(
-        path.join(rootDir, 'package.yaml'),
+        path.join(rootDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -466,7 +466,7 @@ spec:
       );
       fs.mkdirSync(path.join(sharedPackageDir, 'dist'), { recursive: true });
       fs.writeFileSync(
-        path.join(sharedPackageDir, 'package.yaml'),
+        path.join(sharedPackageDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -474,7 +474,7 @@ metadata:
   name: "@test/shared"
   version: "1.2.0"
 spec:
-  resources: []
+  exports: []
   dist:
     - dist/
 `
@@ -483,7 +483,7 @@ spec:
       const rootDir = path.join(tempDir, 'root-version-conflict');
       fs.mkdirSync(rootDir, { recursive: true });
       fs.writeFileSync(
-        path.join(rootDir, 'package.yaml'),
+        path.join(rootDir, 'goondan.yaml'),
         `
 apiVersion: agents.example.io/v1alpha1
 kind: Package

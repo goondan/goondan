@@ -47,7 +47,7 @@ export interface LogsOptions {
 }
 
 /**
- * Message Base Log Record structure
+ * Message Base Log Record structure (Delta format)
  * @see /docs/specs/workspace.md - Section 6.3
  */
 interface MessageBaseLogRecord {
@@ -58,8 +58,8 @@ interface MessageBaseLogRecord {
   instanceKey: string;
   agentName: string;
   turnId: string;
-  messages: LlmMessage[];
-  sourceEventCount?: number;
+  message: LlmMessage;
+  seq: number;
 }
 
 /**
@@ -383,13 +383,7 @@ function formatMessageBase(record: MessageBaseLogRecord): string {
   const c = chalk;
   const prefix = c.gray(`[${timestamp}] [${agent}]`);
 
-  const msgCount = record.messages.length;
-  const lastMsg = record.messages[msgCount - 1];
-  if (!lastMsg) {
-    return `${prefix} ${c.magenta("base:")} snapshot (${msgCount} messages)`;
-  }
-
-  return `${prefix} ${c.magenta("base:")} snapshot (${msgCount} messages, last: ${lastMsg.role})`;
+  return `${prefix} ${c.magenta("base:")} seq=${record.seq} role=${record.message.role}`;
 }
 
 /**

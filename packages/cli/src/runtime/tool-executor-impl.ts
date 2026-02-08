@@ -21,6 +21,8 @@ import type {
   SwarmBundleApi,
   OpenChangesetInput,
   CommitChangesetInput,
+  AgentDelegateResult,
+  AgentInstanceInfo,
 } from "@goondan/core";
 
 /**
@@ -94,6 +96,7 @@ interface WorkerToolContextData {
   turn: ToolExecutionStepSnapshot["turn"];
   step: ToolExecutionStepSnapshot;
   toolCatalog: Step["toolCatalog"];
+  workdir: string;
 }
 
 /**
@@ -116,6 +119,10 @@ interface ToolRuntimeContext extends WorkerToolContextData {
     emit: (_event: string, _data?: unknown) => void;
     on: (_event: string, _handler: (_data: unknown) => void) => void;
     off: (_event: string, _handler: (_data: unknown) => void) => void;
+  };
+  agents: {
+    delegate: (agentName: string, task: string, context?: string) => Promise<unknown>;
+    listInstances: () => Promise<unknown>;
   };
   logger: Console;
 }
@@ -161,7 +168,7 @@ interface WorkerExecuteResult {
 interface WorkerApiCall {
   type: "api.call";
   requestId: string;
-  method: "swarmBundle.openChangeset" | "swarmBundle.commitChangeset";
+  method: "swarmBundle.openChangeset" | "swarmBundle.commitChangeset" | "agents.delegate" | "agents.listInstances";
   input?: unknown;
 }
 
@@ -226,6 +233,12 @@ export interface ToolExecutorImplOptions {
   logger?: Console;
   /** commit 성공 시 새 ref 통지 콜백 */
   onCommittedRef?: (newRef: string) => void;
+  /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
+  workdir?: string;
+  /** agents.delegate 콜백 */
+  onAgentsDelegate?: (agentName: string, task: string, context?: string) => Promise<AgentDelegateResult>;
+  /** agents.listInstances 콜백 */
+  onAgentsListInstances?: () => Promise<AgentInstanceInfo[]>;
 }
 
 /**
@@ -440,12 +453,22 @@ function createToolContext(payload) {
     off: (_event, _handler) => {},
   };
 
+  const agents = {
+    delegate: async (agentName, task, context) => {
+      return await callApi("agents.delegate", { agentName, task, context });
+    },
+    listInstances: async () => {
+      return await callApi("agents.listInstances", {});
+    },
+  };
+
   return {
     ...contextData,
     swarmBundleRoot,
     swarmBundle,
     oauth,
     events,
+    agents,
     logger: createLogger(),
   };
 }
@@ -587,7 +610,10 @@ function isWorkerApiCall(value: unknown): value is WorkerApiCall {
   return (
     value["type"] === "api.call" &&
     isString(value["requestId"]) &&
-    (value["method"] === "swarmBundle.openChangeset" || value["method"] === "swarmBundle.commitChangeset")
+    (value["method"] === "swarmBundle.openChangeset" ||
+     value["method"] === "swarmBundle.commitChangeset" ||
+     value["method"] === "agents.delegate" ||
+     value["method"] === "agents.listInstances")
   );
 }
 
@@ -836,6 +862,7 @@ function createStepSnapshot(step: Step): ToolExecutionStepSnapshot {
 function createWorkerToolContextData(
   step: Step,
   snapshot: ToolExecutionStepSnapshot,
+  workdir: string,
 ): WorkerToolContextData {
   const swarmName = resolveRefName(step.turn.agentInstance.swarmInstance.swarmRef);
   const swarmStatus = step.turn.agentInstance.swarmInstance.status;
@@ -852,6 +879,7 @@ function createWorkerToolContextData(
     turn: snapshot.turn,
     step: snapshot,
     toolCatalog: step.toolCatalog,
+    workdir,
   };
 }
 
@@ -948,6 +976,36 @@ function extractCommittedRef(result: unknown): string | undefined {
 }
 
 /**
+ * agents.delegate 입력 파싱
+ */
+function parseAgentsDelegateInput(input: unknown): { agentName: string; task: string; context?: string } | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const agentName = input["agentName"];
+  if (!isString(agentName) || agentName.trim() === "") {
+    return null;
+  }
+
+  const task = input["task"];
+  if (!isString(task) || task.trim() === "") {
+    return null;
+  }
+
+  const context = input["context"];
+  if (context !== undefined && !isString(context)) {
+    return null;
+  }
+
+  if (isString(context)) {
+    return { agentName, task, context };
+  }
+
+  return { agentName, task };
+}
+
+/**
  * 리비전별 Tool 실행기 구현
  */
 class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
@@ -958,6 +1016,9 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
   private readonly swarmBundleRoot: string;
   private readonly logger: Console;
   private readonly onCommittedRef?: (newRef: string) => void;
+  private readonly workdir: string;
+  private readonly onAgentsDelegate?: (agentName: string, task: string, context?: string) => Promise<AgentDelegateResult>;
+  private readonly onAgentsListInstances?: () => Promise<AgentInstanceInfo[]>;
   private readonly workersByRef = new Map<string, RevisionWorkerState>();
 
   constructor(options: ToolExecutorImplOptions) {
@@ -968,6 +1029,9 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
     this.swarmBundleRoot = options.swarmBundleRoot ?? options.bundleRootDir;
     this.logger = options.logger ?? console;
     this.onCommittedRef = options.onCommittedRef;
+    this.workdir = options.workdir ?? process.cwd();
+    this.onAgentsDelegate = options.onAgentsDelegate;
+    this.onAgentsListInstances = options.onAgentsListInstances;
   }
 
   beginTurn(ref: string): void {
@@ -1031,7 +1095,7 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
 
     const activeRef = normalizeRef(step.activeSwarmBundleRef);
     const stepSnapshot = createStepSnapshot(step);
-    const contextData = createWorkerToolContextData(step, stepSnapshot);
+    const contextData = createWorkerToolContextData(step, stepSnapshot, this.workdir);
 
     try {
       let execResult: WorkerExecuteResult;
@@ -1190,13 +1254,12 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
     state: RevisionWorkerState,
     message: WorkerApiCall,
   ): Promise<void> {
-    if (!this.swarmBundleApi) {
-      this.postApiError(state, message.requestId, new Error("SwarmBundle API is not configured"));
-      return;
-    }
-
     try {
       if (message.method === "swarmBundle.openChangeset") {
+        if (!this.swarmBundleApi) {
+          this.postApiError(state, message.requestId, new Error("SwarmBundle API is not configured"));
+          return;
+        }
         const openInput = parseOpenChangesetInput(message.input);
         const result = await this.swarmBundleApi.openChangeset(openInput);
         this.postApiOk(state, message.requestId, result);
@@ -1204,6 +1267,10 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
       }
 
       if (message.method === "swarmBundle.commitChangeset") {
+        if (!this.swarmBundleApi) {
+          this.postApiError(state, message.requestId, new Error("SwarmBundle API is not configured"));
+          return;
+        }
         const commitInput = parseCommitChangesetInput(message.input);
         if (!commitInput) {
           throw new Error("Invalid commitChangeset input");
@@ -1216,6 +1283,31 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
         }
 
         this.postApiOk(state, message.requestId, result);
+        return;
+      }
+
+      if (message.method === "agents.delegate") {
+        if (!this.onAgentsDelegate) {
+          this.postApiError(state, message.requestId, new Error("agents.delegate is not configured"));
+          return;
+        }
+        const delegateInput = parseAgentsDelegateInput(message.input);
+        if (!delegateInput) {
+          throw new Error("Invalid agents.delegate input");
+        }
+        const result = await this.onAgentsDelegate(delegateInput.agentName, delegateInput.task, delegateInput.context);
+        this.postApiOk(state, message.requestId, result);
+        return;
+      }
+
+      if (message.method === "agents.listInstances") {
+        if (!this.onAgentsListInstances) {
+          this.postApiError(state, message.requestId, new Error("agents.listInstances is not configured"));
+          return;
+        }
+        const result = await this.onAgentsListInstances();
+        this.postApiOk(state, message.requestId, result);
+        return;
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -1343,6 +1435,20 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
         emit: () => {},
         on: () => {},
         off: () => {},
+      },
+      agents: {
+        delegate: async (agentName: string, task: string, context?: string): Promise<unknown> => {
+          if (!this.onAgentsDelegate) {
+            throw new Error("agents.delegate is not configured");
+          }
+          return this.onAgentsDelegate(agentName, task, context);
+        },
+        listInstances: async (): Promise<unknown> => {
+          if (!this.onAgentsListInstances) {
+            throw new Error("agents.listInstances is not configured");
+          }
+          return this.onAgentsListInstances();
+        },
       },
       logger,
     };

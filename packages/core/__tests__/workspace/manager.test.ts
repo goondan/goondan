@@ -340,8 +340,8 @@ describe('WorkspaceManager', () => {
       });
 
       const id = manager.getWorkspaceId();
-      expect(id).toHaveLength(12);
-      expect(/^[a-f0-9]+$/.test(id)).toBe(true);
+      // 형식: {dirName}-{hash8} (예: project-a1b2c3d4)
+      expect(id).toMatch(/^project-[a-f0-9]{8}$/);
     });
   });
 
@@ -380,12 +380,13 @@ describe('WorkspaceManager', () => {
       const logger = manager.createMessageBaseLogger('default-cli', 'planner');
       expect(logger).toBeDefined();
 
-      await logger.log({
+      await logger.appendDelta({
         traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
+        startSeq: 0,
         messages: [{ id: 'msg-001', role: 'user', content: 'test' }],
       });
 
@@ -421,7 +422,7 @@ describe('WorkspaceManager', () => {
   });
 
   describe('createTurnMessageStateLogger', () => {
-    it('turn message state 로거 세트를 생성하고 base/events를 기록/정리해야 한다', async () => {
+    it('turn message state 로거 세트를 생성하고 base delta/events를 기록/정리해야 한다', async () => {
       manager = WorkspaceManager.create({
         stateRoot,
         swarmBundleRoot: bundleRoot,
@@ -445,12 +446,13 @@ describe('WorkspaceManager', () => {
           },
         },
       });
-      await logger.base.log({
+      await logger.base.appendDelta({
         traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
+        startSeq: 0,
         messages: [
           {
             id: 'msg-001',
@@ -458,7 +460,6 @@ describe('WorkspaceManager', () => {
             content: 'hello',
           },
         ],
-        sourceEventCount: 1,
       });
       await logger.events.clear();
 
@@ -470,8 +471,52 @@ describe('WorkspaceManager', () => {
         .readAll();
 
       expect(baseRecords).toHaveLength(1);
-      expect(baseRecords[0]?.sourceEventCount).toBe(1);
+      expect(baseRecords[0]?.seq).toBe(0);
+      expect(baseRecords[0]?.message).toEqual({ id: 'msg-001', role: 'user', content: 'hello' });
       expect(eventRecords).toHaveLength(0);
+    });
+
+    it('rewrite로 mutation 발생 시 base를 완전히 다시 기록해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      const logger = manager.createTurnMessageStateLogger('default-cli', 'planner');
+
+      // 초기 delta append
+      await logger.base.appendDelta({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        startSeq: 0,
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'hello' },
+          { id: 'msg-002', role: 'assistant', content: 'hi' },
+        ],
+      });
+
+      // rewrite
+      await logger.base.rewrite({
+        traceId: 'trace-rewrite',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-002',
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'hello updated' },
+        ],
+      });
+
+      const baseRecords = await manager
+        .createMessageBaseLogger('default-cli', 'planner')
+        .readAll();
+
+      expect(baseRecords).toHaveLength(1);
+      expect(baseRecords[0]?.seq).toBe(0);
+      expect(baseRecords[0]?.message).toEqual({ id: 'msg-001', role: 'user', content: 'hello updated' });
     });
   });
 
@@ -782,7 +827,7 @@ describe('WorkspaceManager', () => {
   });
 
   describe('messageState 복구', () => {
-    it('recoverTurnMessageState는 마지막 base와 잔존 events를 복구해야 한다', async () => {
+    it('recoverTurnMessageState는 base delta 레코드들과 잔존 events를 복구해야 한다', async () => {
       manager = WorkspaceManager.create({
         stateRoot,
         swarmBundleRoot: bundleRoot,
@@ -791,12 +836,13 @@ describe('WorkspaceManager', () => {
       await manager.initializeInstanceState('default-cli', ['planner']);
       const logger = manager.createTurnMessageStateLogger('default-cli', 'planner');
 
-      await logger.base.log({
+      await logger.base.appendDelta({
         traceId: 'trace-base',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-base',
+        startSeq: 0,
         messages: [{ id: 'msg-base', role: 'user', content: 'base' }],
       });
 
@@ -857,6 +903,50 @@ describe('WorkspaceManager', () => {
       await recovered?.clearRecoveredEvents?.();
       const remainingEvents = await manager.createMessageEventLogger('default-cli', 'planner').readAll();
       expect(remainingEvents).toEqual([]);
+    });
+
+    it('seq 순서대로 메시지를 복원해야 한다', async () => {
+      manager = WorkspaceManager.create({
+        stateRoot,
+        swarmBundleRoot: bundleRoot,
+      });
+
+      await manager.initializeInstanceState('default-cli', ['planner']);
+      const logger = manager.createTurnMessageStateLogger('default-cli', 'planner');
+
+      // 여러 turn에 걸쳐 delta append
+      await logger.base.appendDelta({
+        traceId: 'trace-1',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        startSeq: 0,
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'first' },
+          { id: 'msg-002', role: 'assistant', content: 'reply' },
+        ],
+      });
+
+      await logger.base.appendDelta({
+        traceId: 'trace-2',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-002',
+        startSeq: 2,
+        messages: [
+          { id: 'msg-003', role: 'user', content: 'second' },
+        ],
+      });
+
+      const recovered = await manager.recoverTurnMessageState('default-cli', 'planner');
+
+      expect(recovered).toBeDefined();
+      expect(recovered?.baseMessages).toHaveLength(3);
+      expect(recovered?.baseMessages[0]).toMatchObject({ id: 'msg-001', content: 'first' });
+      expect(recovered?.baseMessages[1]).toMatchObject({ id: 'msg-002', content: 'reply' });
+      expect(recovered?.baseMessages[2]).toMatchObject({ id: 'msg-003', content: 'second' });
     });
 
     it('복구할 로그가 없으면 undefined를 반환해야 한다', async () => {

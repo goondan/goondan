@@ -133,8 +133,8 @@ export function createPackageCache(options: PackageCacheOptions): PackageCache {
           return false;
         }
 
-        // package.yaml 존재 확인
-        await fs.access(path.join(cachePath, 'package.yaml'));
+        // goondan.yaml 존재 확인
+        await fs.access(path.join(cachePath, 'goondan.yaml'));
         return true;
       } catch {
         return false;
@@ -234,11 +234,11 @@ export async function cleanPackageCache(
         const entryPath = path.join(dirPath, entry.name);
 
         if (entry.isDirectory()) {
-          // package.yaml이 있으면 패키지 디렉토리
-          const pkgYamlPath = path.join(entryPath, 'package.yaml');
+          // goondan.yaml이 있으면 패키지 디렉토리
+          const pkgYamlPath = path.join(entryPath, 'goondan.yaml');
 
           try {
-            // package.yaml 존재 확인
+            // goondan.yaml 존재 확인
             await fs.access(pkgYamlPath);
 
             // 디렉토리 수정 시간 확인
@@ -249,7 +249,7 @@ export async function cleanPackageCache(
               await fs.rm(entryPath, { recursive: true, force: true });
             }
           } catch {
-            // package.yaml이 없으면 재귀적으로 하위 디렉토리 확인
+            // goondan.yaml이 없으면 재귀적으로 하위 디렉토리 확인
             await cleanDir(entryPath);
           }
         }

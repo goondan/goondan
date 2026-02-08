@@ -65,17 +65,26 @@ export type PersistedLlmMessage =
   | (JsonObject & { id: string; role: 'tool'; toolCallId: string; toolName: string; output: JsonValue });
 
 /**
- * Turn base 로그 인터페이스
+ * Turn base 로그 인터페이스 (Delta Append + Rewrite)
  */
 export interface TurnMessageBaseLogger {
-  log(input: {
+  appendDelta(input: {
+    traceId: string;
+    instanceId: string;
+    instanceKey: string;
+    agentName: string;
+    turnId: string;
+    startSeq: number;
+    messages: PersistedLlmMessage[];
+  }): Promise<void> | void;
+
+  rewrite(input: {
     traceId: string;
     instanceId: string;
     instanceKey: string;
     agentName: string;
     turnId: string;
     messages: PersistedLlmMessage[];
-    sourceEventCount?: number;
   }): Promise<void> | void;
 }
 
@@ -774,17 +783,36 @@ class TurnRunnerImpl implements TurnRunner {
       });
     }
 
-    await logger.base.log({
-      traceId: turn.traceId,
-      instanceId,
-      instanceKey,
-      agentName,
-      turnId,
-      messages: turn.messageState.nextMessages.map((message) =>
-        this.toPersistedLlmMessage(message)
-      ),
-      sourceEventCount: turn.messageState.events.length,
-    });
+    // base 기록: mutation 이벤트가 있으면 rewrite, 아니면 delta append
+    const hasMutation = turn.messageState.events.some(
+      (e) => e.type === 'replace' || e.type === 'remove' || e.type === 'truncate'
+    );
+
+    if (hasMutation) {
+      await logger.base.rewrite({
+        traceId: turn.traceId,
+        instanceId,
+        instanceKey,
+        agentName,
+        turnId,
+        messages: turn.messageState.nextMessages.map((message) =>
+          this.toPersistedLlmMessage(message)
+        ),
+      });
+    } else {
+      const delta = turn.messageState.nextMessages.slice(
+        turn.messageState.baseMessages.length
+      );
+      await logger.base.appendDelta({
+        traceId: turn.traceId,
+        instanceId,
+        instanceKey,
+        agentName,
+        turnId,
+        startSeq: turn.messageState.baseMessages.length,
+        messages: delta.map((message) => this.toPersistedLlmMessage(message)),
+      });
+    }
 
     await logger.events.clear();
 

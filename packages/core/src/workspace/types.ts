@@ -66,6 +66,8 @@ export interface InstanceStatePaths {
   metricsLog: string;
   /** Extension 공유 상태 파일 (instance.shared) */
   extensionSharedState: string;
+  /** 인스턴스별 워크스페이스 디렉터리 (Tool CWD 바인딩용) */
+  workspace: string;
   /** Extension별 상태 경로 생성 */
   extensionState(extensionName: string): string;
   /** Agent별 경로 생성 */
@@ -182,7 +184,10 @@ export type LlmMessage =
   | { id: string; role: 'tool'; toolCallId: string; toolName: string; output: JsonValue };
 
 /**
- * Message base 스냅샷 로그 레코드
+ * Message base Delta 로그 레코드
+ *
+ * 각 메시지를 개별 레코드로 기록하여 O(N^2) 중복을 방지한다.
+ * seq 필드로 전체 메시지 목록에서의 순서를 추적한다.
  */
 export interface MessageBaseLogRecord {
   /** 레코드 타입 (고정값) */
@@ -199,10 +204,10 @@ export interface MessageBaseLogRecord {
   agentName: string;
   /** Turn ID */
   turnId: string;
-  /** 최종 기준 메시지 스냅샷 */
-  messages: LlmMessage[];
-  /** 이번 turn에서 fold된 이벤트 수 */
-  sourceEventCount?: number;
+  /** 단일 메시지 */
+  message: LlmMessage;
+  /** 전체 메시지 목록에서의 인덱스 (0-based) */
+  seq: number;
 }
 
 /**

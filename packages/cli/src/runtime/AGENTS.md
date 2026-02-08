@@ -16,6 +16,7 @@ runtime/
 ├── AGENTS.md                # 이 파일
 └── __tests__/               # 테스트 코드
     ├── bundle-loader-impl.test.ts
+    ├── connector-runner.test.ts
     ├── llm-caller-impl.test.ts
     └── tool-executor-impl.test.ts
 ```
@@ -45,20 +46,30 @@ runtime/
 - `ToolSpec.entry` 경로에서 모듈 동적 import (ESM)
 - export name으로 핸들러 함수를 찾아 실행 (정확한 이름 -> camelCase -> 마지막 세그먼트 -> default)
 - 핸들러 호출 시그니처는 `handler(ctx, input)`을 따른다
+- `workdir` 옵션: 인스턴스별 워크스페이스 경로를 지정하여 Tool CWD 바인딩에 사용 (미지정 시 `process.cwd()` 폴백)
 - 기본 모드에서 `SwarmBundleRef` 세대별 Worker thread를 사용해 코드 로딩을 격리
-- Worker 모드에서 `swarmBundle.openChangeset/commitChangeset`는 Main thread API로 RPC 전달된다
+- Worker 모드에서 `swarmBundle.openChangeset/commitChangeset`와 `agents.delegate/agents.listInstances`는 Main thread API로 RPC 전달된다
+- `onAgentsDelegate`/`onAgentsListInstances` 콜백으로 agents API 위임 (run.ts에서 주입)
 - `beginTurn/endTurn`으로 세대별 in-flight turn을 추적하고 idle 세대를 정리
 - `maxActiveGenerations` 초과 시 오래된 idle 세대 워커를 종료하여 메모리 회수
 - 에러 시 `ToolResult.error`로 변환 (예외 전파 금지)
 
 ### connector-runner.ts
-- **Connection 감지**: `detectConnections(bundle)` - Bundle에서 Connection 리소스를 찾고 참조된 Connector 리소스와 매핑
+- **Connection 감지**: `detectConnections(bundle)` — Bundle에서 Connection 리소스를 찾고 참조된 Connector 리소스와 매핑. `DetectConnectionsResult { connections, warnings }` 반환
+- **Connector 종류 판별**: v1.0 스펙에 따라 오직 `spec.triggers[0].type`으로만 판별 (`spec.type` 필드는 제거됨)
+  - `resolveTriggerType(spec)` — triggers[0].type 추출 (cli, custom, http, cron 등)
 - **ConnectorRunner 인터페이스**: `start()`, `shutdown()` 메서드를 가진 커넥터 실행기 인터페이스
+- **Factory**: `createConnectorRunner(options)` — trigger type 기반으로 적절한 ConnectorRunner를 생성
+  - `cli` → null (run.ts의 interactive mode에서 처리)
+  - `custom` → TelegramConnectorRunner (동적 import)
+  - `http`, `cron` → 미구현 (null 반환)
+  - **run.ts는 개별 connector 구현을 알 필요 없음** — 이 factory만 사용
 - **공유 헬퍼**:
   - `isObjectWithKey()`: 타입 가드 (object이고 특정 key 보유 확인)
   - `extractStaticToken()`: Connection auth에서 ValueSource 기반 토큰 추출
   - `toIngressRules()`: Connection rules를 타입 안전한 IngressRule[]로 변환
   - `resolveAgentFromRoute()`: route에서 agentName 또는 agentRef.name 추출
+- **swarmRef 필터링**: `detectConnections`는 Connection의 `spec.swarmRef`를 읽어 각 Connection이 바인딩하는 Swarm을 식별. 생략 시 모든 Swarm에 매칭 (하위 호환)
 
 ### telegram-connector.ts
 - `TelegramConnectorRunner`: Telegram Bot API 롱 폴링 기반 커넥터

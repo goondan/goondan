@@ -2,6 +2,7 @@
  * gdn package publish command
  *
  * Publishes a package to the registry
+ * Reads the Package resource from the first document of goondan.yaml
  * @see /docs/specs/cli.md - Section 6.7 (gdn package publish)
  * @see /docs/specs/bundle_package.md - Section 13.7
  */
@@ -41,23 +42,34 @@ interface PackageManifest {
   spec: {
     dependencies?: string[];
     devDependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
 
 /**
- * Load package.yaml manifest
+ * Load Package manifest from goondan.yaml (first YAML document)
  */
 function loadPackageManifest(projectPath: string): PackageManifest | null {
-  const manifestPath = path.join(projectPath, "package.yaml");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
 
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs.existsSync(goondanPath)) {
     return null;
   }
 
-  const content = fs.readFileSync(manifestPath, "utf-8");
-  const manifest = YAML.parse(content) as unknown;
+  const content = fs.readFileSync(goondanPath, "utf-8");
+  // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+  const docs = YAML.parseAllDocuments(content);
+  if (docs.length === 0) {
+    return null;
+  }
+
+  const firstDoc = docs[0];
+  if (!firstDoc || firstDoc.errors.length > 0) {
+    return null;
+  }
+
+  const manifest: unknown = firstDoc.toJSON();
 
   if (
     manifest !== null &&
@@ -108,14 +120,14 @@ function validatePackage(manifest: PackageManifest, projectPath: string): Valida
     }
   }
 
-  // Check resources exist
-  const resources = manifest.spec.resources ?? [];
+  // Check exports exist
+  const exports = manifest.spec.exports ?? [];
   const distDir = manifest.spec.dist?.[0] ?? "dist";
 
-  for (const resource of resources) {
-    const resourcePath = path.join(projectPath, distDir, resource);
-    if (!fs.existsSync(resourcePath)) {
-      errors.push(`Resource file not found: ${resource}`);
+  for (const exportEntry of exports) {
+    const exportPath = path.join(projectPath, distDir, exportEntry);
+    if (!fs.existsSync(exportPath)) {
+      errors.push(`Export file not found: ${exportEntry}`);
     }
   }
 
@@ -124,8 +136,8 @@ function validatePackage(manifest: PackageManifest, projectPath: string): Valida
     warnings.push("No description provided (set metadata.annotations.description)");
   }
 
-  if (resources.length === 0) {
-    warnings.push("No resources defined in spec.resources");
+  if (exports.length === 0) {
+    warnings.push("No exports defined in spec.exports");
   }
 
   return {
@@ -147,12 +159,12 @@ async function executePublish(targetPath: string, options: PublishOptions): Prom
     const config = await loadConfig();
     const registryUrl = options.registry ?? config.registry ?? "https://registry.goondan.io";
 
-    // Load package.yaml
-    spinner.start("Reading package.yaml...");
+    // Load Package from goondan.yaml
+    spinner.start("Reading goondan.yaml...");
     const manifest = loadPackageManifest(projectPath);
 
     if (!manifest) {
-      spinner.fail("package.yaml not found");
+      spinner.fail("Package not found in goondan.yaml");
       info(`Looked in: ${projectPath}`);
       process.exitCode = 1;
       return;
@@ -223,15 +235,15 @@ async function executePublish(targetPath: string, options: PublishOptions): Prom
     // Show what would be published
     console.log();
     console.log(chalk.bold("Package contents:"));
-    console.log(chalk.gray("  package.yaml"));
+    console.log(chalk.gray("  goondan.yaml (Package)"));
 
     for (const distDir of distDirs) {
       console.log(chalk.gray(`  ${distDir}/`));
     }
 
-    const resources = manifest.spec.resources ?? [];
-    for (const resource of resources) {
-      console.log(chalk.gray(`    ${resource}`));
+    const exports = manifest.spec.exports ?? [];
+    for (const exportEntry of exports) {
+      console.log(chalk.gray(`    ${exportEntry}`));
     }
 
     console.log();
@@ -344,10 +356,10 @@ async function createTarball(
 ): Promise<Buffer> {
   const tarBlocks: Buffer[] = [];
 
-  // package.yaml 추가
-  const packageYamlPath = path.join(projectPath, "package.yaml");
-  const packageYamlContent = fs.readFileSync(packageYamlPath);
-  addFileToTar(tarBlocks, "package/package.yaml", packageYamlContent);
+  // goondan.yaml 추가
+  const goondanYamlPath = path.join(projectPath, "goondan.yaml");
+  const goondanYamlContent = fs.readFileSync(goondanYamlPath);
+  addFileToTar(tarBlocks, "package/goondan.yaml", goondanYamlContent);
 
   // dist 디렉토리들 추가
   for (const distDir of distDirs) {
@@ -549,7 +561,7 @@ async function publishToRegistry(options: PublishToRegistryOptions): Promise<Pub
           integrity,
         },
         bundle: {
-          include: manifest.spec.resources ?? [],
+          include: manifest.spec.exports ?? [],
           runtime: "node",
         },
       },

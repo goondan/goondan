@@ -46,7 +46,7 @@ metadata:
     tier: base           # 선택
 spec:
   runtime: node          # 필수: 런타임 환경
-  entry: "./index.js"    # 필수: 엔트리 모듈 경로 (Bundle Package Root 기준)
+  entry: "./index.js"    # 필수: 엔트리 모듈 경로 (Package Root 기준)
   config:                # 선택: 확장별 설정
     <key>: <value>
 ```
@@ -63,7 +63,7 @@ interface ExtensionSpec<TConfig = JsonObject> {
 
   /**
    * 엔트리 모듈 경로
-   * Bundle Package Root 기준 상대 경로
+   * Package Root 기준 상대 경로
    * @required
    */
   entry: string;

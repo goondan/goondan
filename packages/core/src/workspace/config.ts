@@ -31,12 +31,19 @@ export function resolveGoondanHome(options: GoondanHomeOptions = {}): string {
 /**
  * workspaceId 생성
  *
- * SwarmBundleRoot의 절대 경로를 정규화하고 SHA-256 해시의 처음 12자를 반환
+ * SwarmBundleRoot의 디렉토리명을 prefix로 사용하고 SHA-256 해시 8자를 suffix로 붙여
+ * 사람이 읽을 수 있는 workspace 식별자를 생성한다.
+ *
+ * 예: /Users/alice/projects/my-agent → "my-agent-a1b2c3d4"
  */
 export function generateWorkspaceId(swarmBundleRoot: string): string {
   const normalized = path.resolve(swarmBundleRoot);
   const hash = crypto.createHash('sha256').update(normalized).digest('hex');
-  return hash.slice(0, 12);
+  const dirName = path.basename(normalized);
+  // 파일시스템 안전 문자로 정규화, 소문자 통일
+  const sanitized = dirName.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const prefix = sanitized.slice(0, 48) || 'workspace';
+  return `${prefix}-${hash.slice(0, 8)}`;
 }
 
 /**

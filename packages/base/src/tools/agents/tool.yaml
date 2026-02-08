@@ -1,0 +1,33 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Tool
+metadata:
+  name: agents
+  labels:
+    tier: core
+    category: orchestration
+spec:
+  runtime: node
+  entry: "./tools/agents/index.js"
+  exports:
+    - name: agents.delegate
+      description: "다른 에이전트에 작업을 위임합니다. 새 에이전트 인스턴스를 생성하여 블로킹 실행 후 결과를 반환합니다."
+      parameters:
+        type: object
+        properties:
+          agentName:
+            type: string
+            description: "위임할 에이전트 이름"
+          task:
+            type: string
+            description: "에이전트에게 전달할 작업 내용"
+          context:
+            type: string
+            description: "추가 컨텍스트 (선택)"
+        required:
+          - agentName
+          - task
+    - name: agents.listInstances
+      description: "현재 Swarm 내 에이전트 인스턴스 목록을 조회합니다."
+      parameters:
+        type: object
+        properties: {}

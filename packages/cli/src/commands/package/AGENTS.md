@@ -7,7 +7,7 @@
 | 파일 | 명령어 | 설명 |
 |------|--------|------|
 | `index.ts` | `gdn package` | 패키지 명령어 그룹 (하위 명령어 등록) |
-| `install.ts` | `gdn package install` | package.yaml 기반 의존성 설치 |
+| `install.ts` | `gdn package install` | goondan.yaml Package 기반 의존성 설치 |
 | `add.ts` | `gdn package add <ref>` | 새 의존성 추가 |
 | `remove.ts` | `gdn package remove <ref>` | 의존성 제거 |
 | `update.ts` | `gdn package update [ref]` | 의존성 업데이트 |
@@ -26,8 +26,8 @@
 현재 모든 명령어는 **stub 구현**으로, 실제 레지스트리 통신 없이 기본 동작을 시뮬레이션한다.
 
 ### 구현된 기능
-- package.yaml 읽기/쓰기
-- packages.lock.yaml 읽기/쓰기
+- goondan.yaml Package 문서 읽기/쓰기 (multi-document YAML, 첫 번째 문서에서 Package 리소스 파싱)
+- goondan.lock.yaml 읽기/쓰기
 - 로컬 파일 시스템 조작
 - 진행률 표시 (ora spinner)
 - 컬러 출력 (chalk)
@@ -42,7 +42,7 @@
 ## 관련 스펙
 
 - `/docs/specs/cli.md` - Section 6 (gdn package)
-- `/docs/specs/bundle_package.md` - Bundle Package 스펙
+- `/docs/specs/bundle_package.md` - Package 스펙
 
 ## 코드 패턴
 

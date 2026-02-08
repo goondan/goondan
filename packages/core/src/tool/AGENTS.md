@@ -37,6 +37,27 @@ tool/
 - `ToolLoader`: Tool 리소스의 entry 파일에서 handlers 로드
 - `ToolContextBuilder`: ToolContext 안전 생성
 
+### ToolContext
+
+Tool 핸들러에 전달되는 실행 컨텍스트. 주요 필드:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `instance` | `SwarmInstance` | 현재 Swarm 인스턴스 |
+| `swarm` | `Resource<SwarmSpec>` | Swarm 리소스 |
+| `agent` | `Resource<AgentSpec>` | 현재 Agent 리소스 |
+| `turn` | `Turn` | 현재 Turn |
+| `step` | `Step` | 현재 Step |
+| `toolCatalog` | `ToolCatalogItem[]` | 사용 가능한 Tool 목록 |
+| `workdir` | `string` | 인스턴스별 작업 디렉터리 (Tool CWD 바인딩) |
+| `agents` | `ToolAgentsApi` | Agent 위임/관리 API |
+| `swarmBundle` | `SwarmBundleApi` | Changeset API |
+| `oauth` | `OAuthApi` | OAuth API |
+| `events` | `EventBus` | 이벤트 버스 |
+| `logger` | `Console` | 로거 |
+
+`workdir`는 `{instanceStatePath}/workspace` 경로로, Tool이 파일을 읽고 쓸 때의 기본 작업 디렉터리로 사용됩니다.
+
 ## 타입
 
 ### ToolHandler

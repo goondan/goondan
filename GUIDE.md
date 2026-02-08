@@ -16,7 +16,7 @@ Kubernetes가 컨테이너 워크로드를 관리하듯, Goondan은 AI 에이전
 5. [커스텀 Tool 작성](#5-커스텀-tool-작성)
 6. [커스텀 Extension 작성](#6-커스텀-extension-작성)
 7. [커스텀 Connector 작성](#7-커스텀-connector-작성)
-8. [Bundle Package](#8-bundle-package)
+8. [Package](#8-package)
 9. [샘플 모음](#9-샘플-모음)
 10. [FAQ & 트러블슈팅](#10-faq--트러블슈팅)
 
@@ -45,7 +45,7 @@ Goondan은 이 모든 것을 **Kubernetes 스타일의 선언적 리소스 모�
 | Service | Connector + Connection | 외부 트래픽 라우팅 |
 | ConfigMap | Model | LLM 설정 |
 | CRD | ResourceType | 사용자 정의 리소스 |
-| Helm Chart | Bundle Package | 패키징/배포 단위 |
+| Helm Chart | Package | 패키징/배포 단위 |
 | Admission Webhook | Extension | 라이프사이클 훅 |
 
 ### 1.3 아키텍처 개요
@@ -995,11 +995,13 @@ spec:
 
 ---
 
-## 8. Bundle Package
+## 8. Package
 
-### 8.1 Bundle Package란?
+### 8.1 Package란?
 
-Bundle Package는 Tool, Extension, Connector 등의 리소스를 패키징하여 레지스트리에 배포하고, 다른 프로젝트에서 의존성으로 사용할 수 있는 단위입니다.
+Package는 goondan 프로젝트의 **최상위 리소스**입니다. Tool, Extension, Connector 등의 리소스를 패키징하여 레지스트리에 배포하고, 다른 프로젝트에서 의존성으로 사용할 수 있습니다.
+
+Package 문서는 `goondan.yaml`의 **첫 번째 YAML 문서**로 정의됩니다. Package 없이 리소스만 있는 `goondan.yaml`도 유효합니다 (하위 호환).
 
 ### 8.2 Package 생성
 
@@ -1007,24 +1009,35 @@ Bundle Package는 Tool, Extension, Connector 등의 리소스를 패키징하여
 gdn init --package --name @myorg/my-tools
 ```
 
-### 8.3 package.yaml 구조
+### 8.3 goondan.yaml에 Package 정의
 
 ```yaml
+# goondan.yaml — 첫 번째 문서가 Package
 apiVersion: agents.example.io/v1alpha1
-kind: Bundle
+kind: Package
 metadata:
   name: "@myorg/my-tools"
-  labels:
-    tier: community
-spec:
   version: "1.0.0"
-  description: "유용한 도구 모음"
-  resources:
-    - "tools/*/tool.yaml"
-    - "extensions/*/extension.yaml"
-  dist: "./dist"
+  annotations:
+    description: "유용한 도구 모음"
+spec:
+  exports:
+    - tools/bash/tool.yaml
+    - extensions/logging/extension.yaml
+  dist:
+    - dist/
   dependencies:
-    "@goondan/base": "^1.0.0"
+    - "@goondan/base"
+---
+# 이후 문서들은 리소스 정의
+apiVersion: agents.example.io/v1alpha1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entrypoint: { kind: Agent, name: main }
+  agents:
+    - { kind: Agent, name: main }
 ```
 
 ### 8.4 패키지 배포
@@ -1144,16 +1157,16 @@ gdn run
 
 ### 9.6 sample-1-coding-swarm (코딩 스웜)
 
-Planner/Coder/Reviewer 역할을 분담하는 코딩 에이전트 스웜입니다. Bundle Package로 배포 가능합니다.
+Planner/Coder/Reviewer 역할을 분담하는 코딩 에이전트 스웜입니다. Package로 배포 가능합니다.
 
 **구성**: 3개 에이전트 협업, 파일 읽기/쓰기/bash 도구
 **학습 포인트**: 멀티 에이전트 협업, 역할 분담, 도구 조합
 
 ### 9.7 sample-5-package-consumer (패키지 사용)
 
-sample-1의 Bundle Package를 의존성으로 참조하는 예제입니다.
+sample-1의 Package를 의존성으로 참조하는 예제입니다.
 
-**학습 포인트**: Bundle Package 의존성 관리, 리소스 재사용, 오버라이드
+**학습 포인트**: Package 의존성 관리, 리소스 재사용, 오버라이드
 
 ---
 
@@ -1182,7 +1195,7 @@ A: `spec.entry`나 `prompts.systemRef`에 지정한 파일 경로가 실제로 �
 
 ### Q: 여러 YAML 파일로 리소스를 분리할 수 있나요?
 
-A: 가능합니다. 하나의 `goondan.yaml`에 모든 리소스를 `---`로 구분하여 정의할 수도 있고, 별도 YAML 파일로 분리할 수도 있습니다. Bundle Package의 `spec.resources` 또는 `spec.include`에 파일 경로를 나열하면 됩니다.
+A: 가능합니다. 하나의 `goondan.yaml`에 모든 리소스를 `---`로 구분하여 정의할 수도 있고, 별도 YAML 파일로 분리할 수도 있습니다. Package의 `spec.exports`에 외부 배포할 리소스 YAML 경로를 나열하면 됩니다.
 
 ### Q: 에이전트 간 위임(delegate)은 어떻게 구현하나요?
 
@@ -1296,7 +1309,7 @@ gdn validate --format json
   - `connector.md` - Connector 시스템
   - `connection.md` - Connection 시스템
   - `cli.md` - CLI 명령어
-  - `bundle_package.md` - Bundle Package
+  - `bundle_package.md` - Package 스펙
   - `oauth.md` - OAuth 시스템
   - `changeset.md` - Changeset 시스템
   - `workspace.md` - Workspace 모델
@@ -1307,4 +1320,4 @@ gdn validate --format json
 ---
 
 **문서 버전**: v0.0.2
-**최종 수정**: 2026-02-07
+**최종 수정**: 2026-02-08

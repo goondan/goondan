@@ -18,7 +18,7 @@ Goondan Runtime은 파일시스템을 3개의 분리된 루트로 관리한다.
 
 1. **정의/상태 분리**: SwarmBundle 정의는 Git으로 버전 관리되고, 실행 상태는 별도 영역에 저장된다.
 2. **인스턴스 독립성**: 각 인스턴스의 상태는 서로 격리된다.
-3. **전역 상태 보존**: OAuth 토큰, Bundle Package 캐시 등은 인스턴스 수명과 무관하게 유지된다.
+3. **전역 상태 보존**: OAuth 토큰, Package 캐시 등은 인스턴스 수명과 무관하게 유지된다.
 
 ---
 
@@ -113,12 +113,12 @@ function generateInstanceId(swarmName: string, instanceKey: string): string {
 
 ```
 ~/.goondan/                              # goondanHome (System State Root)
-├── bundles.json                         # Bundle Package 레지스트리
-├── bundles/                             # Bundle Package 캐시
+├── bundles.json                         # Package 레지스트리
+├── bundles/                             # Package 캐시
 │   └── @goondan/
 │       └── base/
 │           └── 1.0.0/
-│               ├── package.yaml
+│               ├── goondan.yaml
 │               └── dist/
 │                   ├── tools/
 │                   └── extensions/
@@ -161,7 +161,7 @@ function generateInstanceId(swarmName: string, instanceKey: string): string {
 ├── tools/                               # Tool 구현 (선택)
 ├── extensions/                          # Extension 구현 (선택)
 ├── connectors/                          # Connector 구현 (선택)
-├── bundle.yaml                          # Bundle Package 매니페스트 (선택)
+├── goondan.lock.yaml                    # Package 의존성 lockfile (선택)
 └── .git/                                # Git 저장소 (권장)
 ```
 
@@ -197,7 +197,7 @@ SwarmBundleRoot는 `gdn init`이 생성하는 프로젝트 디렉터리이며, S
 │   └── slack/
 │       ├── connector.yaml
 │       └── index.ts
-├── bundle.yaml                  # MAY: Bundle Package 매니페스트
+├── goondan.lock.yaml            # MAY: Package 의존성 lockfile
 └── .git/                        # SHOULD: Git 저장소
 ```
 
@@ -230,8 +230,8 @@ interface SwarmBundleRootLayout {
   /** Connector 디렉터리 (상대 경로) */
   connectorsDir?: string;
 
-  /** Bundle Package 매니페스트 (상대 경로) */
-  bundleManifest?: string;
+  /** Package 의존성 lockfile (상대 경로) */
+  lockFile?: string;
 }
 
 const DEFAULT_LAYOUT: SwarmBundleRootLayout = {
@@ -241,7 +241,7 @@ const DEFAULT_LAYOUT: SwarmBundleRootLayout = {
   toolsDir: 'tools',
   extensionsDir: 'extensions',
   connectorsDir: 'connectors',
-  bundleManifest: 'bundle.yaml',
+  lockFile: 'goondan.lock.yaml',
 };
 ```
 
@@ -803,12 +803,12 @@ System State Root는 인스턴스 수명과 무관하게 유지되는 전역 상
 
 ```
 <goondanHome>/
-├── bundles.json                 # Bundle Package 레지스트리
-├── bundles/                     # Bundle Package 캐시
+├── bundles.json                 # Package 레지스트리
+├── bundles/                     # Package 캐시
 │   └── <scope>/
 │       └── <name>/
 │           └── <version>/
-│               ├── package.yaml
+│               ├── goondan.yaml
 │               └── dist/
 ├── worktrees/                   # Changeset worktree
 │   └── <workspaceId>/
@@ -834,10 +834,10 @@ interface SystemStatePaths {
   /** System State 루트 (= goondanHome) */
   root: string;
 
-  /** Bundle Package 레지스트리 파일 */
+  /** Package 레지스트리 파일 */
   bundlesRegistry: string;
 
-  /** Bundle Package 캐시 디렉터리 */
+  /** Package 캐시 디렉터리 */
   bundlesCache: string;
 
   /** Worktrees 디렉터리 */
@@ -858,7 +858,7 @@ interface SystemStatePaths {
   /** Instances 디렉터리 */
   instances: string;
 
-  /** 특정 Bundle Package 캐시 경로 */
+  /** 특정 Package 캐시 경로 */
   bundleCachePath(scope: string, name: string, version: string): string;
 
   /** 특정 Changeset worktree 경로 */
@@ -1470,7 +1470,7 @@ async function initializeInstanceState(
 |------|------|--------|
 | `GOONDAN_STATE_ROOT` | System State Root 경로 | `~/.goondan` |
 | `GOONDAN_ENCRYPTION_KEY` | OAuth 암호화 마스터 키 | - |
-| `GOONDAN_REGISTRY` | Bundle Package 레지스트리 URL | `https://registry.goondan.io` |
+| `GOONDAN_REGISTRY` | Package 레지스트리 URL | `https://registry.goondan.io` |
 | `GOONDAN_REGISTRY_TOKEN` | 레지스트리 인증 토큰 | - |
 | `GOONDAN_LOG_LEVEL` | 로그 레벨 (`debug`, `info`, `warn`, `error`) | `info` |
 
@@ -1529,4 +1529,4 @@ scopedRegistries:
 - `docs/specs/cli.md`: CLI 도구(gdn) 스펙
 - `docs/specs/api.md`: Runtime/SDK API 스펙
 - `docs/specs/bundle.md`: Bundle YAML 스펙
-- `docs/specs/bundle_package.md`: Bundle Package 스펙
+- `docs/specs/bundle_package.md`: Package 스펙

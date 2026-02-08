@@ -53,9 +53,8 @@ import {
   isRevisionedToolExecutor,
 } from "../runtime/tool-executor-impl.js";
 import type { RevisionedToolExecutor } from "../runtime/tool-executor-impl.js";
-import { detectConnections } from "../runtime/connector-runner.js";
+import { detectConnections, createConnectorRunner } from "../runtime/connector-runner.js";
 import type { ConnectorRunner } from "../runtime/connector-runner.js";
-import { TelegramConnectorRunner } from "../runtime/telegram-connector.js";
 import type { RuntimeContext, ProcessConnectorTurnResult, RevisionState } from "../runtime/types.js";
 
 /**
@@ -156,7 +155,7 @@ async function loadBundle(configPath: string): Promise<BundleLoadResult> {
     return loadBundleFromDirectory(configPath);
   }
 
-  // 파일인 경우 해당 디렉토리에서 로드 (package.yaml 의존성 포함)
+  // 파일인 경우 해당 디렉토리에서 로드 (goondan.yaml 내 Package 의존성 포함)
   return loadBundleFromDirectory(path.dirname(configPath));
 }
 
@@ -974,6 +973,19 @@ async function initializeRuntime(
 
   revisionState.activeRef = activeRef;
 
+  // WorkspaceManager 생성 및 인스턴스 상태 초기화
+  const workspaceManager = WorkspaceManager.create({
+    swarmBundleRoot: bundleRootDir,
+    stateRoot,
+  });
+  const instanceId = generateInstanceId(swarmName, instanceKey);
+
+  // 인스턴스별 workspace 디렉터리 경로 (initializeInstanceState에서 디렉터리 생성됨)
+  const instanceWorkspacePath = workspaceManager.instanceWorkspacePath(instanceId);
+
+  // runtimeCtx는 toolExecutor 생성 이후에 완성되므로 late-binding 패턴 사용
+  let runtimeCtxRef: RuntimeContext | null = null;
+
   const toolExecutor = createToolExecutorImpl({
     bundleRootDir,
     maxActiveGenerations: 3,
@@ -984,14 +996,39 @@ async function initializeRuntime(
     onCommittedRef: (newRef: string) => {
       queuePendingRef(revisionState, newRef);
     },
+    workdir: instanceWorkspacePath,
+    onAgentsDelegate: async (agentName: string, task: string, context?: string) => {
+      if (!runtimeCtxRef) {
+        return { success: false, agentName, instanceId: "", error: "Runtime not initialized" };
+      }
+      const turnResult = await processConnectorTurn(runtimeCtxRef, {
+        instanceKey,
+        agentName,
+        input: context ? `${task}\n\nContext: ${context}` : task,
+      });
+      return {
+        success: turnResult.status === "completed",
+        agentName,
+        instanceId: runtimeCtxRef.instanceId,
+        response: turnResult.response,
+        error: turnResult.status === "failed" ? turnResult.response : undefined,
+      };
+    },
+    onAgentsListInstances: async () => {
+      if (!runtimeCtxRef) {
+        return [];
+      }
+      const instances: Array<{ instanceId: string; agentName: string; status: string }> = [];
+      for (const [agentName] of runtimeCtxRef.agentInstances) {
+        instances.push({
+          instanceId: runtimeCtxRef.instanceId,
+          agentName,
+          status: "running",
+        });
+      }
+      return instances;
+    },
   });
-
-  // WorkspaceManager 생성 및 인스턴스 상태 초기화
-  const workspaceManager = WorkspaceManager.create({
-    swarmBundleRoot: bundleRootDir,
-    stateRoot,
-  });
-  const instanceId = generateInstanceId(swarmName, instanceKey);
   const runtimePersistence = createRuntimePersistenceBindings(workspaceManager, instanceId);
   const core = createRuntimeCore(
     result,
@@ -1007,7 +1044,7 @@ async function initializeRuntime(
   // SwarmEventLogger 생성
   const swarmEventLogger = workspaceManager.createSwarmEventLogger(instanceId);
 
-  return {
+  const ctx: RuntimeContext = {
     turnRunner: core.turnRunner,
     toolExecutor,
     swarmInstanceManager: createSwarmInstanceManager(),
@@ -1023,6 +1060,11 @@ async function initializeRuntime(
     workspaceManager,
     swarmEventLogger,
   };
+
+  // late-binding: toolExecutor의 agents 콜백이 runtimeCtx를 참조할 수 있도록 설정
+  runtimeCtxRef = ctx;
+
+  return ctx;
 }
 
 /**
@@ -1084,41 +1126,64 @@ async function runInteractiveMode(
 }
 
 /**
- * package.yaml의 의존성이 설치되어 있는지 확인하고 필요 시 자동 설치
+ * goondan.yaml 내 Package 리소스의 의존성이 설치되어 있는지 확인하고 필요 시 자동 설치
  */
 async function autoInstallDependencies(
   projectDir: string,
   spinner: ReturnType<typeof ora>,
 ): Promise<boolean> {
-  const packageYamlPath = path.join(projectDir, "package.yaml");
+  // goondan.yaml에서 Package 문서를 찾는다
+  let goondanPath: string | null = null;
+  for (const name of CONFIG_FILE_NAMES) {
+    const candidate = path.join(projectDir, name);
+    try {
+      await fs.promises.access(candidate, fs.constants.R_OK);
+      goondanPath = candidate;
+      break;
+    } catch {
+      // continue
+    }
+  }
 
-  // package.yaml 없으면 의존성 없음
-  try {
-    await fs.promises.access(packageYamlPath, fs.constants.R_OK);
-  } catch {
+  if (!goondanPath) {
     return true;
   }
 
-  // package.yaml 파싱
   let content: string;
   try {
-    content = await fs.promises.readFile(packageYamlPath, "utf-8");
+    content = await fs.promises.readFile(goondanPath, "utf-8");
   } catch {
     return true;
   }
 
-  const parsed: unknown = parseYaml(content);
-  if (
-    parsed === null ||
-    typeof parsed !== "object" ||
-    !("spec" in parsed) ||
-    typeof parsed.spec !== "object" ||
-    parsed.spec === null
-  ) {
+  // multi-document YAML에서 Package kind를 찾는다
+  const documents = content.split(/^---$/m);
+  let packageSpec: unknown = null;
+
+  for (const doc of documents) {
+    const trimmed = doc.trim();
+    if (!trimmed) continue;
+
+    const parsed: unknown = parseYaml(trimmed);
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "kind" in parsed &&
+      parsed.kind === "Package" &&
+      "spec" in parsed &&
+      typeof parsed.spec === "object" &&
+      parsed.spec !== null
+    ) {
+      packageSpec = parsed.spec;
+      break;
+    }
+  }
+
+  if (packageSpec === null || typeof packageSpec !== "object") {
     return true;
   }
 
-  const spec = parsed.spec;
+  const spec = packageSpec;
   if (!("dependencies" in spec) || !Array.isArray(spec.dependencies) || spec.dependencies.length === 0) {
     return true;
   }
@@ -1220,9 +1285,16 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     // Check if the specified swarm exists
     const swarms = result.getResourcesByKind("Swarm");
-    const targetSwarm = swarms.find(
+    let targetSwarm = swarms.find(
       (s) => s.metadata.name === options.swarm
     );
+
+    // Auto-select the only swarm when default name is not found
+    if (!targetSwarm && options.swarm === "default" && swarms.length === 1 && swarms[0]) {
+      targetSwarm = swarms[0];
+      options.swarm = targetSwarm.metadata.name;
+      info(`Swarm 'default' not found. Auto-selected the only available swarm: '${options.swarm}'`);
+    }
 
     if (!targetSwarm) {
       logError(`Swarm '${options.swarm}' not found in bundle`);
@@ -1232,13 +1304,6 @@ async function executeRun(options: RunOptions): Promise<void> {
         info("No Swarm resources defined in the bundle");
       }
       process.exitCode = ExitCode.CONFIG_ERROR;
-      return;
-    }
-
-    if (options.connector === "http") {
-      logError("Connector 'http' is not implemented yet in this CLI runtime.");
-      info("Use the default CLI connector, or configure a supported connector such as telegram.");
-      process.exitCode = ExitCode.INVALID_ARGS;
       return;
     }
 
@@ -1329,21 +1394,29 @@ async function executeRun(options: RunOptions): Promise<void> {
     }
 
     // Detect connections and dispatch to appropriate connector
-    const connections = detectConnections(result);
+    const { connections: allConnections, warnings: connWarnings } = detectConnections(result);
+    for (const w of connWarnings) {
+      warn(w);
+    }
 
-    if (connections.length > 0) {
+    // swarmRef 기반 필터링: swarmRef가 있으면 현재 Swarm만 매칭, 없으면 모두 매칭 (하위 호환)
+    const swarmFiltered = allConnections.filter(
+      (c) => !c.swarmName || c.swarmName === options.swarm,
+    );
+
+    if (swarmFiltered.length > 0) {
       const filtered = options.connector
-        ? connections.filter(
+        ? swarmFiltered.filter(
             (c) =>
               c.connectorName === options.connector ||
               c.connectorType === options.connector,
           )
-        : connections;
+        : swarmFiltered;
 
       if (filtered.length === 0 && options.connector) {
         warn(`Connector '${options.connector}' not found in bundle`);
         info(
-          `Available connectors: ${connections.map((c) => `${c.connectorName} (${c.connectorType})`).join(", ")}`,
+          `Available connectors: ${swarmFiltered.map((c) => `${c.connectorName} (${c.connectorType})`).join(", ")}`,
         );
         process.exitCode = ExitCode.CONFIG_ERROR;
         return;
@@ -1352,16 +1425,7 @@ async function executeRun(options: RunOptions): Promise<void> {
       const runners: ConnectorRunner[] = [];
 
       for (const detected of filtered) {
-        if (detected.connectorType === "telegram") {
-          info(`Starting Telegram connector: ${detected.connectorName}`);
-          const runner = new TelegramConnectorRunner({
-            runtimeCtx: ctx,
-            connectionResource: detected.connectionResource,
-            connectorResource: detected.connectorResource,
-            processConnectorTurn,
-          });
-          runners.push(runner);
-        } else if (detected.connectorType === "cli") {
+        if (detected.connectorType === "cli") {
           if (!options.interactive) {
             info(
               `Skipping CLI connector '${detected.connectorName}' because interactive mode is disabled (--no-interactive).`,
@@ -1371,8 +1435,20 @@ async function executeRun(options: RunOptions): Promise<void> {
           info(`Starting CLI connector: ${detected.connectorName}`);
           await runInteractiveMode(ctx);
           return;
+        }
+
+        // trigger type 기반으로 runner 생성
+        const runner = await createConnectorRunner({
+          runtimeCtx: ctx,
+          detected,
+          processConnectorTurn,
+        });
+
+        if (runner) {
+          info(`Starting connector: ${detected.connectorName} (trigger: ${detected.connectorType})`);
+          runners.push(runner);
         } else {
-          warn(`Unsupported connector type: ${detected.connectorType}`);
+          warn(`Trigger type '${detected.connectorType}' is not yet supported in this CLI runtime (connector: ${detected.connectorName})`);
         }
       }
 

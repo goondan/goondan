@@ -1,7 +1,7 @@
 /**
  * gdn package install command
  *
- * Installs dependencies defined in package.yaml
+ * Installs dependencies defined in the Package of goondan.yaml
  * @see /docs/specs/cli.md - Section 6.2 (gdn package install)
  * @see /docs/specs/bundle_package.md - Section 13.2
  */
@@ -39,7 +39,7 @@ interface PackageManifest {
   spec: {
     dependencies?: string[];
     devDependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
@@ -177,19 +177,29 @@ function parsePackageRef(ref: string): ParsedPackageRef {
 }
 
 /**
- * Load package.yaml manifest
+ * Load Package manifest from goondan.yaml (first YAML document)
  */
 function loadPackageManifest(projectPath: string): PackageManifest | null {
-  const manifestPath = path.join(projectPath, "package.yaml");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
 
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs.existsSync(goondanPath)) {
     return null;
   }
 
-  const content = fs.readFileSync(manifestPath, "utf-8");
-  const manifest = YAML.parse(content) as unknown;
+  const content = fs.readFileSync(goondanPath, "utf-8");
+  // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+  const docs = YAML.parseAllDocuments(content);
+  if (docs.length === 0) {
+    return null;
+  }
 
-  // Basic validation
+  const firstDoc = docs[0];
+  if (!firstDoc || firstDoc.errors.length > 0) {
+    return null;
+  }
+
+  const manifest: unknown = firstDoc.toJSON();
+
   if (
     manifest !== null &&
     typeof manifest === "object" &&
@@ -206,7 +216,7 @@ function loadPackageManifest(projectPath: string): PackageManifest | null {
  * Load lockfile
  */
 function loadLockfile(projectPath: string): Lockfile | null {
-  const lockfilePath = path.join(projectPath, "packages.lock.yaml");
+  const lockfilePath = path.join(projectPath, "goondan.lock.yaml");
 
   if (!fs.existsSync(lockfilePath)) {
     return null;
@@ -230,7 +240,7 @@ function loadLockfile(projectPath: string): Lockfile | null {
  * Save lockfile
  */
 function saveLockfile(projectPath: string, lockfile: Lockfile): void {
-  const lockfilePath = path.join(projectPath, "packages.lock.yaml");
+  const lockfilePath = path.join(projectPath, "goondan.lock.yaml");
   const content = YAML.stringify(lockfile);
   fs.writeFileSync(lockfilePath, content, "utf-8");
 }
@@ -407,18 +417,18 @@ async function executeInstall(options: InstallOptions): Promise<void> {
     const config = await loadConfig();
     const registryUrl = config.registry ?? "https://registry.goondan.io";
 
-    // Load package.yaml
-    spinner.start("Reading package.yaml...");
+    // Load Package from goondan.yaml
+    spinner.start("Reading goondan.yaml...");
     const manifest = loadPackageManifest(projectPath);
 
     if (!manifest) {
-      spinner.fail("package.yaml not found");
+      spinner.fail("Package not found in goondan.yaml");
       info("Run 'gdn init --package' to create a new package project.");
       process.exitCode = 1;
       return;
     }
 
-    spinner.succeed("Found package.yaml");
+    spinner.succeed("Found Package in goondan.yaml");
 
     // Get dependencies
     const dependencies = manifest.spec.dependencies ?? [];
@@ -434,7 +444,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
     const existingLockfile = loadLockfile(projectPath);
     if (options.frozenLockfile) {
       if (!existingLockfile) {
-        spinner.fail("No lockfile found. Cannot use --frozen-lockfile without packages.lock.yaml");
+        spinner.fail("No lockfile found. Cannot use --frozen-lockfile without goondan.lock.yaml");
         process.exitCode = 1;
         return;
       }
@@ -475,10 +485,10 @@ async function executeInstall(options: InstallOptions): Promise<void> {
             throw new Error(`Local package not found: ${localPath}`);
           }
 
-          // package.yaml 확인
-          const localManifestPath = path.join(localPath, "package.yaml");
+          // goondan.yaml 확인
+          const localManifestPath = path.join(localPath, "goondan.yaml");
           if (!fs.existsSync(localManifestPath)) {
-            throw new Error(`No package.yaml found in ${localPath}`);
+            throw new Error(`No goondan.yaml found in ${localPath}`);
           }
 
           // 로컬 패키지의 manifest에서 name 읽기
@@ -620,7 +630,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
 
     // Save lockfile (unless frozen)
     if (!options.frozenLockfile) {
-      spinner.start("Writing packages.lock.yaml...");
+      spinner.start("Writing goondan.lock.yaml...");
       saveLockfile(projectPath, lockfile);
       spinner.succeed("Lockfile updated");
     }
@@ -651,7 +661,7 @@ async function executeInstall(options: InstallOptions): Promise<void> {
  */
 export function createInstallCommand(): Command {
   const command = new Command("install")
-    .description("Install dependencies from package.yaml")
+    .description("Install dependencies from goondan.yaml Package")
     .option(
       "--frozen-lockfile",
       "Do not update lockfile (for CI environments)",

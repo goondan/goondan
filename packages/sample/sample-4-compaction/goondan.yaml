@@ -1,3 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-compaction"
+  version: "0.0.1"
+  annotations:
+    description: "LLM 대화 Compaction Extension 데모"
+spec:
+  dependencies:
+    - "@goondan/base"
+
+---
+
 # Compaction Extension Sample Bundle
 # Demonstrates LLM conversation compaction strategies for context window management
 
@@ -115,6 +128,7 @@ metadata:
   name: cli-to-compaction-demo
 spec:
   connectorRef: { kind: Connector, name: cli }
+  swarmRef: { kind: Swarm, name: compaction-demo }
   ingress:
     rules:
       - route: {}

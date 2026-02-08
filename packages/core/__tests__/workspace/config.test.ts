@@ -64,10 +64,9 @@ describe('Workspace 설정', () => {
   });
 
   describe('generateWorkspaceId', () => {
-    it('SwarmBundleRoot의 SHA-256 해시 처음 12자를 반환해야 한다', () => {
+    it('디렉토리명-해시8자 형식의 workspaceId를 반환해야 한다', () => {
       const workspaceId = generateWorkspaceId('/Users/alice/projects/my-agent');
-      expect(workspaceId).toHaveLength(12);
-      expect(/^[a-f0-9]+$/.test(workspaceId)).toBe(true);
+      expect(workspaceId).toMatch(/^my-agent-[a-f0-9]{8}$/);
     });
 
     it('동일한 경로는 항상 동일한 workspaceId를 생성해야 한다 (결정론적)', () => {

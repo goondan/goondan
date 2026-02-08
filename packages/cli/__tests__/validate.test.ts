@@ -151,6 +151,11 @@ describe("gdn validate command", () => {
       const bundlePath = path.join(tempDir, "goondan.yaml");
       fs.writeFileSync(bundlePath, validBundleYaml);
 
+      // Create mock entry file for Connector
+      const connectorDir = path.join(tempDir, "connectors", "cli");
+      fs.mkdirSync(connectorDir, { recursive: true });
+      fs.writeFileSync(path.join(connectorDir, "index.js"), "// mock connector entry");
+
       // Create and run command
       const program = new Command();
       program.exitOverride();
@@ -516,6 +521,11 @@ describe("gdn validate command", () => {
       fs.mkdirSync(bundleDir, { recursive: true });
       const bundlePath = path.join(bundleDir, "goondan.yaml");
       fs.writeFileSync(bundlePath, validBundleYaml);
+
+      // Create mock entry file for Connector
+      const connectorDir = path.join(bundleDir, "connectors", "cli");
+      fs.mkdirSync(connectorDir, { recursive: true });
+      fs.writeFileSync(path.join(connectorDir, "index.js"), "// mock connector entry");
 
       const program = createProgram();
       program.exitOverride();

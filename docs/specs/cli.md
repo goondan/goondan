@@ -77,7 +77,7 @@ gdn init [path] [options]
 |------|------|------|--------|
 | `--name <name>` | `-n` | Swarm 이름 | 디렉터리 이름 |
 | `--template <name>` | `-t` | 템플릿 사용 | `default` |
-| `--package` | | Bundle Package로 초기화 | `false` |
+| `--package` | | Package로 초기화 | `false` |
 | `--git` | | Git 저장소 초기화 | `true` |
 | `--no-git` | | Git 저장소 초기화 안 함 | - |
 | `--force` | `-f` | 기존 파일 덮어쓰기 | `false` |
@@ -88,7 +88,7 @@ gdn init [path] [options]
 |--------|------|
 | `default` | 기본 단일 에이전트 구성 |
 | `multi-agent` | 멀티 에이전트 스웜 구성 |
-| `package` | Bundle Package 구조 |
+| `package` | Package 구조 |
 | `minimal` | 최소 구성 |
 
 ### 3.5 예시
@@ -103,7 +103,7 @@ gdn init ./my-agent
 # 멀티 에이전트 템플릿으로 생성
 gdn init --template multi-agent
 
-# Bundle Package로 초기화
+# Package로 초기화
 gdn init --package --name @myorg/my-tools
 ```
 
@@ -121,8 +121,7 @@ gdn init --package --name @myorg/my-tools
 **package 템플릿:**
 ```
 <project>/
-  package.yaml           # Package 매니페스트
-  goondan.yaml           # 메인 구성 파일
+  goondan.yaml           # Package 문서 + 리소스 정의 통합 파일
   src/
     tools/
       example/
@@ -150,7 +149,7 @@ gdn run [options]
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--swarm <name>` | `-s` | 실행할 Swarm 이름 | `default` |
+| `--swarm <name>` | `-s` | 실행할 Swarm 이름. 미지정 시 `default`를 찾고, 없으면 Swarm이 1개일 때 자동 선택 | `default` |
 | `--connector <name>` | | 사용할 Connector | 구성에 따름 |
 | `--instance-key <key>` | `-i` | 인스턴스 키 | 자동 생성 |
 | `--input <text>` | | 초기 입력 메시지 | - |
@@ -296,7 +295,7 @@ Errors: 1, Warnings: 1
 
 ## 6. gdn package
 
-Bundle Package를 관리한다.
+Package를 관리한다.
 
 ### 6.1 하위 명령어
 
@@ -319,7 +318,7 @@ Bundle Package를 관리한다.
 
 ### 6.2 gdn package install
 
-`package.yaml`에 정의된 모든 의존성을 설치한다.
+`goondan.yaml`의 Package 문서에 정의된 모든 의존성을 설치한다.
 
 **사용법:**
 ```bash
@@ -358,7 +357,7 @@ gdn package add <ref> [options]
 
 | 인자 | 설명 |
 |------|------|
-| `ref` | Bundle Package Ref (예: `@goondan/base`, `@goondan/base@1.0.0`) |
+| `ref` | Package Ref (예: `@goondan/base`, `@goondan/base@1.0.0`) |
 
 **옵션:**
 
@@ -510,9 +509,9 @@ gdn package publish --dry-run
 ```
 
 **발행 전 검증:**
-1. `package.yaml` 존재 확인
+1. `goondan.yaml`의 Package 문서 존재 확인
 2. `spec.dist` 디렉터리 존재 확인
-3. `spec.resources` 파일 존재 확인
+3. `spec.exports` 파일 존재 확인
 4. 버전 중복 확인
 5. 구성 검증 (`gdn validate`)
 
@@ -1203,12 +1202,12 @@ gdn doctor --json
 ## 14. 관련 문서
 
 - `docs/specs/bundle.md`: Bundle YAML 스펙
-- `docs/specs/bundle_package.md`: Bundle Package 스펙
+- `docs/specs/bundle_package.md`: Package 스펙
 - `docs/specs/workspace.md`: Workspace 모델 스펙
 - `docs/specs/runtime.md`: Runtime 실행 모델 스펙
 - `docs/specs/changeset.md`: Changeset 스펙
 
 ---
 
-**문서 버전**: v0.11
-**최종 수정**: 2026-02-07
+**문서 버전**: v0.12
+**최종 수정**: 2026-02-08

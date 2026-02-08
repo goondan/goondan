@@ -105,8 +105,8 @@ function isFsExistsResult(value: JsonValue): value is FsExistsResult {
 // Mock ToolContext
 // =============================================================================
 
-function createMockContext(): ToolContext {
-  return {
+function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  const base: ToolContext = {
     instance: { id: 'test-instance', swarmName: 'test-swarm', status: 'running' },
     swarm: {
       apiVersion: 'agents.example.io/v1alpha1',
@@ -131,6 +131,11 @@ function createMockContext(): ToolContext {
       getAccessToken: vi.fn().mockResolvedValue({ status: 'error', error: { code: 'not_configured', message: 'Not configured' } }),
     },
     events: {},
+    workdir: process.cwd(),
+    agents: {
+      delegate: vi.fn().mockResolvedValue({ success: false, agentName: '', instanceId: '', error: 'not implemented' }),
+      listInstances: vi.fn().mockResolvedValue([]),
+    },
     logger: {
       debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn(),
       assert: vi.fn(), clear: vi.fn(), count: vi.fn(), countReset: vi.fn(),
@@ -140,6 +145,7 @@ function createMockContext(): ToolContext {
       timeStamp: vi.fn(), Console: vi.fn(),
     },
   };
+  return { ...base, ...overrides };
 }
 
 // =============================================================================
@@ -513,6 +519,83 @@ describe('file-system tool', () => {
       await expect(
         handler(ctx, { path: 42 })
       ).rejects.toThrow('path는 비어있지 않은 문자열이어야 합니다.');
+    });
+  });
+
+  // ===========================================================================
+  // workdir 기준 상대 경로 해석
+  // ===========================================================================
+
+  describe('workdir-based path resolution', () => {
+    it('fs.read should resolve relative path based on workdir', async () => {
+      const filePath = join(tmpDir, 'workdir-read.txt');
+      await writeFile(filePath, 'workdir content', 'utf-8');
+
+      const ctx = createMockContext({ workdir: tmpDir });
+      const readHandler = handlers['fs.read'];
+      const result = await readHandler(ctx, { path: 'workdir-read.txt' });
+
+      expect(isFsReadResult(result)).toBe(true);
+      if (isFsReadResult(result)) {
+        expect(result.content).toBe('workdir content');
+        expect(result.path).toBe(filePath);
+      }
+    });
+
+    it('fs.write should resolve relative path based on workdir', async () => {
+      const ctx = createMockContext({ workdir: tmpDir });
+      const writeHandler = handlers['fs.write'];
+      const result = await writeHandler(ctx, { path: 'workdir-write.txt', content: 'written via workdir' });
+
+      expect(isFsWriteResult(result)).toBe(true);
+      if (isFsWriteResult(result)) {
+        expect(result.success).toBe(true);
+        expect(result.path).toBe(join(tmpDir, 'workdir-write.txt'));
+      }
+    });
+
+    it('fs.list should resolve relative path based on workdir', async () => {
+      const subDir = join(tmpDir, 'listdir');
+      await mkdir(subDir);
+      await writeFile(join(subDir, 'a.txt'), 'a', 'utf-8');
+
+      const ctx = createMockContext({ workdir: tmpDir });
+      const listHandler = handlers['fs.list'];
+      const result = await listHandler(ctx, { path: 'listdir' });
+
+      expect(isFsListResult(result)).toBe(true);
+      if (isFsListResult(result)) {
+        expect(result.count).toBe(1);
+        expect(result.path).toBe(subDir);
+      }
+    });
+
+    it('fs.exists should resolve relative path based on workdir', async () => {
+      await writeFile(join(tmpDir, 'exists-workdir.txt'), 'content', 'utf-8');
+
+      const ctx = createMockContext({ workdir: tmpDir });
+      const existsHandler = handlers['fs.exists'];
+      const result = await existsHandler(ctx, { path: 'exists-workdir.txt' });
+
+      expect(isFsExistsResult(result)).toBe(true);
+      if (isFsExistsResult(result)) {
+        expect(result.exists).toBe(true);
+        expect(result.type).toBe('file');
+      }
+    });
+
+    it('absolute path should not be affected by workdir', async () => {
+      const filePath = join(tmpDir, 'absolute-test.txt');
+      await writeFile(filePath, 'absolute content', 'utf-8');
+
+      const ctx = createMockContext({ workdir: '/nonexistent' });
+      const readHandler = handlers['fs.read'];
+      const result = await readHandler(ctx, { path: filePath });
+
+      expect(isFsReadResult(result)).toBe(true);
+      if (isFsReadResult(result)) {
+        expect(result.content).toBe('absolute content');
+      }
     });
   });
 });

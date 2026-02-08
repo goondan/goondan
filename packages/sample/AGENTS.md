@@ -26,12 +26,12 @@ packages/sample/
 - **Coder**: 코드 작성/수정
 - **Reviewer**: 코드 리뷰 및 품질 검증
 - **Connector**: CLI
-- **Connection**: cli-to-coding-swarm (egress: replace)
+- **Connection**: cli-to-coding-swarm (swarmRef: coding-swarm)
 
 ### sample-2-telegram-coder
 Telegram 봇으로 동작하는 코딩 에이전트입니다.
 - **Connector**: Telegram
-- **Connection**: telegram-to-coding-swarm (auth + 3개 rules + egress)
+- **Connection**: telegram-to-coding-swarm (swarmRef: coding-swarm, auth + ingress rules)
 - **Agent**: coding-swarm의 Planner/Coder/Reviewer 재사용
 - **인증**: Connection에서 Static Token 기반
 
@@ -48,7 +48,7 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 - **테스트**: 35개 테스트 통과
 
 ### sample-5-package-consumer
-외부 Bundle Package를 참조하여 사용하는 예제입니다.
+외부 Package를 참조하여 사용하는 예제입니다.
 - **의존성**: sample-1-coding-swarm 패키지 참조
 - **커스텀**: 새 Agent 추가, 프롬프트 오버라이드
 - **데모**: 패키지 시스템 활용 방법
@@ -85,8 +85,7 @@ Telegram 봇으로 동작하는 코딩 에이전트입니다.
 각 샘플은 다음 구조를 따릅니다:
 ```
 sample-X-name/
-├── package.yaml      # 선택: Bundle Package 의존성 선언 (@goondan/base 등)
-├── goondan.yaml      # 필수: Bundle 정의
+├── goondan.yaml      # Package + Bundle 정의 (의존성 선언 포함)
 ├── prompts/          # 시스템 프롬프트 파일들
 ├── tools/            # 커스텀 도구 구현 (선택)
 ├── extensions/       # 커스텀 확장 구현 (선택)
@@ -98,4 +97,4 @@ sample-X-name/
 ## 참조 스펙
 - `/docs/specs/bundle.md` - Bundle YAML 스펙
 - `/docs/specs/resources.md` - 리소스 정의 스펙
-- `/docs/specs/bundle_package.md` - Bundle Package 스펙
+- `/docs/specs/bundle_package.md` - Package 스펙

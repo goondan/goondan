@@ -66,6 +66,11 @@ function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
       getAccessToken: vi.fn().mockResolvedValue({ status: 'error', error: { code: 'not_configured', message: 'Not configured' } }),
     },
     events: {},
+    workdir: process.cwd(),
+    agents: {
+      delegate: vi.fn().mockResolvedValue({ success: false, agentName: '', instanceId: '', error: 'not implemented' }),
+      listInstances: vi.fn().mockResolvedValue([]),
+    },
     logger: {
       debug: vi.fn(),
       info: vi.fn(),
@@ -339,6 +344,29 @@ describe('bash.exec handler', () => {
       if (isBashExecResult(result)) {
         expect(result.exitCode).toBe(0);
         expect(result.stdout.trim()).toBeTruthy();
+      }
+    });
+
+    it('should fallback to ctx.workdir when cwd is not specified', async () => {
+      const ctx = createMockContext({ workdir: '/tmp' });
+      const result = await handler(ctx, { command: 'pwd' });
+
+      expect(isBashExecResult(result)).toBe(true);
+      if (isBashExecResult(result)) {
+        expect(result.exitCode).toBe(0);
+        // macOS에서는 /tmp가 /private/tmp로 심볼릭 링크될 수 있음
+        expect(result.stdout.trim()).toMatch(/\/(tmp|private\/tmp)$/);
+      }
+    });
+
+    it('should prefer explicit cwd over ctx.workdir', async () => {
+      const ctx = createMockContext({ workdir: '/nonexistent' });
+      const result = await handler(ctx, { command: 'pwd', cwd: '/tmp' });
+
+      expect(isBashExecResult(result)).toBe(true);
+      if (isBashExecResult(result)) {
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.trim()).toMatch(/\/(tmp|private\/tmp)$/);
       }
     });
   });

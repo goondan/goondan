@@ -11,6 +11,9 @@ export type {
   ToolHandler,
   // Context
   ToolContext,
+  ToolAgentsApi,
+  AgentDelegateResult,
+  AgentInstanceInfo,
   SwarmInstance,
   Turn,
   TurnAuth,

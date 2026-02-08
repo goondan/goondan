@@ -58,8 +58,18 @@ export type FooResource = Resource<FooSpec>;
 - `connector.ts`: `type` 필드 삭제, `runtime/entry/triggers(TriggerDeclaration)/events(EventSchema)` 추가
 - `connection.ts`: `rules/egress` 삭제, `verify(ConnectionVerify)/ingress(IngressConfig)` 추가
   - IngressMatch: `command/eventType/channel` -> `event/properties`
-  - IngressRoute: `swarmRef/instanceKeyFrom/inputFrom/agentName` -> `agentRef`
+  - IngressRoute: `instanceKeyFrom/inputFrom/agentName` -> `agentRef`
+  - `swarmRef?: ObjectRefLike` 필드를 ConnectionSpec 최상위로 복원 (Connection이 바인딩할 Swarm 명시, 선택 필드)
   - ConnectorAuth, IngressRule 등이 connection.ts로 이동
+
+## Tool 타입 변경 (v0.0.2)
+
+### tool/types.ts
+- `ToolContext.delegate?` 메서드 제거
+- `ToolContext.agents: ToolAgentsApi` 필드 추가 (필수)
+- `ToolAgentsApi` 인터페이스: `delegate(agentName, task, context?)`, `listInstances()`
+- `AgentDelegateResult` 인터페이스: `{ success, agentName, instanceId, response?, error? }`
+- `AgentInstanceInfo` 인터페이스: `{ instanceId, agentName, status }`
 
 ## 의존성
 

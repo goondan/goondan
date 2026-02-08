@@ -1,8 +1,12 @@
 /**
  * Connector Runner - Connection 리소스 감지 및 커넥터 실행
  *
- * Bundle에서 Connection 리소스를 감지하고, 참조된 Connector 타입에 따라
+ * Bundle에서 Connection 리소스를 감지하고, spec.triggers[].type에 따라
  * 적절한 커넥터 러너를 생성한다.
+ *
+ * 설계 원칙:
+ * - Connector 종류 판별은 오직 triggers[].type으로만 수행 (spec.type은 v1.0에서 제거됨)
+ * - run.ts는 개별 connector 이름/구현을 알 필요 없음 — 이 모듈의 factory 함수만 사용
  *
  * @see /docs/specs/connection.md
  * @see /docs/specs/connector.md
@@ -14,6 +18,7 @@ import type { IngressRule, IngressMatch, IngressRoute } from "@goondan/core";
 import type { ValueSource } from "@goondan/core";
 import { resolveValueSource, isObjectRefLike } from "@goondan/core";
 import type { ValueSourceContext } from "@goondan/core";
+import type { RuntimeContext, ProcessConnectorTurnResult } from "./types.js";
 
 /**
  * 감지된 Connection + Connector 쌍
@@ -23,6 +28,16 @@ export interface DetectedConnection {
   connectorResource: Resource;
   connectorType: string;
   connectorName: string;
+  /** Connection이 바인딩된 Swarm 이름 (swarmRef에서 추출, 없으면 undefined) */
+  swarmName?: string;
+}
+
+/**
+ * detectConnections 결과
+ */
+export interface DetectConnectionsResult {
+  connections: DetectedConnection[];
+  warnings: string[];
 }
 
 /**
@@ -79,14 +94,31 @@ function resolveRefName(ref: unknown): string | null {
 }
 
 /**
+ * ConnectorSpec의 triggers[0].type을 추출
+ * v1.0: Connector 종류는 오직 triggers[].type으로만 판별
+ */
+function resolveTriggerType(spec: Record<string, unknown>): string | null {
+  const triggers = spec["triggers"];
+  if (Array.isArray(triggers) && triggers.length > 0) {
+    const first = triggers[0];
+    if (isObjectWithKey(first, "type") && typeof first.type === "string") {
+      return first.type;
+    }
+  }
+  return null;
+}
+
+/**
  * Bundle에서 Connection 리소스를 감지하고 Connector와 매핑
  */
-export function detectConnections(bundle: BundleLoadResult): DetectedConnection[] {
+export function detectConnections(bundle: BundleLoadResult): DetectConnectionsResult {
   const connections = bundle.getResourcesByKind("Connection");
   const results: DetectedConnection[] = [];
+  const warnings: string[] = [];
 
   for (const conn of connections) {
     const spec = getSpec(conn);
+    const connName = conn.metadata?.name ?? "unknown";
 
     // connectorRef 추출
     const connectorRef = spec["connectorRef"];
@@ -95,22 +127,33 @@ export function detectConnections(bundle: BundleLoadResult): DetectedConnection[
 
     // Connector 리소스 찾기
     const connectorResource = bundle.getResource("Connector", connectorName);
-    if (!connectorResource) continue;
+    if (!connectorResource) {
+      warnings.push(`Connection '${connName}': Connector '${connectorName}' not found in bundle`);
+      continue;
+    }
 
-    // Connector type 추출
+    // Connector trigger type 추출 (triggers[0].type)
     const connectorSpec = getSpec(connectorResource);
-    const connectorType = connectorSpec["type"];
-    if (typeof connectorType !== "string") continue;
+    const connectorType = resolveTriggerType(connectorSpec);
+    if (!connectorType) {
+      warnings.push(`Connection '${connName}': Connector '${connectorName}' has no triggers defined`);
+      continue;
+    }
+
+    // swarmRef에서 swarmName 추출
+    const swarmRef = spec["swarmRef"];
+    const swarmName = resolveRefName(swarmRef) ?? undefined;
 
     results.push({
       connectionResource: conn,
       connectorResource,
       connectorType,
       connectorName,
+      swarmName,
     });
   }
 
-  return results;
+  return { connections: results, warnings };
 }
 
 /**
@@ -247,4 +290,54 @@ export function resolveAgentFromRoute(route: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * ConnectorRunner factory 옵션
+ */
+export interface CreateConnectorRunnerOptions {
+  runtimeCtx: RuntimeContext;
+  detected: DetectedConnection;
+  processConnectorTurn: (
+    ctx: RuntimeContext,
+    options: { instanceKey: string; agentName?: string; input: string },
+  ) => Promise<ProcessConnectorTurnResult>;
+}
+
+/**
+ * trigger type 기반으로 적절한 ConnectorRunner를 생성
+ *
+ * - "cli": null 반환 (run.ts에서 interactive mode로 처리)
+ * - "custom": 범용 custom connector runner (현재 telegram 등 long-polling 기반)
+ * - "http": 미구현 (null 반환)
+ * - "cron": 미구현 (null 반환)
+ *
+ * @returns ConnectorRunner 또는 null (cli/미구현 trigger type)
+ */
+export async function createConnectorRunner(
+  options: CreateConnectorRunnerOptions,
+): Promise<ConnectorRunner | null> {
+  const { detected } = options;
+
+  switch (detected.connectorType) {
+    case "cli":
+      // CLI trigger는 run.ts의 interactive mode에서 처리
+      return null;
+
+    case "custom": {
+      // custom trigger: connector entry function 기반 runner
+      // 현재는 TelegramConnectorRunner를 동적 import로 로드
+      const { TelegramConnectorRunner } = await import("./telegram-connector.js");
+      return new TelegramConnectorRunner({
+        runtimeCtx: options.runtimeCtx,
+        connectionResource: detected.connectionResource,
+        connectorResource: detected.connectorResource,
+        processConnectorTurn: options.processConnectorTurn,
+      });
+    }
+
+    default:
+      // http, cron 등 미구현 trigger type
+      return null;
+  }
 }

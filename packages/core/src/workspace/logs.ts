@@ -82,23 +82,51 @@ export class JsonlWriter<T> {
     }
     return records;
   }
+
+  /**
+   * 파일을 잘라내고 모든 레코드를 다시 기록 (rewrite용)
+   */
+  async truncateAndWriteAll(records: T[]): Promise<void> {
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    if (records.length === 0) {
+      await fs.writeFile(this.filePath, '', 'utf8');
+      return;
+    }
+    const lines = records.map(r => JSON.stringify(r)).join('\n') + '\n';
+    await fs.writeFile(this.filePath, lines, 'utf8');
+  }
 }
 
 /**
- * MessageBaseLogger 로그 입력 타입
+ * MessageBaseLogger Delta Append 입력 타입
  */
-export interface MessageBaseLogInput {
+export interface MessageBaseDeltaInput {
+  traceId: string;
+  instanceId: string;
+  instanceKey: string;
+  agentName: string;
+  turnId: string;
+  startSeq: number;
+  messages: LlmMessage[];
+}
+
+/**
+ * MessageBaseLogger Rewrite 입력 타입
+ */
+export interface MessageBaseRewriteInput {
   traceId: string;
   instanceId: string;
   instanceKey: string;
   agentName: string;
   turnId: string;
   messages: LlmMessage[];
-  sourceEventCount?: number;
 }
 
 /**
- * MessageBaseLogger - Message base 스냅샷 로거
+ * MessageBaseLogger - Message base Delta 로거
+ *
+ * Delta Append: 새 메시지만 개별 레코드로 추가
+ * Rewrite: mutation 이벤트 발생 시 전체 메시지를 다시 기록
  */
 export class MessageBaseLogger {
   private readonly writer: JsonlWriter<MessageBaseLogRecord>;
@@ -108,22 +136,47 @@ export class MessageBaseLogger {
   }
 
   /**
-   * Message base 스냅샷 기록
+   * Delta Append: 새 메시지를 개별 레코드로 추가
    */
-  async log(input: MessageBaseLogInput): Promise<void> {
-    const record: MessageBaseLogRecord = {
-      type: 'message.base',
-      recordedAt: new Date().toISOString(),
-      traceId: input.traceId,
-      instanceId: input.instanceId,
-      instanceKey: input.instanceKey,
-      agentName: input.agentName,
-      turnId: input.turnId,
-      messages: input.messages,
-      sourceEventCount: input.sourceEventCount,
-    };
+  async appendDelta(input: MessageBaseDeltaInput): Promise<void> {
+    let seq = input.startSeq;
+    for (const msg of input.messages) {
+      await this.writer.append({
+        type: 'message.base',
+        recordedAt: new Date().toISOString(),
+        traceId: input.traceId,
+        instanceId: input.instanceId,
+        instanceKey: input.instanceKey,
+        agentName: input.agentName,
+        turnId: input.turnId,
+        message: msg,
+        seq,
+      });
+      seq++;
+    }
+  }
 
-    await this.writer.append(record);
+  /**
+   * Rewrite: 전체 메시지를 파일에 다시 기록 (mutation 이벤트 발생 시)
+   */
+  async rewrite(input: MessageBaseRewriteInput): Promise<void> {
+    const records: MessageBaseLogRecord[] = [];
+    let seq = 0;
+    for (const msg of input.messages) {
+      records.push({
+        type: 'message.base',
+        recordedAt: new Date().toISOString(),
+        traceId: input.traceId,
+        instanceId: input.instanceId,
+        instanceKey: input.instanceKey,
+        agentName: input.agentName,
+        turnId: input.turnId,
+        message: msg,
+        seq,
+      });
+      seq++;
+    }
+    await this.writer.truncateAndWriteAll(records);
   }
 
   /**

@@ -1,3 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-coding-swarm"
+  version: "0.0.1"
+  annotations:
+    description: "Planner-Coder-Reviewer 코딩 에이전트 스웜"
+spec:
+  dependencies:
+    - "@goondan/base"
+
+---
+
 # Goondan Coding Swarm Sample
 # Planner -> Coder -> Reviewer 구조의 코딩 에이전트 스웜
 apiVersion: agents.example.io/v1alpha1
@@ -71,43 +84,6 @@ spec:
 
 ---
 
-# Delegate Tool - 다른 에이전트에게 작업 위임
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: delegate-tool
-  labels:
-    tier: base
-    category: orchestration
-spec:
-  runtime: node
-  entry: "./tools/delegate/index.ts"
-  exports:
-    - name: agent.delegate
-      description: "다른 에이전트에게 작업을 위임합니다. 위임받은 에이전트가 작업을 완료하면 결과를 반환합니다."
-      parameters:
-        type: object
-        properties:
-          agentName:
-            type: string
-            description: "위임할 에이전트의 이름 (planner, coder, reviewer 중 하나)"
-            enum:
-              - planner
-              - coder
-              - reviewer
-          task:
-            type: string
-            description: "에이전트에게 전달할 작업 내용"
-          context:
-            type: string
-            description: "작업 수행에 필요한 추가 컨텍스트"
-        required:
-          - agentName
-          - task
-        additionalProperties: false
-
----
-
 # Planner Agent - 작업 계획 수립
 apiVersion: agents.example.io/v1alpha1
 kind: Agent
@@ -125,7 +101,7 @@ spec:
     systemRef: "./prompts/planner.system.md"
   tools:
     - { kind: Tool, name: file-toolkit }
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -146,7 +122,7 @@ spec:
     systemRef: "./prompts/coder.system.md"
   tools:
     - { kind: Tool, name: file-toolkit }
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -167,7 +143,7 @@ spec:
     systemRef: "./prompts/reviewer.system.md"
   tools:
     - { kind: Tool, name: file-toolkit }
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -195,6 +171,7 @@ metadata:
   name: cli-to-coding-swarm
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  swarmRef: { kind: Swarm, name: coding-swarm }
   ingress:
     rules:
       - route: {}

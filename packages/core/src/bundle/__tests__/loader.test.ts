@@ -86,7 +86,7 @@ describe('loadBundleFromDirectory - Dependency Loading', () => {
     await fs.promises.mkdir(distDir, { recursive: true });
     await fs.promises.mkdir(path.join(distDir, 'tools', 'test-tool'), { recursive: true });
 
-    // 패키지 package.yaml 생성
+    // 패키지 goondan.yaml 생성
     const packageYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -95,12 +95,12 @@ metadata:
   version: "1.0.0"
 spec:
   dependencies: []
-  resources:
+  exports:
     - tools/test-tool/tool.yaml
   dist:
     - dist/
 `;
-    await fs.promises.writeFile(path.join(packageDir, 'package.yaml'), packageYaml);
+    await fs.promises.writeFile(path.join(packageDir, 'goondan.yaml'), packageYaml);
 
     // 도구 YAML 생성
     const toolYaml = `
@@ -123,7 +123,7 @@ spec:
 `;
     await fs.promises.writeFile(path.join(distDir, 'tools', 'test-tool', 'tool.yaml'), toolYaml);
 
-    // 프로젝트 package.yaml 생성
+    // 프로젝트 goondan.yaml 생성 (Package as first doc + resources)
     const projectPackageYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -133,12 +133,9 @@ metadata:
 spec:
   dependencies:
     - "@test/base@1.0.0"
-  resources:
+  exports:
     - goondan.yaml
 `;
-    await fs.promises.writeFile(path.join(testDir, 'package.yaml'), projectPackageYaml);
-
-    // 프로젝트 goondan.yaml 생성
     const goondanYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Model
@@ -160,7 +157,7 @@ spec:
   tools:
     - { kind: Tool, name: test-tool-from-package }
 `;
-    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), goondanYaml);
+    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), projectPackageYaml + '---\n' + goondanYaml);
   });
 
   afterAll(async () => {
@@ -209,7 +206,7 @@ describe('loadBundleFromDirectory - Resource Override', () => {
     // 테스트 디렉토리 구조 생성
     await fs.promises.mkdir(distDir, { recursive: true });
 
-    // 패키지 package.yaml 생성
+    // 패키지 goondan.yaml 생성
     const packageYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -217,12 +214,12 @@ metadata:
   name: "@test/base"
   version: "1.0.0"
 spec:
-  resources:
+  exports:
     - model.yaml
   dist:
     - dist/
 `;
-    await fs.promises.writeFile(path.join(packageDir, 'package.yaml'), packageYaml);
+    await fs.promises.writeFile(path.join(packageDir, 'goondan.yaml'), packageYaml);
 
     // 패키지의 model.yaml
     const packageModelYaml = `
@@ -236,7 +233,7 @@ spec:
 `;
     await fs.promises.writeFile(path.join(distDir, 'model.yaml'), packageModelYaml);
 
-    // 프로젝트 package.yaml
+    // 프로젝트 goondan.yaml (Package as first doc + resources)
     const projectPackageYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -247,9 +244,6 @@ spec:
   dependencies:
     - "@test/base@1.0.0"
 `;
-    await fs.promises.writeFile(path.join(testDir, 'package.yaml'), projectPackageYaml);
-
-    // 프로젝트의 goondan.yaml (동일 이름 리소스로 오버라이드)
     const goondanYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Model
@@ -259,7 +253,7 @@ spec:
   provider: openai
   name: gpt-4
 `;
-    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), goondanYaml);
+    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), projectPackageYaml + '---\n' + goondanYaml);
   });
 
   afterAll(async () => {
@@ -299,7 +293,7 @@ describe('loadBundleFromDirectory - Circular Dependency Prevention', () => {
     await fs.promises.mkdir(distBDir, { recursive: true });
 
     // pkg-a depends on pkg-b
-    await fs.promises.writeFile(path.join(pkgADir, 'package.yaml'), `
+    await fs.promises.writeFile(path.join(pkgADir, 'goondan.yaml'), `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -308,13 +302,13 @@ metadata:
 spec:
   dependencies:
     - "@test/pkg-b@1.0.0"
-  resources: []
+  exports: []
   dist:
     - dist/
 `);
 
     // pkg-b depends on pkg-a (circular)
-    await fs.promises.writeFile(path.join(pkgBDir, 'package.yaml'), `
+    await fs.promises.writeFile(path.join(pkgBDir, 'goondan.yaml'), `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -323,13 +317,13 @@ metadata:
 spec:
   dependencies:
     - "@test/pkg-a@1.0.0"
-  resources: []
+  exports: []
   dist:
     - dist/
 `);
 
     // project
-    await fs.promises.writeFile(path.join(testDir, 'package.yaml'), `
+    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -358,7 +352,7 @@ describe('loadBundleFromDirectory - Missing Dependency Error', () => {
   beforeAll(async () => {
     await fs.promises.mkdir(testDir, { recursive: true });
 
-    await fs.promises.writeFile(path.join(testDir, 'package.yaml'), `
+    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -431,7 +425,7 @@ metadata:
   });
 });
 
-describe('loadBundleFromDirectory - No package.yaml', () => {
+describe('loadBundleFromDirectory - No Package in goondan.yaml', () => {
   const testDir = path.join(process.cwd(), '__test_bundle_no_pkg__');
 
   beforeAll(async () => {
@@ -452,7 +446,7 @@ spec:
     await fs.promises.rm(testDir, { recursive: true, force: true });
   });
 
-  it('package.yaml이 없어도 YAML 파일을 로드해야 한다', async () => {
+  it('Package 문서가 없어도 YAML 파일을 로드해야 한다', async () => {
     const result = await loadBundleFromDirectory(testDir);
     expect(result.isValid()).toBe(true);
     expect(result.getResource('Model', 'standalone-model')).toBeDefined();
@@ -476,9 +470,9 @@ metadata:
   name: "@my-scope/my-package"
   version: "2.0.0"
 spec:
-  resources: []
+  exports: []
 `;
-    await fs.promises.writeFile(path.join(packageDir, 'package.yaml'), packageYaml);
+    await fs.promises.writeFile(path.join(packageDir, 'goondan.yaml'), packageYaml);
 
     // 프로젝트
     const projectYaml = `
@@ -491,7 +485,7 @@ spec:
   dependencies:
     - "@my-scope/my-package@2.0.0"
 `;
-    await fs.promises.writeFile(path.join(testDir, 'package.yaml'), projectYaml);
+    await fs.promises.writeFile(path.join(testDir, 'goondan.yaml'), projectYaml);
 
     const result = await loadBundleFromDirectory(testDir);
     // 오류 없이 로드되면 성공
@@ -719,7 +713,7 @@ spec:
     await fs.promises.writeFile(path.join(testDir, 'ignored.yaml'), ignoredYaml);
 
     const result = await loadBundleFromDirectory(testDir, {
-      ignore: ['**/node_modules/**', '**/packages.lock.yaml', '**/.goondan/**', '**/package.yaml', '**/ignored.yaml'],
+      ignore: ['**/node_modules/**', '**/packages.lock.yaml', '**/.goondan/**', '**/ignored.yaml'],
     });
 
     // ignored.yaml가 제외되었으므로 keep-model만 존재

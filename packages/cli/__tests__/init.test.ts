@@ -134,7 +134,7 @@ describe("gdn init command", () => {
       await executeInit(projectDir, options);
 
       expect(fs.existsSync(path.join(projectDir, "goondan.yaml"))).toBe(true);
-      expect(fs.existsSync(path.join(projectDir, "package.yaml"))).toBe(true);
+      expect(fs.existsSync(path.join(projectDir, "gdn-package.yaml"))).toBe(false);
       expect(fs.existsSync(path.join(projectDir, "package.json"))).toBe(true);
       expect(fs.existsSync(path.join(projectDir, "tsconfig.json"))).toBe(true);
       expect(
@@ -145,7 +145,7 @@ describe("gdn init command", () => {
       ).toBe(true);
     });
 
-    it("should generate spec-compliant package.yaml for package template", async () => {
+    it("should include Package document in goondan.yaml for package template", async () => {
       const projectDir = path.join(testDir, "package-spec-project");
       const options: InitOptions = {
         template: "package",
@@ -155,22 +155,24 @@ describe("gdn init command", () => {
 
       await executeInit(projectDir, options);
 
-      const packageYaml = fs.readFileSync(
-        path.join(projectDir, "package.yaml"),
+      const goondanYaml = fs.readFileSync(
+        path.join(projectDir, "goondan.yaml"),
         "utf8",
       );
 
-      expect(packageYaml).toContain("kind: Package");
-      expect(packageYaml).toContain("metadata:");
-      expect(packageYaml).toContain('version: "0.1.0"');
-      expect(packageYaml).toContain("access: public");
-      expect(packageYaml).toContain("dependencies: []");
-      expect(packageYaml).toContain("resources:");
-      expect(packageYaml).toContain('    - "goondan.yaml"');
-      expect(packageYaml).toContain('    - "src/tools/example/tool.yaml"');
-      expect(packageYaml).toContain("dist:");
-      expect(packageYaml).toContain('    - "."');
-      expect(packageYaml).not.toContain("kind: Bundle");
+      expect(goondanYaml).toContain("kind: Package");
+      expect(goondanYaml).toContain("metadata:");
+      expect(goondanYaml).toContain('version: "0.1.0"');
+      expect(goondanYaml).toContain("access: public");
+      expect(goondanYaml).toContain("dependencies: []");
+      expect(goondanYaml).toContain("exports:");
+      expect(goondanYaml).toContain('    - "src/tools/example/tool.yaml"');
+      expect(goondanYaml).toContain("dist:");
+      expect(goondanYaml).toContain('    - "."');
+      expect(goondanYaml).not.toContain("kind: Bundle");
+      // Package document should be the first document in goondan.yaml
+      const firstKindMatch = goondanYaml.match(/kind:\s+(\w+)/);
+      expect(firstKindMatch?.[1]).toBe("Package");
     });
   });
 
@@ -251,7 +253,13 @@ describe("gdn init command", () => {
 
       await executeInit(projectDir, options);
 
-      expect(fs.existsSync(path.join(projectDir, "package.yaml"))).toBe(true);
+      // Package document should be integrated into goondan.yaml
+      const goondanYaml = fs.readFileSync(
+        path.join(projectDir, "goondan.yaml"),
+        "utf8",
+      );
+      expect(goondanYaml).toContain("kind: Package");
+      expect(fs.existsSync(path.join(projectDir, "gdn-package.yaml"))).toBe(false);
       expect(fs.existsSync(path.join(projectDir, "package.json"))).toBe(true);
     });
   });

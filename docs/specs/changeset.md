@@ -41,7 +41,7 @@ SwarmBundle의 YAML/소스코드를 수정하면 **에이전트의 행동(동작
   tools/                         # MAY
   extensions/                    # MAY
   connectors/                    # MAY
-  bundle.yaml                    # MAY: Bundle Package를 함께 두는 경우
+  goondan.lock.yaml              # MAY: Package 의존성 lockfile
   .git/                          # SHOULD: Git 기반 changeset 권장
 ```
 

@@ -1,4 +1,4 @@
-# Goondan Config Plane 리소스 정의 스펙 (v0.10)
+# Goondan Config Plane 리소스 정의 스펙 (v0.11)
 
 본 문서는 `docs/requirements/06_config-spec.md`(리소스 공통 형식, ObjectRef, Selector+Overrides, ValueSource)와 `docs/requirements/07_config-resources.md`(각 리소스 Kind별 정의)를 기반으로 Config Plane 리소스의 상세 스키마, TypeScript 인터페이스, 검증 규칙을 정의한다.
 
@@ -20,6 +20,7 @@
    - [6.8 ResourceType](#68-resourcetype)
    - [6.9 ExtensionHandler](#69-extensionhandler)
    - [6.10 Connection](#610-connection)
+   - [6.11 Package](#611-package)
 7. [공통 타입 정의](#7-공통-타입-정의)
 8. [Validation 규칙 요약](#8-validation-규칙-요약)
 
@@ -71,7 +72,7 @@ type KnownKind =
   | 'OAuthApp'
   | 'ResourceType'
   | 'ExtensionHandler'
-  | 'Bundle';
+  | 'Package';
 ```
 
 ### 규칙
@@ -150,7 +151,7 @@ interface ObjectRef {
   kind: string;
   /** 리소스 이름 */
   name: string;
-  /** 패키지 이름 (선택, Bundle Package 간 참조 시 사용) */
+  /** 패키지 이름 (선택, Package 간 참조 시 사용) */
   package?: string;
 }
 
@@ -191,7 +192,7 @@ tools:
     kind: Tool
     name: fileRead
 
-# 패키지 참조 (다른 Bundle Package의 리소스 참조)
+# 패키지 참조 (다른 Package의 리소스 참조)
 tools:
   - kind: Tool
     name: fileRead
@@ -204,7 +205,7 @@ tools:
 2. 객체형 참조는 MUST `kind`와 `name` 필드를 포함해야 한다.
 3. `apiVersion`은 MAY 생략할 수 있으며, 생략 시 현재 문서의 apiVersion을 사용한다.
 4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
-5. `package`는 MAY Bundle Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다 (SHOULD).
+5. `package`는 MAY Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다 (SHOULD).
 
 ---
 
@@ -1709,6 +1710,8 @@ Connection은 Connector와 Agent 사이의 배포 바인딩을 정의한다. 인
 interface ConnectionSpec {
   /** 참조할 Connector */
   connectorRef: ObjectRefLike;
+  /** 바인딩할 Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
+  swarmRef?: ObjectRefLike;
   /** 인증 설정 */
   auth?: ConnectorAuth;
   /** 인바운드 라우팅 규칙 */
@@ -1785,6 +1788,7 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
+  swarmRef: { kind: Swarm, name: default }
   ingress:
     rules:
       - route: {}  # entrypoint Agent로 라우팅
@@ -1797,6 +1801,7 @@ metadata:
   name: slack-main
 spec:
   connectorRef: { kind: Connector, name: slack }
+  swarmRef: { kind: Swarm, name: default }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
   ingress:
@@ -1822,6 +1827,7 @@ metadata:
   name: telegram-main
 spec:
   connectorRef: { kind: Connector, name: telegram }
+  swarmRef: { kind: Swarm, name: coding-swarm }
   auth:
     staticToken:
       valueFrom:
@@ -1838,6 +1844,7 @@ spec:
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
 | `connectorRef` | MUST | ObjectRefLike | 유효한 Connector 참조 |
+| `swarmRef` | MAY | ObjectRefLike | 유효한 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm) |
 | `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
 | `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
 | `auth` | MUST | - | oauthAppRef와 staticToken은 동시에 존재할 수 없음 |
@@ -1848,10 +1855,71 @@ spec:
 
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
+- `swarmRef`가 지정된 경우, 유효한 Swarm 리소스를 참조해야 한다 (MUST). 생략 시 Bundle 내 첫 번째 Swarm을 사용한다 (MUST).
 - `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
-- `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 Swarm의 `agents` 배열에 포함되어야 한다 (SHOULD).
+- `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 `swarmRef`가 가리키는 Swarm의 `agents` 배열에 포함되어야 한다 (SHOULD).
 - Connection은 Connector가 서명 검증에 사용할 시크릿을 제공해야 한다 (MUST).
 - 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다 (MUST).
+
+### 6.11 Package
+
+Package는 goondan 프로젝트의 **최상위 리소스**로, 프로젝트 메타데이터, 의존성, export 선언을 포함한다. `goondan.yaml`의 **첫 번째 YAML 문서**에만 위치할 수 있으며, 생략 가능하다(Package 없이 리소스만 있는 파일도 유효).
+
+#### TypeScript 인터페이스
+
+```typescript
+/**
+ * Package 리소스 스펙
+ */
+interface PackageSpec {
+  /** 접근 수준 */
+  access?: 'public' | 'restricted';
+  /** 의존하는 Package Ref 목록 */
+  dependencies?: string[];
+  /** 배포 시 포함할 리소스 YAML 경로 */
+  exports?: string[];
+  /** tarball에 포함할 빌드 아티팩트 디렉터리 */
+  dist?: string[];
+}
+
+type PackageResource = Resource<PackageSpec>;
+```
+
+#### YAML 예시
+
+```yaml
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/base"
+  version: "1.0.0"
+  annotations:
+    description: "Goondan 기본 Tool, Extension, Connector 번들"
+spec:
+  exports:
+    - tools/bash/tool.yaml
+    - connectors/telegram/connector.yaml
+  dist:
+    - dist/
+```
+
+#### Package 필드 검증
+
+| 필드 | 필수 | 타입 | 설명 |
+|------|------|------|------|
+| `metadata.name` | MUST | string | 패키지 식별명 (scope 포함 가능: `@scope/name`) |
+| `metadata.version` | MUST (publish 시) | string | semver 형식 |
+| `spec.access` | MAY | string | `'public'` (기본) 또는 `'restricted'` |
+| `spec.dependencies` | MAY | string[] | Package Ref 문자열 배열 |
+| `spec.exports` | MAY | string[] | 배포할 리소스 YAML 경로 |
+| `spec.dist` | MAY | string[] | tarball에 포함할 빌드 아티팩트 디렉터리 |
+
+**위치 규칙:**
+1. Package 문서는 `goondan.yaml`의 **첫 번째 YAML 문서**에만 위치할 수 있다 (MUST).
+2. 두 번째 이후 문서에 `kind: Package`가 있으면 검증 오류이다 (MUST).
+3. 하나의 `goondan.yaml`에는 최대 하나의 Package 문서만 존재할 수 있다 (MUST).
+
+상세 스펙(레지스트리, 의존성 해석, lockfile 등)은 `docs/specs/bundle_package.md`를 참조한다.
 
 ---
 
@@ -1959,6 +2027,7 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 | Connector | triggers 최소 1개 프로토콜 선언 | MUST |
 | Connector | events[].name Connector 내 고유 | MUST |
 | Connection | connectorRef 필수 | MUST |
+| Connection | swarmRef 지정 시 유효한 Swarm 참조 | MUST |
 | Connection | oauthAppRef와 staticToken 동시 불가 | MUST |
 | Connection | ingress.rules[].match.event는 Connector events에 선언된 이름 | SHOULD |
 | Connection | verify.webhook 서명 검증 시크릿 제공 | MUST |

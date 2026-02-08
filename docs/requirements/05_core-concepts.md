@@ -64,9 +64,9 @@ Connection은 Connector를 특정 배포 환경에 바인딩하는 리소스다.
 
 Bundle은 YAML 리소스와 소스코드(도구/확장/커넥터/프롬프트/기타 파일)를 함께 포함하는 폴더 트리다.
 
-#### 5.5.2 Bundle Package
+#### 5.5.2 Package
 
-Bundle Package는 Bundle을 배포/버전관리/의존성 해석하기 위한 패키징 단위다. 하위 호환을 위해 `kind: Bundle` 표기를 유지할 수 있다.
+Package는 goondan 프로젝트의 최상위 리소스로, `goondan.yaml`의 첫 번째 YAML 문서로 정의된다. 의존성 해석, 배포, 버전 관리를 위한 메타데이터를 포함한다. `kind: Package`로 표기한다.
 
 #### 5.5.3 SwarmBundle
 

@@ -1,7 +1,7 @@
 /**
  * gdn package add command
  *
- * Adds a new dependency to package.yaml
+ * Adds a new dependency to the Package in goondan.yaml
  * @see /docs/specs/cli.md - Section 6.3 (gdn package add)
  * @see /docs/specs/bundle_package.md - Section 13.3
  */
@@ -36,7 +36,7 @@ interface PackageManifest {
   spec: {
     dependencies?: string[];
     devDependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
@@ -75,17 +75,28 @@ function parsePackageRef(ref: string): { scope: string | null; name: string; ver
 }
 
 /**
- * Load package.yaml manifest
+ * Load Package manifest from goondan.yaml (first YAML document)
  */
 function loadPackageManifest(projectPath: string): PackageManifest | null {
-  const manifestPath = path.join(projectPath, "package.yaml");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
 
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs.existsSync(goondanPath)) {
     return null;
   }
 
-  const content = fs.readFileSync(manifestPath, "utf-8");
-  const manifest = YAML.parse(content) as unknown;
+  const content = fs.readFileSync(goondanPath, "utf-8");
+  // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+  const docs = YAML.parseAllDocuments(content);
+  if (docs.length === 0) {
+    return null;
+  }
+
+  const firstDoc = docs[0];
+  if (!firstDoc || firstDoc.errors.length > 0) {
+    return null;
+  }
+
+  const manifest: unknown = firstDoc.toJSON();
 
   if (
     manifest !== null &&
@@ -100,12 +111,29 @@ function loadPackageManifest(projectPath: string): PackageManifest | null {
 }
 
 /**
- * Save package.yaml manifest
+ * Save Package manifest back to goondan.yaml, preserving other documents
  */
 function savePackageManifest(projectPath: string, manifest: PackageManifest): void {
-  const manifestPath = path.join(projectPath, "package.yaml");
-  const content = YAML.stringify(manifest);
-  fs.writeFileSync(manifestPath, content, "utf-8");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
+  const existingContent = fs.existsSync(goondanPath) ? fs.readFileSync(goondanPath, "utf-8") : "";
+
+  // Reconstruct: Package document first, then remaining documents
+  const docs = YAML.parseAllDocuments(existingContent);
+  const packageYaml = YAML.stringify(manifest);
+
+  // Build new content: Package document + remaining non-Package documents
+  const remainingDocs = docs.filter((doc) => {
+    const json = doc.toJSON() as Record<string, unknown> | null;
+    return json !== null && json["kind"] !== "Package";
+  });
+
+  let newContent = packageYaml.trimEnd();
+  for (const doc of remainingDocs) {
+    newContent += "\n---\n" + String(doc);
+  }
+  newContent += "\n";
+
+  fs.writeFileSync(goondanPath, newContent, "utf-8");
 }
 
 /**
@@ -139,18 +167,18 @@ async function executeAdd(packageRef: string, options: AddOptions): Promise<void
   const projectPath = process.cwd();
 
   try {
-    // Load package.yaml
-    spinner.start("Reading package.yaml...");
+    // Load Package from goondan.yaml
+    spinner.start("Reading goondan.yaml...");
     const manifest = loadPackageManifest(projectPath);
 
     if (!manifest) {
-      spinner.fail("package.yaml not found");
+      spinner.fail("Package not found in goondan.yaml");
       info("Run 'gdn init --package' to create a new package project.");
       process.exitCode = 1;
       return;
     }
 
-    spinner.succeed("Found package.yaml");
+    spinner.succeed("Found Package in goondan.yaml");
 
     // Parse the package reference
     const parsed = parsePackageRef(packageRef);
@@ -206,9 +234,9 @@ async function executeAdd(packageRef: string, options: AddOptions): Promise<void
     }
 
     // Save manifest
-    spinner.start("Updating package.yaml...");
+    spinner.start("Updating goondan.yaml...");
     savePackageManifest(projectPath, manifest);
-    spinner.succeed("Updated package.yaml");
+    spinner.succeed("Updated goondan.yaml");
 
     // Run install
     console.log();
@@ -243,7 +271,7 @@ async function executeAdd(packageRef: string, options: AddOptions): Promise<void
  */
 export function createAddCommand(): Command {
   const command = new Command("add")
-    .description("Add a dependency to package.yaml")
+    .description("Add a dependency")
     .argument("<ref>", "Package reference (e.g., @goondan/base, @goondan/base@1.0.0)")
     .option("-D, --dev", "Add as devDependency", false)
     .option("-E, --exact", "Use exact version (no semver range)", false)

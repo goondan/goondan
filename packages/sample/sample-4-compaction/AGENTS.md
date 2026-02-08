@@ -72,6 +72,7 @@ export async function register(
 - **Agent** (`main-agent`): compaction extension을 사용하는 데모 에이전트
 - **Swarm** (`compaction-demo`): 단일 에이전트 스웜
 - **Connector** (`cli`): CLI 인터페이스
+- **Connection** (`cli-to-compaction-demo`): CLI Connector를 `compaction-demo` Swarm에 바인딩 (`swarmRef` 명시)
 
 ## 참조 문서
 

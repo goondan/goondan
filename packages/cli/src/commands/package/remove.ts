@@ -1,7 +1,7 @@
 /**
  * gdn package remove command
  *
- * Removes a dependency from package.yaml
+ * Removes a dependency from the Package in goondan.yaml
  * @see /docs/specs/cli.md - Section 6.4 (gdn package remove)
  * @see /docs/specs/bundle_package.md - Section 13.4
  */
@@ -27,7 +27,7 @@ interface PackageManifest {
   spec: {
     dependencies?: string[];
     devDependencies?: string[];
-    resources?: string[];
+    exports?: string[];
     dist?: string[];
   };
 }
@@ -64,17 +64,28 @@ function parsePackageRef(ref: string): { scope: string | null; name: string; ver
 }
 
 /**
- * Load package.yaml manifest
+ * Load Package manifest from goondan.yaml (first YAML document)
  */
 function loadPackageManifest(projectPath: string): PackageManifest | null {
-  const manifestPath = path.join(projectPath, "package.yaml");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
 
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs.existsSync(goondanPath)) {
     return null;
   }
 
-  const content = fs.readFileSync(manifestPath, "utf-8");
-  const manifest = YAML.parse(content) as unknown;
+  const content = fs.readFileSync(goondanPath, "utf-8");
+  // goondan.yaml은 multi-document YAML — 첫 번째 문서가 Package인지 확인
+  const docs = YAML.parseAllDocuments(content);
+  if (docs.length === 0) {
+    return null;
+  }
+
+  const firstDoc = docs[0];
+  if (!firstDoc || firstDoc.errors.length > 0) {
+    return null;
+  }
+
+  const manifest: unknown = firstDoc.toJSON();
 
   if (
     manifest !== null &&
@@ -89,12 +100,29 @@ function loadPackageManifest(projectPath: string): PackageManifest | null {
 }
 
 /**
- * Save package.yaml manifest
+ * Save Package manifest back to goondan.yaml, preserving other documents
  */
 function savePackageManifest(projectPath: string, manifest: PackageManifest): void {
-  const manifestPath = path.join(projectPath, "package.yaml");
-  const content = YAML.stringify(manifest);
-  fs.writeFileSync(manifestPath, content, "utf-8");
+  const goondanPath = path.join(projectPath, "goondan.yaml");
+  const existingContent = fs.existsSync(goondanPath) ? fs.readFileSync(goondanPath, "utf-8") : "";
+
+  // Reconstruct: Package document first, then remaining documents
+  const docs = YAML.parseAllDocuments(existingContent);
+  const packageYaml = YAML.stringify(manifest);
+
+  // Build new content: Package document + remaining non-Package documents
+  const remainingDocs = docs.filter((doc) => {
+    const json = doc.toJSON() as Record<string, unknown> | null;
+    return json !== null && json["kind"] !== "Package";
+  });
+
+  let newContent = packageYaml.trimEnd();
+  for (const doc of remainingDocs) {
+    newContent += "\n---\n" + String(doc);
+  }
+  newContent += "\n";
+
+  fs.writeFileSync(goondanPath, newContent, "utf-8");
 }
 
 /**
@@ -105,18 +133,18 @@ async function executeRemove(packageRef: string): Promise<void> {
   const projectPath = process.cwd();
 
   try {
-    // Load package.yaml
-    spinner.start("Reading package.yaml...");
+    // Load Package from goondan.yaml
+    spinner.start("Reading goondan.yaml...");
     const manifest = loadPackageManifest(projectPath);
 
     if (!manifest) {
-      spinner.fail("package.yaml not found");
+      spinner.fail("Package not found in goondan.yaml");
       info("Run 'gdn init --package' to create a new package project.");
       process.exitCode = 1;
       return;
     }
 
-    spinner.succeed("Found package.yaml");
+    spinner.succeed("Found Package in goondan.yaml");
 
     // Parse the package reference
     const parsed = parsePackageRef(packageRef);
@@ -183,12 +211,12 @@ async function executeRemove(packageRef: string): Promise<void> {
     spinner.succeed(`Removed ${chalk.cyan(foundEntry)} from ${foundIn}`);
 
     // Save manifest
-    spinner.start("Updating package.yaml...");
+    spinner.start("Updating goondan.yaml...");
     savePackageManifest(projectPath, manifest);
-    spinner.succeed("Updated package.yaml");
+    spinner.succeed("Updated goondan.yaml");
 
     // Update lockfile
-    spinner.start("Updating packages.lock.yaml...");
+    spinner.start("Updating goondan.lock.yaml...");
 
     // Stub: Would actually update lockfile here
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -218,7 +246,7 @@ async function executeRemove(packageRef: string): Promise<void> {
  */
 export function createRemoveCommand(): Command {
   const command = new Command("remove")
-    .description("Remove a dependency from package.yaml")
+    .description("Remove a dependency")
     .argument("<ref>", "Package reference (e.g., @goondan/base)")
     .action(async (packageRef: string) => {
       await executeRemove(packageRef);

@@ -1,6 +1,6 @@
 # Package Consumer Sample
 
-Goondan Bundle Package 시스템의 패키지 의존성 기능을 시연하는 샘플입니다.
+Goondan Package 시스템의 패키지 의존성 기능을 시연하는 샘플입니다.
 
 ## 개요
 
@@ -13,8 +13,7 @@ Goondan Bundle Package 시스템의 패키지 의존성 기능을 시연하는 �
 
 ```
 sample-5-package-consumer/
-├── package.yaml          # Bundle Package 매니페스트 (의존성 선언)
-├── goondan.yaml          # Bundle 정의 (커스텀 Agent, Swarm, Connection)
+├── goondan.yaml          # Package 매니페스트 + 리소스 정의
 ├── prompts/
 │   └── custom.system.md  # 커스텀 어시스턴트 프롬프트
 ├── package.json
@@ -23,7 +22,7 @@ sample-5-package-consumer/
 
 ## 의존성 참조 방식
 
-`package.yaml`에서 로컬 패키지 참조:
+`goondan.yaml`에서 로컬 패키지 참조:
 
 ```yaml
 spec:
@@ -108,12 +107,12 @@ pnpm start
 pnpm validate
 ```
 
-## Bundle Package 시스템 요약
+## Package 시스템 요약
 
 ### 패키지 구조
-- `package.yaml`: 패키지 매니페스트 (Kind: Package)
+- `goondan.yaml`: 패키지 매니페스트 (Kind: Package)
 - `spec.dependencies`: 의존하는 패키지 목록
-- `spec.resources`: export할 YAML 파일 목록
+- `spec.exports`: export할 YAML 파일 목록
 - `spec.dist`: 배포할 폴더
 
 ### 의존성 해석

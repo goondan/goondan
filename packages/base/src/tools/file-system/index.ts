@@ -55,7 +55,7 @@ interface FsReadInput {
   encoding: BufferEncoding;
 }
 
-function parseFsReadInput(input: JsonObject): FsReadInput {
+function parseFsReadInput(input: JsonObject, workdir?: string): FsReadInput {
   const path = input['path'];
   if (typeof path !== 'string' || path.trim() === '') {
     throw new Error('path는 비어있지 않은 문자열이어야 합니다.');
@@ -70,7 +70,8 @@ function parseFsReadInput(input: JsonObject): FsReadInput {
     encoding = encodingInput;
   }
 
-  return { path: resolve(path), encoding };
+  const resolvedPath = workdir ? resolve(workdir, path) : resolve(path);
+  return { path: resolvedPath, encoding };
 }
 
 // =============================================================================
@@ -83,7 +84,7 @@ interface FsWriteInput {
   mode: WriteMode;
 }
 
-function parseFsWriteInput(input: JsonObject): FsWriteInput {
+function parseFsWriteInput(input: JsonObject, workdir?: string): FsWriteInput {
   const path = input['path'];
   if (typeof path !== 'string' || path.trim() === '') {
     throw new Error('path는 비어있지 않은 문자열이어야 합니다.');
@@ -103,7 +104,8 @@ function parseFsWriteInput(input: JsonObject): FsWriteInput {
     mode = modeInput;
   }
 
-  return { path: resolve(path), content, mode };
+  const resolvedPath = workdir ? resolve(workdir, path) : resolve(path);
+  return { path: resolvedPath, content, mode };
 }
 
 // =============================================================================
@@ -115,7 +117,7 @@ interface FsListInput {
   recursive: boolean;
 }
 
-function parseFsListInput(input: JsonObject): FsListInput {
+function parseFsListInput(input: JsonObject, workdir?: string): FsListInput {
   const path = input['path'];
   if (typeof path !== 'string' || path.trim() === '') {
     throw new Error('path는 비어있지 않은 문자열이어야 합니다.');
@@ -123,7 +125,8 @@ function parseFsListInput(input: JsonObject): FsListInput {
 
   const recursive = input['recursive'] === true;
 
-  return { path: resolve(path), recursive };
+  const resolvedPath = workdir ? resolve(workdir, path) : resolve(path);
+  return { path: resolvedPath, recursive };
 }
 
 /** 디렉토리 항목 정보 */
@@ -166,13 +169,24 @@ interface FsExistsInput {
   path: string;
 }
 
-function parseFsExistsInput(input: JsonObject): FsExistsInput {
+function parseFsExistsInput(input: JsonObject, workdir?: string): FsExistsInput {
   const path = input['path'];
   if (typeof path !== 'string' || path.trim() === '') {
     throw new Error('path는 비어있지 않은 문자열이어야 합니다.');
   }
 
-  return { path: resolve(path) };
+  const resolvedPath = workdir ? resolve(workdir, path) : resolve(path);
+  return { path: resolvedPath };
+}
+
+/**
+ * ToolContext에서 workdir를 안전하게 추출
+ */
+function getWorkdir(ctx: ToolContext): string | undefined {
+  if ('workdir' in ctx && typeof ctx.workdir === 'string' && ctx.workdir.trim() !== '') {
+    return ctx.workdir;
+  }
+  return undefined;
 }
 
 // =============================================================================
@@ -184,7 +198,7 @@ export const handlers: Record<string, ToolHandler> = {
    * fs.read - 파일 읽기
    */
   'fs.read': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
-    const parsed = parseFsReadInput(input);
+    const parsed = parseFsReadInput(input, getWorkdir(ctx));
 
     ctx.logger?.debug?.(`[fs.read] Reading: ${parsed.path} (encoding: ${parsed.encoding})`);
 
@@ -205,7 +219,7 @@ export const handlers: Record<string, ToolHandler> = {
    * fs.write - 파일 쓰기
    */
   'fs.write': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
-    const parsed = parseFsWriteInput(input);
+    const parsed = parseFsWriteInput(input, getWorkdir(ctx));
 
     ctx.logger?.debug?.(`[fs.write] Writing: ${parsed.path} (mode: ${parsed.mode})`);
 
@@ -231,7 +245,7 @@ export const handlers: Record<string, ToolHandler> = {
    * fs.list - 디렉토리 목록 조회
    */
   'fs.list': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
-    const parsed = parseFsListInput(input);
+    const parsed = parseFsListInput(input, getWorkdir(ctx));
 
     ctx.logger?.debug?.(`[fs.list] Listing: ${parsed.path} (recursive: ${String(parsed.recursive)})`);
 
@@ -260,7 +274,7 @@ export const handlers: Record<string, ToolHandler> = {
    * fs.exists - 파일/디렉토리 존재 확인
    */
   'fs.exists': async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
-    const parsed = parseFsExistsInput(input);
+    const parsed = parseFsExistsInput(input, getWorkdir(ctx));
 
     ctx.logger?.debug?.(`[fs.exists] Checking: ${parsed.path}`);
 

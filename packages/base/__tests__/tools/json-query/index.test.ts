@@ -77,6 +77,11 @@ function createMockContext(): ToolContext {
       getAccessToken: vi.fn().mockResolvedValue({ status: 'error', error: { code: 'not_configured', message: 'Not configured' } }),
     },
     events: {},
+    workdir: process.cwd(),
+    agents: {
+      delegate: vi.fn().mockResolvedValue({ success: false, agentName: '', instanceId: '', error: 'not implemented' }),
+      listInstances: vi.fn().mockResolvedValue([]),
+    },
     logger: {
       debug: vi.fn(),
       info: vi.fn(),

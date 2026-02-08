@@ -1,3 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-web-researcher"
+  version: "0.0.1"
+  annotations:
+    description: "웹 리서치 에이전트 (http-fetch + json-query)"
+spec:
+  dependencies:
+    - "@goondan/base"
+
+---
+
 # Goondan Web Researcher Sample
 # 웹 리서치 에이전트 스웜 - researcher(정보 수집) + summarizer(결과 요약)
 apiVersion: agents.example.io/v1alpha1
@@ -9,41 +22,6 @@ metadata:
 spec:
   provider: anthropic
   name: claude-sonnet-4-5
-
----
-
-# Delegate Tool - 에이전트 간 작업 위임
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: delegate-tool
-  labels:
-    tier: base
-    category: orchestration
-spec:
-  runtime: node
-  entry: "./delegate-tool.ts"
-  exports:
-    - name: agent.delegate
-      description: "다른 에이전트에게 작업을 위임합니다. 수집한 정보를 요약 에이전트에게 전달할 때 사용합니다."
-      parameters:
-        type: object
-        properties:
-          agentName:
-            type: string
-            description: "위임할 에이전트의 이름"
-            enum:
-              - summarizer
-          task:
-            type: string
-            description: "에이전트에게 전달할 작업 내용"
-          context:
-            type: string
-            description: "작업 수행에 필요한 추가 컨텍스트 (수집한 원본 데이터 등)"
-        required:
-          - agentName
-          - task
-        additionalProperties: false
 
 ---
 
@@ -66,7 +44,7 @@ spec:
   tools:
     - { kind: Tool, name: http-fetch, package: "@goondan/base" }
     - { kind: Tool, name: json-query, package: "@goondan/base" }
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -110,6 +88,7 @@ metadata:
   name: cli-to-web-research
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  swarmRef: { kind: Swarm, name: web-research-swarm }
   ingress:
     rules:
       - route: {}

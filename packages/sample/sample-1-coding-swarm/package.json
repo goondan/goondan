@@ -7,7 +7,7 @@
   "types": "./dist/tools/file/index.d.ts",
   "files": [
     "dist",
-    "package.yaml"
+    "goondan.yaml"
   ],
   "scripts": {
     "build": "tsc",

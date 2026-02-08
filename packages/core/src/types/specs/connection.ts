@@ -19,6 +19,8 @@ import type { ValueSource } from '../value-source.js';
 export interface ConnectionSpec {
   /** 바인딩할 Connector 참조 (필수) */
   connectorRef: ObjectRefLike;
+  /** 바인딩할 Swarm 참조 (선택, 생략 시 현재 실행 중인 Swarm에 바인딩) */
+  swarmRef?: ObjectRefLike;
   /** 인증 설정 */
   auth?: ConnectorAuth;
   /** 서명 검증 시크릿 설정 */

@@ -1,0 +1,7 @@
+lockfileVersion: 1
+packages:
+  "@goondan/base@0.0.2":
+    version: 0.0.2
+    resolved: https://goondan-registry.yechanny.workers.dev/@goondan/base/-/base-0.0.2.tgz
+    integrity: sha512-C+HpPovkMC2jdBtlC5dNx9svXEZDSSnGQLr2JLPqOwY8Ivy1tZL7b3gSK0gIveCz2kOHvRJpvu5q4jEe4F1Sag==
+    dependencies: {}

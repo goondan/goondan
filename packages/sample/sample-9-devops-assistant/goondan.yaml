@@ -1,3 +1,16 @@
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-devops-assistant"
+  version: "0.0.1"
+  annotations:
+    description: "DevOps 지원 에이전트 (bash + logging)"
+spec:
+  dependencies:
+    - "@goondan/base"
+
+---
+
 # Goondan DevOps Assistant Sample
 # DevOps 지원 에이전트 스웜 - devops(명령 실행/진단) + planner(작업 계획)
 apiVersion: agents.example.io/v1alpha1
@@ -9,42 +22,6 @@ metadata:
 spec:
   provider: anthropic
   name: claude-sonnet-4-5
-
----
-
-# Delegate Tool - 에이전트 간 작업 위임
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: delegate-tool
-  labels:
-    tier: base
-    category: orchestration
-spec:
-  runtime: node
-  entry: "./delegate-tool.ts"
-  exports:
-    - name: agent.delegate
-      description: "다른 에이전트에게 작업을 위임합니다. 복잡한 작업을 계획 에이전트에게 위임하거나, 실행 에이전트에게 명령을 전달할 때 사용합니다."
-      parameters:
-        type: object
-        properties:
-          agentName:
-            type: string
-            description: "위임할 에이전트의 이름"
-            enum:
-              - devops
-              - planner
-          task:
-            type: string
-            description: "에이전트에게 전달할 작업 내용"
-          context:
-            type: string
-            description: "작업 수행에 필요한 추가 컨텍스트"
-        required:
-          - agentName
-          - task
-        additionalProperties: false
 
 ---
 
@@ -66,7 +43,7 @@ spec:
     systemRef: "./prompts/devops.md"
   tools:
     - { kind: Tool, name: bash, package: "@goondan/base" }
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
   extensions:
     - { kind: Extension, name: logging, package: "@goondan/base" }
 
@@ -89,7 +66,7 @@ spec:
   prompts:
     systemRef: "./prompts/planner.md"
   tools:
-    - { kind: Tool, name: delegate-tool }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
   extensions:
     - { kind: Extension, name: logging, package: "@goondan/base" }
 
@@ -116,6 +93,7 @@ metadata:
   name: cli-to-devops
 spec:
   connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
+  swarmRef: { kind: Swarm, name: devops-swarm }
   ingress:
     rules:
       - route: {}

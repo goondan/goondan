@@ -282,6 +282,26 @@ describe('Connector 시스템 타입 (v1.0)', () => {
     });
   });
 
+  describe('ConnectionSpec swarmRef', () => {
+    it('swarmRef 없이 ConnectionSpec을 생성할 수 있다', () => {
+      const conn = makeConnectionResource('no-swarm', 'cli');
+      expect(conn.spec.swarmRef).toBeUndefined();
+    });
+
+    it('swarmRef를 가진 ConnectionSpec을 생성할 수 있다', () => {
+      const conn: Resource<ConnectionSpec> = {
+        apiVersion: 'agents.example.io/v1alpha1',
+        kind: 'Connection',
+        metadata: { name: 'with-swarm' },
+        spec: {
+          connectorRef: { kind: 'Connector', name: 'cli' },
+          swarmRef: { kind: 'Swarm', name: 'my-swarm' },
+        },
+      };
+      expect(conn.spec.swarmRef).toEqual({ kind: 'Swarm', name: 'my-swarm' });
+    });
+  });
+
   describe('ConnectorEntryFunction 타입', () => {
     it('ConnectorContext를 받아 처리하는 단일 default export 함수이다', async () => {
       const emitted: ConnectorEvent[] = [];

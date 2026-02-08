@@ -37,7 +37,10 @@ workspace/
 ### 메시지 상태 모델 (base + events)
 
 `NextMessages = BaseMessages + SUM(Events)` 공식을 따르며:
-- `messages/base.jsonl`: Turn 종료 시 fold된 메시지 스냅샷 (MessageBaseLogRecord)
+- `messages/base.jsonl`: Delta Append 방식으로 개별 메시지를 레코드 단위로 기록 (MessageBaseLogRecord: message + seq)
+  - **Delta Append**: mutation 없는 일반 Turn 종료 시 새 메시지만 append
+  - **Rewrite**: replace/remove/truncate mutation 발생 시 전체 파일을 다시 기록
+  - 복구 시 모든 레코드를 seq 순서로 정렬하여 메시지 목록 재구성
 - `messages/events.jsonl`: Turn 중 append되는 이벤트 (MessageEventLogRecord), base 반영 후 비움
 
 ## 주요 클래스
@@ -59,6 +62,7 @@ paths.instanceMetadataPath('inst-1')                      // /.../inst-1/metadat
 paths.instanceMetricsLogPath('inst-1')                    // /.../inst-1/metrics/turns.jsonl
 paths.extensionSharedStatePath('inst-1')                  // /.../inst-1/extensions/_shared.json
 paths.extensionStatePath('inst-1', 'basicCompaction')     // /.../extensions/basicCompaction/state.json
+paths.instanceWorkspacePath('inst-1')                     // /.../inst-1/workspace (Tool CWD 바인딩용)
 ```
 
 ### WorkspaceManager
@@ -72,7 +76,10 @@ const manager = WorkspaceManager.create({
 });
 
 await manager.initializeSystemState();
-await manager.initializeInstanceState('inst-1', ['planner', 'executor']);
+await manager.initializeInstanceState('inst-1', ['planner', 'executor']); // workspace 디렉터리도 자동 생성
+
+// 인스턴스별 워크스페이스 경로 조회 (Tool CWD 바인딩용)
+const workspacePath = manager.instanceWorkspacePath('inst-1');
 
 const baseLogger = manager.createMessageBaseLogger('inst-1', 'planner');
 const eventLogger = manager.createMessageEventLogger('inst-1', 'planner');
@@ -104,18 +111,30 @@ const entry = await store.get('api-key');
 
 ### MessageBaseLogger / MessageEventLogger
 
-메시지 base+events 분리 로거:
+메시지 base+events 분리 로거 (Delta Append 방식):
 
 ```typescript
 const baseLogger = new MessageBaseLogger('/path/to/base.jsonl');
-await baseLogger.log({
+
+// Delta Append: 새 메시지만 추가
+await baseLogger.appendDelta({
   traceId: 'trace-id',
   instanceId: 'inst-1',
   instanceKey: 'cli',
   agentName: 'planner',
   turnId: 'turn-001',
+  startSeq: 0,
   messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
-  sourceEventCount: 1,
+});
+
+// Rewrite: mutation 발생 시 전체 메시지 다시 기록
+await baseLogger.rewrite({
+  traceId: 'trace-id',
+  instanceId: 'inst-1',
+  instanceKey: 'cli',
+  agentName: 'planner',
+  turnId: 'turn-002',
+  messages: [{ id: 'msg-001', role: 'user', content: 'Updated Hello' }],
 });
 
 const eventLogger = new MessageEventLogger('/path/to/events.jsonl');
@@ -131,7 +150,7 @@ await eventLogger.log({
 });
 await eventLogger.clear(); // base 반영 후 비우기
 
-// Runtime 재시작 복구용: 마지막 base + 잔존 events 로드
+// Runtime 재시작 복구용: 모든 base 레코드를 seq 순서로 복원 + 잔존 events 로드
 const recovered = await manager.recoverTurnMessageState('inst-1', 'planner');
 ```
 

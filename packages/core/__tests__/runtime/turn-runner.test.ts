@@ -492,7 +492,8 @@ describe('TurnRunner', () => {
     it('messageStateLogger가 설정되면 events/base를 기록하고 events를 clear해야 한다', async () => {
       const logEvent = vi.fn().mockResolvedValue(undefined);
       const clearEvents = vi.fn().mockResolvedValue(undefined);
-      const logBase = vi.fn().mockResolvedValue(undefined);
+      const appendDelta = vi.fn().mockResolvedValue(undefined);
+      const rewrite = vi.fn().mockResolvedValue(undefined);
 
       const runner = createTurnRunner({
         stepRunner: mockStepRunner,
@@ -502,7 +503,8 @@ describe('TurnRunner', () => {
             clear: clearEvents,
           },
           base: {
-            log: logBase,
+            appendDelta,
+            rewrite,
           },
         }),
       });
@@ -511,12 +513,13 @@ describe('TurnRunner', () => {
       const turn = await runner.run(agentInstance, event);
 
       expect(logEvent).toHaveBeenCalledTimes(1);
-      expect(logBase).toHaveBeenCalledWith(
+      // No mutation events, so appendDelta should be called
+      expect(appendDelta).toHaveBeenCalledWith(
         expect.objectContaining({
           turnId: turn.id,
-          sourceEventCount: 1,
         })
       );
+      expect(rewrite).not.toHaveBeenCalled();
       expect(clearEvents).toHaveBeenCalledTimes(1);
       expect(turn.messageState.events).toEqual([]);
       expect(turn.messageState.baseMessages).toEqual(turn.messageState.nextMessages);
@@ -525,7 +528,8 @@ describe('TurnRunner', () => {
     it('messageStateLogger 기록 실패는 Turn을 깨뜨리지 않고 metadata에 남겨야 한다', async () => {
       const logEvent = vi.fn().mockResolvedValue(undefined);
       const clearEvents = vi.fn().mockResolvedValue(undefined);
-      const logBase = vi.fn().mockRejectedValue(new Error('persist failed'));
+      const appendDelta = vi.fn().mockRejectedValue(new Error('persist failed'));
+      const rewrite = vi.fn().mockRejectedValue(new Error('persist failed'));
 
       const runner = createTurnRunner({
         stepRunner: mockStepRunner,
@@ -535,7 +539,8 @@ describe('TurnRunner', () => {
             clear: clearEvents,
           },
           base: {
-            log: logBase,
+            appendDelta,
+            rewrite,
           },
         }),
       });

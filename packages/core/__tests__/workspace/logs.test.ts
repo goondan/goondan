@@ -146,6 +146,38 @@ describe('JsonlWriter', () => {
     });
   });
 
+  describe('truncateAndWriteAll', () => {
+    it('파일을 잘라내고 새 레코드를 기록해야 한다', async () => {
+      const writer = new JsonlWriter<{ id: number }>(logFile);
+      await writer.append({ id: 1 });
+      await writer.append({ id: 2 });
+
+      await writer.truncateAndWriteAll([{ id: 10 }, { id: 20 }]);
+
+      const records = await writer.readAll();
+      expect(records).toEqual([{ id: 10 }, { id: 20 }]);
+    });
+
+    it('빈 배열로 호출하면 파일을 비워야 한다', async () => {
+      const writer = new JsonlWriter<{ id: number }>(logFile);
+      await writer.append({ id: 1 });
+
+      await writer.truncateAndWriteAll([]);
+
+      const records = await writer.readAll();
+      expect(records).toEqual([]);
+    });
+
+    it('디렉터리가 없으면 자동으로 생성해야 한다', async () => {
+      const nestedFile = path.join(tempDir, 'x', 'y', 'z', 'test.jsonl');
+      const writer = new JsonlWriter<{ data: string }>(nestedFile);
+      await writer.truncateAndWriteAll([{ data: 'hello' }]);
+
+      const records = await writer.readAll();
+      expect(records).toEqual([{ data: 'hello' }]);
+    });
+  });
+
   describe('UTF-8 인코딩', () => {
     it('유니코드 문자를 올바르게 처리해야 한다', async () => {
       const writer = new JsonlWriter<{ message: string }>(logFile);
@@ -180,35 +212,59 @@ describe('MessageBaseLogger', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  describe('log', () => {
-    it('MessageBaseLogRecord를 기록해야 한다', async () => {
-      await logger.log({
+  describe('appendDelta', () => {
+    it('각 메시지를 개별 레코드로 기록해야 한다', async () => {
+      await logger.appendDelta({
         traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
-        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
-        sourceEventCount: 1,
+        startSeq: 0,
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'Hello' },
+          { id: 'msg-002', role: 'assistant', content: 'Hi' },
+        ],
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(2);
+      expect(records[0].type).toBe('message.base');
+      expect(records[0].traceId).toBe('trace-a1b2c3');
+      expect(records[0].instanceId).toBe('default-cli');
+      expect(records[0].message).toEqual({ id: 'msg-001', role: 'user', content: 'Hello' });
+      expect(records[0].seq).toBe(0);
+      expect(records[1].message).toEqual({ id: 'msg-002', role: 'assistant', content: 'Hi' });
+      expect(records[1].seq).toBe(1);
+    });
+
+    it('startSeq 오프셋이 올바르게 반영되어야 한다', async () => {
+      await logger.appendDelta({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-002',
+        startSeq: 3,
+        messages: [
+          { id: 'msg-004', role: 'user', content: 'Question' },
+        ],
       });
 
       const records = await logger.readAll();
       expect(records.length).toBe(1);
-      expect(records[0].type).toBe('message.base');
-      expect(records[0].traceId).toBe('trace-a1b2c3');
-      expect(records[0].instanceId).toBe('default-cli');
-      expect(records[0].messages.length).toBe(1);
-      expect(records[0].sourceEventCount).toBe(1);
+      expect(records[0].seq).toBe(3);
     });
 
     it('recordedAt을 자동으로 설정해야 한다', async () => {
       const before = new Date().toISOString();
-      await logger.log({
+      await logger.appendDelta({
         traceId: 'trace-a1b2c3',
         instanceId: 'default-cli',
         instanceKey: 'cli',
         agentName: 'planner',
         turnId: 'turn-001',
+        startSeq: 0,
         messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
       });
       const after = new Date().toISOString();
@@ -216,6 +272,81 @@ describe('MessageBaseLogger', () => {
       const records = await logger.readAll();
       expect(records[0].recordedAt >= before).toBe(true);
       expect(records[0].recordedAt <= after).toBe(true);
+    });
+
+    it('빈 메시지 배열은 아무 것도 기록하지 않아야 한다', async () => {
+      await logger.appendDelta({
+        traceId: 'trace-a1b2c3',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        startSeq: 0,
+        messages: [],
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(0);
+    });
+  });
+
+  describe('rewrite', () => {
+    it('기존 레코드를 모두 교체해야 한다', async () => {
+      // 먼저 초기 데이터 기록
+      await logger.appendDelta({
+        traceId: 'trace-old',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        startSeq: 0,
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'Hello' },
+          { id: 'msg-002', role: 'assistant', content: 'Hi' },
+        ],
+      });
+
+      // rewrite로 교체
+      await logger.rewrite({
+        traceId: 'trace-new',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-002',
+        messages: [
+          { id: 'msg-001', role: 'user', content: 'Updated Hello' },
+        ],
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(1);
+      expect(records[0].traceId).toBe('trace-new');
+      expect(records[0].message).toEqual({ id: 'msg-001', role: 'user', content: 'Updated Hello' });
+      expect(records[0].seq).toBe(0);
+    });
+
+    it('빈 메시지로 rewrite하면 파일이 비어야 한다', async () => {
+      await logger.appendDelta({
+        traceId: 'trace-old',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-001',
+        startSeq: 0,
+        messages: [{ id: 'msg-001', role: 'user', content: 'Hello' }],
+      });
+
+      await logger.rewrite({
+        traceId: 'trace-new',
+        instanceId: 'default-cli',
+        instanceKey: 'cli',
+        agentName: 'planner',
+        turnId: 'turn-002',
+        messages: [],
+      });
+
+      const records = await logger.readAll();
+      expect(records.length).toBe(0);
     });
   });
 });

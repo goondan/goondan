@@ -28,7 +28,7 @@
 - docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, Connection, OAuth API)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
 - docs/specs/bundle.md : Bundle YAML 스펙 (리소스 정의, 검증 규칙)
-- docs/specs/bundle_package.md : Bundle Package 스펙 (레지스트리 기반 패키징/참조, CLI 명령어)
+- docs/specs/bundle_package.md : Package 스펙 (프로젝트 루트 리소스, 레지스트리 기반 패키징/참조, CLI 명령어)
 - docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존, 코드 변경 반영, GC)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
 - docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합, Handoff 패턴)
@@ -47,7 +47,7 @@
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
 - packages/registry/src/* : 패키지 레지스트리 (Cloudflare Workers, R2/KV 기반)
 - packages/sample/* : 에이전트 샘플 모음
-  - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Bundle Package로 배포 가능**
+  - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**
   - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
   - sample-3-self-evolving: Changeset 기반 자기 수정 에이전트
   - sample-4-compaction: LLM 대화 Compaction Extension (Token/Turn/Sliding Window 전략)

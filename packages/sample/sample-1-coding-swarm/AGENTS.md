@@ -1,15 +1,14 @@
-# Sample 1: Coding Swarm (Bundle Package)
+# Sample 1: Coding Swarm (Package)
 
 코딩 에이전트 스웜 패키지입니다. Planner, Coder, Reviewer 세 에이전트가 협력하여 코딩 작업을 수행합니다.
 
-> **Bundle Package**: 이 샘플은 Goondan Bundle Package로 배포 가능합니다. 다른 프로젝트에서 의존성으로 사용할 수 있습니다.
+> **Package**: 이 샘플은 Goondan Package로 배포 가능합니다. 다른 프로젝트에서 의존성으로 사용할 수 있습니다.
 
 ## 디렉토리 구조
 
 ```
 sample-1-coding-swarm/
-├── package.yaml          # Bundle Package 매니페스트 (Kind: Package)
-├── goondan.yaml          # 직접 실행용 Bundle 정의 (개발/테스트용)
+├── goondan.yaml          # Package 매니페스트 + Bundle 정의 (Kind: Package)
 ├── prompts/              # 소스 프롬프트
 │   ├── planner.system.md
 │   ├── coder.system.md
@@ -17,7 +16,7 @@ sample-1-coding-swarm/
 ├── tools/                # 소스 코드
 │   ├── file/index.ts
 │   └── delegate/index.ts
-├── dist/                 # 배포 산출물 (package.yaml.spec.dist)
+├── dist/                 # 배포 산출물 (goondan.yaml spec.dist)
 │   ├── model.yaml
 │   ├── swarm.yaml
 │   ├── tools/
@@ -43,17 +42,17 @@ sample-1-coding-swarm/
 
 ## Package 구성
 
-### package.yaml
-Bundle Package 매니페스트로, 다음을 정의합니다:
+### goondan.yaml (Package 섹션)
+Package 매니페스트로, 다음을 정의합니다:
 - `metadata.name`: 패키지 이름 (coding-swarm)
 - `metadata.version`: 패키지 버전 (1.0.0)
 - `spec.dependencies`: 의존하는 다른 패키지 (`@goondan/base` 포함)
-- `spec.resources`: export할 리소스 YAML 목록
+- `spec.exports`: export할 리소스 YAML 목록
 - `spec.dist`: tarball에 포함될 폴더
 
 ### 사용 방법
 ```yaml
-# 다른 프로젝트의 package.yaml에서 참조
+# 다른 프로젝트의 goondan.yaml에서 참조
 spec:
   dependencies:
     - "file:../sample-1-coding-swarm"  # 로컬 참조
@@ -81,8 +80,8 @@ spec:
 ### Swarm
 - `coding-swarm`: 세 에이전트로 구성된 스웜
 
-### Connector
-- `Connection`은 `@goondan/base`의 `Connector/cli`를 참조
+### Connection
+- `cli-to-coding-swarm`: `@goondan/base`의 `Connector/cli`를 `coding-swarm` Swarm에 바인딩 (`swarmRef` 명시)
 
 ## 참조 스펙
 - `/docs/specs/bundle.md` - Bundle YAML 스펙

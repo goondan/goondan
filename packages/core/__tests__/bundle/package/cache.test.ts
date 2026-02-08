@@ -119,7 +119,7 @@ describe('Package Cache', () => {
         // 캐시 디렉토리 생성
         const cachePath = getPackageCachePath(tempDir, ref);
         await fs.mkdir(cachePath, { recursive: true });
-        await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+        await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
 
         const exists = await cache.has(ref);
         expect(exists).toBe(true);
@@ -138,7 +138,7 @@ describe('Package Cache', () => {
 
         const cachePath = getPackageCachePath(tempDir, ref);
         await fs.mkdir(cachePath, { recursive: true });
-        await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+        await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
 
         const result = await cache.get(ref);
         expect(result).toBe(cachePath);
@@ -171,7 +171,7 @@ describe('Package Cache', () => {
         // 소스 디렉토리 생성
         const sourceDir = path.join(tempDir, 'source');
         await fs.mkdir(sourceDir, { recursive: true });
-        await fs.writeFile(path.join(sourceDir, 'package.yaml'), 'content');
+        await fs.writeFile(path.join(sourceDir, 'goondan.yaml'), 'content');
 
         await cache.set(ref, sourceDir);
 
@@ -192,7 +192,7 @@ describe('Package Cache', () => {
 
         const cachePath = getPackageCachePath(tempDir, ref);
         await fs.mkdir(cachePath, { recursive: true });
-        await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+        await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
 
         await cache.delete(ref);
 
@@ -224,7 +224,7 @@ describe('Package Cache', () => {
         for (const ref of refs) {
           const cachePath = getPackageCachePath(tempDir, ref);
           await fs.mkdir(cachePath, { recursive: true });
-          await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+          await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
         }
 
         await cache.clear();
@@ -255,7 +255,7 @@ describe('Package Cache', () => {
 
       const cachePath = getPackageCachePath(tempDir, ref);
       await fs.mkdir(cachePath, { recursive: true });
-      await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+      await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
 
       // 파일 수정 시간을 과거로 설정
       const oldTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30일 전

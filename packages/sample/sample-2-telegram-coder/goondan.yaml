@@ -1,3 +1,17 @@
+# Telegram Coder Agent Swarm Package
+apiVersion: agents.example.io/v1alpha1
+kind: Package
+metadata:
+  name: "@goondan/sample-telegram-coder"
+  version: "0.0.1"
+  annotations:
+    description: "Telegram Bot Coding Agent Swarm Sample"
+spec:
+  dependencies:
+    - "@goondan/base"
+
+---
+
 # Telegram Coder Agent Swarm
 # Telegram 봇을 통한 원격 코딩 에이전트 스웜 샘플
 apiVersion: agents.example.io/v1alpha1
@@ -25,7 +39,7 @@ spec:
   prompts:
     systemRef: "./prompts/planner.system.md"
   tools:
-    - { kind: Tool, name: delegate-to-agent }
+    - { kind: Tool, name: agents, package: "@goondan/base" }
 
 ---
 
@@ -66,31 +80,6 @@ spec:
     systemRef: "./prompts/reviewer.system.md"
   tools:
     - { kind: Tool, name: file-read }
-
----
-
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: delegate-to-agent
-  labels:
-    tier: core
-spec:
-  runtime: node
-  entry: "./tools/delegate/index.ts"
-  exports:
-    - name: delegate.to-agent
-      description: "다른 에이전트에게 작업을 위임합니다."
-      parameters:
-        type: object
-        properties:
-          agentName:
-            type: string
-            description: "위임할 에이전트 이름 (coder 또는 reviewer)"
-          task:
-            type: string
-            description: "위임할 작업 설명"
-        required: ["agentName", "task"]
 
 ---
 
@@ -169,6 +158,7 @@ metadata:
   name: telegram-to-coding-swarm
 spec:
   connectorRef: { kind: Connector, name: telegram, package: "@goondan/base" }
+  swarmRef: { kind: Swarm, name: coding-swarm }
   auth:
     staticToken:
       valueFrom:

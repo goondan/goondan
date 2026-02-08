@@ -8,8 +8,7 @@ Telegram 봇을 통한 원격 코딩 에이전트 스웜 샘플입니다. **@goo
 
 ```
 sample-2-telegram-coder/
-├── goondan.yaml          # Bundle 정의
-├── package.yaml          # Bundle Package 정의 (@goondan/base 의존성)
+├── goondan.yaml          # Package + Bundle 정의 (@goondan/base 의존성)
 ├── prompts/              # 에이전트 시스템 프롬프트
 │   ├── planner.system.md
 │   ├── coder.system.md
@@ -28,9 +27,9 @@ sample-2-telegram-coder/
 
 ## 핵심 컴포넌트
 
-### package.yaml
+### goondan.yaml (Package 섹션)
 
-Bundle Package 정의 파일:
+Package 정의:
 
 ```yaml
 spec:
@@ -38,9 +37,9 @@ spec:
     - "@goondan/base@0.0.1"  # telegram connector 포함
 ```
 
-### goondan.yaml
+### goondan.yaml (Bundle 섹션)
 
-Bundle 정의 파일로 다음 리소스를 포함합니다:
+Bundle 정의로 다음 리소스를 포함합니다:
 
 - **Model**: claude-sonnet-4-5 모델 정의
 - **Agent**: planner, coder, reviewer 3개의 에이전트
@@ -51,7 +50,7 @@ Bundle 정의 파일로 다음 리소스를 포함합니다:
   - `bash`: bash 명령어 실행 (**@goondan/base에서 자동 로드**)
 - **Swarm**: coding-swarm 스웜 정의
 - **Connector**: 로컬 정의 없이 `@goondan/base`의 `Connector/telegram` 참조
-- **Connection**: telegram-to-coding-swarm (Connector와 Swarm 간 배포 바인딩, auth/ingress 설정)
+- **Connection**: telegram-to-coding-swarm (Connector와 Swarm 간 배포 바인딩, swarmRef/auth/ingress 설정)
 
 ## @goondan/base 패키지 사용
 
@@ -72,6 +71,7 @@ metadata:
   name: telegram-to-coding-swarm
 spec:
   connectorRef: { kind: Connector, name: telegram, package: "@goondan/base" }
+  swarmRef: { kind: Swarm, name: coding-swarm }
   auth:
     staticToken:
       valueFrom:
@@ -102,5 +102,5 @@ spec:
 
 - `/docs/specs/connector.md` - Connector 시스템 스펙
 - `/docs/specs/connection.md` - Connection 시스템 스펙
-- `/docs/specs/bundle_package.md` - Bundle Package 스펙
+- `/docs/specs/bundle_package.md` - Package 스펙
 - `/packages/base/` - @goondan/base 패키지

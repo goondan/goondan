@@ -6,8 +6,7 @@
 
 ```
 sample-8-web-researcher/
-├── package.yaml      # Bundle Package 정의 (@goondan/base 의존성)
-├── goondan.yaml      # Bundle 정의 (Model + 로컬 Tool + 2 Agent + Swarm + Connection)
+├── goondan.yaml      # Package + Bundle 정의 (@goondan/base 의존성, Model + 로컬 Tool + 2 Agent + Swarm + Connection)
 ├── delegate-tool.ts  # agent.delegate 로컬 구현 (summarizer 위임)
 ├── prompts/
 │   ├── researcher.md # 웹 리서치 전문 프롬프트
@@ -40,7 +39,7 @@ sample-8-web-researcher/
 - `web-research-swarm`: 2개 에이전트로 구성
 
 ### Connection
-- `cli-to-web-research`: `@goondan/base`의 `Connector/cli`를 스웜에 바인딩
+- `cli-to-web-research`: `@goondan/base`의 `Connector/cli`를 `web-research-swarm` Swarm에 바인딩 (`swarmRef` 명시)
 
 ## 핵심 개념
 

@@ -23,6 +23,7 @@ export type {
 
 export {
   detectConnections,
+  createConnectorRunner,
   extractStaticToken,
   toIngressRules,
   resolveAgentFromRoute,
@@ -30,7 +31,9 @@ export {
 } from "./connector-runner.js";
 export type {
   DetectedConnection,
+  DetectConnectionsResult,
   ConnectorRunner,
+  CreateConnectorRunnerOptions,
 } from "./connector-runner.js";
 
 export { TelegramConnectorRunner } from "./telegram-connector.js";

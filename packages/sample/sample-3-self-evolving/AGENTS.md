@@ -36,6 +36,9 @@ sample-3-self-evolving/
 - `self.update-prompt`: Changeset 통해 프롬프트 수정
 - `self.view-changes`: Git 로그로 변경 이력 조회
 
+### Connection
+- `cli-to-default`: 로컬 CLI Connector를 `default` Swarm에 바인딩 (`swarmRef` 명시)
+
 ## 구현 규칙
 
 1. **SwarmBundleApi 사용**: Tool에서 `ctx.swarmBundle`을 통해 Changeset 작업

@@ -53,6 +53,9 @@ spec:
   # 필수: 바인딩할 Connector 참조
   connectorRef: <ObjectRefLike>
 
+  # 선택: 바인딩할 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm)
+  swarmRef: <ObjectRefLike>
+
   # 선택: 인증 설정
   auth:
     oauthAppRef: { kind: OAuthApp, name: <oauth-app> }
@@ -91,6 +94,8 @@ spec:
 interface ConnectionSpec {
   /** 바인딩할 Connector 참조 (필수) */
   connectorRef: ObjectRefLike;
+  /** 바인딩할 Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
+  swarmRef?: ObjectRefLike;
   /** 인증 설정 */
   auth?: ConnectorAuth;
   /** 서명 검증 시크릿 설정 */
@@ -184,6 +189,34 @@ connectorRef:
 1. `connectorRef`는 필수 필드이다(MUST).
 2. 참조하는 Connector 리소스가 동일 Bundle 내에 존재해야 한다(MUST).
 3. 참조된 Connector가 존재하지 않으면 검증 단계에서 오류로 처리한다(MUST).
+
+---
+
+## 3.5 swarmRef
+
+### 역할
+
+`swarmRef`는 이 Connection이 바인딩하는 Swarm 리소스를 참조한다. 하나의 Bundle에 여러 Swarm이 존재할 때 각 Connection이 어떤 Swarm으로 이벤트를 라우팅할지 명시한다.
+
+### 지원 형식
+
+`connectorRef`와 동일하게 `ObjectRefLike` 타입을 사용한다.
+
+```yaml
+# 문자열 축약 형식
+swarmRef: "Swarm/coding-swarm"
+
+# 객체형 참조
+swarmRef: { kind: Swarm, name: coding-swarm }
+```
+
+### 규칙
+
+1. `swarmRef`는 선택 필드이다(MAY).
+2. 생략 시 Runtime은 Bundle 내 첫 번째(또는 유일한) Swarm을 사용한다(MUST).
+3. 지정된 경우, 참조하는 Swarm 리소스가 동일 Bundle 내에 존재해야 한다(MUST).
+4. 참조된 Swarm이 존재하지 않으면 검증 단계에서 오류로 처리한다(MUST).
+5. `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 `swarmRef`가 가리키는 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
 
 ---
 
@@ -437,6 +470,7 @@ metadata:
   name: cli-to-default
 spec:
   connectorRef: { kind: Connector, name: cli }
+  swarmRef: { kind: Swarm, name: default }
   ingress:
     rules:
       - route: {}  # entrypoint Agent로 라우팅
@@ -505,6 +539,7 @@ metadata:
   name: slack-main
 spec:
   connectorRef: { kind: Connector, name: slack }
+  swarmRef: { kind: Swarm, name: default }
 
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
@@ -536,6 +571,7 @@ metadata:
   name: telegram-main
 spec:
   connectorRef: { kind: Connector, name: telegram }
+  swarmRef: { kind: Swarm, name: coding-swarm }
 
   auth:
     staticToken:
@@ -565,6 +601,7 @@ metadata:
   name: slack-dev-team
 spec:
   connectorRef: { kind: Connector, name: slack }
+  swarmRef: { kind: Swarm, name: dev-swarm }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
   ingress:
@@ -585,6 +622,7 @@ metadata:
   name: slack-ops-team
 spec:
   connectorRef: { kind: Connector, name: slack }
+  swarmRef: { kind: Swarm, name: ops-swarm }
   auth:
     oauthAppRef: { kind: OAuthApp, name: slack-bot }
   ingress:
@@ -606,6 +644,7 @@ Runtime/Validator는 다음 규칙을 검증해야 한다.
 | 항목 | 규칙 | 수준 |
 |------|------|------|
 | `spec.connectorRef` | 필수. 유효한 Connector 참조 | MUST |
+| `spec.swarmRef` | 선택. 유효한 Swarm 참조 | MAY |
 | `spec.auth` | `oauthAppRef`와 `staticToken` 중 하나만 허용 | MUST |
 | `spec.auth.oauthAppRef` | 유효한 OAuthApp 참조 | MUST |
 | `spec.auth.staticToken` | 유효한 ValueSource | MUST |
@@ -618,11 +657,13 @@ Runtime/Validator는 다음 규칙을 검증해야 한다.
 ### 추가 검증 규칙
 
 1. `connectorRef`가 참조하는 Connector 리소스가 Bundle 내에 존재해야 한다(MUST).
-2. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다(MUST).
-3. `auth`와 `verify`는 독립적으로 설정할 수 있다(MAY).
-4. `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
-5. OAuth를 사용하는 Connection은 Turn 생성 시 `turn.auth.subjects`를 채워야 한다(MUST).
-6. 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
+2. `swarmRef`가 지정된 경우, 참조하는 Swarm 리소스가 Bundle 내에 존재해야 한다(MUST).
+3. `swarmRef`가 생략된 경우, Runtime은 Bundle 내 첫 번째(또는 유일한) Swarm을 사용한다(MUST).
+4. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다(MUST).
+5. `auth`와 `verify`는 독립적으로 설정할 수 있다(MAY).
+6. `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 `swarmRef`가 가리키는 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
+7. OAuth를 사용하는 Connection은 Turn 생성 시 `turn.auth.subjects`를 채워야 한다(MUST).
+8. 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
 
 ---
 

@@ -80,7 +80,7 @@ describe('Local Package Reference', () => {
       const pkgDir = path.join(tempDir, 'my-package');
       await fs.mkdir(pkgDir, { recursive: true });
 
-      // package.yaml 생성
+      // goondan.yaml 생성
       const packageYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -89,11 +89,11 @@ metadata:
   version: "1.0.0"
 spec:
   dependencies: []
-  resources: []
+  exports: []
   dist:
     - dist/
 `;
-      await fs.writeFile(path.join(pkgDir, 'package.yaml'), packageYaml);
+      await fs.writeFile(path.join(pkgDir, 'goondan.yaml'), packageYaml);
 
       // PackageManager로 fetch
       const manager = createPackageManager({ cacheDir: tempDir });
@@ -112,7 +112,7 @@ spec:
   });
 
   describe('PackageManager - getPackageManifest', () => {
-    it('should read package.yaml', async () => {
+    it('should read goondan.yaml Package', async () => {
       const pkgDir = path.join(tempDir, 'test-package');
       await fs.mkdir(pkgDir, { recursive: true });
 
@@ -125,12 +125,12 @@ metadata:
 spec:
   dependencies:
     - "@goondan/utils@^1.0.0"
-  resources:
+  exports:
     - tools/file.yaml
   dist:
     - dist/
 `;
-      await fs.writeFile(path.join(pkgDir, 'package.yaml'), packageYaml);
+      await fs.writeFile(path.join(pkgDir, 'goondan.yaml'), packageYaml);
 
       const manager = createPackageManager({ cacheDir: tempDir });
       const manifest = await manager.getPackageManifest(pkgDir);
@@ -139,7 +139,7 @@ spec:
       expect(manifest.metadata.name).toBe('test-package');
       expect(manifest.metadata.version).toBe('2.0.0');
       expect(manifest.spec.dependencies).toContain('@goondan/utils@^1.0.0');
-      expect(manifest.spec.resources).toContain('tools/file.yaml');
+      expect(manifest.spec.exports).toContain('tools/file.yaml');
     });
   });
 
@@ -155,7 +155,7 @@ spec:
       await fs.mkdir(pkgB, { recursive: true });
       await fs.mkdir(path.join(pkgB, 'dist'), { recursive: true });
 
-      // pkg-b의 package.yaml
+      // pkg-b의 goondan.yaml
       const pkgBYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -164,13 +164,13 @@ metadata:
   version: "1.0.0"
 spec:
   dependencies: []
-  resources: []
+  exports: []
   dist:
     - dist/
 `;
-      await fs.writeFile(path.join(pkgB, 'package.yaml'), pkgBYaml);
+      await fs.writeFile(path.join(pkgB, 'goondan.yaml'), pkgBYaml);
 
-      // pkg-a의 package.yaml (pkg-b를 의존)
+      // pkg-a의 goondan.yaml (pkg-b를 의존)
       const pkgAYaml = `
 apiVersion: agents.example.io/v1alpha1
 kind: Package
@@ -180,11 +180,11 @@ metadata:
 spec:
   dependencies:
     - "file:${pkgB}"
-  resources: []
+  exports: []
   dist:
     - dist/
 `;
-      await fs.writeFile(path.join(pkgA, 'package.yaml'), pkgAYaml);
+      await fs.writeFile(path.join(pkgA, 'goondan.yaml'), pkgAYaml);
 
       // Resolver 생성 및 해석
       const manager = createPackageManager({ cacheDir: tempDir });

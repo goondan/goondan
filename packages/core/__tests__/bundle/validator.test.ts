@@ -646,6 +646,37 @@ describe('Bundle Validator', () => {
         ).toBe(true);
       });
 
+      it('유효한 swarmRef가 있으면 오류가 없어야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'swarmref-connection' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            swarmRef: { kind: 'Swarm', name: 'my-swarm' },
+          },
+        };
+        const errors = validateResources([resource]);
+        const connectionErrors = errors.filter(
+          (e) => e.kind === 'Connection' && e.level !== 'warning'
+        );
+        expect(connectionErrors).toHaveLength(0);
+      });
+
+      it('잘못된 swarmRef 형식이면 오류를 반환해야 한다', () => {
+        const resource: Resource = {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-swarmref' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            swarmRef: 42,
+          },
+        };
+        const errors = validateResources([resource]);
+        expect(errors.some((e) => e.path === '/spec/swarmRef')).toBe(true);
+      });
+
       it('유효한 Connection은 오류가 없어야 한다', () => {
         const resource: Resource = {
           apiVersion: 'agents.example.io/v1alpha1',

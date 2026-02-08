@@ -39,7 +39,7 @@ describe('DependencyResolver', () => {
     spec: {
       version?: string;
       dependencies?: string[];
-      resources?: string[];
+      exports?: string[];
       resourceContents?: Array<{ path: string; content: Resource }>;
     }
   ): Promise<string> {
@@ -49,7 +49,7 @@ describe('DependencyResolver', () => {
     const packageVersion = spec.version ?? '1.0.0';
 
     await fs.writeFile(
-      path.join(pkgDir, 'package.yaml'),
+      path.join(pkgDir, 'goondan.yaml'),
       `apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -57,7 +57,7 @@ metadata:
   version: "${packageVersion}"
 spec:
   ${spec.dependencies ? `dependencies:\n    ${spec.dependencies.map((d) => `- "${d}"`).join('\n    ')}` : ''}
-  ${spec.resources ? `resources:\n    ${spec.resources.map((r) => `- ${r}`).join('\n    ')}` : ''}
+  ${spec.exports ? `exports:\n    ${spec.exports.map((r) => `- ${r}`).join('\n    ')}` : ''}
   dist:
     - dist/
 `
@@ -87,7 +87,7 @@ spec:
   describe('resolve', () => {
     it('의존성 없는 패키지를 해석해야 한다', async () => {
       const pkgDir = await createPackageDir('simple-pkg', {
-        resources: ['tools/test.yaml'],
+        exports: ['tools/test.yaml'],
         resourceContents: [
           {
             path: 'tools/test.yaml',
@@ -106,7 +106,7 @@ spec:
         kind: 'Package',
         metadata: { name: 'simple-pkg', version: '1.0.0' },
         spec: {
-          resources: ['tools/test.yaml'],
+          exports: ['tools/test.yaml'],
           dist: ['dist/'],
         },
       };
@@ -122,7 +122,7 @@ spec:
     it('단일 의존성을 해석해야 한다', async () => {
       // 의존성 패키지 생성
       const depDir = await createPackageDir('@goondan/utils', {
-        resources: ['tools/util.yaml'],
+        exports: ['tools/util.yaml'],
         resourceContents: [
           {
             path: 'tools/util.yaml',
@@ -139,7 +139,7 @@ spec:
       // 메인 패키지 생성
       const mainDir = await createPackageDir('main-pkg', {
         dependencies: [`file:${depDir}`],
-        resources: ['tools/main.yaml'],
+        exports: ['tools/main.yaml'],
         resourceContents: [
           {
             path: 'tools/main.yaml',
@@ -159,7 +159,7 @@ spec:
         metadata: { name: 'main-pkg', version: '1.0.0' },
         spec: {
           dependencies: [`file:${depDir}`],
-          resources: ['tools/main.yaml'],
+          exports: ['tools/main.yaml'],
           dist: ['dist/'],
         },
       };
@@ -175,7 +175,7 @@ spec:
     it('중첩 의존성을 재귀적으로 해석해야 한다', async () => {
       // 레벨 3 패키지
       const level3Dir = await createPackageDir('level3', {
-        resources: ['tools/l3.yaml'],
+        exports: ['tools/l3.yaml'],
         resourceContents: [
           {
             path: 'tools/l3.yaml',
@@ -192,7 +192,7 @@ spec:
       // 레벨 2 패키지 (레벨 3 의존)
       const level2Dir = await createPackageDir('level2', {
         dependencies: [`file:${level3Dir}`],
-        resources: ['tools/l2.yaml'],
+        exports: ['tools/l2.yaml'],
         resourceContents: [
           {
             path: 'tools/l2.yaml',
@@ -209,7 +209,7 @@ spec:
       // 레벨 1 패키지 (레벨 2 의존)
       const level1Dir = await createPackageDir('level1', {
         dependencies: [`file:${level2Dir}`],
-        resources: ['tools/l1.yaml'],
+        exports: ['tools/l1.yaml'],
         resourceContents: [
           {
             path: 'tools/l1.yaml',
@@ -229,7 +229,7 @@ spec:
         metadata: { name: 'level1', version: '1.0.0' },
         spec: {
           dependencies: [`file:${level2Dir}`],
-          resources: ['tools/l1.yaml'],
+          exports: ['tools/l1.yaml'],
           dist: ['dist/'],
         },
       };
@@ -253,7 +253,7 @@ spec:
 
       // pkg-a는 pkg-b 의존
       await fs.writeFile(
-        path.join(pkgADir, 'package.yaml'),
+        path.join(pkgADir, 'goondan.yaml'),
         `apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -269,7 +269,7 @@ spec:
 
       // pkg-b는 pkg-a 의존 (순환)
       await fs.writeFile(
-        path.join(pkgBDir, 'package.yaml'),
+        path.join(pkgBDir, 'goondan.yaml'),
         `apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
@@ -301,7 +301,7 @@ spec:
     it('동일 패키지 중복 의존성은 한 번만 포함해야 한다', async () => {
       // 공통 의존성
       const commonDir = await createPackageDir('common', {
-        resources: ['tools/common.yaml'],
+        exports: ['tools/common.yaml'],
         resourceContents: [
           {
             path: 'tools/common.yaml',
@@ -318,7 +318,7 @@ spec:
       // 두 개의 패키지가 동일한 common 의존
       const depADir = await createPackageDir('dep-a', {
         dependencies: [`file:${commonDir}`],
-        resources: ['tools/a.yaml'],
+        exports: ['tools/a.yaml'],
         resourceContents: [
           {
             path: 'tools/a.yaml',
@@ -334,7 +334,7 @@ spec:
 
       const depBDir = await createPackageDir('dep-b', {
         dependencies: [`file:${commonDir}`],
-        resources: ['tools/b.yaml'],
+        exports: ['tools/b.yaml'],
         resourceContents: [
           {
             path: 'tools/b.yaml',
@@ -350,7 +350,7 @@ spec:
 
       const mainDir = await createPackageDir('main', {
         dependencies: [`file:${depADir}`, `file:${depBDir}`],
-        resources: ['tools/main.yaml'],
+        exports: ['tools/main.yaml'],
         resourceContents: [
           {
             path: 'tools/main.yaml',
@@ -370,7 +370,7 @@ spec:
         metadata: { name: 'main', version: '1.0.0' },
         spec: {
           dependencies: [`file:${depADir}`, `file:${depBDir}`],
-          resources: ['tools/main.yaml'],
+          exports: ['tools/main.yaml'],
           dist: ['dist/'],
         },
       };
@@ -385,7 +385,7 @@ spec:
     it('동일 패키지의 상이한 버전이 동시에 해석되면 충돌로 거부해야 한다', async () => {
       const sharedV1Dir = await createPackageDir('shared-lib', {
         version: '1.0.0',
-        resources: ['tools/shared-v1.yaml'],
+        exports: ['tools/shared-v1.yaml'],
         resourceContents: [
           {
             path: 'tools/shared-v1.yaml',
@@ -401,7 +401,7 @@ spec:
 
       const sharedV2Dir = await createPackageDir('shared-lib-v2', {
         version: '2.0.0',
-        resources: ['tools/shared-v2.yaml'],
+        exports: ['tools/shared-v2.yaml'],
         resourceContents: [
           {
             path: 'tools/shared-v2.yaml',
@@ -416,14 +416,14 @@ spec:
       });
 
       await fs.writeFile(
-        path.join(sharedV2Dir, 'package.yaml'),
+        path.join(sharedV2Dir, 'goondan.yaml'),
         `apiVersion: agents.example.io/v1alpha1
 kind: Package
 metadata:
   name: "shared-lib"
   version: "2.0.0"
 spec:
-  resources:
+  exports:
     - tools/shared-v2.yaml
   dist:
     - dist/
@@ -432,7 +432,7 @@ spec:
 
       const depADir = await createPackageDir('dep-a-versioned', {
         dependencies: [`file:${sharedV1Dir}`],
-        resources: ['tools/a.yaml'],
+        exports: ['tools/a.yaml'],
         resourceContents: [
           {
             path: 'tools/a.yaml',
@@ -448,7 +448,7 @@ spec:
 
       const depBDir = await createPackageDir('dep-b-versioned', {
         dependencies: [`file:${sharedV2Dir}`],
-        resources: ['tools/b.yaml'],
+        exports: ['tools/b.yaml'],
         resourceContents: [
           {
             path: 'tools/b.yaml',
@@ -464,7 +464,7 @@ spec:
 
       const mainDir = await createPackageDir('main-versioned', {
         dependencies: [`file:${depADir}`, `file:${depBDir}`],
-        resources: ['tools/main.yaml'],
+        exports: ['tools/main.yaml'],
         resourceContents: [
           {
             path: 'tools/main.yaml',
@@ -484,7 +484,7 @@ spec:
         metadata: { name: 'main-versioned', version: '1.0.0' },
         spec: {
           dependencies: [`file:${depADir}`, `file:${depBDir}`],
-          resources: ['tools/main.yaml'],
+          exports: ['tools/main.yaml'],
           dist: ['dist/'],
         },
       };
@@ -536,7 +536,7 @@ spec:
   describe('loadResources', () => {
     it('resources 목록의 YAML을 로드해야 한다', async () => {
       const pkgDir = await createPackageDir('resource-test', {
-        resources: ['tools/tool1.yaml', 'extensions/ext1.yaml'],
+        exports: ['tools/tool1.yaml', 'extensions/ext1.yaml'],
         resourceContents: [
           {
             path: 'tools/tool1.yaml',
@@ -580,9 +580,9 @@ spec:
       expect(resources).toHaveLength(0);
     });
 
-    it('spec.resources 경로에 ../가 포함되면 거부해야 한다', async () => {
+    it('spec.exports 경로에 ../가 포함되면 거부해야 한다', async () => {
       const pkgDir = await createPackageDir('unsafe-resource-path', {
-        resources: ['tools/tool1.yaml'],
+        exports: ['tools/tool1.yaml'],
       });
 
       await expect(
@@ -592,7 +592,7 @@ spec:
 
     it('spec.dist 경로가 절대 경로면 거부해야 한다', async () => {
       const pkgDir = await createPackageDir('unsafe-dist-path', {
-        resources: ['tools/tool1.yaml'],
+        exports: ['tools/tool1.yaml'],
       });
 
       await expect(
@@ -602,7 +602,7 @@ spec:
 
     it('리소스 spec.entry에 ../가 포함되면 거부해야 한다', async () => {
       const pkgDir = await createPackageDir('unsafe-entry-path', {
-        resources: ['tools/tool1.yaml'],
+        exports: ['tools/tool1.yaml'],
         resourceContents: [
           {
             path: 'tools/tool1.yaml',

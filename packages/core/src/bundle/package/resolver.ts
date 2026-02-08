@@ -189,7 +189,7 @@ export function createDependencyResolver(
       // 현재 패키지 리소스 로드
       const resources = await loadResourcesInternal(
         packagePath,
-        packageResource.spec.resources,
+        packageResource.spec.exports,
         packageResource.spec.dist
       );
 
@@ -248,7 +248,7 @@ export function createDependencyResolver(
 
     for (let i = 0; i < resources.length; i++) {
       const resourcePath = resources[i] ?? '';
-      assertSafePackagePath(resourcePath, `spec.resources[${i}]`, pkgPath);
+      assertSafePackagePath(resourcePath, `spec.exports[${i}]`, pkgPath);
 
       const fullPath = path.join(distPath, resourcePath);
 

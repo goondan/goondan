@@ -880,7 +880,7 @@ async function createAgentInstance(
 
 ## 4. instanceKey 기반 라우팅
 
-> **v1.0**: instanceKey는 ConnectorEvent.properties에서 런타임이 결정한다. Connection의 IngressRoute에는 agentRef만 존재하며, 구 패턴의 instanceKeyFrom/swarmRef/inputFrom은 삭제되었다. 자세한 내용은 [`connector.md`](./connector.md) §5.4, [`connection.md`](./connection.md) §5를 참조한다.
+> **v1.0**: instanceKey는 ConnectorEvent.properties에서 런타임이 결정한다. Connection의 IngressRoute에는 agentRef만 존재하며, 구 패턴의 instanceKeyFrom/inputFrom은 삭제되었다. `swarmRef`는 Connection 최상위 필드(`spec.swarmRef`)로 복원되어 Connection이 바인딩할 Swarm을 명시한다. 자세한 내용은 [`connector.md`](./connector.md) §5.4, [`connection.md`](./connection.md) §3.5를 참조한다.
 
 ### 4.1 라우팅 알고리즘
 

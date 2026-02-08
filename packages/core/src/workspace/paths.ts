@@ -134,6 +134,10 @@ export class WorkspacePaths {
     return path.join(this.agentPath(instanceId, agentName), 'events', 'events.jsonl');
   }
 
+  instanceWorkspacePath(instanceId: string): string {
+    return path.join(this.instancePath(instanceId), 'workspace');
+  }
+
   // =========================================================================
   // SwarmBundle Paths
   // =========================================================================
@@ -175,6 +179,7 @@ export class WorkspacePaths {
     const swarmEventsLog = this.swarmEventsLogPath(instanceId);
     const metricsLog = this.instanceMetricsLogPath(instanceId);
     const extensionSharedState = this.extensionSharedStatePath(instanceId);
+    const workspace = this.instanceWorkspacePath(instanceId);
     const self = this;
 
     return {
@@ -183,6 +188,7 @@ export class WorkspacePaths {
       swarmEventsLog,
       metricsLog,
       extensionSharedState,
+      workspace,
       extensionState(extensionName: string): string {
         return self.extensionStatePath(instanceId, extensionName);
       },

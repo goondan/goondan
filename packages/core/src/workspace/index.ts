@@ -66,7 +66,8 @@ export {
 } from './logs.js';
 
 export type {
-  MessageBaseLogInput,
+  MessageBaseDeltaInput,
+  MessageBaseRewriteInput,
   MessageEventLogInput,
   SwarmEventLogInput,
   AgentEventLogInput,

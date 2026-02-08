@@ -361,6 +361,12 @@ function validateConnectionReferences(
     if (error) errors.push(error);
   }
 
+  // swarmRef → Swarm 참조 검증
+  if (spec.swarmRef) {
+    const error = validateSingleRef(spec.swarmRef, 'Swarm', lookup, ctx);
+    if (error) errors.push(error);
+  }
+
   // auth.oauthAppRef → OAuthApp 참조 검증
   const auth = spec.auth as Record<string, unknown> | undefined;
   if (auth?.oauthAppRef) {

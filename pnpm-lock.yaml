@@ -18,7 +18,21 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.7)
 
-  packages/base: {}
+  packages/base:
+    dependencies:
+      '@goondan/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.7
+        version: 22.19.7
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.7)
 
   packages/cli:
     dependencies:
@@ -115,9 +129,31 @@ importers:
         specifier: ^4.4.0
         version: 4.63.0(@cloudflare/workers-types@4.20260205.0)
 
-  packages/sample/sample-1-coding-swarm: {}
+  packages/sample/sample-1-coding-swarm:
+    dependencies:
+      '@goondan/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.7
+        version: 22.19.7
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
-  packages/sample/sample-2-telegram-coder: {}
+  packages/sample/sample-2-telegram-coder:
+    dependencies:
+      '@goondan/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.7
+        version: 22.19.7
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/sample/sample-3-self-evolving:
     devDependencies:
@@ -144,7 +180,14 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.7)
 
-  packages/sample/sample-5-package-consumer: {}
+  packages/sample/sample-5-package-consumer:
+    dependencies:
+      '@goondan-samples/coding-swarm':
+        specifier: workspace:*
+        version: link:../sample-1-coding-swarm
+      '@goondan/core':
+        specifier: workspace:*
+        version: link:../../core
 
   packages/sample/sample-6-cli-chatbot: {}
 

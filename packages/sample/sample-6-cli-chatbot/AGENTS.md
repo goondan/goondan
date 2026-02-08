@@ -6,8 +6,7 @@ Goondan의 가장 단순한 샘플입니다. 하나의 Agent와 CLI Connector만
 
 ```
 sample-6-cli-chatbot/
-├── package.yaml      # Bundle Package 정의 (@goondan/base 의존성)
-├── goondan.yaml      # Bundle 정의 (Model + Agent + Swarm + Connection)
+├── goondan.yaml      # Package + Bundle 정의 (@goondan/base 의존성, Model + Agent + Swarm + Connection)
 ├── prompts/
 │   └── system.md     # 시스템 프롬프트
 ├── package.json      # npm 패키지 설정
@@ -27,7 +26,7 @@ sample-6-cli-chatbot/
 - `default`: assistant 에이전트 1개로 구성
 
 ### Connection
-- `cli-to-default`: `@goondan/base`의 `Connector/cli`를 default 스웜에 바인딩
+- `cli-to-default`: `@goondan/base`의 `Connector/cli`를 `default` Swarm에 바인딩 (`swarmRef` 명시)
 
 ## 특징
 

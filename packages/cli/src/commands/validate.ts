@@ -109,12 +109,8 @@ function extractFilePaths(
       });
     }
 
-    // Connector custom entry
-    if (
-      resource.kind === "Connector" &&
-      spec.type === "custom" &&
-      typeof spec.entry === "string"
-    ) {
+    // Connector entry (모든 Connector는 entry를 가질 수 있음)
+    if (resource.kind === "Connector" && typeof spec.entry === "string") {
       paths.push({
         path: resolveRelativePath(spec.entry, bundleRoot),
         resource: resourceId,

@@ -583,6 +583,71 @@ describe('Bundle Resolver', () => {
       expect(errors.some((e) => e.message.includes('Connector/nonexistent'))).toBe(true);
     });
 
+    it('Connection의 swarmRef가 존재하는 Swarm을 참조하면 오류가 없어야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'cli' },
+          spec: { runtime: 'node', entry: './index.ts', triggers: [{ type: 'cli' }] },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Swarm',
+          metadata: { name: 'target-swarm' },
+          spec: {
+            entrypoint: { kind: 'Agent', name: 'agent-1' },
+            agents: [{ kind: 'Agent', name: 'agent-1' }],
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Agent',
+          metadata: { name: 'agent-1' },
+          spec: {
+            modelConfig: { modelRef: { kind: 'Model', name: 'gpt-5' } },
+            prompts: { system: 'test' },
+          },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'with-swarmref' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            swarmRef: { kind: 'Swarm', name: 'target-swarm' },
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      const connectionErrors = errors.filter(
+        (e) => 'sourceKind' in e && e.sourceKind === 'Connection'
+      );
+      expect(connectionErrors).toHaveLength(0);
+    });
+
+    it('Connection의 swarmRef가 존재하지 않는 Swarm을 참조하면 오류를 반환해야 한다', () => {
+      const resources: Resource[] = [
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connector',
+          metadata: { name: 'cli' },
+          spec: { runtime: 'node', entry: './index.ts', triggers: [{ type: 'cli' }] },
+        },
+        {
+          apiVersion: 'agents.example.io/v1alpha1',
+          kind: 'Connection',
+          metadata: { name: 'bad-swarmref' },
+          spec: {
+            connectorRef: { kind: 'Connector', name: 'cli' },
+            swarmRef: { kind: 'Swarm', name: 'nonexistent-swarm' },
+          },
+        },
+      ];
+      const errors = resolveAllReferences(resources);
+      expect(errors.some((e) => e.message.includes('Swarm/nonexistent-swarm'))).toBe(true);
+    });
+
     it('Connection의 ingress.rules[].route.agentRef를 검증해야 한다', () => {
       const resources: Resource[] = [
         {

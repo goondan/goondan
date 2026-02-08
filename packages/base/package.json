@@ -1,6 +1,6 @@
 {
   "name": "@goondan/base",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Goondan - Base Tools, Extensions, and Connectors",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,6 +29,10 @@
     "./tools/text-transform": {
       "types": "./dist/tools/text-transform/index.d.ts",
       "import": "./dist/tools/text-transform/index.js"
+    },
+    "./tools/agents": {
+      "types": "./dist/tools/agents/index.d.ts",
+      "import": "./dist/tools/agents/index.js"
     },
     "./extensions/basicCompaction": {
       "types": "./dist/extensions/basicCompaction/index.d.ts",
@@ -61,7 +65,7 @@
   },
   "files": [
     "dist",
-    "package.yaml"
+    "goondan.yaml"
   ],
   "scripts": {
     "build": "tsc; node scripts/copy-yaml.mjs",

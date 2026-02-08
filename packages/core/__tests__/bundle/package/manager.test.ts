@@ -62,7 +62,7 @@ describe('PackageManager', () => {
         // 로컬 패키지 디렉토리 생성
         const localPkgDir = path.join(tempDir, 'local-pkg');
         await fs.mkdir(localPkgDir, { recursive: true });
-        await fs.writeFile(path.join(localPkgDir, 'package.yaml'), 'kind: Package');
+        await fs.writeFile(path.join(localPkgDir, 'goondan.yaml'), 'kind: Package');
 
         const ref: PackageRef = {
           type: 'local',
@@ -96,7 +96,7 @@ describe('PackageManager', () => {
         // 캐시에 패키지 저장
         const cachePath = path.join(tempDir, '@goondan', 'cached-pkg', '1.0.0');
         await fs.mkdir(cachePath, { recursive: true });
-        await fs.writeFile(path.join(cachePath, 'package.yaml'), 'kind: Package');
+        await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'kind: Package');
 
         const result = await manager.fetch(ref);
         expect(result).toBe(cachePath);
@@ -108,7 +108,7 @@ describe('PackageManager', () => {
         // 로컬 패키지로 테스트 (네트워크 없이)
         const localPkgDir = path.join(tempDir, 'force-test-pkg');
         await fs.mkdir(localPkgDir, { recursive: true });
-        await fs.writeFile(path.join(localPkgDir, 'package.yaml'), 'kind: Package');
+        await fs.writeFile(path.join(localPkgDir, 'goondan.yaml'), 'kind: Package');
 
         const ref: PackageRef = {
           type: 'local',
@@ -137,7 +137,7 @@ describe('PackageManager', () => {
       // 캐시에 파일 생성
       const cachePath = path.join(tempDir, '@goondan', 'test', '1.0.0');
       await fs.mkdir(cachePath, { recursive: true });
-      await fs.writeFile(path.join(cachePath, 'package.yaml'), 'test');
+      await fs.writeFile(path.join(cachePath, 'goondan.yaml'), 'test');
 
       await manager.clearCache();
 
@@ -161,12 +161,12 @@ metadata:
 spec:
   dependencies:
     - "@goondan/utils@^1.0.0"
-  resources:
+  exports:
     - tools/test.yaml
   dist:
     - dist/
 `;
-      await fs.writeFile(path.join(pkgDir, 'package.yaml'), manifest);
+      await fs.writeFile(path.join(pkgDir, 'goondan.yaml'), manifest);
 
       const result = await manager.getPackageManifest(pkgDir);
 
@@ -175,7 +175,7 @@ spec:
       expect(result.spec.dependencies).toContain('@goondan/utils@^1.0.0');
     });
 
-    it('package.yaml이 없으면 에러를 던져야 한다', async () => {
+    it('goondan.yaml에 Package가 없으면 에러를 던져야 한다', async () => {
       const pkgDir = path.join(tempDir, 'no-manifest');
       await fs.mkdir(pkgDir, { recursive: true });
 

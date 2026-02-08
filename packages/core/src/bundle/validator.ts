@@ -5,7 +5,7 @@
 
 import { ValidationError } from './errors.js';
 import type { Resource } from '../types/index.js';
-import { getSpec } from '../types/index.js';
+import { getSpec, isObjectRefLike } from '../types/index.js';
 
 /**
  * 유효한 runtime 값
@@ -1142,6 +1142,19 @@ function validateConnection(resource: Resource): ValidationError[] {
         ...ctx,
         path: '/spec/connectorRef',
       })
+    );
+  }
+
+  // swarmRef 형식 검증 (선택 필드)
+  if (spec.swarmRef !== undefined && !isObjectRefLike(spec.swarmRef)) {
+    errors.push(
+      new ValidationError(
+        'spec.swarmRef must be a valid ObjectRefLike (e.g. { kind: "Swarm", name: "..." })',
+        {
+          ...ctx,
+          path: '/spec/swarmRef',
+        }
+      )
     );
   }
 

@@ -4,16 +4,49 @@
  * SSRF 방지를 위한 프로토콜 검증 테스트
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handlers } from '../../src/tools/http-fetch/index.js';
 import type { ToolContext, JsonObject } from '@goondan/core';
 
 function createMockContext(): ToolContext {
   return {
-    swarmName: 'test-swarm',
-    agentName: 'test-agent',
-    instanceKey: 'test-instance',
-    logger: undefined,
+    instance: { id: 'test-instance', swarmName: 'test-swarm', status: 'running' },
+    swarm: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Swarm',
+      metadata: { name: 'test-swarm' },
+      spec: { agents: [], entrypoint: '' },
+    },
+    agent: {
+      apiVersion: 'agents.example.io/v1alpha1',
+      kind: 'Agent',
+      metadata: { name: 'test-agent' },
+      spec: { model: { ref: '' } },
+    },
+    turn: { id: 'test-turn', messages: [], toolResults: [] },
+    step: { id: 'test-step', index: 0 },
+    toolCatalog: [],
+    swarmBundle: {
+      openChangeset: vi.fn().mockResolvedValue({ changesetId: 'test' }),
+      commitChangeset: vi.fn().mockResolvedValue({ success: true }),
+    },
+    oauth: {
+      getAccessToken: vi.fn().mockResolvedValue({ status: 'error', error: { code: 'not_configured', message: 'Not configured' } }),
+    },
+    events: {},
+    workdir: process.cwd(),
+    agents: {
+      delegate: vi.fn().mockResolvedValue({ success: false, agentName: '', instanceId: '', error: 'not implemented' }),
+      listInstances: vi.fn().mockResolvedValue([]),
+    },
+    logger: {
+      debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn(),
+      assert: vi.fn(), clear: vi.fn(), count: vi.fn(), countReset: vi.fn(),
+      dir: vi.fn(), dirxml: vi.fn(), group: vi.fn(), groupCollapsed: vi.fn(),
+      groupEnd: vi.fn(), table: vi.fn(), time: vi.fn(), timeEnd: vi.fn(),
+      timeLog: vi.fn(), trace: vi.fn(), profile: vi.fn(), profileEnd: vi.fn(),
+      timeStamp: vi.fn(), Console: vi.fn(),
+    },
   };
 }
 

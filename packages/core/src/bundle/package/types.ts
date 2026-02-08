@@ -37,7 +37,7 @@ export type PackageRefLike = string | PackageRef;
 
 /**
  * Package Kind의 spec
- * @see /docs/specs/bundle_package.md - 6. package.yaml 스키마
+ * @see /docs/specs/bundle_package.md - 3. Package 스키마
  */
 /**
  * 패키지 접근 수준
@@ -50,7 +50,7 @@ export interface PackageSpec {
   /** Bundle Package Ref 목록 */
   dependencies?: string[];
   /** 패키지로 export될 YAML 파일 경로 목록 */
-  resources?: string[];
+  exports?: string[];
   /** tarball로 export될 폴더 목록 */
   dist: string[];
 }

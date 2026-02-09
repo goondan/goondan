@@ -916,6 +916,63 @@ interface ToolContext {
 
   /** 로거 */
   logger: Console;
+
+  /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
+  workdir: string;
+
+  /** Agent 위임/관리 API */
+  agents: ToolAgentsApi;
+}
+
+/**
+ * Agent 위임 옵션
+ */
+interface AgentDelegateOptions {
+  /** 추가 컨텍스트 */
+  context?: string;
+  /** true면 비동기 실행 (응답 대기 안함) */
+  async?: boolean;
+}
+
+/**
+ * Agent 위임/관리 API
+ */
+interface ToolAgentsApi {
+  /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
+  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
+  listInstances(): Promise<AgentInstanceInfo[]>;
+  /** 에이전트 이름으로 새 인스턴스를 생성 (Turn 실행 없이) */
+  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
+  /** 특정 인스턴스 ID의 에이전트에 작업을 위임 */
+  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+  /** 인스턴스 ID로 에이전트 인스턴스를 삭제 */
+  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
+}
+
+interface AgentDelegateResult {
+  success: boolean;
+  agentName: string;
+  instanceId: string;
+  response?: string;
+  error?: string;
+}
+
+interface AgentSpawnResult {
+  instanceId: string;
+  agentName: string;
+}
+
+interface AgentDestroyResult {
+  success: boolean;
+  instanceId: string;
+  error?: string;
+}
+
+interface AgentInstanceInfo {
+  instanceId: string;
+  agentName: string;
+  status: string;
 }
 
 interface SwarmInstanceRef {

@@ -508,6 +508,40 @@ interface HandoffResult {
 }
 ```
 
+### 5B.3 ToolContext.agents API
+
+`ToolContext.agents`는 Agent 위임/인스턴스 관리 API를 제공한다. `packages/base`의 `agents` Tool이 이 API를 래핑한다.
+
+```typescript
+interface ToolAgentsApi {
+  /** 다른 에이전트에 작업을 위임 (새 인스턴스 생성 → Turn 실행 → 결과 반환) */
+  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+
+  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
+  listInstances(): Promise<AgentInstanceInfo[]>;
+
+  /** 에이전트 이름으로 새 인스턴스 생성 (Turn 실행 없이) */
+  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
+
+  /** 특정 인스턴스 ID의 에이전트에 작업 위임 */
+  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+
+  /** 인스턴스 ID로 에이전트 인스턴스 삭제 */
+  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
+}
+
+interface AgentDelegateOptions {
+  context?: string;
+  async?: boolean;  // true면 fire-and-forget
+}
+```
+
+| 규칙 | 수준 | 설명 |
+|------|------|------|
+| delegate/delegateToInstance의 async 옵션 | MAY | `async: true`이면 Turn을 비동기로 시작하고 즉시 반환 (fire-and-forget) |
+| spawnInstance | MAY | Turn 실행 없이 AgentInstance만 생성하여 instanceId 반환 |
+| destroyInstance | MAY | 캐시 및 SwarmInstance에서 인스턴스 제거 |
+
 ---
 
 ## 6. Tool 결과 처리

@@ -22,6 +22,9 @@ import type {
   OpenChangesetInput,
   CommitChangesetInput,
   AgentDelegateResult,
+  AgentDelegateOptions,
+  AgentSpawnResult,
+  AgentDestroyResult,
   AgentInstanceInfo,
 } from "@goondan/core";
 
@@ -121,8 +124,11 @@ interface ToolRuntimeContext extends WorkerToolContextData {
     off: (_event: string, _handler: (_data: unknown) => void) => void;
   };
   agents: {
-    delegate: (agentName: string, task: string, context?: string) => Promise<unknown>;
+    delegate: (agentName: string, task: string, options?: AgentDelegateOptions) => Promise<unknown>;
     listInstances: () => Promise<unknown>;
+    spawnInstance: (agentName: string) => Promise<unknown>;
+    delegateToInstance: (instanceId: string, task: string, options?: AgentDelegateOptions) => Promise<unknown>;
+    destroyInstance: (instanceId: string) => Promise<unknown>;
   };
   logger: Console;
 }
@@ -168,7 +174,7 @@ interface WorkerExecuteResult {
 interface WorkerApiCall {
   type: "api.call";
   requestId: string;
-  method: "swarmBundle.openChangeset" | "swarmBundle.commitChangeset" | "agents.delegate" | "agents.listInstances";
+  method: "swarmBundle.openChangeset" | "swarmBundle.commitChangeset" | "agents.delegate" | "agents.listInstances" | "agents.spawnInstance" | "agents.delegateToInstance" | "agents.destroyInstance";
   input?: unknown;
 }
 
@@ -236,9 +242,15 @@ export interface ToolExecutorImplOptions {
   /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
   workdir?: string;
   /** agents.delegate 콜백 */
-  onAgentsDelegate?: (agentName: string, task: string, context?: string) => Promise<AgentDelegateResult>;
+  onAgentsDelegate?: (agentName: string, task: string, options?: AgentDelegateOptions) => Promise<AgentDelegateResult>;
   /** agents.listInstances 콜백 */
   onAgentsListInstances?: () => Promise<AgentInstanceInfo[]>;
+  /** agents.spawnInstance 콜백 */
+  onAgentsSpawnInstance?: (agentName: string) => Promise<AgentSpawnResult>;
+  /** agents.delegateToInstance 콜백 */
+  onAgentsDelegateToInstance?: (instanceId: string, task: string, options?: AgentDelegateOptions) => Promise<AgentDelegateResult>;
+  /** agents.destroyInstance 콜백 */
+  onAgentsDestroyInstance?: (instanceId: string) => Promise<AgentDestroyResult>;
 }
 
 /**
@@ -454,11 +466,20 @@ function createToolContext(payload) {
   };
 
   const agents = {
-    delegate: async (agentName, task, context) => {
-      return await callApi("agents.delegate", { agentName, task, context });
+    delegate: async (agentName, task, options) => {
+      return await callApi("agents.delegate", { agentName, task, options });
     },
     listInstances: async () => {
       return await callApi("agents.listInstances", {});
+    },
+    spawnInstance: async (agentName) => {
+      return await callApi("agents.spawnInstance", { agentName });
+    },
+    delegateToInstance: async (instanceId, task, options) => {
+      return await callApi("agents.delegateToInstance", { instanceId, task, options });
+    },
+    destroyInstance: async (instanceId) => {
+      return await callApi("agents.destroyInstance", { instanceId });
     },
   };
 
@@ -613,7 +634,10 @@ function isWorkerApiCall(value: unknown): value is WorkerApiCall {
     (value["method"] === "swarmBundle.openChangeset" ||
      value["method"] === "swarmBundle.commitChangeset" ||
      value["method"] === "agents.delegate" ||
-     value["method"] === "agents.listInstances")
+     value["method"] === "agents.listInstances" ||
+     value["method"] === "agents.spawnInstance" ||
+     value["method"] === "agents.delegateToInstance" ||
+     value["method"] === "agents.destroyInstance")
   );
 }
 
@@ -978,7 +1002,7 @@ function extractCommittedRef(result: unknown): string | undefined {
 /**
  * agents.delegate 입력 파싱
  */
-function parseAgentsDelegateInput(input: unknown): { agentName: string; task: string; context?: string } | null {
+function parseAgentsDelegateInput(input: unknown): { agentName: string; task: string; options?: AgentDelegateOptions } | null {
   if (!isRecord(input)) {
     return null;
   }
@@ -993,16 +1017,96 @@ function parseAgentsDelegateInput(input: unknown): { agentName: string; task: st
     return null;
   }
 
-  const context = input["context"];
-  if (context !== undefined && !isString(context)) {
-    return null;
-  }
-
-  if (isString(context)) {
-    return { agentName, task, context };
+  const options = parseAgentDelegateOptions(input["options"]);
+  if (options) {
+    return { agentName, task, options };
   }
 
   return { agentName, task };
+}
+
+/**
+ * AgentDelegateOptions 파싱
+ */
+function parseAgentDelegateOptions(input: unknown): AgentDelegateOptions | undefined {
+  if (!isRecord(input)) {
+    return undefined;
+  }
+
+  const result: AgentDelegateOptions = {};
+  let hasValue = false;
+
+  const context = input["context"];
+  if (isString(context)) {
+    result.context = context;
+    hasValue = true;
+  }
+
+  const asyncFlag = input["async"];
+  if (asyncFlag === true) {
+    result.async = true;
+    hasValue = true;
+  }
+
+  return hasValue ? result : undefined;
+}
+
+/**
+ * agents.spawnInstance 입력 파싱
+ */
+function parseAgentsSpawnInput(input: unknown): { agentName: string } | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const agentName = input["agentName"];
+  if (!isString(agentName) || agentName.trim() === "") {
+    return null;
+  }
+
+  return { agentName };
+}
+
+/**
+ * agents.delegateToInstance 입력 파싱
+ */
+function parseAgentsDelegateToInstanceInput(input: unknown): { instanceId: string; task: string; options?: AgentDelegateOptions } | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const instanceId = input["instanceId"];
+  if (!isString(instanceId) || instanceId.trim() === "") {
+    return null;
+  }
+
+  const task = input["task"];
+  if (!isString(task) || task.trim() === "") {
+    return null;
+  }
+
+  const options = parseAgentDelegateOptions(input["options"]);
+  if (options) {
+    return { instanceId, task, options };
+  }
+
+  return { instanceId, task };
+}
+
+/**
+ * agents.destroyInstance 입력 파싱
+ */
+function parseAgentsDestroyInput(input: unknown): { instanceId: string } | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const instanceId = input["instanceId"];
+  if (!isString(instanceId) || instanceId.trim() === "") {
+    return null;
+  }
+
+  return { instanceId };
 }
 
 /**
@@ -1017,8 +1121,11 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
   private readonly logger: Console;
   private readonly onCommittedRef?: (newRef: string) => void;
   private readonly workdir: string;
-  private readonly onAgentsDelegate?: (agentName: string, task: string, context?: string) => Promise<AgentDelegateResult>;
+  private readonly onAgentsDelegate?: (agentName: string, task: string, options?: AgentDelegateOptions) => Promise<AgentDelegateResult>;
   private readonly onAgentsListInstances?: () => Promise<AgentInstanceInfo[]>;
+  private readonly onAgentsSpawnInstance?: (agentName: string) => Promise<AgentSpawnResult>;
+  private readonly onAgentsDelegateToInstance?: (instanceId: string, task: string, options?: AgentDelegateOptions) => Promise<AgentDelegateResult>;
+  private readonly onAgentsDestroyInstance?: (instanceId: string) => Promise<AgentDestroyResult>;
   private readonly workersByRef = new Map<string, RevisionWorkerState>();
 
   constructor(options: ToolExecutorImplOptions) {
@@ -1032,6 +1139,9 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
     this.workdir = options.workdir ?? process.cwd();
     this.onAgentsDelegate = options.onAgentsDelegate;
     this.onAgentsListInstances = options.onAgentsListInstances;
+    this.onAgentsSpawnInstance = options.onAgentsSpawnInstance;
+    this.onAgentsDelegateToInstance = options.onAgentsDelegateToInstance;
+    this.onAgentsDestroyInstance = options.onAgentsDestroyInstance;
   }
 
   beginTurn(ref: string): void {
@@ -1295,7 +1405,7 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
         if (!delegateInput) {
           throw new Error("Invalid agents.delegate input");
         }
-        const result = await this.onAgentsDelegate(delegateInput.agentName, delegateInput.task, delegateInput.context);
+        const result = await this.onAgentsDelegate(delegateInput.agentName, delegateInput.task, delegateInput.options);
         this.postApiOk(state, message.requestId, result);
         return;
       }
@@ -1306,6 +1416,48 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
           return;
         }
         const result = await this.onAgentsListInstances();
+        this.postApiOk(state, message.requestId, result);
+        return;
+      }
+
+      if (message.method === "agents.spawnInstance") {
+        if (!this.onAgentsSpawnInstance) {
+          this.postApiError(state, message.requestId, new Error("agents.spawnInstance is not configured"));
+          return;
+        }
+        const spawnInput = parseAgentsSpawnInput(message.input);
+        if (!spawnInput) {
+          throw new Error("Invalid agents.spawnInstance input");
+        }
+        const result = await this.onAgentsSpawnInstance(spawnInput.agentName);
+        this.postApiOk(state, message.requestId, result);
+        return;
+      }
+
+      if (message.method === "agents.delegateToInstance") {
+        if (!this.onAgentsDelegateToInstance) {
+          this.postApiError(state, message.requestId, new Error("agents.delegateToInstance is not configured"));
+          return;
+        }
+        const delegateToInput = parseAgentsDelegateToInstanceInput(message.input);
+        if (!delegateToInput) {
+          throw new Error("Invalid agents.delegateToInstance input");
+        }
+        const result = await this.onAgentsDelegateToInstance(delegateToInput.instanceId, delegateToInput.task, delegateToInput.options);
+        this.postApiOk(state, message.requestId, result);
+        return;
+      }
+
+      if (message.method === "agents.destroyInstance") {
+        if (!this.onAgentsDestroyInstance) {
+          this.postApiError(state, message.requestId, new Error("agents.destroyInstance is not configured"));
+          return;
+        }
+        const destroyInput = parseAgentsDestroyInput(message.input);
+        if (!destroyInput) {
+          throw new Error("Invalid agents.destroyInstance input");
+        }
+        const result = await this.onAgentsDestroyInstance(destroyInput.instanceId);
         this.postApiOk(state, message.requestId, result);
         return;
       }
@@ -1437,17 +1589,35 @@ class RevisionedToolExecutorImpl implements RevisionedToolExecutor {
         off: () => {},
       },
       agents: {
-        delegate: async (agentName: string, task: string, context?: string): Promise<unknown> => {
+        delegate: async (agentName: string, task: string, options?: AgentDelegateOptions): Promise<unknown> => {
           if (!this.onAgentsDelegate) {
             throw new Error("agents.delegate is not configured");
           }
-          return this.onAgentsDelegate(agentName, task, context);
+          return this.onAgentsDelegate(agentName, task, options);
         },
         listInstances: async (): Promise<unknown> => {
           if (!this.onAgentsListInstances) {
             throw new Error("agents.listInstances is not configured");
           }
           return this.onAgentsListInstances();
+        },
+        spawnInstance: async (agentName: string): Promise<unknown> => {
+          if (!this.onAgentsSpawnInstance) {
+            throw new Error("agents.spawnInstance is not configured");
+          }
+          return this.onAgentsSpawnInstance(agentName);
+        },
+        delegateToInstance: async (instanceId: string, task: string, options?: AgentDelegateOptions): Promise<unknown> => {
+          if (!this.onAgentsDelegateToInstance) {
+            throw new Error("agents.delegateToInstance is not configured");
+          }
+          return this.onAgentsDelegateToInstance(instanceId, task, options);
+        },
+        destroyInstance: async (instanceId: string): Promise<unknown> => {
+          if (!this.onAgentsDestroyInstance) {
+            throw new Error("agents.destroyInstance is not configured");
+          }
+          return this.onAgentsDestroyInstance(instanceId);
         },
       },
       logger,

@@ -195,10 +195,13 @@ Node.js fs/promises 기반 파일 시스템 작업 도구.
 
 #### agents Tool
 
-에이전트 위임 및 인스턴스 관리 도구. `ctx.agents` API를 통해 다른 에이전트에 작업을 위임하고 인스턴스 목록을 조회합니다. 기존 샘플별 inline delegate tool을 대체합니다.
+에이전트 위임, 인스턴스 생성/삭제/관리 도구. `ctx.agents` API를 통해 다른 에이전트에 작업을 위임하고, 인스턴스를 생성/삭제하며, 인스턴스 목록을 조회합니다.
 
 **exports:**
-- `agents.delegate`: 다른 에이전트에 작업 위임 (agentName, task, context 파라미터)
+- `agents.delegate`: 다른 에이전트에 작업 위임 (agentName, task, context, async 파라미터)
+- `agents.spawnInstance`: 에이전트 이름으로 새 인스턴스 생성 (Turn 실행 없이, instanceId 반환)
+- `agents.delegateToInstance`: 특정 instanceId의 에이전트에 작업 위임 (instanceId, task, context, async 파라미터)
+- `agents.destroyInstance`: instanceId로 에이전트 인스턴스 삭제
 - `agents.listInstances`: 현재 Swarm 내 에이전트 인스턴스 목록 조회
 
 **의존성:** ToolContext.agents (ToolAgentsApi) — CLI runtime에서 콜백 주입

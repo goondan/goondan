@@ -12,7 +12,10 @@ export type {
   // Context
   ToolContext,
   ToolAgentsApi,
+  AgentDelegateOptions,
   AgentDelegateResult,
+  AgentSpawnResult,
+  AgentDestroyResult,
   AgentInstanceInfo,
   SwarmInstance,
   Turn,

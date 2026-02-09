@@ -39,6 +39,7 @@ import type {
   Turn,
   AgentInstance,
   SwarmBundleApi,
+  AgentDelegateOptions,
   ChangesetPolicy,
   OpenChangesetInput,
   CommitChangesetInput,
@@ -706,6 +707,7 @@ async function reloadRuntimeForActiveRef(ctx: RuntimeContext): Promise<boolean> 
   ctx.turnRunner = core.turnRunner;
   ctx.entrypointAgent = core.entrypointAgent;
   ctx.agentInstances.clear();
+  ctx.agentInstancesById.clear();
 
   const instanceInfos = await ctx.swarmInstanceManager.list();
   for (const instanceInfo of instanceInfos) {
@@ -773,6 +775,7 @@ async function processInput(
         `Agent/${agentName}`
       );
       ctx.agentInstances.set(agentName, agentInstance);
+      ctx.agentInstancesById.set(agentInstance.id, agentInstance);
       // SwarmInstance에도 등록
       swarmInstance.agents.set(agentName, {
         id: agentInstance.id,
@@ -883,6 +886,7 @@ export async function processConnectorTurn(
         `Agent/${agentName}`,
       );
       ctx.agentInstances.set(cacheKey, agentInstance);
+      ctx.agentInstancesById.set(agentInstance.id, agentInstance);
       swarmInstance.agents.set(agentName, {
         id: agentInstance.id,
         agentName: agentInstance.agentName,
@@ -997,14 +1001,32 @@ async function initializeRuntime(
       queuePendingRef(revisionState, newRef);
     },
     workdir: instanceWorkspacePath,
-    onAgentsDelegate: async (agentName: string, task: string, context?: string) => {
+    onAgentsDelegate: async (agentName: string, task: string, options?: AgentDelegateOptions) => {
       if (!runtimeCtxRef) {
         return { success: false, agentName, instanceId: "", error: "Runtime not initialized" };
       }
+      const context = options?.context;
+      const inputText = context ? `${task}\n\nContext: ${context}` : task;
+
+      if (options?.async) {
+        // fire-and-forget: Turn을 비동기로 시작하고 즉시 반환
+        void processConnectorTurn(runtimeCtxRef, {
+          instanceKey,
+          agentName,
+          input: inputText,
+        });
+        return {
+          success: true,
+          agentName,
+          instanceId: runtimeCtxRef.instanceId,
+          response: undefined,
+        };
+      }
+
       const turnResult = await processConnectorTurn(runtimeCtxRef, {
         instanceKey,
         agentName,
-        input: context ? `${task}\n\nContext: ${context}` : task,
+        input: inputText,
       });
       return {
         success: turnResult.status === "completed",
@@ -1019,14 +1041,144 @@ async function initializeRuntime(
         return [];
       }
       const instances: Array<{ instanceId: string; agentName: string; status: string }> = [];
-      for (const [agentName] of runtimeCtxRef.agentInstances) {
+      for (const [, agentInstance] of runtimeCtxRef.agentInstancesById) {
         instances.push({
-          instanceId: runtimeCtxRef.instanceId,
-          agentName,
+          instanceId: agentInstance.id,
+          agentName: agentInstance.agentName,
           status: "running",
         });
       }
+      // 기존 캐시 키 기반 인스턴스도 포함 (agentInstancesById에 없는 경우)
+      for (const [, agentInstance] of runtimeCtxRef.agentInstances) {
+        const alreadyIncluded = instances.some((i) => i.instanceId === agentInstance.id);
+        if (!alreadyIncluded) {
+          instances.push({
+            instanceId: agentInstance.id,
+            agentName: agentInstance.agentName,
+            status: "running",
+          });
+        }
+      }
       return instances;
+    },
+    onAgentsSpawnInstance: async (agentName: string) => {
+      if (!runtimeCtxRef) {
+        throw new Error("Runtime not initialized");
+      }
+      const swarmInstance = await runtimeCtxRef.swarmInstanceManager.getOrCreate(
+        `Swarm/${runtimeCtxRef.swarmName}`,
+        instanceKey,
+        runtimeCtxRef.revisionState.activeRef,
+      );
+
+      const agentInstance = createAgentInstance(
+        swarmInstance,
+        `Agent/${agentName}`,
+      );
+
+      // 양쪽 맵에 등록
+      const cacheKey = `${instanceKey}::${agentName}::${agentInstance.id}`;
+      runtimeCtxRef.agentInstances.set(cacheKey, agentInstance);
+      runtimeCtxRef.agentInstancesById.set(agentInstance.id, agentInstance);
+
+      // SwarmInstance에도 등록
+      swarmInstance.agents.set(agentInstance.id, {
+        id: agentInstance.id,
+        agentName: agentInstance.agentName,
+      });
+
+      // 인스턴스 디렉터리 초기화
+      await runtimeCtxRef.workspaceManager.initializeInstanceState(runtimeCtxRef.instanceId, [agentName]);
+
+      return {
+        instanceId: agentInstance.id,
+        agentName: agentInstance.agentName,
+      };
+    },
+    onAgentsDelegateToInstance: async (targetInstanceId: string, task: string, options?: AgentDelegateOptions) => {
+      if (!runtimeCtxRef) {
+        return { success: false, agentName: "", instanceId: targetInstanceId, error: "Runtime not initialized" };
+      }
+
+      const agentInstance = runtimeCtxRef.agentInstancesById.get(targetInstanceId);
+      if (!agentInstance) {
+        return {
+          success: false,
+          agentName: "",
+          instanceId: targetInstanceId,
+          error: `Agent instance not found: ${targetInstanceId}`,
+        };
+      }
+
+      const context = options?.context;
+      const inputText = context ? `${task}\n\nContext: ${context}` : task;
+
+      if (options?.async) {
+        void processConnectorTurn(runtimeCtxRef, {
+          instanceKey,
+          agentName: agentInstance.agentName,
+          input: inputText,
+        });
+        return {
+          success: true,
+          agentName: agentInstance.agentName,
+          instanceId: targetInstanceId,
+          response: undefined,
+        };
+      }
+
+      const turnResult = await processConnectorTurn(runtimeCtxRef, {
+        instanceKey,
+        agentName: agentInstance.agentName,
+        input: inputText,
+      });
+      return {
+        success: turnResult.status === "completed",
+        agentName: agentInstance.agentName,
+        instanceId: targetInstanceId,
+        response: turnResult.response,
+        error: turnResult.status === "failed" ? turnResult.response : undefined,
+      };
+    },
+    onAgentsDestroyInstance: async (targetInstanceId: string) => {
+      if (!runtimeCtxRef) {
+        return { success: false, instanceId: targetInstanceId, error: "Runtime not initialized" };
+      }
+
+      const agentInstance = runtimeCtxRef.agentInstancesById.get(targetInstanceId);
+      if (!agentInstance) {
+        return {
+          success: false,
+          instanceId: targetInstanceId,
+          error: `Agent instance not found: ${targetInstanceId}`,
+        };
+      }
+
+      // agentInstancesById에서 제거
+      runtimeCtxRef.agentInstancesById.delete(targetInstanceId);
+
+      // agentInstances 캐시에서도 제거
+      for (const [key, inst] of runtimeCtxRef.agentInstances) {
+        if (inst.id === targetInstanceId) {
+          runtimeCtxRef.agentInstances.delete(key);
+          break;
+        }
+      }
+
+      // SwarmInstance에서도 제거
+      const instanceInfos = await runtimeCtxRef.swarmInstanceManager.list();
+      for (const instanceInfo of instanceInfos) {
+        const swarmInstance = runtimeCtxRef.swarmInstanceManager.get(instanceInfo.instanceKey);
+        if (swarmInstance) {
+          swarmInstance.agents.delete(agentInstance.agentName);
+          swarmInstance.agents.delete(targetInstanceId);
+        }
+      }
+
+      return {
+        success: true,
+        instanceId: targetInstanceId,
+      };
     },
   });
   const runtimePersistence = createRuntimePersistenceBindings(workspaceManager, instanceId);
@@ -1057,6 +1209,7 @@ async function initializeRuntime(
     currentBundle: result,
     revisionState,
     agentInstances: new Map(),
+    agentInstancesById: new Map(),
     workspaceManager,
     swarmEventLogger,
   };

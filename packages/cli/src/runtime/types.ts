@@ -41,6 +41,8 @@ export interface RuntimeContext {
   revisionState: RevisionState;
   /** AgentInstance 캐시 (cacheKey -> AgentInstance) */
   agentInstances: Map<string, AgentInstance>;
+  /** AgentInstance ID 기반 역참조 (instanceId -> AgentInstance) */
+  agentInstancesById: Map<string, AgentInstance>;
   /** WorkspaceManager 인스턴스 (인스턴스 상태 저장용) */
   workspaceManager: WorkspaceManager;
   /** Swarm 이벤트 로거 */

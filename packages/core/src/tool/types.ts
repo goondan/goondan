@@ -195,13 +195,46 @@ export interface EventBus {
 }
 
 /**
+ * Agent 위임 옵션
+ */
+export interface AgentDelegateOptions {
+  /** 추가 컨텍스트 */
+  context?: string;
+  /** true면 비동기 실행 (응답 대기 안함) */
+  async?: boolean;
+}
+
+/**
+ * Agent 인스턴스 생성 결과
+ */
+export interface AgentSpawnResult {
+  instanceId: string;
+  agentName: string;
+}
+
+/**
+ * Agent 인스턴스 삭제 결과
+ */
+export interface AgentDestroyResult {
+  success: boolean;
+  instanceId: string;
+  error?: string;
+}
+
+/**
  * Agent 위임/관리 API
  */
 export interface ToolAgentsApi {
   /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
-  delegate(agentName: string, task: string, context?: string): Promise<AgentDelegateResult>;
+  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
   /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
   listInstances(): Promise<AgentInstanceInfo[]>;
+  /** 에이전트 이름으로 새 인스턴스를 생성 (Turn 실행 없이) */
+  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
+  /** 특정 인스턴스 ID의 에이전트에 작업을 위임 */
+  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+  /** 인스턴스 ID로 에이전트 인스턴스를 삭제 */
+  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
 }
 
 /**

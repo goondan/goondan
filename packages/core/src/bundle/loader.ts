@@ -75,11 +75,44 @@ export interface BundleLoadResult {
  * 디렉토리 로드 옵션
  */
 export interface LoadDirectoryOptions {
-  /** glob 패턴 (기본: "**\/*.{yaml,yml}") */
+  /** glob 패턴 (기본: ALLOWED_YAML_BASENAMES 기반) */
   pattern?: string;
   /** 무시할 패턴 */
   ignore?: string[];
 }
+
+/**
+ * Goondan 리소스 정의로 인식하는 YAML 파일 basename 목록.
+ * 이 목록에 없는 YAML 파일(예: pnpm-lock.yaml, docker-compose.yaml)은 무시된다.
+ */
+export const ALLOWED_YAML_BASENAMES = [
+  'goondan',       // 메인 번들 (Package + 모든 리소스)
+  'tool',          // Tool 리소스 (단수/복수)
+  'tools',
+  'extension',     // Extension 리소스
+  'extensions',
+  'connector',     // Connector 리소스
+  'connectors',
+  'connection',    // Connection 리소스
+  'connections',
+  'agent',         // Agent 리소스
+  'agents',
+  'model',         // Model 리소스
+  'models',
+  'swarm',         // Swarm 리소스
+  'swarms',
+  'oauth',         // OAuthApp 리소스
+  'secret',        // Secret 리소스
+  'secrets',
+  'resources',     // 여러 리소스를 담는 범용 파일
+] as const;
+
+/**
+ * ALLOWED_YAML_BASENAMES에서 생성한 기본 glob 패턴.
+ * 예: "** /{goondan,tool,extension,...}.{yaml,yml}"
+ */
+const DEFAULT_YAML_PATTERN =
+  `**/{${ALLOWED_YAML_BASENAMES.join(',')}}.{yaml,yml}`;
 
 /**
  * Bundle Package Ref 파싱
@@ -732,9 +765,9 @@ export async function loadBundleFromDirectory(
     allResources.push(...depResources);
   }
 
-  // 2. 현재 프로젝트의 YAML 파일 검색
-  const pattern = options.pattern ?? '**/*.{yaml,yml}';
-  const ignore = options.ignore ?? ['**/node_modules/**', '**/packages.lock.yaml', '**/goondan.lock.yaml', '**/.goondan/**'];
+  // 2. 현재 프로젝트의 YAML 파일 검색 (허용된 파일명만)
+  const pattern = options.pattern ?? DEFAULT_YAML_PATTERN;
+  const ignore = options.ignore ?? ['**/node_modules/**', '**/.goondan/**'];
 
   let files: string[];
   try {

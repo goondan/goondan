@@ -295,6 +295,9 @@ export function validateResources(resources: Resource[]): ValidationError[] {
   const errors: ValidationError[] = [];
 
   for (const resource of resources) {
+    // Package는 프로젝트 메타 리소스이므로 런타임 리소스 검증을 건너뜀
+    if (resource.kind === 'Package') continue;
+
     // 공통 검증
     errors.push(...validateResource(resource));
 

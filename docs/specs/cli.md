@@ -158,8 +158,28 @@ gdn run [options]
 | `--watch` | `-w` | 파일 변경 감시 모드 | `false` |
 | `--port <number>` | `-p` | HTTP 서버 포트 | - |
 | `--no-install` | | 의존성 자동 설치 안 함 | `false` |
+| `--env-file <path>` | | 커스텀 환경 변수 파일 경로 | - |
 
-### 4.3 Connector 모드
+### 4.3 환경 변수 파일 자동 로딩
+
+`gdn run`은 번들 루트 디렉토리에서 `.env` 파일을 자동으로 로드한다.
+
+**로딩 우선순위** (먼저 로드된 값이 우선):
+1. `--env-file` 로 지정한 파일 (최우선)
+2. `.env.local` (로컬 머신 전용, gitignore 대상)
+3. `.env` (프로젝트 기본값)
+
+- 이미 시스템에 설정된 환경 변수는 **절대 덮어쓰지 않는다.**
+- `.env` 파일이 없어도 에러 없이 진행한다.
+
+**예시 `.env` 파일:**
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+BRAVE_SEARCH_API_KEY=BSA...
+TELEGRAM_BOT_TOKEN=123456:ABC...
+```
+
+### 4.4 Connector 모드
 
 **CLI Connector (기본):**
 ```bash
@@ -185,7 +205,7 @@ gdn run --connector http --port 3000
 gdn run --watch
 ```
 
-### 4.4 환경 변수
+### 4.5 환경 변수
 
 | 변수 | 설명 |
 |------|------|
@@ -194,7 +214,7 @@ gdn run --watch
 | `OPENAI_API_KEY` | OpenAI API 키 |
 | `ANTHROPIC_API_KEY` | Anthropic API 키 |
 
-### 4.5 예시
+### 4.6 예시
 
 ```bash
 # 기본 실행

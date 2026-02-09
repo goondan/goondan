@@ -74,12 +74,33 @@ metadata:
   name: -invalid       # 하이픈으로 시작
 ```
 
-### 1.5 다중 YAML 문서 (---) 처리
+### 1.5 허용 YAML 파일명
+
+디렉토리 번들 로드 시, 아래 이름의 YAML 파일만 리소스로 인식한다. 이 외의 YAML 파일(`pnpm-lock.yaml`, `docker-compose.yaml` 등)은 무시된다.
+
+| 파일명 (단수/복수) | 용도 |
+|---------------------|------|
+| `goondan` | 메인 번들 (Package + 모든 리소스) |
+| `model` / `models` | Model 리소스 |
+| `agent` / `agents` | Agent 리소스 |
+| `tool` / `tools` | Tool 리소스 |
+| `extension` / `extensions` | Extension 리소스 |
+| `connector` / `connectors` | Connector 리소스 |
+| `connection` / `connections` | Connection 리소스 |
+| `swarm` / `swarms` | Swarm 리소스 |
+| `oauth` | OAuthApp 리소스 |
+| `secret` / `secrets` | Secret 리소스 |
+| `resources` | 여러 종류를 담는 범용 파일 |
+
+확장자는 `.yaml` 또는 `.yml` 모두 허용. 하위 디렉토리 포함 재귀 검색.
+
+### 1.6 다중 YAML 문서 (---) 처리
 
 - 하나의 YAML 파일에 여러 문서를 `---` 로 구분하여 포함할 수 있다(MAY).
 - 각 문서는 독립적인 리소스로 해석된다(MUST).
 - 문서 순서는 로딩 순서를 결정하지만, 참조 해석 순서에는 영향을 주지 않는다(SHOULD).
 - 빈 문서(--- 만 있는 경우)는 무시한다(SHOULD).
+- `kind` 필드가 없는 문서는 Goondan 리소스가 아닌 것으로 간주하여 무시한다(SHOULD).
 
 ```yaml
 # goondan.yaml - 다중 문서 예시 (Package 없는 단순 구성)

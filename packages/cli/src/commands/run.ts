@@ -15,6 +15,7 @@ import * as readline from "node:readline";
 import { parse as parseYaml } from "yaml";
 import chalk from "chalk";
 import ora from "ora";
+import { config as loadDotenv } from "dotenv";
 import {
   loadBundleFromDirectory,
   type BundleLoadResult,
@@ -84,6 +85,8 @@ export interface RunOptions {
   configPath?: string;
   /** System state root override (from global --state-root) */
   stateRoot?: string;
+  /** Custom .env file path */
+  envFile?: string;
 }
 
 /**
@@ -1383,6 +1386,43 @@ async function autoInstallDependencies(
 }
 
 /**
+ * Load .env files from the bundle root directory.
+ *
+ * Loading order (later files do NOT override earlier ones):
+ *   1. --env-file (explicit, highest priority)
+ *   2. .env.local (machine-specific overrides)
+ *   3. .env (project defaults)
+ *
+ * Already set environment variables are never overwritten.
+ */
+function loadEnvFiles(bundleRootDir: string, envFile?: string): void {
+  const loaded: string[] = [];
+
+  // Explicit --env-file (highest priority, loaded first)
+  if (envFile) {
+    const envFilePath = path.resolve(bundleRootDir, envFile);
+    const result = loadDotenv({ path: envFilePath });
+    if (!result.error) {
+      loaded.push(path.relative(process.cwd(), envFilePath));
+    }
+  }
+
+  // .env.local → .env (dotenv doesn't override existing vars)
+  const envFiles = [".env.local", ".env"];
+  for (const name of envFiles) {
+    const envPath = path.join(bundleRootDir, name);
+    const result = loadDotenv({ path: envPath });
+    if (!result.error) {
+      loaded.push(name);
+    }
+  }
+
+  if (loaded.length > 0) {
+    debug(`Loaded env: ${loaded.join(", ")}`);
+  }
+}
+
+/**
  * Execute the run command
  */
 async function executeRun(options: RunOptions): Promise<void> {
@@ -1413,8 +1453,11 @@ async function executeRun(options: RunOptions): Promise<void> {
 
     spinner.succeed(`Found configuration: ${path.relative(process.cwd(), configPath)}`);
 
-    // Auto-install dependencies if needed
+    // Load .env files from bundle root
     const bundleRootDir = path.dirname(configPath);
+    loadEnvFiles(bundleRootDir, options.envFile);
+
+    // Auto-install dependencies if needed
     if (!options.noInstall) {
       const installed = await autoInstallDependencies(bundleRootDir, spinner);
       if (!installed) {
@@ -1677,7 +1720,8 @@ Examples:
   $ gdn run -s my-swarm                 Run a specific Swarm
   $ gdn run --input "Hello, agent!"     Send a single message
   $ gdn run --input-file request.txt    Send input from file
-  $ gdn run --no-interactive            Non-interactive mode`
+  $ gdn run --no-interactive            Non-interactive mode
+  $ gdn run --env-file .env.production  Load custom env file`
     )
     .addOption(
       new Option("-s, --swarm <name>", "Swarm name to run").default("default")
@@ -1709,6 +1753,9 @@ Examples:
     .addOption(
       new Option("--no-install", "Skip dependency installation")
     )
+    .addOption(
+      new Option("--env-file <path>", "Load environment variables from file")
+    )
     .action(async (opts: Record<string, unknown>, command: Command) => {
       const optStr = (key: string): string | undefined =>
         typeof opts[key] === "string" ? opts[key] : undefined;
@@ -1735,6 +1782,7 @@ Examples:
         noInstall: opts.install === false,
         configPath: globalConfigPath,
         stateRoot: globalStateRoot,
+        envFile: optStr("envFile"),
       };
 
       await executeRun(runOptions);

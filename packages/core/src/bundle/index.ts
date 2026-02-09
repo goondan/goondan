@@ -67,6 +67,7 @@ export {
   loadBundleFromString,
   loadBundleFromFile,
   loadBundleFromDirectory,
+  ALLOWED_YAML_BASENAMES,
   type BundleLoadResult,
   type LoadDirectoryOptions,
 } from './loader.js';

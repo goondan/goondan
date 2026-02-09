@@ -57,6 +57,9 @@ importers:
       commander:
         specifier: ^13.1.0
         version: 13.1.0
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.2.4
       ora:
         specifier: ^8.1.2
         version: 8.2.0
@@ -1105,6 +1108,10 @@ packages:
   diff-match-patch@1.0.5:
     resolution: {integrity: sha512-IayShXAgj/QMXgB0IWmKx+rOPuGMhqm5w6jvFxmVenXKIzRqTAAsbBPT3kWQeGANj3jGgvcvv4yK6SxqYmikgw==}
 
+  dotenv@17.2.4:
+    resolution: {integrity: sha512-mudtfb4zRB4bVvdj0xRo+e6duH1csJRM8IukBqfTRvHotn9+LBXB8ynAidP9zHqoRC/fsllXgk4kCKlR21fIhw==}
+    engines: {node: '>=12'}
+
   emoji-regex@10.6.0:
     resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
 
@@ -2113,6 +2120,8 @@ snapshots:
   detect-libc@2.1.2: {}
 
   diff-match-patch@1.0.5: {}
+
+  dotenv@17.2.4: {}
 
   emoji-regex@10.6.0: {}
 

@@ -213,7 +213,7 @@ spec:
       );
 
       fs.writeFileSync(
-        path.join(subDir, 'file-tools.yaml'),
+        path.join(subDir, 'tool.yaml'),
         `
 kind: Tool
 metadata:

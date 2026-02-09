@@ -97,15 +97,21 @@ cd my-first-agent
 
 ### 2.3 환경 변수 설정
 
-사용할 LLM 제공자의 API 키를 설정합니다:
+사용할 LLM 제공자의 API 키를 프로젝트 루트의 `.env` 파일에 설정합니다:
 
 ```bash
-# Anthropic (Claude)
-export ANTHROPIC_API_KEY="sk-ant-..."
-
+# .env 파일 생성
+cat > .env << 'EOF'
+ANTHROPIC_API_KEY=sk-ant-...
 # 또는 OpenAI
-export OPENAI_API_KEY="sk-..."
+OPENAI_API_KEY=sk-...
+EOF
 ```
+
+`gdn run`은 `.env` → `.env.local` 파일을 자동으로 로드합니다.
+`--env-file` 옵션으로 커스텀 파일을 지정할 수도 있습니다.
+
+> **참고**: `.env` 파일은 `gdn init`이 생성하는 `.gitignore`에 포함되어 있으므로 Git에 커밋되지 않습니다.
 
 ### 2.4 실행
 

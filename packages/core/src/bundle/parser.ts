@@ -144,6 +144,11 @@ export function parseMultiDocument(
         continue;
       }
 
+      // kind 필드가 없는 문서는 Goondan 리소스가 아니므로 건너뜀
+      if (typeof parsed.kind !== 'string' || parsed.kind === '') {
+        continue;
+      }
+
       // apiVersion 기본값 적용
       const resource = applyDefaults(parsed);
       resources.push(resource);

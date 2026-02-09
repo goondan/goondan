@@ -57,7 +57,8 @@ bundle/
 ### 로딩 (loader.ts)
 - `loadBundleFromString(content, source?)` - 문자열에서 로드 (파싱+검증+참조해석)
 - `loadBundleFromFile(filePath)` - 파일에서 로드 (async)
-- `loadBundleFromDirectory(dirPath, options?)` - 디렉토리에서 로드 (glob 패턴, async)
+- `loadBundleFromDirectory(dirPath, options?)` - 디렉토리에서 로드 (허용 파일명 기반 glob, async)
+- `ALLOWED_YAML_BASENAMES` - 리소스로 인식하는 YAML 파일 basename 목록 (goondan, tool, agent, model 등 단수/복수)
 
 ### BundleLoadResult 인터페이스
 - `resources` - 파싱된 리소스 배열

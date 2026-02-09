@@ -736,9 +736,20 @@ interface ToolContext {
 
 interface ToolAgentsApi {
   /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
-  delegate(agentName: string, task: string, context?: string): Promise<AgentDelegateResult>;
+  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
   /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
   listInstances(): Promise<AgentInstanceInfo[]>;
+  /** 에이전트 이름으로 새 인스턴스 생성 (Turn 실행 없이) */
+  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
+  /** 특정 인스턴스 ID의 에이전트에 작업 위임 */
+  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
+  /** 인스턴스 ID로 에이전트 인스턴스 삭제 */
+  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
+}
+
+interface AgentDelegateOptions {
+  context?: string;
+  async?: boolean;  // true면 fire-and-forget (응답 대기 안함)
 }
 ```
 
@@ -1219,7 +1230,7 @@ A: 가능합니다. 하나의 `goondan.yaml`에 모든 리소스를 `---`로 구
 
 ### Q: 에이전트 간 위임(delegate)은 어떻게 구현하나요?
 
-A: `@goondan/base` 패키지의 built-in `agents` Tool을 사용합니다. 이 도구는 `agents.delegate`와 `agents.listInstances` 두 가지 export를 제공합니다.
+A: `@goondan/base` 패키지의 built-in `agents` Tool을 사용합니다. 이 도구는 5가지 export를 제공합니다: `agents.delegate`, `agents.listInstances`, `agents.spawnInstance`, `agents.delegateToInstance`, `agents.destroyInstance`.
 
 ```yaml
 # Agent에 agents Tool 연결
@@ -1234,10 +1245,18 @@ spec:
 Tool 핸들러에서도 `ctx.agents` API를 통해 프로그래밍 방식으로 위임할 수 있습니다:
 
 ```typescript
-// ctx.agents.delegate()로 다른 에이전트에 작업 위임
-const result = await ctx.agents.delegate('coder', '함수를 구현해줘', context);
-// ctx.agents.listInstances()로 현재 인스턴스 목록 조회
+// 에이전트에 작업 위임 (새 인스턴스 생성 → Turn 실행 → 결과 반환)
+const result = await ctx.agents.delegate('coder', '함수를 구현해줘', { context: '추가 정보' });
+// 비동기 위임 (fire-and-forget, 응답 대기 안함)
+await ctx.agents.delegate('coder', '백그라운드 작업', { async: true });
+// 인스턴스 목록 조회
 const instances = await ctx.agents.listInstances();
+// Turn 실행 없이 인스턴스만 생성
+const spawned = await ctx.agents.spawnInstance('coder');
+// 특정 인스턴스에 작업 위임
+await ctx.agents.delegateToInstance(spawned.instanceId, '이 인스턴스에서 작업해줘');
+// 인스턴스 삭제
+await ctx.agents.destroyInstance(spawned.instanceId);
 ```
 
 ### Q: 비밀 값(API 키 등)은 어떻게 관리하나요?

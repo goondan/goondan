@@ -1,6 +1,6 @@
 # Goondan Runtime/SDK API 스펙 (v2.0)
 
-본 문서는 `docs/requirements/index.md`를 기반으로 v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. v2에서는 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기반으로 API 표면을 대폭 단순화한다.
+v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. v2에서는 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기반으로 API 표면을 대폭 단순화한다.
 
 ---
 
@@ -118,6 +118,15 @@ interface ConversationState {
   toLlmMessages(): CoreMessage[];
 }
 ```
+
+**규칙:**
+
+1. `conversationState.baseMessages`는 Turn 시작 기준 메시지 스냅샷이어야 한다(MUST).
+2. `conversationState.events`는 현재 Turn에서 누적된 메시지 이벤트의 순서 보장 뷰여야 한다(MUST).
+3. `conversationState.nextMessages`는 `baseMessages + SUM(events)`와 동일하게 유지해야 한다(MUST).
+4. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고, `conversationState` + `emitMessageEvent`로 대체해야 한다(MUST).
+
+상세 메시지 상태 계약은 `docs/specs/pipeline.md` 7절을 참조한다.
 
 ### 1.7 Turn / Step 타입
 
@@ -1012,10 +1021,7 @@ interface PackageSpec {
 
 ## 참조
 
-- @docs/requirements/05_core-concepts.md - 핵심 개념 (v2)
-- @docs/requirements/11_lifecycle-pipelines.md - 라이프사이클 파이프라인 (v2)
-- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스 (v2)
-- @docs/requirements/14_usage-patterns.md - 활용 예시 패턴 (v2)
 - @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
 - @docs/specs/extension.md - Extension 시스템 스펙 (v2)
+- @docs/architecture.md - 아키텍처 개요 (핵심 개념, 설계 패턴)
 - @docs/new_spec.md - Goondan v2 간소화 스펙 원본

@@ -1,7 +1,5 @@
 # Goondan Bundle YAML 스펙 (v2.0)
 
-본 문서는 `docs/requirements/06_config-spec.md`(구성 스펙)과 `docs/requirements/07_config-resources.md`(리소스 정의)를 기반으로, `goondan.yaml` 번들 파일의 구조, 로딩 규칙, 검증 규칙을 정의한다. 런타임/툴링/검증기는 본 문서를 기준으로 구조를 해석한다.
-
 > **v2.0 주요 변경사항:**
 > - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
 > - Kind 축소: 11종 -> **8종** (OAuthApp, ResourceType, ExtensionHandler 제거)
@@ -12,9 +10,60 @@
 
 ---
 
-## 1. 공통 규칙
+## 1. 개요
 
-### 1.1 리소스 기본 구조
+### 1.1 배경과 설계 철학
+
+Goondan Bundle(`goondan.yaml`)은 에이전트 스웜을 구성하는 모든 리소스를 **단일 파일 또는 디렉토리**로 관리하기 위한 구성 포맷이다. Kubernetes 매니페스트에서 영감을 받아 다중 YAML 문서(`---`)를 지원하며, 다음 원칙을 따른다:
+
+- **단순한 시작**: 하나의 `goondan.yaml` 파일만으로 에이전트 스웜을 정의하고 실행할 수 있다.
+- **점진적 확장**: 프로젝트가 커지면 리소스를 파일/디렉토리로 분할할 수 있다.
+- **결정론적 로딩**: 동일 입력에서 항상 동일한 리소스 집합을 생성하여 재현 가능한 실행을 보장한다.
+- **Fail-Fast 검증**: 구성 오류를 Runtime 시작 전에 모두 감지하여, 부분 로드로 인한 예측 불가능한 동작을 방지한다.
+
+### 1.2 구성 파일 분할과 로딩
+
+구현은 구성 파일을 폴더/파일 단위로 분할 관리할 수 있어야 한다 (MUST). 로더는 단일 파일, 디렉토리, 다중 YAML 문서를 처리해야 한다 (MUST). 로딩 결과는 결정론적이어야 하며, 동일 입력에서 동일 리소스 집합을 생성해야 한다 (MUST).
+
+---
+
+## 2. 핵심 규칙
+
+본 섹션은 번들 로딩과 검증 시 구현자가 반드시 준수해야 하는 규범적 규칙을 요약한다.
+
+### 2.1 리소스 구조
+
+1. 모든 리소스는 `apiVersion`, `kind`, `metadata`, `spec`를 포함해야 한다 (MUST).
+2. `apiVersion`은 `goondan.ai/v1`이어야 한다 (MUST).
+3. `metadata.name`은 동일 kind 내에서 고유해야 한다 (MUST).
+4. 단일 YAML 파일에서 다중 문서(`---`)를 지원해야 한다 (MUST).
+
+### 2.2 로딩 규칙
+
+1. 로딩 결과는 결정론적이어야 하며, 동일 입력에서 동일 리소스 집합을 생성해야 한다 (MUST).
+2. 모든 리소스의 `apiVersion`은 `goondan.ai/v1`이어야 한다 (MUST).
+3. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
+4. `kind` 필드가 없는 문서는 Goondan 리소스가 아닌 것으로 간주하여 무시해야 한다 (SHOULD).
+
+### 2.3 구성 검증
+
+1. 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행되어야 한다 (MUST).
+2. 오류가 하나라도 있으면 부분 로드 없이 전체 구성을 거부해야 한다 (MUST).
+3. 검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다 (MUST).
+4. 오류 객체는 사용자 복구를 위한 `suggestion`과 선택적 `helpUrl` 필드를 포함하는 것을 권장한다 (SHOULD).
+
+### 2.4 보안
+
+1. 단일 YAML 파일은 1MB를 초과할 수 없다 (MUST).
+2. 단일 YAML 파일 내 최대 100개 문서를 허용한다 (MUST).
+3. `../`를 포함하는 상위 디렉터리 참조는 거부해야 한다 (MUST).
+4. 절대 경로 참조도 거부해야 한다 (MUST).
+
+---
+
+## 3. 공통 규칙
+
+### 3.1 리소스 기본 구조
 
 모든 리소스는 다음 필드를 반드시 포함한다(MUST).
 
@@ -29,12 +78,13 @@ spec:
   ...
 ```
 
-### 1.2 apiVersion 형식 규칙
+### 3.2 apiVersion 형식 규칙
 
 - **형식**: `goondan.ai/v1`
 - `apiVersion`이 생략된 경우, 런타임은 `goondan.ai/v1`을 기본값으로 사용한다(SHOULD).
 - 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현한다(MUST).
 - Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다(MUST).
+- Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다(SHOULD).
 
 ```yaml
 # 권장: apiVersion 명시
@@ -45,7 +95,7 @@ kind: Model
 kind: Model
 ```
 
-### 1.3 kind 목록
+### 3.3 kind 목록
 
 v2에서 지원하는 Kind는 **8종**이다.
 
@@ -62,7 +112,7 @@ v2에서 지원하는 Kind는 **8종**이다.
 
 **제거된 Kind:** `OAuthApp`, `ResourceType`, `ExtensionHandler`는 v2에서 지원하지 않는다. 이들 Kind를 포함하는 리소스는 로드 단계에서 거부해야 한다(MUST).
 
-### 1.4 metadata.name 유일성 규칙
+### 3.4 metadata.name 유일성 규칙
 
 - `metadata.name`은 **동일 kind 내에서 고유**해야 한다(MUST).
 - 네임스페이스가 없는 경우, 전역 범위에서 고유성을 보장한다.
@@ -82,7 +132,7 @@ metadata:
   name: -invalid       # 하이픈으로 시작
 ```
 
-### 1.5 허용 YAML 파일명
+### 3.5 허용 YAML 파일명
 
 디렉토리 번들 로드 시, 아래 이름의 YAML 파일만 리소스로 인식한다. 이 외의 YAML 파일(`pnpm-lock.yaml`, `docker-compose.yaml` 등)은 무시된다.
 
@@ -103,7 +153,7 @@ metadata:
 
 > **v2 변경:** `oauth` 파일명은 더 이상 인식하지 않는다 (OAuthApp Kind 제거).
 
-### 1.6 다중 YAML 문서 (---) 처리
+### 3.6 다중 YAML 문서 (---) 처리
 
 - 하나의 YAML 파일에 여러 문서를 `---` 로 구분하여 포함할 수 있다(MAY).
 - 각 문서는 독립적인 리소스로 해석된다(MUST).
@@ -183,7 +233,7 @@ spec:
     - ref: "Agent/coder"
 ```
 
-### 1.7 metadata.labels와 annotations
+### 3.7 metadata.labels와 annotations
 
 ```yaml
 metadata:
@@ -201,11 +251,11 @@ metadata:
 
 ---
 
-## 2. ObjectRef 상세
+## 4. ObjectRef 상세
 
 ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 
-### 2.1 지원 형식
+### 4.1 지원 형식
 
 ```yaml
 # 1. 문자열 축약 형식 (권장)
@@ -218,7 +268,7 @@ ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 { kind: Kind, name: name, package: "@goondan/base" }
 ```
 
-### 2.2 문자열 축약 형식 해석 규칙
+### 4.2 문자열 축약 형식 해석 규칙
 
 문자열 축약 형식 `"Kind/name"`은 다음 규칙에 따라 해석된다(MUST).
 
@@ -243,7 +293,7 @@ tools:
   - ref: "Tool/"                # name 누락
 ```
 
-### 2.3 객체형 형식 해석 규칙
+### 4.3 객체형 형식 해석 규칙
 
 ```yaml
 # 기본 형식 (권장)
@@ -257,7 +307,7 @@ tools:
 2. `apiVersion` 생략 시 `goondan.ai/v1`을 기본값으로 사용한다(SHOULD).
 3. `package`는 Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다(SHOULD).
 
-### 2.4 참조 무결성
+### 4.4 참조 무결성
 
 - ObjectRef가 참조하는 대상 리소스는 존재해야 한다(MUST).
 - 존재하지 않는 리소스를 참조하면 검증 오류로 처리한다(MUST).
@@ -265,11 +315,11 @@ tools:
 
 ---
 
-## 3. Selector + Overrides 상세
+## 5. Selector + Overrides 상세
 
 Selector는 라벨 기반으로 리소스를 선택하고, Overrides는 선택된 리소스의 설정을 덮어쓴다.
 
-### 3.1 Selector 형식
+### 5.1 Selector 형식
 
 ```yaml
 # 1. 단일 리소스 선택 (name 지정)
@@ -289,7 +339,7 @@ selector:
   kind: Tool
 ```
 
-### 3.2 selector 해석 알고리즘
+### 5.2 selector 해석 알고리즘
 
 Selector 해석은 다음 단계를 따른다(MUST).
 
@@ -298,14 +348,14 @@ Selector 해석은 다음 단계를 따른다(MUST).
 3. **matchLabels 매칭**: `matchLabels`가 지정되면 모든 라벨 조건을 만족하는 리소스를 선택한다 (AND 조건).
 4. **결과 집합**: 위 조건을 모두 만족하는 리소스 목록을 반환한다.
 
-### 3.3 matchLabels 매칭 규칙
+### 5.3 matchLabels 매칭 규칙
 
 - 모든 지정된 라벨이 일치해야 선택된다(AND 조건)(MUST).
 - 라벨 값은 정확히 일치해야 한다(MUST).
 - 대상 리소스에 추가 라벨이 있어도 무방하다.
 - 라벨 키/값은 대소문자를 구분한다(MUST).
 
-### 3.4 overrides 병합 알고리즘
+### 5.4 overrides 병합 알고리즘
 
 overrides는 선택된 리소스의 `spec`을 부분적으로 덮어쓴다.
 
@@ -339,7 +389,7 @@ spec:
   errorMessageLimit: 2000                   # 덮어쓰기됨
 ```
 
-### 3.5 Selector + Overrides 사용 위치
+### 5.5 Selector + Overrides 사용 위치
 
 Selector + Overrides는 Agent의 `tools`/`extensions`에서 사용할 수 있다.
 
@@ -372,11 +422,11 @@ spec:
 
 ---
 
-## 4. ValueSource 상세
+## 6. ValueSource 상세
 
 ValueSource는 설정 값을 다양한 소스에서 가져오는 패턴을 정의한다. Model의 apiKey, Connection의 secrets 등에서 사용된다.
 
-### 4.1 지원 형식
+### 6.1 지원 형식
 
 ```yaml
 # 1. 직접 값 지정
@@ -393,13 +443,13 @@ valueFrom:
     key: "anthropic"
 ```
 
-### 4.2 상호 배타 규칙
+### 6.2 상호 배타 규칙
 
 1. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
 2. `valueFrom` 내에서 `env`와 `secretRef`는 동시에 존재할 수 없다(MUST).
 3. 둘 다 없으면 검증 오류로 처리한다(MUST).
 
-### 4.3 valueFrom.env 환경변수 해석
+### 6.3 valueFrom.env 환경변수 해석
 
 ```yaml
 valueFrom:
@@ -414,7 +464,7 @@ valueFrom:
    - 필수 필드인 경우: 구성 로드 단계에서 오류로 처리한다(MUST).
    - 선택 필드인 경우: 해당 필드를 미설정 상태로 둔다(SHOULD).
 
-### 4.4 valueFrom.secretRef 비밀 저장소 해석
+### 6.4 valueFrom.secretRef 비밀 저장소 해석
 
 ```yaml
 valueFrom:
@@ -436,29 +486,29 @@ valueFrom:
 
 ---
 
-## 5. 보안: YAML 폭탄 방지
+## 7. 보안: YAML 폭탄 방지
 
 번들 YAML 파싱 시 다음 보안 제한을 적용해야 한다(MUST).
 
-### 5.1 파일 크기 제한
+### 7.1 파일 크기 제한
 
 - 단일 YAML 파일은 **1MB**를 초과할 수 없다(MUST).
 - 1MB를 초과하는 파일은 파싱 전에 거부한다.
 
-### 5.2 문서 수 제한
+### 7.2 문서 수 제한
 
 - 단일 YAML 파일 내 **최대 100개** 문서(`---`)를 허용한다(MUST).
 - 100개를 초과하면 파싱을 중단하고 오류를 반환한다.
 
-### 5.3 앵커/별칭 제한
+### 7.3 앵커/별칭 제한
 
 - YAML 앵커(`&`)와 별칭(`*`)에 의한 확장 결과가 원본 크기의 **10배**를 초과하면 거부한다(SHOULD).
 
 ---
 
-## 6. 경로 해석 규칙
+## 8. 경로 해석 규칙
 
-### 6.1 entry 필드 경로 해석
+### 8.1 entry 필드 경로 해석
 
 Tool, Extension, Connector의 `spec.entry` 경로는 **Bundle Root**(goondan.yaml이 위치한 디렉터리) 기준 상대 경로로 해석한다(MUST).
 
@@ -470,13 +520,13 @@ spec:
   # 실제 경로: /workspace/my-swarm/tools/bash/index.ts
 ```
 
-### 6.2 경로 보안 규칙
+### 8.2 경로 보안 규칙
 
 1. `../`를 포함하는 상위 디렉터리 참조는 거부해야 한다(MUST).
 2. 절대 경로 참조도 거부해야 한다(MUST).
 3. 모든 경로는 Bundle Root 기준 상대 경로여야 한다.
 
-### 6.3 프롬프트 파일 참조
+### 8.3 프롬프트 파일 참조
 
 Agent의 `spec.prompts.systemRef` 경로도 Bundle Root 기준 상대 경로로 해석한다(MUST).
 
@@ -490,9 +540,9 @@ spec:
 
 ---
 
-## 7. 완전한 번들 예시
+## 9. 완전한 번들 예시
 
-### 7.1 최소 프로젝트
+### 9.1 최소 프로젝트
 
 ```
 my-agent/
@@ -500,7 +550,7 @@ my-agent/
 └── (tools/, extensions/, connectors/ - 필요시)
 ```
 
-### 7.2 goondan.yaml 전체 예시
+### 9.2 goondan.yaml 전체 예시
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -554,7 +604,7 @@ spec:
     - ref: "Agent/coder"
 ```
 
-### 7.3 분할 파일 구성 예시
+### 9.3 분할 파일 구성 예시
 
 ```
 my-swarm/
@@ -577,9 +627,9 @@ my-swarm/
 
 ---
 
-## 8. Validation 규칙 요약
+## 10. Validation 규칙 요약
 
-### 8.1 로드 단계 검증
+### 10.1 로드 단계 검증
 
 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행되어야 한다(MUST).
 
@@ -587,7 +637,19 @@ my-swarm/
 2. 검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다(MUST).
 3. 오류 객체는 사용자 복구를 위한 `suggestion`과 선택적 `helpUrl` 필드를 포함하는 것을 권장한다(SHOULD).
 
-### 8.2 공통 검증
+검증 오류 예시:
+
+```json
+{
+  "code": "E_CONFIG_REF_NOT_FOUND",
+  "message": "Tool/bash 참조를 찾을 수 없습니다.",
+  "path": "resources/agent.yaml#spec.tools[0]",
+  "suggestion": "kind/name 또는 package 범위를 확인하세요.",
+  "helpUrl": "https://docs.goondan.ai/errors/E_CONFIG_REF_NOT_FOUND"
+}
+```
+
+### 10.2 공통 검증
 
 | 규칙 | 수준 |
 |------|------|
@@ -601,7 +663,7 @@ my-swarm/
 | ObjectRef 참조 대상 존재 | MUST |
 | ValueSource에서 value/valueFrom 상호 배타 | MUST |
 
-### 8.3 Kind별 필수 필드 검증
+### 10.3 Kind별 필수 필드 검증
 
 | Kind | 필수 필드 |
 |------|----------|
@@ -614,7 +676,7 @@ my-swarm/
 | Connection | `connectorRef` |
 | Package | `metadata.name`, 첫 번째 YAML 문서에만 위치 |
 
-### 8.4 제거된 필드 검증
+### 10.4 제거된 필드 검증
 
 다음 필드가 존재하면 경고 또는 오류를 발생시켜야 한다(SHOULD).
 
@@ -634,7 +696,4 @@ my-swarm/
 
 - `/docs/specs/resources.md` - Config Plane 리소스 정의 스펙
 - `/docs/specs/bundle_package.md` - Package 스펙
-- `/docs/requirements/06_config-spec.md` - Config 스펙 요구사항
-- `/docs/requirements/07_config-resources.md` - Config 리소스 정의 요구사항
-- `/docs/new_spec.md` - Goondan v2 설계 스펙
 - `/GUIDE.md` - 개발자 가이드

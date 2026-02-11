@@ -1,7 +1,5 @@
 # Goondan Config Plane 리소스 정의 스펙 (v2.0)
 
-본 문서는 `docs/requirements/06_config-spec.md`(리소스 공통 형식, ObjectRef, Selector+Overrides, ValueSource)와 `docs/requirements/07_config-resources.md`(각 리소스 Kind별 정의)를 기반으로 Config Plane 리소스의 상세 스키마, TypeScript 인터페이스, 검증 규칙을 정의한다.
-
 > **v2.0 주요 변경사항:**
 > - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
 > - Kind 축소: 11종 -> **8종** (OAuthApp, ResourceType, ExtensionHandler 제거)
@@ -14,28 +12,72 @@
 
 ---
 
-## 목차
+## 1. 개요
 
-1. [리소스 공통 형식](#1-리소스-공통-형식)
-2. [Metadata 구조](#2-metadata-구조)
-3. [ObjectRef 참조 문법](#3-objectref-참조-문법)
-4. [Selector + Overrides 조립 문법](#4-selector--overrides-조립-문법)
-5. [ValueSource / SecretRef 타입](#5-valuesource--secretref-타입)
-6. [리소스 Kind별 스키마](#6-리소스-kind별-스키마)
-   - [6.1 Model](#61-model)
-   - [6.2 Tool](#62-tool)
-   - [6.3 Extension](#63-extension)
-   - [6.4 Agent](#64-agent)
-   - [6.5 Swarm](#65-swarm)
-   - [6.6 Connector](#66-connector)
-   - [6.7 Connection](#67-connection)
-   - [6.8 Package](#68-package)
-7. [공통 타입 정의](#7-공통-타입-정의)
-8. [Validation 규칙 요약](#8-validation-규칙-요약)
+### 1.1 배경과 설계 철학
+
+Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 **선언적 YAML**로 정의하는 체계이다. Kubernetes의 리소스 모델에서 영감을 받아, 모든 구성 요소를 `apiVersion`, `kind`, `metadata`, `spec`의 4필드 구조로 통일한다. 이를 통해:
+
+- **일관성**: 8종의 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package) 모두 동일한 구조를 따르므로, 도구와 검증기를 범용으로 구현할 수 있다.
+- **참조 무결성**: ObjectRef와 Selector 문법으로 리소스 간 관계를 명확히 선언하고, 로드 단계에서 모든 참조의 유효성을 검증한다.
+- **보안 분리**: 민감값(API 키, 토큰)은 ValueSource/SecretRef 패턴으로 외부 소스에서 주입하여, 구성 파일에 비밀값이 직접 노출되지 않도록 한다.
+- **확장 가능한 버전 관리**: `apiVersion` 필드를 통해 비호환 변경을 명시적으로 관리하고, 하위 호환을 유지한다.
+
+### 1.2 설계 원칙
+
+1. **단일 식별**: 모든 리소스는 `kind + metadata.name` 조합(동일 package 범위 내)으로 고유하게 식별된다.
+2. **Fail-Fast 검증**: 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행하며, 하나라도 오류가 있으면 부분 로드 없이 전체를 거부한다.
+3. **선언적 참조**: 리소스 간 관계는 ObjectRef 또는 Selector로 선언하며, 런타임이 참조를 해석한다.
+4. **Bun 네이티브**: Tool, Extension, Connector의 `runtime` 필드를 제거하고, 모든 실행 환경을 Bun으로 통일하여 복잡도를 낮춘다.
 
 ---
 
-## 1. 리소스 공통 형식
+## 2. 핵심 규칙
+
+본 섹션은 리소스 정의 시 구현자가 반드시 준수해야 하는 규범적 규칙을 요약한다. RFC 2119 스타일(`MUST`, `SHOULD`, `MAY`)을 사용한다.
+
+### 2.1 리소스 공통
+
+1. 모든 리소스는 `apiVersion`, `kind`, `metadata`, `spec`를 포함해야 한다 (MUST).
+2. `apiVersion`은 `goondan.ai/v1`이어야 한다 (MUST).
+3. `metadata.name`은 동일 package 범위에서 `kind + name` 조합으로 고유해야 한다 (MUST).
+4. 단일 YAML 파일에서 다중 문서(`---`)를 지원해야 한다 (MUST).
+
+### 2.2 버전 정책
+
+1. 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현해야 한다 (MUST).
+2. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
+3. Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다 (SHOULD).
+
+### 2.3 참조 문법
+
+1. ObjectRef 문자열 축약형은 `Kind/name` 형식이어야 한다 (MUST).
+2. 객체형 ObjectRef는 최소 `kind`, `name`을 포함해야 한다 (MUST).
+3. namespace 개념 대신 `package` 필드로 참조 범위를 명시해야 한다 (SHOULD).
+4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
+
+### 2.4 Selector + Overrides
+
+1. 블록에 `selector`가 있으면 선택형 조립으로 해석해야 한다 (MUST).
+2. 선택된 리소스에 `overrides`를 적용할 수 있어야 한다 (MUST).
+3. 기본 병합 규칙은 객체 재귀 병합, 스칼라 덮어쓰기, 배열 교체를 따른다 (SHOULD).
+
+### 2.5 ValueSource
+
+1. `value`와 `valueFrom`은 동시에 존재할 수 없다 (MUST).
+2. `valueFrom`에서 `env`와 `secretRef`는 동시에 존재할 수 없다 (MUST).
+3. 비밀값(access token, refresh token, client secret 등)은 Base Config에 직접 포함하지 않아야 한다 (SHOULD).
+
+### 2.6 구성 검증
+
+1. 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행되어야 한다 (MUST).
+2. 오류가 하나라도 있으면 부분 로드 없이 전체 구성을 거부해야 한다 (MUST).
+3. 검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다 (MUST).
+4. 오류 객체는 사용자 복구를 위한 `suggestion`과 선택적 `helpUrl` 필드를 포함하는 것을 권장한다 (SHOULD).
+
+---
+
+## 3. 리소스 공통 형식
 
 모든 Config Plane 리소스는 다음 필드를 MUST 포함한다.
 
@@ -81,6 +123,21 @@ type KnownKind =
   | 'Package';
 ```
 
+### 지원 Kind
+
+v2에서 지원하는 Kind는 8종이다:
+
+| Kind | 역할 |
+|------|------|
+| **Model** | LLM 프로바이더 설정 |
+| **Agent** | 에이전트 정의 (모델, 프롬프트, 도구, 익스텐션) |
+| **Swarm** | 에이전트 집합 + 실행 정책 |
+| **Tool** | LLM이 호출하는 함수 |
+| **Extension** | 라이프사이클 미들웨어 인터셉터 |
+| **Connector** | 외부 프로토콜 수신 (별도 프로세스, 자체 프로토콜 관리) |
+| **Connection** | Connector - Swarm 바인딩 |
+| **Package** | 프로젝트 매니페스트/배포 단위 |
+
 ### 규칙
 
 1. `apiVersion`은 MUST `goondan.ai/v1`이어야 한다.
@@ -89,10 +146,11 @@ type KnownKind =
 4. 단일 YAML 파일에 여러 문서를 `---`로 구분하여 포함할 수 있다 (MAY).
 5. 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현해야 한다 (MUST).
 6. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
+7. Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다 (SHOULD).
 
 ---
 
-## 2. Metadata 구조
+## 4. Metadata 구조
 
 ### TypeScript 인터페이스
 
@@ -136,7 +194,7 @@ metadata:
 
 ---
 
-## 3. ObjectRef 참조 문법
+## 5. ObjectRef 참조 문법
 
 ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 
@@ -215,7 +273,7 @@ toolRef:
 
 ---
 
-## 4. Selector + Overrides 조립 문법
+## 6. Selector + Overrides 조립 문법
 
 Selector는 라벨 기반으로 리소스를 선택하고, Overrides로 선택된 리소스의 일부 설정을 덮어쓸 수 있다.
 
@@ -297,7 +355,7 @@ tools:
 
 ---
 
-## 5. ValueSource / SecretRef 타입
+## 7. ValueSource / SecretRef 타입
 
 환경 변수나 비밀 저장소에서 값을 주입하기 위한 패턴을 정의한다.
 
@@ -359,11 +417,11 @@ clientSecret:
 
 ---
 
-## 6. 리소스 Kind별 스키마
+## 8. 리소스 Kind별 스키마
 
-### 6.1 Model
+### 8.1 Model
 
-Model은 LLM 프로바이더 설정을 정의한다.
+Model은 LLM 프로바이더 설정을 정의한다. Runtime은 provider 차이를 추상화한 공통 호출 인터페이스를 제공하여, 에이전트가 특정 프로바이더에 종속되지 않도록 한다.
 
 #### TypeScript 인터페이스
 
@@ -450,11 +508,12 @@ spec:
 **추가 검증 규칙:**
 - Agent가 요구하는 capability(`toolCalling`, `streaming` 등)를 모델이 선언하지 않은 경우, Runtime은 로드 단계에서 거부해야 한다 (MUST).
 - Runtime은 provider 차이를 추상화한 공통 호출 인터페이스를 제공해야 한다 (MUST).
+- 모델이 스트리밍을 지원하는 경우, Runtime은 스트리밍 응답을 표준 이벤트/콜백으로 전달할 수 있어야 한다 (SHOULD).
 - provider 전용 옵션은 `spec.options`로 캡슐화해야 한다 (MUST).
 
 ---
 
-### 6.2 Tool
+### 8.2 Tool
 
 Tool은 LLM이 호출할 수 있는 함수를 정의한다. 모든 Tool은 Bun으로 실행된다 (`runtime` 필드 없음).
 
@@ -623,7 +682,7 @@ LLM 도구 이름:  file-system__read,  file-system__write
 
 ---
 
-### 6.3 Extension
+### 8.3 Extension
 
 Extension은 라이프사이클 미들웨어 인터셉터를 정의한다. 모든 Extension은 Bun으로 실행된다 (`runtime` 필드 없음).
 
@@ -735,7 +794,7 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-### 6.4 Agent
+### 8.4 Agent
 
 Agent는 에이전트 실행을 구성하는 중심 리소스이다.
 
@@ -864,7 +923,7 @@ spec:
 
 ---
 
-### 6.5 Swarm
+### 8.5 Swarm
 
 Swarm은 Agent들의 집합과 실행 정책을 정의한다.
 
@@ -943,7 +1002,7 @@ spec:
 
 ---
 
-### 6.6 Connector
+### 8.6 Connector
 
 Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 **독립 프로세스**를 정의한다. Connector는 프로토콜 처리(HTTP 서버, cron 스케줄러, WebSocket 등)를 **자체적으로** 관리한다. 모든 Connector는 Bun으로 실행된다 (`runtime` 필드 없음).
 
@@ -1054,7 +1113,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ---
 
-### 6.7 Connection
+### 8.7 Connection
 
 Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
 
@@ -1196,7 +1255,7 @@ spec:
 
 ---
 
-### 6.8 Package
+### 8.8 Package
 
 Package는 프로젝트의 최상위 매니페스트 리소스이다. 의존성, 버전, 레지스트리 정보를 포함한다.
 
@@ -1273,7 +1332,7 @@ spec:
 
 ---
 
-## 7. 공통 타입 정의
+## 9. 공통 타입 정의
 
 ### JSON 기본 타입
 
@@ -1351,7 +1410,7 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 
 ---
 
-## 8. Validation 규칙 요약
+## 10. Validation 규칙 요약
 
 ### 공통 규칙
 
@@ -1391,7 +1450,7 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 
 ### 검증 오류 형식
 
-검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다 (MUST).
+검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다 (MUST). 오류 객체는 사용자 복구를 위한 `suggestion`과 선택적 `helpUrl` 필드를 포함하는 것을 권장한다 (SHOULD).
 
 ```typescript
 interface ValidationError {
@@ -1424,9 +1483,6 @@ interface ValidationError {
 
 ## 관련 문서
 
-- `/docs/requirements/06_config-spec.md` - Config 스펙 요구사항
-- `/docs/requirements/07_config-resources.md` - Config 리소스 정의 요구사항
 - `/docs/specs/bundle.md` - Bundle YAML 스펙
 - `/docs/specs/bundle_package.md` - Package 스펙
-- `/docs/new_spec.md` - Goondan v2 설계 스펙
 - `/GUIDE.md` - 개발자 가이드

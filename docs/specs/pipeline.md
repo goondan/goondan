@@ -1,14 +1,18 @@
 # Goondan 라이프사이클 파이프라인 스펙 (v2.0)
 
-본 문서는 `docs/requirements/11_lifecycle-pipelines.md`를 기반으로 v2 Runtime 파이프라인 시스템의 **구현 스펙**을 정의한다. v2에서는 모든 파이프라인 훅을 **Middleware** 형태로 통일하고, `next()` 호출 전후로 전처리(pre)/후처리(post)를 수행하는 3종 미들웨어로 단순화한다.
-
 ---
 
 ## 1. 개요
 
+### 1.1 배경 및 설계 동기
+
+Goondan v1에서는 파이프라인이 **Mutator + Middleware** 두 가지 타입으로 나뉘어 있었고, 13개의 세분화된 파이프라인 포인트(`turn.pre`, `turn.post`, `step.pre`, `step.config`, `step.tools`, `step.blocks`, `step.llmInput`, `step.llmCall`, `step.llmError`, `step.post`, `toolCall.pre`, `toolCall.exec`, `toolCall.post`)를 제공했다. 이 구조는 유연하지만 Extension 개발자에게 과도한 복잡성을 부과하고, Mutator의 순차 변형 모델은 디버깅과 추론이 어려웠다.
+
+v2에서는 이러한 복잡성을 제거하고, 모든 파이프라인 훅을 **`next()` 호출 전후로 전처리(pre)/후처리(post)를 수행하는 Middleware** 형태로 통일한다. Koa, Express 등 웹 프레임워크에서 검증된 온니언(Onion) 패턴을 채택하여, 직관적이면서도 강력한 확장 지점을 제공한다.
+
 파이프라인은 Goondan Runtime의 실행 라이프사이클에서 Extension이 개입할 수 있는 **표준 확장 지점**이다. 파이프라인을 통해 Extension은 메시지 히스토리 조작, 도구 카탈로그 조작, LLM 호출 래핑, 도구 실행 제어, 로깅/관찰, 재시도 등을 수행할 수 있다.
 
-### 1.1 설계 원칙
+### 1.2 설계 원칙
 
 | 원칙 | 설명 |
 |------|------|
@@ -18,7 +22,7 @@
 | **결정론적 실행** | 동일 구성과 입력에 대해 파이프라인 실행 순서는 항상 동일 |
 | **ConversationState 기반** | 메시지 조작은 `ConversationState` + `emitMessageEvent()` 이벤트 소싱으로 수행 |
 
-### 1.2 v1 대비 변경 요약
+### 1.3 v1 대비 변경 요약
 
 | v1 (기존) | v2 (신규) |
 |-----------|-----------|
@@ -31,11 +35,28 @@
 
 ---
 
-## 2. 미들웨어 타입
+## 2. 핵심 규칙
+
+모든 미들웨어에 공통으로 적용되는 규범적 규칙이다.
+
+1. 모든 파이프라인 훅은 **Middleware** 형태여야 한다(MUST). Mutator 타입은 제거한다.
+2. Middleware는 `next()` 함수를 호출하여 다음 레이어를 실행하는 온니언(onion) 패턴을 따라야 한다(MUST).
+3. `next()` 호출 전은 전처리(pre), `next()` 호출 후는 후처리(post) 시점에 해당한다.
+4. Middleware는 `next()`를 반드시 한 번 호출해야 한다(MUST). 호출하지 않으면 이후 레이어와 핵심 로직이 실행되지 않는다.
+5. Middleware는 `next()`의 반환값을 변환하여 반환할 수 있다(MAY).
+6. 미들웨어는 **온니언(onion) 모델**로 실행되어야 한다(MUST). 먼저 등록된 Extension의 미들웨어가 바깥 레이어(outermost)가 된다.
+7. 동일 종류 미들웨어의 실행 순서는 Extension 등록 순서에 의해 결정론적으로 재현 가능해야 한다(MUST).
+8. Extension 등록 순서는 Agent 리소스의 `extensions` 배열 순서를 따라야 한다(MUST).
+9. Extension은 entry 함수에서 `ExtensionApi.pipeline.register(type, handler)` 호출로 미들웨어를 등록해야 한다(MUST).
+10. 비표준 미들웨어는 표준 미들웨어(`turn`, `step`, `toolCall`)의 동작을 깨뜨리지 않아야 한다(MUST).
+
+---
+
+## 3. 미들웨어 타입
 
 Runtime은 다음 3종의 미들웨어를 제공해야 한다(MUST).
 
-### 2.1 `turn` 미들웨어
+### 3.1 `turn` 미들웨어
 
 Turn 전체를 감싸는 미들웨어이다. 하나의 입력 이벤트(`AgentEvent`)를 처리하는 Turn의 시작부터 종료까지를 래핑한다.
 
@@ -67,7 +88,7 @@ Turn 전체를 감싸는 미들웨어이다. 하나의 입력 이벤트(`AgentEv
 5. `next()`의 반환값 `TurnResult`를 변환하여 반환할 수 있다(MAY).
 6. `next()`를 반드시 한 번 호출해야 한다(MUST). 호출하지 않으면 이후 미들웨어와 코어 Turn 로직이 실행되지 않는다.
 
-### 2.2 `step` 미들웨어
+### 3.2 `step` 미들웨어
 
 Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서 각 Step이 실행될 때마다 호출된다.
 
@@ -105,7 +126,7 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 4. `next()` 호출 후 `StepResult`를 검사하여 재시도 여부를 판단할 수 있다(MAY). 재시도 시 `next()`를 다시 호출하는 것이 아니라, 미들웨어가 적절한 결과를 반환하거나 예외를 던져야 한다(SHOULD).
 5. `next()`를 반드시 한 번 호출해야 한다(MUST).
 
-### 2.3 `toolCall` 미들웨어
+### 3.3 `toolCall` 미들웨어
 
 개별 도구 호출을 감싸는 미들웨어이다. Step 내에서 LLM이 요청한 각 tool call에 대해 호출된다.
 
@@ -135,9 +156,9 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 
 ---
 
-## 3. 미들웨어 컨텍스트 인터페이스
+## 4. 미들웨어 컨텍스트 인터페이스
 
-### 3.1 TurnMiddlewareContext
+### 4.1 TurnMiddlewareContext
 
 ```typescript
 interface TurnMiddlewareContext {
@@ -164,7 +185,7 @@ interface TurnMiddlewareContext {
 }
 ```
 
-### 3.2 StepMiddlewareContext
+### 4.2 StepMiddlewareContext
 
 ```typescript
 interface StepMiddlewareContext {
@@ -191,7 +212,7 @@ interface StepMiddlewareContext {
 }
 ```
 
-### 3.3 ToolCallMiddlewareContext
+### 4.3 ToolCallMiddlewareContext
 
 ```typescript
 interface ToolCallMiddlewareContext {
@@ -212,7 +233,7 @@ interface ToolCallMiddlewareContext {
 }
 ```
 
-### 3.4 ConversationState
+### 4.4 ConversationState
 
 메시지 상태는 이벤트 소싱 모델(`NextMessages = BaseMessages + SUM(Events)`)로 관리된다.
 
@@ -239,8 +260,9 @@ interface ConversationState {
 3. `emitMessageEvent()`로 발행한 이벤트는 동일 Turn의 `SUM(Events)`에 포함되어야 한다(MUST).
 4. `conversationState.nextMessages`는 `baseMessages + SUM(events)`와 동일하게 유지해야 한다(MUST).
 5. `next()` 호출 전은 전처리(pre) 시점이고, `next()` 호출 후는 후처리(post) 시점이다(MUST).
+6. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고, `conversationState` + `emitMessageEvent`로 대체해야 한다(MUST).
 
-### 3.5 MessageEvent 타입
+### 4.5 MessageEvent 타입
 
 ```typescript
 type MessageEvent =
@@ -250,7 +272,7 @@ type MessageEvent =
   | { type: 'truncate' };
 ```
 
-### 3.6 Message 타입
+### 4.6 Message 타입
 
 ```typescript
 import type { CoreMessage } from 'ai';  // ai-sdk
@@ -280,7 +302,7 @@ type MessageSource =
   | { type: 'extension'; extensionName: string };
 ```
 
-### 3.7 결과 타입
+### 4.7 결과 타입
 
 ```typescript
 interface TurnResult {
@@ -327,9 +349,9 @@ interface ToolCallResult {
 
 ---
 
-## 4. 미들웨어 등록
+## 5. 미들웨어 등록
 
-### 4.1 PipelineRegistry 인터페이스
+### 5.1 PipelineRegistry 인터페이스
 
 Extension은 `ExtensionApi.pipeline.register()` 메서드를 통해 미들웨어를 등록한다.
 
@@ -358,7 +380,7 @@ interface MiddlewareOptions {
 4. 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있어야 한다(MUST).
 5. 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있어야 한다(MAY).
 
-### 4.2 등록 예시
+### 5.2 등록 예시
 
 ```typescript
 // extension entry point
@@ -401,9 +423,9 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 5. 실행 순서
+## 6. 실행 순서
 
-### 5.1 온니언(Onion) 모델
+### 6.1 온니언(Onion) 모델
 
 미들웨어는 **온니언 모델**로 실행된다. 먼저 등록된 Extension의 미들웨어가 바깥 레이어(outermost)가 된다.
 
@@ -428,7 +450,7 @@ Extension-A.turn (바깥)
 1. 미들웨어는 온니언 모델로 실행되어야 한다(MUST).
 2. 바깥 레이어의 pre가 먼저, post가 마지막에 실행되어야 한다(MUST).
 
-### 5.2 등록 순서와 우선순위
+### 6.2 등록 순서와 우선순위
 
 **규칙:**
 
@@ -465,7 +487,7 @@ api.pipeline.register('step', stepMiddlewareC, { priority: 10 });
 - 낮은 priority가 바깥 레이어
 - 동일 priority는 등록 순서 유지 (안정 정렬)
 
-### 5.3 중첩 실행 관계
+### 6.3 중첩 실행 관계
 
 Turn, Step, ToolCall 미들웨어는 중첩 관계로 실행된다.
 
@@ -487,17 +509,17 @@ Turn, Step, ToolCall 미들웨어는 중첩 관계로 실행된다.
 
 ---
 
-## 6. Turn 메시지 상태 계약
+## 7. Turn 메시지 상태 계약
 
 Turn 미들웨어는 다음 메시지 상태 계약을 준수해야 한다.
 
-### 6.1 이벤트 소싱 모델
+### 7.1 이벤트 소싱 모델
 
 ```text
 NextMessages = BaseMessages + SUM(Events)
 ```
 
-### 6.2 규칙
+### 7.2 규칙
 
 1. `turn` 미들웨어 진입 시(`next()` 호출 전) 컨텍스트의 `conversationState`에는 Turn 시작 기준 `baseMessages`가 포함되어야 한다(MUST).
 2. `turn` 미들웨어에서 `emitMessageEvent()`로 발행한 이벤트는 `conversationState.events`에 누적되어야 한다(MUST).
@@ -506,16 +528,16 @@ NextMessages = BaseMessages + SUM(Events)
 5. `turn` 미들웨어 체인에서 오류가 발생하면 복원을 위해 해당 Turn의 `events`를 유지해야 한다(SHOULD).
 6. Turn 종료 후: `events.jsonl`의 이벤트를 `base.jsonl`에 폴딩하고, `events.jsonl`을 클리어해야 한다(MUST).
 
-### 6.3 영속화
+### 7.3 영속화
 
 - `messages/base.jsonl` -- Turn 종료 시 확정된 Message 목록
 - `messages/events.jsonl` -- Turn 진행 중 누적된 MessageEvent 로그
 
 ---
 
-## 7. 구현 가이드
+## 8. 구현 가이드
 
-### 7.1 PipelineRegistry 구현 예시
+### 8.1 PipelineRegistry 구현 예시
 
 ```typescript
 class PipelineRegistryImpl {
@@ -621,7 +643,7 @@ interface MiddlewareEntry<T> {
 }
 ```
 
-### 7.2 AgentProcess Turn 실행 흐름
+### 8.2 AgentProcess Turn 실행 흐름
 
 ```typescript
 async function executeTurn(
@@ -714,9 +736,9 @@ async function executeStep(
 
 ---
 
-## 8. 활용 패턴
+## 9. 활용 패턴
 
-### 8.1 Compaction (Turn 미들웨어)
+### 9.1 Compaction (Turn 미들웨어)
 
 ```typescript
 api.pipeline.register('turn', async (ctx) => {
@@ -749,7 +771,7 @@ api.pipeline.register('turn', async (ctx) => {
 });
 ```
 
-### 8.2 로깅/관찰 (Step + ToolCall 미들웨어)
+### 9.2 로깅/관찰 (Step + ToolCall 미들웨어)
 
 ```typescript
 // Step 실행 시간 측정
@@ -780,7 +802,7 @@ api.pipeline.register('toolCall', async (ctx) => {
 });
 ```
 
-### 8.3 도구 필터링 (Step 미들웨어)
+### 9.3 도구 필터링 (Step 미들웨어)
 
 ```typescript
 api.pipeline.register('step', async (ctx) => {
@@ -799,7 +821,7 @@ api.pipeline.register('step', async (ctx) => {
 });
 ```
 
-### 8.4 입력 검증/변환 (ToolCall 미들웨어)
+### 9.4 입력 검증/변환 (ToolCall 미들웨어)
 
 ```typescript
 api.pipeline.register('toolCall', async (ctx) => {
@@ -819,7 +841,7 @@ api.pipeline.register('toolCall', async (ctx) => {
 });
 ```
 
-### 8.5 재시도 처리 (Step 미들웨어)
+### 9.5 재시도 처리 (Step 미들웨어)
 
 ```typescript
 api.pipeline.register('step', async (ctx) => {
@@ -842,7 +864,7 @@ api.pipeline.register('step', async (ctx) => {
 });
 ```
 
-### 8.6 Skill 주입 (Step 미들웨어)
+### 9.6 Skill 주입 (Step 미들웨어)
 
 ```typescript
 api.pipeline.register('step', async (ctx) => {
@@ -865,15 +887,15 @@ api.pipeline.register('step', async (ctx) => {
 
 ---
 
-## 9. 제거된 항목
+## 10. 제거된 항목
 
 v2에서 다음 항목은 **제거**된다.
 
-### 9.1 Mutator 타입
+### 10.1 Mutator 타입
 
 순차 실행으로 컨텍스트를 변형하는 Mutator 타입은 제거된다. 모든 훅은 `next()` 기반 Middleware 형태를 사용한다.
 
-### 9.2 13개 세분화 파이프라인 포인트
+### 10.2 13개 세분화 파이프라인 포인트
 
 다음 포인트들은 3종 미들웨어로 통합되어 제거된다:
 
@@ -893,11 +915,11 @@ v2에서 다음 항목은 **제거**된다.
 | `toolCall.exec` (Middleware) | `toolCall` 미들웨어의 `next()` 호출 | 도구 실행 래핑 |
 | `toolCall.post` (Mutator) | `toolCall` 미들웨어 `next()` 후 | 도구 호출 후처리 |
 
-### 9.3 Reconcile Identity 규칙
+### 10.3 Reconcile Identity 규칙
 
 Step 간 Effective Config 비교 및 identity key 기반 reconcile 알고리즘은 제거된다. v2에서는 Edit & Restart 모델로 설정 변경을 처리한다.
 
-### 9.4 Changeset 관련 파이프라인
+### 10.4 Changeset 관련 파이프라인
 
 Changeset 시스템이 제거되었으므로 관련 파이프라인 포인트도 모두 제거된다:
 - `SwarmBundleRef` 활성화
@@ -905,25 +927,25 @@ Changeset 시스템이 제거되었으므로 관련 파이프라인 포인트도
 - Safe Point (`turn.start`, `step.config`)
 - 충돌 감지, 원자적 커밋
 
-### 9.5 Stateful MCP 연결 유지 규칙
+### 10.5 Stateful MCP 연결 유지 규칙
 
 Reconcile과 연계된 MCP 연결 유지 규칙은 제거된다. MCP 연동은 Extension 내부에서 자체적으로 관리한다.
 
-### 9.6 Workspace 비표준 파이프라인
+### 10.6 Workspace 비표준 파이프라인
 
 `workspace.repoAvailable`, `workspace.worktreeMounted` 비표준 파이프라인 포인트는 제거된다. 필요 시 이벤트 버스(`api.events`)를 통해 구현한다.
 
-### 9.7 ContextBlock
+### 10.7 ContextBlock
 
 `ContextBlock` 타입은 제거된다. 컨텍스트 정보 주입은 `emitMessageEvent()`를 통한 시스템 메시지 추가로 대체한다.
 
-### 9.8 Agent Hooks
+### 10.8 Agent Hooks
 
 Agent 리소스의 `hooks` 필드는 제거된다. 모든 파이프라인 로직은 Extension 미들웨어를 통해 구현한다.
 
 ---
 
-## 10. 선택 포인트(비표준)
+## 11. 선택 포인트(비표준)
 
 구현체는 3종 표준 미들웨어 외에 추가 미들웨어 종류를 제공할 수 있다(MAY).
 
@@ -935,7 +957,7 @@ Agent 리소스의 `hooks` 필드는 제거된다. 모든 파이프라인 로직
 
 ---
 
-## 11. 실행 흐름 다이어그램
+## 12. 실행 흐름 다이어그램
 
 ```text
 [External Event via Connector / CLI / IPC]
@@ -1008,10 +1030,7 @@ Agent 리소스의 `hooks` 필드는 제거된다. 모든 파이프라인 로직
 
 ## 참조
 
-- @docs/requirements/11_lifecycle-pipelines.md - 라이프사이클 파이프라인 요구사항 (v2)
-- @docs/requirements/05_core-concepts.md - 핵심 개념 (v2)
-- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스 (v2)
-- @docs/requirements/14_usage-patterns.md - 활용 예시 패턴 (v2)
 - @docs/specs/api.md - Runtime/SDK API 스펙 (v2)
 - @docs/specs/extension.md - Extension 시스템 스펙 (v2)
+- @docs/architecture.md - 아키텍처 개요 (핵심 개념, 설계 패턴)
 - @docs/new_spec.md - Goondan v2 간소화 스펙 원본

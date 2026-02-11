@@ -1,6 +1,6 @@
 # Edit & Restart 스펙 v2.0
 
-> 기반 요구사항: `docs/requirements/09_runtime-model.md` §9.6
+> 상세 내용: `docs/specs/runtime.md` §Edit & Restart
 
 v2에서는 Changeset/SwarmBundleRef 시스템이 **Edit & Restart** 모델로 대체되었습니다.
 

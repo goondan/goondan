@@ -1354,7 +1354,7 @@ gdn validate --format json
   - `oauth.md` - OAuth 시스템
   - `changeset.md` - Changeset 시스템
   - `workspace.md` - Workspace 모델
-- **요구사항**: `docs/requirements/index.md`
+- **아키텍처**: `docs/architecture.md`
 - **패키지 소스**: `packages/core`, `packages/cli`, `packages/base`
 - **샘플**: `packages/sample/`
 

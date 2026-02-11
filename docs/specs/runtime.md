@@ -1,14 +1,26 @@
 # Goondan Runtime 실행 모델 스펙 (v2.0)
 
-본 문서는 `docs/requirements/09_runtime-model.md`, `docs/requirements/05_core-concepts.md`, `docs/new_spec.md`를 기반으로 Goondan v2 Runtime 실행 모델의 상세 구현 스펙을 정의한다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
+> 이 문서는 Goondan v2 Runtime의 유일한 source of truth이다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
 
 ---
 
 ## 1. 개요
 
-Goondan v2 Runtime은 **Process-per-Agent** 아키텍처를 채택한다. Orchestrator가 상주 프로세스로 Swarm 전체의 생명주기를 관리하고, 각 AgentInstance와 Connector는 독립 Bun 프로세스로 실행된다.
+### 1.1 배경 및 설계 동기
 
-### 1.1 계층 구조
+Goondan v2 Runtime은 **Process-per-Agent** 아키텍처를 채택한다. v1의 단일 프로세스 내 다중 AgentInstance 모델은 하나의 에이전트 크래시가 전체 Swarm에 영향을 주는 문제가 있었고, 에이전트별 독립적인 메모리 공간과 스케일링이 불가능했다.
+
+v2에서는 Orchestrator가 **상주 프로세스**로 전체 Swarm의 생명주기를 관리하고, 각 AgentInstance와 Connector는 **독립 Bun 프로세스**로 실행된다. 이를 통해:
+
+- **크래시 격리**: 개별 에이전트의 비정상 종료가 다른 에이전트에 영향을 주지 않는다.
+- **독립 스케일링**: 각 에이전트 프로세스가 독립적으로 자원을 사용하고 관리된다.
+- **단순한 재시작**: 설정 변경 시 영향받는 프로세스만 선택적으로 재시작할 수 있다.
+
+또한 v1의 Changeset/SwarmBundleRef 기반 자기 수정 패턴을 제거하고, **Edit & Restart** 모델로 단순화했다. `goondan.yaml`을 직접 수정하고 Orchestrator가 프로세스를 재시작하는 방식으로, 개발자 경험을 크게 개선한다.
+
+메시지 상태 관리는 **이벤트 소싱**을 유지한다. `NextMessages = BaseMessages + SUM(Events)` 규칙으로 메시지 상태를 결정론적으로 계산하며, 이는 복구, 관찰, Extension 기반 메시지 조작, Compaction을 가능하게 한다.
+
+### 1.2 계층 구조
 
 ```
 Orchestrator (상주 프로세스, gdn run으로 기동)
@@ -20,7 +32,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
       └── 자체 HTTP 서버/cron 스케줄러 등 프로토콜 직접 관리
 ```
 
-### 1.2 설계 원칙
+### 1.3 설계 원칙
 
 | 원칙 | 설명 |
 |------|------|
@@ -32,9 +44,77 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 
 ---
 
-## 2. 핵심 타입 정의
+## 2. 핵심 규칙
 
-### 2.1 공통 타입
+이 섹션은 Runtime 구현자가 반드시 따라야 할 규범적 규칙들을 요약한다.
+
+### 2.1 Orchestrator 규칙
+
+1. Orchestrator는 `goondan.yaml` 및 관련 리소스 파일을 파싱하여 Config Plane을 구성해야 한다(MUST).
+2. Orchestrator는 각 Agent 정의에 대해 AgentProcess를 스폰하고 감시해야 한다(MUST).
+3. Orchestrator는 각 Connector 정의에 대해 ConnectorProcess를 스폰하고 감시해야 한다(MUST).
+4. Orchestrator는 `instanceKey`를 기준으로 이벤트를 적절한 AgentProcess로 라우팅해야 한다(MUST).
+5. Orchestrator는 에이전트 간 IPC 메시지 브로커 역할을 수행해야 한다(MUST).
+6. Orchestrator는 설정 변경 감지 또는 외부 명령 수신 시 에이전트 프로세스를 재시작할 수 있어야 한다(MUST).
+7. Orchestrator는 모든 AgentProcess가 종료되어도 상주해야 하며, 새로운 이벤트 발생 시 필요한 AgentProcess를 다시 스폰해야 한다(MUST).
+8. Orchestrator가 종료될 때 모든 자식 프로세스(AgentProcess, ConnectorProcess)도 종료해야 한다(MUST).
+
+### 2.2 AgentProcess 규칙
+
+1. 각 AgentProcess는 독립된 메모리 공간에서 실행되어야 한다(MUST). 크래시 격리를 보장한다.
+2. AgentProcess는 Orchestrator와 IPC를 통해 통신해야 한다(MUST).
+3. AgentProcess는 독립적인 Turn/Step 루프를 실행해야 한다(MUST).
+4. AgentProcess의 이벤트 큐는 FIFO 순서로 직렬 처리되어야 한다(MUST).
+5. 같은 AgentProcess에 대해 Turn을 동시에 실행해서는 안 된다(MUST NOT).
+6. AgentProcess가 비정상 종료(크래시)되면 Orchestrator가 자동 재스폰할 수 있어야 한다(SHOULD).
+
+### 2.3 IPC 규칙
+
+1. IPC 메시지는 최소 `delegate`, `delegate_result`, `event`, `shutdown` 타입을 지원해야 한다(MUST).
+2. 모든 IPC 메시지는 `from`, `to`, `payload`를 포함해야 한다(MUST).
+3. `delegate`와 `delegate_result`는 `correlationId`를 포함하여 요청-응답을 매칭할 수 있어야 한다(MUST).
+4. IPC 메시지는 JSON 직렬화 가능해야 한다(MUST).
+5. 메시지 순서가 보장되어야 한다(MUST).
+
+### 2.4 Turn/Step 규칙
+
+1. Turn은 하나의 `AgentEvent`를 입력으로 받아야 한다(MUST).
+2. Turn은 하나 이상의 Step을 포함해야 한다(MUST).
+3. Turn은 `TurnResult`를 출력으로 생성해야 한다(MUST).
+4. Step은 LLM에 메시지를 전달하고 응답을 받는 단위여야 한다(MUST).
+5. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
+6. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
+7. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
+8. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+
+### 2.5 메시지 상태 규칙
+
+1. Turn의 LLM 입력 메시지는 `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산되어야 한다(MUST).
+2. Turn 진행 중 발생하는 메시지 변경은 직접 배열 수정이 아니라 `MessageEvent` 발행으로 기록해야 한다(MUST).
+3. 모든 Turn 미들웨어 종료 후 Runtime은 `BaseMessages + SUM(Events)`를 새 base로 저장해야 한다(MUST).
+4. 새 base 저장이 완료되면 적용된 `Events`를 비워야 한다(MUST).
+5. Runtime 재시작 시 미처리 `Events`가 남아 있으면 재계산해 Turn 상태를 복원해야 한다(MUST).
+6. `replace`/`remove` 대상 `targetId`가 존재하지 않는 경우 Runtime은 구조화된 경고 이벤트를 남겨야 한다(SHOULD).
+
+### 2.6 Observability 규칙
+
+1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
+2. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
+3. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`를 기록해야 한다(SHOULD).
+4. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
+
+### 2.7 Edit & Restart 규칙
+
+1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
+2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
+3. 재시작 시 Orchestrator는 해당 AgentProcess를 kill한 뒤 새 설정으로 re-spawn해야 한다(MUST).
+4. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
+
+---
+
+## 3. 핵심 타입 정의
+
+### 3.1 공통 타입
 
 ```typescript
 /**
@@ -76,11 +156,11 @@ type IdGenerator = () => string;
 
 ---
 
-## 3. Orchestrator (오케스트레이터 상주 프로세스)
+## 4. Orchestrator (오케스트레이터 상주 프로세스)
 
 Orchestrator는 `gdn run` 시 기동되는 **상주 프로세스**로, Swarm의 전체 생명주기를 관리한다.
 
-### 3.1 핵심 책임
+### 4.1 핵심 책임
 
 **규칙:**
 
@@ -93,7 +173,7 @@ Orchestrator는 `gdn run` 시 기동되는 **상주 프로세스**로, Swarm의 
 7. Orchestrator는 모든 AgentProcess가 종료되어도 상주해야 하며, 새로운 이벤트(Connector 수신, CLI 입력 등) 발생 시 필요한 AgentProcess를 다시 스폰해야 한다(MUST).
 8. Orchestrator가 종료될 때 모든 자식 프로세스(AgentProcess, ConnectorProcess)도 종료해야 한다(MUST).
 
-### 3.2 TypeScript 인터페이스
+### 4.2 TypeScript 인터페이스
 
 ```typescript
 interface Orchestrator {
@@ -143,7 +223,7 @@ interface AgentProcessHandle {
 }
 ```
 
-### 3.3 instanceKey 라우팅
+### 4.3 instanceKey 라우팅
 
 **규칙:**
 
@@ -151,7 +231,7 @@ interface AgentProcessHandle {
 2. 라우팅 대상 AgentProcess가 아직 존재하지 않으면 Orchestrator가 새로 스폰해야 한다(MUST).
 3. ConnectorEvent의 `instanceKey`와 Connection의 `ingress.rules`를 조합하여 대상 Agent와 인스턴스를 결정해야 한다(MUST).
 
-### 3.4 Canonical Event Flow
+### 4.4 Canonical Event Flow
 
 1. ConnectorProcess가 외부 프로토콜 이벤트를 수신하여 `ConnectorEvent`를 Orchestrator로 전달한다.
 2. Orchestrator는 Connection의 `ingress.rules`에 따라 대상 Agent를 결정한다.
@@ -169,11 +249,11 @@ ConnectorProcess ──[ConnectorEvent]──> Orchestrator
 
 ---
 
-## 4. AgentProcess (에이전트 프로세스)
+## 5. AgentProcess (에이전트 프로세스)
 
 각 AgentInstance는 **독립 Bun 프로세스**로 실행된다.
 
-### 4.1 프로세스 기동
+### 5.1 프로세스 기동
 
 ```bash
 bun run agent-runner.ts \
@@ -190,7 +270,7 @@ AgentProcess는 최소 다음 정보로 기동되어야 한다(MUST):
 | `--agent-name` | Agent 리소스 이름 |
 | `--instance-key` | 인스턴스 식별 키 |
 
-### 4.2 프로세스 특성
+### 5.2 프로세스 특성
 
 **규칙:**
 
@@ -200,7 +280,7 @@ AgentProcess는 최소 다음 정보로 기동되어야 한다(MUST):
 4. AgentProcess는 자신에게 할당된 Extension/Tool 코드를 자체 프로세스에서 로딩해야 한다(MUST).
 5. AgentProcess가 비정상 종료(크래시)되면 Orchestrator가 이를 감지하고 자동 재스폰할 수 있어야 한다(SHOULD).
 
-### 4.3 TypeScript 인터페이스
+### 5.3 TypeScript 인터페이스
 
 ```typescript
 interface AgentProcess {
@@ -224,7 +304,7 @@ interface AgentProcess {
 }
 ```
 
-### 4.4 이벤트 큐와 직렬 처리
+### 5.4 이벤트 큐와 직렬 처리
 
 **규칙:**
 
@@ -250,7 +330,7 @@ interface AgentEventQueue {
 }
 ```
 
-### 4.5 AgentEvent 타입
+### 5.5 AgentEvent 타입
 
 ```typescript
 /**
@@ -290,11 +370,11 @@ type AgentEventType =
 
 ---
 
-## 5. IPC (Inter-Process Communication)
+## 6. IPC (Inter-Process Communication)
 
 에이전트 간 통신은 Orchestrator를 경유하는 메시지 패싱 방식을 사용한다.
 
-### 5.1 IPC 메시지 타입
+### 6.1 IPC 메시지 타입
 
 ```typescript
 interface IpcMessage {
@@ -321,7 +401,7 @@ interface IpcMessage {
 2. 모든 IPC 메시지는 `from`(발신 Agent), `to`(수신 Agent), `payload`를 포함해야 한다(MUST).
 3. `delegate`와 `delegate_result`는 `correlationId`를 포함하여 요청-응답을 매칭할 수 있어야 한다(MUST).
 
-### 5.2 위임(Delegate) 흐름
+### 6.2 위임(Delegate) 흐름
 
 Handoff는 IPC를 통한 도구 호출 기반 비동기 패턴으로 제공한다.
 
@@ -346,7 +426,7 @@ Handoff는 IPC를 통한 도구 호출 기반 비동기 패턴으로 제공한�
 5. Handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다(SHOULD).
 6. Orchestrator는 위임 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
 
-### 5.3 IPC 전송 메커니즘
+### 6.3 IPC 전송 메커니즘
 
 v2에서는 Bun의 내장 IPC를 기본으로 사용한다.
 
@@ -371,11 +451,11 @@ proc.send({ type: 'event', from: 'orchestrator', to: 'coder', payload: {...} });
 
 ---
 
-## 6. Turn / Step
+## 7. Turn / Step
 
 Turn과 Step은 기존과 동일한 개념이나, **단일 AgentProcess 내에서** 실행된다.
 
-### 6.1 Turn
+### 7.1 Turn
 
 Turn은 하나의 입력 이벤트 처리 단위이다.
 
@@ -432,7 +512,7 @@ interface TurnResult {
 }
 ```
 
-### 6.2 Step
+### 7.2 Step
 
 Step은 단일 LLM 호출 단위이다.
 
@@ -469,7 +549,7 @@ interface Step {
 }
 ```
 
-### 6.3 Turn/Step 실행 루프 (의사 코드)
+### 7.3 Turn/Step 실행 루프 (의사 코드)
 
 ```typescript
 async function runTurn(event: AgentEvent, state: ConversationState): Promise<TurnResult> {
@@ -513,7 +593,7 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
 }
 ```
 
-### 6.4 Turn Origin/Auth 컨텍스트
+### 7.4 Turn Origin/Auth 컨텍스트
 
 **규칙:**
 
@@ -562,9 +642,9 @@ interface TurnAuth {
 
 ---
 
-## 7. Message
+## 8. Message
 
-### 7.1 핵심 타입
+### 8.1 핵심 타입
 
 모든 LLM 메시지는 AI SDK의 메시지 형식(`CoreMessage`)을 사용하되, `Message`로 감싸서 관리한다.
 
@@ -610,7 +690,7 @@ type MessageSource =
 3. `metadata`는 Extension/미들웨어가 읽고 쓸 수 있는 자유 형식 키-값 저장소여야 한다(MUST).
 4. `id`는 Turn 범위에서 고유해야 하며, `replace`/`remove` 이벤트의 참조 키로 사용되어야 한다(MUST).
 
-### 7.2 메시지 상태 모델 (이벤트 소싱)
+### 8.2 메시지 상태 모델 (이벤트 소싱)
 
 Turn의 LLM 입력 메시지는 다음 규칙으로 계산되어야 한다(MUST).
 
@@ -653,7 +733,7 @@ interface ConversationState {
 }
 ```
 
-### 7.3 MessageEvent 타입
+### 8.3 MessageEvent 타입
 
 **규칙:**
 
@@ -662,7 +742,7 @@ interface ConversationState {
 3. `remove`: `targetId`로 지정된 메시지를 제거한다(MUST).
 4. `truncate`: 모든 메시지를 제거한다(MUST).
 
-### 7.4 Turn 메시지 라이프사이클
+### 8.4 Turn 메시지 라이프사이클
 
 **규칙:**
 
@@ -674,7 +754,7 @@ interface ConversationState {
 6. 모든 Turn 미들웨어 종료 후 Runtime은 `BaseMessages + SUM(Events)`를 새 base로 저장해야 한다(MUST).
 7. 새 base 저장이 완료되면 적용된 `Events`를 비워야 한다(MUST).
 
-### 7.5 적용/복원 규칙
+### 8.5 적용/복원 규칙
 
 **규칙:**
 
@@ -682,14 +762,14 @@ interface ConversationState {
 2. `replace`/`remove` 대상 `targetId`가 존재하지 않는 경우 Runtime은 Turn 전체를 즉시 실패시키지 않고 구조화된 경고 이벤트를 남겨야 한다(SHOULD).
 3. Runtime 재시작 시 미처리 `Events`가 남아 있으면 `BaseMessages + SUM(Events)`를 재계산해 Turn 상태를 복원해야 한다(MUST).
 
-### 7.6 이벤트 소싱의 이점
+### 8.6 이벤트 소싱의 이점
 
 - **복구**: `base + events` 재생으로 정확한 상태 복원
 - **관찰**: 모든 메시지 변경이 이벤트로 추적됨
 - **Extension 조작**: 미들웨어에서 이벤트를 발행하여 메시지 조작 (직접 배열 변경 대신)
 - **Compaction**: 주기적으로 `events → base` 폴딩으로 정리
 
-### 7.7 영속화
+### 8.7 영속화
 
 - `messages/base.jsonl` — Turn 종료 시 확정된 Message 목록
 - `messages/events.jsonl` — Turn 진행 중 누적된 MessageEvent 로그
@@ -707,7 +787,7 @@ interface ConversationState {
 {"type":"append","message":{"id":"m4","data":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"2026-02-01T12:01:01Z","source":{"type":"assistant","stepId":"s2"}}}
 ```
 
-### 7.8 Middleware에서의 활용
+### 8.8 Middleware에서의 활용
 
 Extension은 미들웨어에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작한다.
 
@@ -744,11 +824,11 @@ api.pipeline.register('turn', async (ctx) => {
 
 ---
 
-## 8. Edit & Restart (설정 변경 모델)
+## 9. Edit & Restart (설정 변경 모델)
 
 v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart** 모델을 채택한다.
 
-### 8.1 제거된 항목
+### 9.1 제거된 항목
 
 다음 항목은 v2에서 **완전 제거**된다:
 
@@ -760,7 +840,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 - GC (garbage collection of instances — 이제 프로세스 수준)
 - In-memory 라우팅 (단일 프로세스 모델)
 
-### 8.2 Edit & Restart 동작 방식
+### 9.2 Edit & Restart 동작 방식
 
 ```
 1. goondan.yaml (또는 개별 리소스 파일) 수정
@@ -774,7 +854,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
 3. 재시작 시 Orchestrator는 해당 AgentProcess를 kill한 뒤 새 설정으로 re-spawn해야 한다(MUST).
 
-### 8.3 재시작 트리거
+### 9.3 재시작 트리거
 
 | 트리거 | 설명 |
 |--------|------|
@@ -782,7 +862,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 | CLI 명령 | `gdn restart`를 통해 실행 중인 Orchestrator에 재시작 신호 전송(MUST) |
 | 크래시 감지 | Orchestrator가 AgentProcess 비정상 종료 시 자동 재스폰(SHOULD) |
 
-### 8.4 재시작 옵션
+### 9.4 재시작 옵션
 
 ```typescript
 interface RestartOptions {
@@ -800,7 +880,7 @@ interface RestartOptions {
 2. `--fresh` 옵션으로 대화 히스토리를 초기화하고 재시작할 수 있어야 한다(MUST).
 3. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
 
-### 8.5 Watch 모드
+### 9.5 Watch 모드
 
 ```bash
 gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트 자동 restart
@@ -814,9 +894,9 @@ gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트
 
 ---
 
-## 9. 인스턴스 관리
+## 10. 인스턴스 관리
 
-### 9.1 인스턴스 운영
+### 10.1 인스턴스 운영
 
 v2에서는 pause/resume/terminate를 제거하고 restart로 통합한다.
 
@@ -827,7 +907,7 @@ v2에서는 pause/resume/terminate를 제거하고 restart로 통합한다.
 3. TTL/idle 기반 자동 정리는 정책으로 제공하는 것을 권장한다(SHOULD).
 4. CLI를 제공하는 구현은 위 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
-### 9.2 TypeScript 인터페이스
+### 10.2 TypeScript 인터페이스
 
 ```typescript
 interface InstanceManager {
@@ -864,9 +944,9 @@ interface InstanceInfo {
 
 ---
 
-## 10. Connector / Connection 연동
+## 11. Connector / Connection 연동
 
-### 10.1 ConnectorProcess
+### 11.1 ConnectorProcess
 
 Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러, WebSocket 등)을 **자체적으로** 관리한다.
 
@@ -907,7 +987,7 @@ interface ConnectorEventPayload {
 3. ConnectorProcess는 정규화된 `ConnectorEvent`를 `ctx.emit()`으로 Orchestrator에 전달해야 한다(MUST).
 4. ConnectorEvent는 `instanceKey`를 포함하여 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있게 해야 한다(MUST).
 
-### 10.2 Connector 핸들러 예시
+### 11.2 Connector 핸들러 예시
 
 ```typescript
 // connectors/telegram/index.ts
@@ -936,9 +1016,9 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 11. Observability
+## 12. Observability
 
-### 11.1 로깅
+### 12.1 로깅
 
 **규칙:**
 
@@ -948,7 +1028,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 4. 각 프로세스(Orchestrator, AgentProcess, ConnectorProcess)는 stdout/stderr로 구조화된 로그를 출력해야 한다(SHOULD).
 5. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
 
-### 11.2 프로세스별 로깅 모델
+### 12.2 프로세스별 로깅 모델
 
 v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 각 프로세스의 stdout/stderr를 활용한다.
 
@@ -958,7 +1038,7 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 2. Orchestrator는 자식 프로세스의 stdout/stderr을 수집하여 통합 로그 출력을 제공할 수 있어야 한다(MAY).
 3. 로그에는 프로세스 식별 정보(agentName, instanceKey 등)와 `traceId`를 포함해야 한다(SHOULD).
 
-### 11.3 구조화된 로그 형식 예시
+### 12.3 구조화된 로그 형식 예시
 
 ```json
 {"level":"info","timestamp":"2026-02-05T10:30:00Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.started","turnId":"turn-001"}
@@ -969,9 +1049,9 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 
 ---
 
-## 12. Tool 관련 타입
+## 13. Tool 관련 타입
 
-### 12.1 ToolCatalogItem
+### 13.1 ToolCatalogItem
 
 ```typescript
 interface ToolCatalogItem {
@@ -989,7 +1069,7 @@ interface ToolCatalogItem {
 }
 ```
 
-### 12.2 ToolCall / ToolResult
+### 13.2 ToolCall / ToolResult
 
 ```typescript
 interface ToolCall {
@@ -1025,7 +1105,7 @@ interface ToolResult {
 }
 ```
 
-### 12.3 ToolHandler / ToolContext
+### 13.3 ToolHandler / ToolContext
 
 ```typescript
 interface ToolHandler {
@@ -1055,7 +1135,9 @@ interface ToolContext {
 
 ---
 
-## 13. 규칙 요약
+## 14. 규칙 요약
+
+> 상세 규범적 규칙은 [2. 핵심 규칙](#2-핵심-규칙) 섹션을 참조한다. 이하는 빠른 참조용 요약이다.
 
 ### MUST 요구사항
 
@@ -1070,6 +1152,9 @@ interface ToolContext {
 9. Orchestrator 종료 시 모든 자식 프로세스도 종료해야 한다.
 10. 인스턴스 관리 연산(`list`, `delete`)을 제공해야 한다.
 11. 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다.
+12. Handoff는 표준 Tool API를 통해 요청되어야 한다.
+13. IPC 메시지는 JSON 직렬화 가능해야 하며, 메시지 순서가 보장되어야 한다.
+14. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다.
 
 ### SHOULD 권장사항
 
@@ -1078,12 +1163,15 @@ interface ToolContext {
 3. Turn/Step/ToolCall 메트릭을 구조화된 로그로 출력한다.
 4. TTL/idle 기반 인스턴스 자동 정리 정책을 제공한다.
 5. IPC 구현은 Bun의 내장 IPC를 사용한다.
+6. Handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다.
+7. `replace`/`remove` 대상 `targetId`가 존재하지 않으면 구조화된 경고 이벤트를 남겨야 한다.
 
 ### MAY 선택사항
 
 1. `Swarm.policy.maxStepsPerTurn` 적용.
 2. Orchestrator가 자식 프로세스 stdout/stderr을 통합 수집.
 3. Health check 인터페이스 제공.
+4. Handoff 시 추가 context 전달 필드 지원.
 
 ---
 
@@ -1105,8 +1193,6 @@ interface ToolContext {
 
 ## 부록 B. 관련 문서
 
-- `docs/requirements/05_core-concepts.md`: 핵심 개념 요구사항
-- `docs/requirements/09_runtime-model.md`: Runtime 실행 모델 요구사항
 - `docs/specs/workspace.md`: Workspace 및 Storage 모델 스펙
 - `docs/specs/cli.md`: CLI 도구(gdn) 스펙
 - `docs/specs/pipeline.md`: 라이프사이클 파이프라인(훅) 스펙
@@ -1114,6 +1200,8 @@ interface ToolContext {
 - `docs/specs/extension.md`: Extension 시스템 스펙
 - `docs/specs/connector.md`: Connector 시스템 스펙
 - `docs/specs/connection.md`: Connection 시스템 스펙
+- `docs/specs/api.md`: Runtime/SDK API 스펙
+- `docs/specs/bundle.md`: Bundle YAML 스펙
 
 ---
 

@@ -17,27 +17,26 @@
 
 ## 주요 파일 목록
 - GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
+- docs/architecture.md : 아키텍처 개요 문서 (시스템 설계 이해용 - 핵심 개념, 다이어그램, 설계 패턴, 시나리오, 기대 효과)
 - IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
-- docs/requirements/index.md : 요구사항 문서 메인 인덱스(요약/변경 이력/분할 문서 링크)
-- docs/requirements/*.md : 요구사항 분할 본문
 - .agents/skills/* : 저장소 로컬 에이전트 스킬 번들 (SKILL.md 기반 절차/스크립트/레퍼런스)
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
 ### 구현 스펙 문서 (docs/specs/)
-- docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
+- docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
 - docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API)
-- docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마)
-- docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안)
-- docs/specs/bundle_package.md : Package 스펙 v2.0 (프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, CLI 명령어)
-- docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
-- docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
+- docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, 검증 오류 형식)
+- docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 분할 파일 구성)
+- docs/specs/bundle_package.md : Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
+- docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
+- docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
 - docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, IPC Handoff, Bun-only)
-- docs/specs/extension.md : Extension 시스템 스펙 v2.0 (ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
+- docs/specs/extension.md : Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - docs/specs/connector.md : Connector 시스템 스펙 v2.0 (별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - docs/specs/connection.md : Connection 시스템 스펙 v2.0 (secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증)
 - docs/specs/oauth.md : OAuth 스펙 v2.0 (OAuthApp Kind 제거, Extension 내부 구현으로 이동)
 - docs/specs/changeset.md : Edit & Restart 리다이렉트 (v2에서 Changeset 시스템 제거, runtime.md 참조)
-- docs/specs/workspace.md : **[v2.0]** Workspace 및 Storage 모델 스펙 (2루트 분리: Project Root + System Root, Message 영속화, Extension state, 프로세스별 로깅)
+- docs/specs/workspace.md : **[v2.0]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
@@ -59,7 +58,7 @@
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것
-- 모든 요구사항은 docs/requirements/index.md(및 관련 docs/requirements/*.md), docs/specs/*.md 수정 필요 여부를 반드시 검토하고 기록할 것
+- 모든 요구사항은 docs/specs/*.md 및 docs/architecture.md 수정 필요 여부를 반드시 검토하고 기록할 것
 - 스펙 문서(docs/specs/*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것

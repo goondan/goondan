@@ -10,9 +10,22 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 
 - **Registry와 Catalog의 분리**: 실행 가능한 전체 도구 집합(Registry)과 LLM에 노출되는 도구 목록(Catalog)을 분리하여, Extension이 Step 단위로 도구 가시성을 제어할 수 있게 한다.
 - **더블 언더스코어 네이밍**: `{리소스명}__{export명}` 형식으로 리소스 경계를 명확히 하며, AI SDK에서 별도 인코딩 없이 사용 가능한 문자열을 구분자로 채택했다.
-- **Bun-native**: Tool 핸들러는 Bun으로 실행한다. 실행 환경 이질성을 줄이고 성능을 안정화한다.
+- **AgentProcess 내 실행**: Tool 호출은 AgentProcess(Bun) 내부에서 `spec.entry` JS 모듈을 로드하고 `handlers` 함수를 호출하는 방식으로 수행한다.
 - **통합 이벤트 기반 에이전트 간 통신**: Orchestrator 경유 IPC 통합 이벤트 모델을 사용하며, `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 제공한다.
 - **오류 전파 차단**: Tool 실행 오류는 예외로 전파하지 않고, 구조화된 `ToolCallResult`로 LLM에 전달하여 에이전트가 스스로 복구 전략을 수립할 수 있게 한다.
+
+### 1.2 Tool 실행 컨텍스트
+
+Tool 실행은 별도 Tool 프로세스를 만들지 않는다. AgentProcess가 Step 실행 중 Tool 핸들러 모듈을 로드하고 같은 프로세스에서 핸들러 함수를 호출한다.
+
+```
+LLM tool call
+   → AgentProcess(Bun)
+      → ToolRegistry lookup
+      → import(spec.entry) / handlers resolve
+      → handlers[exportName](ctx, input)   # same process call
+      → ToolCallResult
+```
 
 ---
 
@@ -68,10 +81,11 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 
 ### 2.7 리소스 스키마 규칙
 
-1. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다.
+1. `spec.entry`는 필수이며, AgentProcess(Bun)가 모듈을 로드할 수 있는 유효한 경로여야 한다(MUST).
 2. entry 모듈은 `handlers: Record<string, ToolHandler>` 형식으로 하위 도구 핸들러를 export해야 한다(MUST).
-3. `spec.exports`는 최소 1개 이상이어야 한다(MUST).
-4. `exports[].name`은 Tool 리소스 내에서 고유해야 한다(MUST).
+3. Tool 핸들러 호출은 AgentProcess 내부 함수 호출로 실행되어야 한다(MUST).
+4. `spec.exports`는 최소 1개 이상이어야 한다(MUST).
+5. `exports[].name`은 Tool 리소스 내에서 고유해야 한다(MUST).
 
 ---
 
@@ -129,7 +143,7 @@ metadata:
   labels:
     tier: base
 spec:
-  entry: "./tools/bash/index.ts"     # 필수: Bun으로 실행 (runtime 필드 없음)
+  entry: "./tools/bash/index.ts"     # 필수: AgentProcess(Bun)에서 모듈 로드
   errorMessageLimit: 1200            # 선택: 오류 메시지 최대 길이 (기본값: 1000)
 
   exports:
@@ -154,7 +168,7 @@ spec:
 
 ```typescript
 interface ToolSpec {
-  /** 핸들러 모듈 경로 (프로젝트 루트 기준). 항상 Bun으로 실행. */
+  /** 핸들러 모듈 경로 (프로젝트 루트 기준). AgentProcess(Bun)가 로드한다. */
   entry: string;
 
   /** Tool 오류 메시지 최대 길이 (기본값: 1000) */
@@ -328,13 +342,15 @@ LLM 응답에 tool_calls 포함
 ┌──────────────────────────────────┐
 │  toolCall 미들웨어 체인           │
 │    Extension.before (next 전)    │  ← 입력 검증/변환
-│      → CORE handler exec        │  ← 실제 핸들러 실행
+│      → CORE handler exec        │  ← AgentProcess 내부 JS 함수 호출
 │    Extension.after (next 후)     │  ← 결과 변환, 로깅
 └──────────────────────────────────┘
            │
            ▼
     ToolCallResult → MessageEvent(append) 발행
 ```
+
+핸들러 구현이 `Bun.spawn()` 등으로 외부 프로세스를 실행할 수는 있지만, 이는 Tool 내부 구현 선택이며 Tool 호출 경계는 여전히 AgentProcess 내부다.
 
 ### 8.2 ToolCall 구조
 

@@ -74,7 +74,7 @@
 - Specs 참조 안정성: 섹션 번호(`§n`) 대신 섹션명/앵커 중심 참조 권장 (문서 재구성 시 링크 드리프트 최소화)
 - Pipeline: Middleware 3종(turn/step/toolCall) 기반 실행
 - Message: AI SDK CoreMessage 래퍼 (`Message.data`), MessageEvent 이벤트 소싱
-- Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), Bun 고정 실행
+- Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), AgentProcess(Bun) 내부 모듈 로드/핸들러 실행
 - Connector: 자체 프로세스로 프로토콜 직접 관리 (`entry` + `events`)
 - Workspace: 2루트 (Project Root + `~/.goondan/`)
 - Config: apiVersion `goondan.ai/v1`, 8종 Kind (Model/Agent/Swarm/Tool/Extension/Connector/Connection/Package)

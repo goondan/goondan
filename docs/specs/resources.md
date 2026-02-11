@@ -453,7 +453,7 @@ spec:
 
 ### 8.2 Tool
 
-Tool은 LLM이 호출할 수 있는 함수를 정의한다. 모든 Tool은 Bun으로 실행된다 (`runtime` 필드 없음).
+Tool은 LLM이 호출할 수 있는 함수를 정의한다. Tool 호출은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수 호출로 실행된다.
 
 #### TypeScript 인터페이스
 
@@ -518,6 +518,7 @@ spec:
 #### Tool Handler 구현 형식
 
 entry 모듈은 `handlers: Record<string, ToolHandler>` 형식으로 하위 도구 핸들러를 export해야 한다 (MUST).
+AgentProcess는 해당 모듈을 로드하고 같은 프로세스에서 핸들러를 호출해야 한다 (MUST).
 
 ```typescript
 export const handlers: Record<string, ToolHandler> = {
@@ -563,10 +564,10 @@ LLM 도구 이름:  file-system__read,  file-system__write
 | `exports[].parameters` | MUST | object | 유효한 JSON Schema |
 
 **추가 검증 규칙:**
-- `runtime` 필드는 존재하지 않는다. 항상 Bun으로 실행한다.
+- Tool 실행 환경은 AgentProcess(Bun)여야 한다.
 - `exports[].name`은 Tool 리소스 내에서 고유해야 한다 (MUST).
 - Tool 리소스 이름과 export name에는 `__`가 포함되어서는 안 된다 (MUST NOT).
-- `auth` 필드는 지원하지 않는다. OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
+- OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
 
 ---
 

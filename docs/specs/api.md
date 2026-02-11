@@ -113,6 +113,7 @@ export function register(api: ExtensionApi): void {
 ## 3. ToolHandler API
 
 Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이다.
+Tool 핸들러는 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 같은 프로세스의 JS 함수 호출로 실행한다.
 
 ### 3.1 Tool 모듈 구조
 
@@ -180,7 +181,7 @@ metadata:
   labels:
     tier: base
 spec:
-  entry: "./tools/bash/index.ts"      # Bun으로 실행
+  entry: "./tools/bash/index.ts"      # AgentProcess(Bun)에서 모듈 로드
   exports:
     - name: exec
       description: "셸 명령 실행"

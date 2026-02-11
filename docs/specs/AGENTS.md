@@ -16,7 +16,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `extension.md` - Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - `oauth.md` - OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - `pipeline.md` - 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
-- `tool.md` - Tool 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, Bun-only)
+- `tool.md` - Tool 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델)
 - `workspace.md` - **[v2.0]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
 - `cli.md` - **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
 
@@ -39,7 +39,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 4. **메시지 모델 정합성**: Runtime/Workspace/Pipeline/Extension/API 스펙에서 Turn 메시지 처리 규칙은 `NextMessages = BaseMessages + SUM(Events)` 및 `messages/base.jsonl`/`messages/events.jsonl` 구조와 일치해야 합니다.
 5. **v2 핵심 변경 사항**:
    - `apiVersion`: `goondan.ai/v1`
-   - 실행 환경: Bun
+   - 실행 환경: Bun (Tool은 AgentProcess 내부 모듈 로드/핸들러 실행)
    - Tool 이름: `__` 더블 언더스코어 구분자 (`{리소스명}__{export명}`)
    - Runtime Process 상태: `ProcessStatus` 7종(`spawning`, `idle`, `processing`, `draining`, `terminated`, `crashed`, `crashLoopBackOff`)
    - IPC: `event`/`shutdown`/`shutdown_ack` 3종 + `AgentEvent.replyTo` 기반 통합 이벤트 모델
@@ -61,7 +61,6 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 ## 관련 문서
 
 - `/docs/architecture.md` - 아키텍처 개요 (핵심 개념, 다이어그램, 설계 패턴)
-- `/docs/new_spec.md` - v2 통합 스펙 원본
 - `/docs/specs/help.md` - 스펙 운영 도움말 SSOT
 - `/GUIDE.md` - 개발자 가이드
 - `/CLAUDE.md` - 프로젝트 개요 및 작업 규칙

@@ -90,8 +90,9 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 4. Step은 LLM에 메시지를 전달하고 응답을 받는 단위여야 한다(MUST).
 5. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
 6. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
-7. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
-8. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+7. Tool 실행은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수를 호출하는 방식이어야 한다(MUST).
+8. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
+9. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
 
 ### 2.5 메시지 상태 규칙
 
@@ -620,7 +621,8 @@ Step은 단일 LLM 호출 단위이다.
 2. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
 3. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
 4. Step은 Tool Catalog를 구성하여 LLM에 사용 가능한 도구 목록을 전달해야 한다(MUST).
-5. Step은 `llm_call`, `tool_exec`, `completed` 상태를 가져야 한다(MUST).
+5. Step은 Tool 핸들러를 AgentProcess 내부에서 호출해야 한다(MUST).
+6. Step은 `llm_call`, `tool_exec`, `completed` 상태를 가져야 한다(MUST).
 
 ```typescript
 interface Step {

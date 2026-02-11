@@ -4,12 +4,12 @@
 
 ### 1.1 배경 및 설계 철학
 
-Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통해 에이전트는 외부 API 호출, 파일 수정, 에이전트 간 위임(delegate) 같은 실제 작업을 수행한다. Tool 시스템은 다음 원칙에 따라 설계되었다:
+Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통해 에이전트는 외부 API 호출, 파일 수정, 에이전트 간 통신 같은 실제 작업을 수행한다. Tool 시스템은 다음 원칙에 따라 설계되었다:
 
 - **Registry와 Catalog의 분리**: 실행 가능한 전체 도구 집합(Registry)과 LLM에 노출되는 도구 목록(Catalog)을 분리하여, Extension이 Step 단위로 도구 가시성을 제어할 수 있게 한다.
 - **더블 언더스코어 네이밍**: `{리소스명}__{export명}` 형식으로 리소스 경계를 명확히 하며, AI SDK에서 별도 인코딩 없이 사용 가능한 문자열을 구분자로 채택했다.
 - **Bun-native**: v2에서 `runtime` 필드를 제거하고, 모든 Tool 핸들러를 Bun으로 실행한다. Node.js 호환 오버헤드를 제거하고 성능을 극대화한다.
-- **IPC 기반 Handoff**: v1의 인메모리 delegate를 Orchestrator 경유 IPC로 전환하여, Process-per-Agent 아키텍처에서도 안정적인 에이전트 간 제어 이전을 보장한다.
+- **통합 이벤트 기반 에이전트 간 통신**: v1의 인메모리 delegate를 Orchestrator 경유 IPC 통합 이벤트 모델로 전환. `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 제공한다.
 - **오류 전파 차단**: Tool 실행 오류는 예외로 전파하지 않고, 구조화된 ToolResult로 LLM에 전달하여 에이전트가 스스로 복구 전략을 수립할 수 있게 한다.
 
 ### 1.2 v2 주요 변경
@@ -22,7 +22,7 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 | ToolContext | `instance`, `swarm`, `agent`, `oauth`, `swarmBundle` 포함 | `agentName`, `instanceKey`, `turnId`, `toolCallId`, `message`, `workdir`, `logger` |
 | apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
 | 파이프라인 | `toolCall.pre` / `toolCall.exec` / `toolCall.post` (Mutator + Middleware) | `toolCall` 미들웨어 단일 통합 |
-| Handoff | 인메모리 delegate | IPC (Orchestrator 경유) |
+| Handoff | 인메모리 delegate | 통합 이벤트 모델 (IPC, Orchestrator 경유) |
 
 ---
 
@@ -66,14 +66,15 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
 4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
 
-### 2.6 Handoff 규칙
+### 2.6 에이전트 간 통신 규칙
 
-1. handoff 요청은 대상 agent 이름과 입력 payload를 포함해야 한다(MUST).
-2. handoff는 비동기 제출 모델을 지원해야 한다(SHOULD).
-3. 원래 Agent의 Turn/Trace 컨텍스트는 `correlationId`를 통해 추적 가능해야 한다(MUST).
-4. handoff 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
-5. 기본 handoff 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
-6. Orchestrator는 delegate 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+1. 에이전트 간 통신은 통합 이벤트 모델(`AgentEvent` + `replyTo`)을 사용해야 한다(MUST). (`runtime.md` §5.5 참조)
+2. `request`(응답 대기) 패턴은 `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭해야 한다(MUST).
+3. `send`(fire-and-forget) 패턴은 `AgentEvent.replyTo`를 생략해야 한다(MUST).
+4. 원래 Agent의 Turn/Trace 컨텍스트는 `replyTo.correlationId`를 통해 추적 가능해야 한다(MUST).
+5. 통신 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
+6. 기본 에이전트 간 통신 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
+7. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
 
 ### 2.7 리소스 스키마 규칙
 
@@ -528,42 +529,59 @@ function truncateErrorMessage(message: string, limit: number): string {
 
 ---
 
-## 11. Handoff 도구 패턴
+## 11. 에이전트 간 통신 도구 패턴
 
-Agent 간 제어 이전(Handoff)을 Tool call로 구현하며, Orchestrator를 경유하는 IPC로 통신한다.
+Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 지원한다.
 
-### 11.1 Handoff 흐름
+> 통합 이벤트 모델 상세는 `runtime.md` §5.5, IPC 규격은 `runtime.md` §6.1을 참조한다.
+
+### 11.1 통신 패턴
+
+#### request (응답 대기)
 
 ```
-1. Agent A가 handoff 도구를 호출
-2. AgentProcess A → Orchestrator: { type: 'delegate', to: 'AgentB', payload: {...} }
+1. Agent A가 agents__request 도구를 호출 (target: 'AgentB', input: '...')
+2. AgentProcess A → Orchestrator: IPC { type: 'event', payload: AgentEvent(replyTo 포함) }
 3. Orchestrator → AgentProcess B로 라우팅 (필요시 스폰)
-4. AgentProcess B 처리 후 → Orchestrator: { type: 'delegate_result', to: 'AgentA', ... }
-5. Orchestrator → AgentProcess A에 결과 전달
+4. AgentProcess B의 Turn 완료 → Orchestrator: IPC { type: 'event', payload: 응답 AgentEvent }
+5. Orchestrator → AgentProcess A에 결과 전달 (correlationId로 매칭)
+```
+
+#### send (fire-and-forget)
+
+```
+1. Agent A가 agents__send 도구를 호출 (target: 'AgentB', input: '...')
+2. AgentProcess A → Orchestrator: IPC { type: 'event', payload: AgentEvent(replyTo 없음) }
+3. Orchestrator → AgentProcess B로 라우팅 (필요시 스폰)
+4. Tool은 즉시 { status: 'ok', output: { sent: true } }를 반환
 ```
 
 ### 11.2 IPC 메시지 형식
 
+통합 이벤트 모델에서 IPC는 3종(`event`, `shutdown`, `shutdown_ack`)이다. 에이전트 간 통신은 모두 `event` 타입을 사용한다.
+
 ```typescript
 interface IpcMessage {
-  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
-  from: string;          // agentName
-  to: string;            // agentName
+  type: 'event' | 'shutdown' | 'shutdown_ack';
+  from: string;   // agentName 또는 'orchestrator'
+  to: string;     // agentName 또는 'orchestrator'
   payload: JsonValue;
-  correlationId?: string;
 }
+
+// type: 'event' → payload는 AgentEvent 구조
+// AgentEvent.replyTo가 있으면 request, 없으면 send/fire-and-forget
 ```
 
-### 11.3 Handoff 규칙
+### 11.3 에이전트 간 통신 규칙
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
-| 대상+입력 포함 | MUST | handoff 요청은 대상 agent 이름과 입력 payload를 포함해야 한다 |
-| 비동기 제출 | SHOULD | 비동기 제출 모델을 지원하는 것이 권장된다 |
-| correlationId 추적 | MUST | 원래 Agent의 Turn/Trace 컨텍스트는 `correlationId`를 통해 추적 가능해야 한다 |
-| 실패 시 에러 반환 | MUST | handoff 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다 |
-| 기본 구현체 | SHOULD | 기본 handoff 구현체를 `packages/base`에 제공하는 것이 권장된다 |
-| 자동 스폰 | MUST | Orchestrator는 delegate 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다 |
+| 통합 이벤트 모델 | MUST | 에이전트 간 통신은 `AgentEvent` + `replyTo` 패턴을 사용해야 한다 |
+| request 패턴 | MUST | 요청-응답 통신은 `replyTo`를 설정하고, `correlationId`로 매칭해야 한다 |
+| send 패턴 | MUST | fire-and-forget 통신은 `replyTo`를 생략해야 한다 |
+| 실패 시 에러 반환 | MUST | 통신 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다 |
+| 기본 구현체 | SHOULD | 기본 에이전트 간 통신 구현체를 `packages/base`에 제공하는 것이 권장된다 |
+| 자동 스폰 | MUST | Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다 |
 
 ---
 
@@ -875,7 +893,7 @@ interface ToolResult {
 
 - `docs/architecture.md`: 아키텍처 개요 (핵심 개념, 설계 패턴)
 - `docs/specs/extension.md`: Extension 시스템 (동적 도구 등록, 미들웨어)
-- `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess)
+- `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess, 통합 이벤트 모델 §5.5, IPC §6)
 - `docs/specs/resources.md`: Config Plane 리소스 정의 (Tool 리소스 스키마)
 
 ---

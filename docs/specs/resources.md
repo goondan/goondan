@@ -950,6 +950,8 @@ interface SwarmPolicy {
   maxStepsPerTurn?: number;
   /** 인스턴스 라이프사이클 정책 */
   lifecycle?: SwarmLifecyclePolicy;
+  /** Graceful Shutdown 정책 */
+  shutdown?: SwarmShutdownPolicy;
 }
 
 /**
@@ -960,6 +962,14 @@ interface SwarmLifecyclePolicy {
   ttlSeconds?: number;
   /** GC 유예 기간 (초) */
   gcGraceSeconds?: number;
+}
+
+/**
+ * Graceful Shutdown 정책
+ */
+interface SwarmShutdownPolicy {
+  /** 유예 기간 (초). 기본값: 300 */
+  gracePeriodSeconds?: number;
 }
 
 type SwarmResource = Resource<SwarmSpec>;
@@ -982,6 +992,8 @@ spec:
     lifecycle:
       ttlSeconds: 604800
       gcGraceSeconds: 86400
+    shutdown:
+      gracePeriodSeconds: 300
 ```
 
 #### Validation 규칙
@@ -993,6 +1005,7 @@ spec:
 | `policy.maxStepsPerTurn` | MAY | number | 양의 정수, 기본값 32 |
 | `policy.lifecycle.ttlSeconds` | MAY | number | 양의 정수 (초) |
 | `policy.lifecycle.gcGraceSeconds` | MAY | number | 양의 정수 (초) |
+| `policy.shutdown.gracePeriodSeconds` | MAY | number | 양의 정수 (초), 기본값 300 |
 
 **추가 검증 규칙:**
 - `entryAgent`는 `agents` 배열에 포함된 Agent를 참조해야 한다 (MUST).

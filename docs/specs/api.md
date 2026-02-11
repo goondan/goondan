@@ -150,17 +150,44 @@ interface Step {
   status: 'llm_call' | 'tool_exec' | 'completed';
 }
 
+/**
+ * AgentEvent: AgentProcess로 전달되는 모든 입력의 단일 타입.
+ * delegate, connector.event, user.input을 통합한다. (runtime.md §5.5 참조)
+ */
 interface AgentEvent {
-  /** 이벤트 타입 */
-  type: 'user_message' | 'delegate' | 'connector_event';
-  /** 메시지 내용 */
-  message?: { type: 'text'; text: string };
-  /** 이벤트 속성 */
-  properties?: JsonObject;
-  /** 인스턴스 키 */
-  instanceKey?: string;
-  /** 메타데이터 */
-  metadata?: Record<string, JsonValue>;
+  /** 이벤트 ID */
+  readonly id: string;
+  /** 이벤트 타입 (자유 문자열, 라우팅/필터링용) */
+  readonly type: string;
+  /** 입력 텍스트 */
+  readonly input?: string;
+  /** 이벤트 출처 */
+  readonly source: EventSource;
+  /** 인증 컨텍스트 */
+  readonly auth?: TurnAuth;
+  /** 이벤트 메타데이터 */
+  readonly metadata?: JsonObject;
+  /**
+   * 응답 채널. 존재하면 발신자가 응답을 기대한다.
+   * - 있으면: 에이전트 간 request (이전의 delegate)
+   * - 없으면: fire-and-forget (Connector 이벤트, 단방향 알림 등)
+   */
+  readonly replyTo?: ReplyChannel;
+  /** 이벤트 생성 시각 */
+  readonly createdAt: Date;
+}
+
+/** 이벤트 출처. 이전의 TurnOrigin을 대체한다. */
+interface EventSource {
+  readonly kind: 'agent' | 'connector';
+  readonly name: string;
+  readonly [key: string]: JsonValue | undefined;
+}
+
+/** 응답 채널. 발신자가 응답을 기대할 때 설정된다. */
+interface ReplyChannel {
+  readonly target: string;
+  readonly correlationId: string;
 }
 
 interface ToolCall {
@@ -323,6 +350,9 @@ interface ToolContext {
   /** 이 도구 호출을 트리거한 메시지 */
   readonly message: Message;
 
+  /** 인스턴스별 작업 디렉터리 */
+  readonly workdir: string;
+
   /** 로거 */
   readonly logger: Console;
 }
@@ -340,8 +370,7 @@ interface ToolContext {
 | `liveConfig` (Config 패치) | Edit & Restart 모델로 대체 |
 | `oauth` (OAuth API) | OAuthApp Kind 제거 |
 | `events` (EventBus) | ToolHandler는 이벤트 발행 불필요 |
-| `workdir` | 도구 자체적으로 관리 (필요시 `instanceKey` 기반 경로 계산) |
-| `agents` (ToolAgentsApi) | IPC 기반 delegate로 대체 (Orchestrator 경유) |
+| `agents` (ToolAgentsApi) | 통합 이벤트 모델로 대체 (`AgentEvent` + `replyTo`, IPC Orchestrator 경유) |
 
 ### 3.3 ToolCatalogItem
 
@@ -695,8 +724,17 @@ interface AgentProcessHandle {
   readonly agentName: string;
   readonly instanceKey: string;
   readonly pid: number;
-  readonly status: 'idle' | 'processing' | 'terminated';
+  readonly status: ProcessStatus;
 }
+
+type ProcessStatus =
+  | 'spawning'
+  | 'idle'
+  | 'processing'
+  | 'draining'
+  | 'terminated'
+  | 'crashed'
+  | 'crashLoopBackOff';
 ```
 
 ### 6.2 책임
@@ -705,7 +743,7 @@ interface AgentProcessHandle {
 - AgentProcess 스폰/감시/재시작
 - Connector 프로세스 스폰/감시
 - 인스턴스 라우팅 (`instanceKey` -> AgentProcess 매핑)
-- IPC 메시지 브로커 (에이전트 간 delegate/handoff)
+- IPC 메시지 브로커 (통합 이벤트 기반 에이전트 간 통신)
 - 설정 변경 감지 및 에이전트 프로세스 재시작 (watch 모드)
 
 ### 6.3 재시작 옵션
@@ -737,7 +775,7 @@ interface AgentProcess {
   processTurn(event: AgentEvent): Promise<TurnResult>;
 
   /** 상태 */
-  readonly status: 'idle' | 'processing' | 'terminated';
+  readonly status: ProcessStatus;
 
   /** 대화 히스토리 */
   readonly conversationHistory: Message[];
@@ -765,9 +803,17 @@ bun run agent-runner.ts \
 
 ```typescript
 interface TurnResult {
-  status: 'completed' | 'failed';
-  response?: Message;
-  metadata: Record<string, JsonValue>;
+  /** Turn ID */
+  readonly turnId: string;
+  /** 최종 응답 메시지 */
+  readonly responseMessage?: Message;
+  /** Turn 종료 사유 */
+  readonly finishReason: 'text_response' | 'max_steps' | 'error';
+  /** 오류 정보 (실패 시) */
+  readonly error?: {
+    message: string;
+    code?: string;
+  };
 }
 ```
 
@@ -782,31 +828,47 @@ interface TurnResult {
 ```typescript
 interface IpcMessage {
   /** 메시지 타입 */
-  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
-  /** 발신 에이전트 */
+  type: 'event' | 'shutdown' | 'shutdown_ack';
+  /** 발신자 (에이전트 이름 또는 'orchestrator') */
   from: string;
-  /** 수신 에이전트 */
+  /** 수신자 (에이전트 이름 또는 'orchestrator') */
   to: string;
   /** 메시지 페이로드 */
   payload: JsonValue;
-  /** 요청-응답 연결용 ID */
-  correlationId?: string;
 }
+
+// type: 'event'        → payload: AgentEvent
+// type: 'shutdown'     → payload: { gracePeriodMs: number, reason: ShutdownReason }
+// type: 'shutdown_ack' → payload: { status: 'drained' }
+
+type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
 ```
 
-### 8.2 위임(Delegate) 흐름
+### 8.2 통합 이벤트 흐름
 
-1. AgentA -> Orchestrator: `{ type: 'delegate', to: 'AgentB', payload: {...} }`
-2. Orchestrator -> AgentB 프로세스로 라우팅 (필요시 스폰)
-3. AgentB 처리 후 -> Orchestrator: `{ type: 'delegate_result', to: 'AgentA', ... }`
-4. Orchestrator -> AgentA로 결과 전달
+모든 에이전트 입력(Connector 이벤트, 에이전트 간 요청, CLI 입력)은 `AgentEvent`로 통합된다. (상세는 `runtime.md` §6.2 참조)
+
+#### request (응답 대기)
+
+1. AgentA → Orchestrator: `{ type: 'event', payload: AgentEvent(replyTo: { target: 'AgentA', correlationId }) }`
+2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
+3. AgentB Turn 완료 → Orchestrator: `{ type: 'event', payload: 응답 AgentEvent }`
+4. Orchestrator → AgentA로 결과 전달 (correlationId로 매칭)
+
+#### send (fire-and-forget)
+
+1. AgentA → Orchestrator: `{ type: 'event', payload: AgentEvent(replyTo 없음) }`
+2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
 
 **규칙:**
 
-1. 위임 요청은 Orchestrator가 수신하여 대상 AgentProcess로 라우팅해야 한다(MUST).
-2. 대상 프로세스가 없으면 Orchestrator가 자동 스폰해야 한다(MUST).
-3. 위임 결과는 `correlationId`를 통해 원래 요청자에게 반환되어야 한다(MUST).
-4. IPC 메시지 타입은 최소 `delegate`, `delegate_result`, `event`, `shutdown`을 포함해야 한다(MUST).
+1. IPC 메시지는 `event`, `shutdown`, `shutdown_ack` 3종을 지원해야 한다(MUST).
+2. 모든 IPC 메시지는 `from`, `to`, `payload`를 포함해야 한다(MUST).
+3. `event` 타입의 `payload`는 `AgentEvent` 구조를 따라야 한다(MUST).
+4. 에이전트 간 요청-응답은 `AgentEvent.replyTo.correlationId`로 매칭해야 한다(MUST).
+5. 대상 프로세스가 없으면 Orchestrator가 자동 스폰해야 한다(MUST).
+6. `shutdown` 메시지의 `payload`는 `gracePeriodMs`와 `reason`을 포함해야 한다(MUST).
+7. `shutdown_ack` 메시지는 AgentProcess가 drain 완료 후 Orchestrator에 전송해야 한다(MUST).
 
 ---
 
@@ -905,7 +967,7 @@ v2에서 다음 API는 **제거**된다.
 | **SwarmBundleApi** (`openChangeset`, `commitChangeset`, `getActiveRef`) | Changeset 시스템 제거. Edit & Restart 모델로 대체 |
 | **LiveConfigApi** (`proposePatch`, `getEffectiveConfig`) | 동적 Config 변경은 Edit & Restart로 대체 |
 | **ChangesetPolicy** 검증 | Changeset 시스템 제거 |
-| **ToolAgentsApi** (`delegate`, `listInstances`, `spawnInstance`, `delegateToInstance`, `destroyInstance`) | IPC 기반 delegate로 대체 (Orchestrator 경유) |
+| **ToolAgentsApi** (`delegate`, `listInstances`, `spawnInstance`, `delegateToInstance`, `destroyInstance`) | 통합 이벤트 모델로 대체 (`AgentEvent` + `replyTo`, IPC Orchestrator 경유) |
 | **EffectiveConfig** 구조 | Edit & Restart에서 불필요 |
 | **Reconcile** 알고리즘 | Edit & Restart에서 불필요 |
 | 복잡한 **Lifecycle** API (`pause`, `resume`, `terminate`) | `restart`로 통합 |

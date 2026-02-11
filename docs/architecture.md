@@ -33,7 +33,7 @@ Goondan v2는 세 개의 핵심 축으로 구성된다.
 
 - `goondan.yaml` 파싱 및 리소스 로딩
 - AgentProcess와 ConnectorProcess의 스폰, 감시, 재시작
-- IPC 메시지 브로커: 에이전트 간 위임(delegate/handoff) 라우팅
+- IPC 메시지 브로커: 통합 이벤트(`AgentEvent`) 기반 에이전트 간 라우팅
 - 설정 변경 감지 (`--watch` 모드)
 
 Orchestrator는 에이전트가 모두 종료되어도 상주하며, 새로운 이벤트(Connector 수신, CLI 입력 등)가 오면 필요한 AgentProcess를 다시 스폰한다.
@@ -53,11 +53,12 @@ Connector는 외부 채널 이벤트를 canonical `ConnectorEvent`로 정규화�
 
 ### 1.5 IPC (Inter-Process Communication)
 
-에이전트 간 통신은 Orchestrator를 경유하는 메시지 패싱으로 이루어진다.
+에이전트 간 통신은 통합 이벤트 모델(`AgentEvent`)을 사용하며, Orchestrator를 경유하는 메시지 패싱으로 이루어진다.
 
-- 위임(delegate) 요청은 Orchestrator가 수신하여 대상 AgentProcess로 라우팅한다. 대상 프로세스가 없으면 Orchestrator가 스폰한다.
-- 위임 결과는 `correlationId`를 통해 원래 요청자에게 반환된다.
-- IPC 메시지 타입: `delegate`, `delegate_result`, `event`, `shutdown`
+- 모든 에이전트 입력(Connector 이벤트, 에이전트 간 요청, CLI 입력)은 `AgentEvent`로 통합된다.
+- `AgentEvent.replyTo`가 있으면 request(응답 대기), 없으면 send(fire-and-forget) 패턴이다.
+- 요청-응답은 `replyTo.correlationId`를 통해 원래 요청자에게 반환된다.
+- IPC 메시지 타입: `event`, `shutdown`, `shutdown_ack`
 
 ### 1.6 Message와 이벤트 소싱
 
@@ -129,7 +130,7 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
                     │                                             │
                     │  - goondan.yaml 파싱/리소스 로딩             │
                     │  - 프로세스 스폰/감시/재시작                  │
-                    │  - IPC 메시지 브로커 (delegate/handoff)       │
+                    │  - IPC 메시지 브로커 (AgentEvent 통합 라우팅)  │
                     │  - 설정 변경 감지 (--watch)                  │
                     └───────┬──────────────┬──────────────┬───────┘
                             │              │              │
@@ -316,18 +317,21 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 
 모든 compaction 작업은 `MessageEvent`를 통해 이루어지므로 `base + events` 이벤트 소싱 구조가 유지된다. compaction 과정은 traceId 기준으로 추적 가능하다.
 
-### 3.4 Handoff 패턴 (IPC 기반 에이전트 위임)
+### 3.4 통합 이벤트 기반 에이전트 통신 패턴
 
-Handoff는 도구 호출로 대상 Agent에 작업을 위임하는 패턴이다. Orchestrator를 경유하는 IPC로 구현된다.
+에이전트 간 통신은 통합 이벤트 모델(`AgentEvent`)을 사용하며, Orchestrator를 경유하는 IPC로 구현된다. 두 가지 패턴을 지원한다:
 
-권장 흐름:
-1. 원 Agent가 handoff 도구를 호출한다.
-2. AgentProcess가 Orchestrator에 IPC `delegate` 메시지를 전송한다.
-3. Orchestrator가 대상 AgentProcess로 라우팅한다(필요시 스폰).
-4. 대상 Agent가 처리 후 `delegate_result` IPC로 응답한다.
-5. Orchestrator가 원 Agent에 결과를 전달한다.
+- **request** (응답 대기): `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭한다.
+- **send** (fire-and-forget): `AgentEvent.replyTo`를 생략하여 단방향 알림을 보낸다.
 
-handoff 전후 trace 컨텍스트는 `correlationId`로 보존되며, 프로세스 격리를 유지하면서 IPC를 통해서만 통신한다.
+request 흐름:
+1. 원 Agent가 `agents__request` 도구를 호출한다.
+2. AgentProcess가 Orchestrator에 IPC `event` 메시지를 전송한다 (`AgentEvent.replyTo` 포함).
+3. Orchestrator가 대상 AgentProcess로 라우팅한다 (필요시 스폰).
+4. 대상 Agent의 Turn 완료 후 Orchestrator에 응답 `event`를 전송한다.
+5. Orchestrator가 `correlationId`로 매칭하여 원 Agent에 결과를 전달한다.
+
+trace 컨텍스트는 `replyTo.correlationId`로 보존되며, 프로세스 격리를 유지하면서 IPC를 통해서만 통신한다.
 
 ### 3.5 MCP Extension 패턴
 
@@ -455,7 +459,7 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/resources.md` | Config Plane 리소스 정의 - 8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package), ObjectRef, Selector+Overrides, ValueSource |
 | `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
 | `specs/pipeline.md` | 라이프사이클 파이프라인 - Middleware 3종(turn/step/toolCall), Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry |
-| `specs/tool.md` | Tool 시스템 - 더블 언더스코어 네이밍, ToolContext, IPC Handoff, Bun-only 실행 |
+| `specs/tool.md` | Tool 시스템 - 더블 언더스코어 네이밍, ToolContext, 통합 이벤트 기반 에이전트 간 통신, Bun-only 실행 |
 | `specs/extension.md` | Extension 시스템 - ExtensionApi(pipeline/tools/state/events/logger), Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴 |
 | `specs/connector.md` | Connector 시스템 - 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행 |
 | `specs/connection.md` | Connection 시스템 - secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증 |

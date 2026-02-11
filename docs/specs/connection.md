@@ -14,10 +14,8 @@ Connection은 Connector(독립 프로세스)와 Swarm(에이전트 집합) 사�
 - **Connector 패키지는 순수 프로토콜 로직만** 포함한다. 인증이나 라우팅 세부사항이 섞이지 않으므로 재사용성과 테스트 용이성이 높아진다.
 - **Connection만 변경하여** 라우팅 규칙이나 인증 정보를 업데이트할 수 있다. Connector 코드를 수정할 필요가 없다.
 
-v1에서는 Connection이 `auth` 필드로 OAuthApp을 참조하고, `verify.webhook.provider`로 서명 검증 알고리즘을 지정했다. v2에서는:
-- `auth` 필드를 제거하고 `secrets`로 대체하여, 키-값 형태로 모든 비밀값을 전달한다.
-- `provider` 필드를 제거하고 서명 검증 알고리즘은 Connector가 자체적으로 구현한다.
-- OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
+Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
+서명 검증 알고리즘은 Connector가 구현하며, OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
 
 ### 1.2 핵심 책임
 
@@ -66,7 +64,8 @@ v1에서는 Connection이 `auth` 필드로 OAuthApp을 참조하고, `verify.web
 ### 2.4 서명 검증 규칙
 
 1. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
-2. `verify.webhook.signingSecret`은 ValueSource 패턴을 따른다(MUST).
+2. 서명 시크릿은 `verify.webhook.signingSecret` ValueSource로 선언해야 한다(MUST).
+3. `verify.webhook.signingSecret`이 지정된 경우 Runtime은 해당 값을 `ctx.secrets.signingSecret`로 노출해야 한다(MUST).
 
 ### 2.5 독립 Turn 처리 규칙
 
@@ -343,10 +342,8 @@ verify:
 
 1. `verify.webhook.signingSecret`은 ValueSource 패턴을 따른다(MUST).
 2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
-3. `verify`는 `secrets`와 독립적으로 설정할 수 있다(MAY). `verify.webhook.signingSecret` 값은 `ctx.secrets`에도 자동으로 포함되어 Connector가 접근할 수 있어야 한다(SHOULD).
-4. 동일 서명 시크릿을 `secrets`와 `verify.webhook.signingSecret`에 중복 선언하지 않아야 한다(SHOULD NOT).
-
-> **v2 변경**: `provider` 필드 없음. 서명 검증 알고리즘은 Connector가 자체적으로 구현한다.
+3. `verify.webhook.signingSecret`을 지정한 경우 Runtime은 해당 값을 `ctx.secrets.signingSecret`로도 노출해야 한다(MUST).
+4. 동일 서명 시크릿을 `secrets`와 `verify.webhook.signingSecret`에 중복 선언해서는 안 된다(SHOULD NOT).
 
 ---
 
@@ -538,19 +535,7 @@ spec:
 
 ---
 
-## 12. v1 → v2 변경 요약
-
-| 항목 | v1 | v2 |
-|------|----|----|
-| `spec.auth` | `oauthAppRef` / `staticToken` 인증 모드 | **제거** (`secrets`로 대체) |
-| `spec.secrets` | 없음 | **추가** (Connector에 전달할 key-value 시크릿) |
-| `verify.webhook.provider` | 있음 (provider 기반 서명 검증) | **제거** (Connector가 직접 검증) |
-| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
-| OAuth 관련 | Connection이 OAuthApp 참조, turn.auth.subjects 관리 | Extension 내부 구현으로 이동 |
-
----
-
-## 13. 참고 문서
+## 12. 관련 문서
 
 - `docs/specs/connector.md` - Connector 시스템 스펙 (프로토콜 구현, Entry Function)
 - `docs/specs/resources.md` - Config Plane 리소스 정의 스펙 (ObjectRef, Selector, ValueSource)

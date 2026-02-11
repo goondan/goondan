@@ -120,6 +120,14 @@ interface ConversationState {
 ## 5. 통합 이벤트 / IPC 타입
 
 ```typescript
+interface EventEnvelope {
+  readonly id: string;
+  readonly type: string;
+  readonly createdAt: Date;
+  readonly traceId?: string;
+  readonly metadata?: JsonObject;
+}
+
 interface EventSource {
   readonly kind: 'agent' | 'connector';
   readonly name: string;
@@ -140,15 +148,11 @@ interface TurnAuth {
   readonly [key: string]: JsonValue | undefined;
 }
 
-interface AgentEvent {
-  readonly id: string;
-  readonly type: string;
+interface AgentEvent extends EventEnvelope {
   readonly input?: string;
   readonly source: EventSource;
   readonly auth?: TurnAuth;
-  readonly metadata?: JsonObject;
   readonly replyTo?: ReplyChannel;
-  readonly createdAt: Date;
 }
 
 type ProcessStatus =
@@ -175,6 +179,13 @@ type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
 ## 6. Tool 실행 타입
 
 ```typescript
+interface ExecutionContext {
+  readonly agentName: string;
+  readonly instanceKey: string;
+  readonly turnId: string;
+  readonly traceId: string;
+}
+
 interface ToolCall {
   readonly id: string;
   readonly name: string;
@@ -195,13 +206,7 @@ interface ToolCallResult {
   };
 }
 
-/** 하위 호환 별칭 */
-type ToolResult = ToolCallResult;
-
-interface ToolContext {
-  readonly agentName: string;
-  readonly instanceKey: string;
-  readonly turnId: string;
+interface ToolContext extends ExecutionContext {
   readonly toolCallId: string;
   readonly message: Message;
   readonly workdir: string;

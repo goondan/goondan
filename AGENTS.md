@@ -24,11 +24,11 @@
 
 ### 구현 스펙 문서 (docs/specs/)
 - docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
-- docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델)
-- docs/specs/help.md : 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, package 도움말 기준)
-- docs/specs/shared-types.md : 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
+- docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, Runtime Events API 표면)
+- docs/specs/help.md : 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, package 도움말 기준, 문서 링크 자동 점검 체크리스트)
+- docs/specs/shared-types.md : 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/**EventEnvelope/ExecutionContext**/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
-- docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 분할 파일 구성)
+- docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, **Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥**, YAML 보안, 분할 파일 구성)
 - docs/specs/bundle_package.md : Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
 - docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, **Reconciliation Loop**, **Graceful Shutdown Protocol**, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
@@ -36,8 +36,7 @@
 - docs/specs/extension.md : Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - docs/specs/connector.md : Connector 시스템 스펙 v2.0 (별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - docs/specs/connection.md : Connection 시스템 스펙 v2.0 (secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증)
-- docs/specs/oauth.md : OAuth 스펙 v2.0 (OAuthApp Kind 제거, Extension 내부 구현으로 이동)
-- docs/specs/changeset.md : Edit & Restart 리다이렉트 (v2에서 Changeset 시스템 제거, runtime.md 참조)
+- docs/specs/oauth.md : OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - docs/specs/workspace.md : **[v2.0]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
@@ -73,10 +72,10 @@
 - Specs: 공통 타입 SSOT 분리 (`docs/specs/shared-types.md`, 문서 간 타입 드리프트 방지)
 - Specs 운영: 소유권 매트릭스 기반 참조 우선 (`docs/specs/help.md`, 비소유 문서의 중복 타입 재정의 최소화)
 - Specs 참조 안정성: 섹션 번호(`§n`) 대신 섹션명/앵커 중심 참조 권장 (문서 재구성 시 링크 드리프트 최소화)
-- Pipeline: Mutator 제거, Middleware 3종(turn/step/toolCall) 통합
+- Pipeline: Middleware 3종(turn/step/toolCall) 기반 실행
 - Message: AI SDK CoreMessage 래퍼 (`Message.data`), MessageEvent 이벤트 소싱
-- Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), runtime 필드 제거
-- Connector: 자체 프로세스로 프로토콜 직접 관리, triggers 필드 제거
-- Workspace: 3루트 → 2루트 (Project Root + `~/.goondan/`)
-- Config: apiVersion `goondan.ai/v1`, 11종 → 8종 Kind (OAuthApp/ResourceType/ExtensionHandler 제거)
-- Changeset: 제거 → Edit & Restart 모델
+- Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), Bun 고정 실행
+- Connector: 자체 프로세스로 프로토콜 직접 관리 (`entry` + `events`)
+- Workspace: 2루트 (Project Root + `~/.goondan/`)
+- Config: apiVersion `goondan.ai/v1`, 8종 Kind (Model/Agent/Swarm/Tool/Extension/Connector/Connection/Package)
+- 설정 변경 모델: Edit & Restart

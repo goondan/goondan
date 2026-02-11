@@ -1,6 +1,8 @@
 # Goondan Workspace 및 Storage 모델 스펙 (v2.0)
 
 > 이 문서는 Goondan v2 Workspace 및 Storage 모델의 유일한 source of truth이다.
+> 메시지 상태의 실행 규칙(이벤트 적용 순서, 폴딩 시점, 복원 판단)은 `docs/specs/runtime.md`를 따른다.
+> 이 문서는 저장소 경로/레이아웃/영속화 포맷을 단일 기준으로 정의한다.
 
 ---
 
@@ -8,7 +10,7 @@
 
 ### 1.1 배경 및 설계 동기
 
-Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. v1에서는 SwarmBundleRoot, Instance State Root, System State Root의 3루트 구조를 사용했으나, Changeset/SwarmBundleRef 시스템의 제거와 Edit & Restart 모델 도입에 맞추어 **프로젝트 디렉터리(Project Root)**와 **시스템 상태 디렉터리(System Root, `~/.goondan/`)**로 단순화했다.
+Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. **프로젝트 디렉터리(Project Root)**와 **시스템 상태 디렉터리(System Root, `~/.goondan/`)**를 분리해 정의와 실행 상태를 명확히 분리한다.
 
 이 분리는 다음 설계 철학에 기반한다:
 
@@ -23,19 +25,6 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. v1에서�
 |------|------|--------|
 | **Project Root** | 사용자 프로젝트 정의 (goondan.yaml + 코드) | 사용자/Git |
 | **System Root** | 전역 설정, 패키지, 인스턴스 상태 | Runtime |
-
-### 1.3 v1 대비 변경사항
-
-| 항목 | v1 | v2 |
-|------|------|------|
-| 루트 수 | 3-root (SwarmBundleRoot, Instance State Root, System State Root) | **2-root** (Project Root, System Root) |
-| Instance State | `~/.goondan/instances/` 하위 복잡한 구조 | `~/.goondan/workspaces/<id>/instances/<key>/` 단순화 |
-| 로그/메트릭 | 파일 기반 이벤트/메트릭 로그 | **프로세스 stdout/stderr** |
-| OAuth 저장소 | 전용 디렉터리 (`oauth/grants/`, `oauth/sessions/`) | Extension 내부 구현으로 이동 |
-| Changeset worktree | `worktrees/<workspaceId>/changesets/` | **제거** |
-| Secrets | `secrets/<secretName>.json` | **제거** (환경 변수 기반) |
-
----
 
 ## 2. 핵심 규칙
 
@@ -64,7 +53,7 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. v1에서�
 ### 2.4 메시지 영속화 규칙
 
 1. 메시지 상태는 `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록되어야 한다(MUST).
-2. Turn 종료 시점에는 모든 Turn 미들웨어 종료 후 최종 계산된 `BaseMessages + SUM(Events)`를 새 base로 기록해야 한다(MUST).
+2. Turn 종료 폴드-커밋의 실행 시점/순서는 `docs/specs/runtime.md`의 메시지 상태 실행 규칙을 따라야 한다(MUST).
 3. Turn 종료 시 기존 base에 delta append가 가능하면 전체 rewrite 대신 delta append를 우선 사용해야 한다(SHOULD). Mutation 발생 시에만 rewrite해야 한다(SHOULD).
 4. `events.jsonl`은 Turn 최종 base 반영이 성공한 뒤에만 비울 수 있다(MUST).
 5. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
@@ -74,7 +63,7 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. v1에서�
 
 1. access token, refresh token, client secret 등 비밀값은 평문 저장이 금지된다(MUST). at-rest encryption을 적용해야 한다(MUST).
 2. 로그/메트릭/컨텍스트 블록에 비밀값을 마스킹 없이 기록해서는 안 된다(MUST).
-3. Tool/Extension은 System Root의 비밀값 저장소 파일을 직접 읽거나 수정해서는 안 된다(MUST).
+3. Tool/Extension은 System Root의 비밀값 저장소 구현체(파일/키체인 등)에 직접 접근하거나 수정해서는 안 된다(MUST).
 4. 감사 추적을 위해 인스턴스 라이프사이클 이벤트(delete 등)를 로그에 남겨야 한다(SHOULD).
 
 ### 2.6 Extension 상태 규칙
@@ -666,18 +655,18 @@ async function initializeInstanceState(
 
 ## 11. 보안 및 데이터 보존
 
-**규칙:**
+보안 규칙의 단일 기준은 `2.5 보안 규칙`이다.
+본 절은 데이터 보존 관점의 운영 원칙만 요약한다.
 
-1. access token, refresh token, client secret 등 비밀값은 평문 저장이 금지된다(MUST). at-rest encryption을 적용해야 한다(MUST).
-2. 로그/메트릭/컨텍스트 블록에 비밀값을 마스킹 없이 기록해서는 안 된다(MUST).
-3. 감사 추적을 위해 인스턴스 라이프사이클 이벤트(delete 등)를 로그에 남겨야 한다(SHOULD).
-4. Tool/Extension은 System Root의 비밀값 저장소 파일을 직접 읽거나 수정해서는 안 된다(MUST).
+1. 인스턴스 삭제 시 메시지 로그(`messages/`)와 Extension 상태(`extensions/`)를 함께 제거해야 한다(MUST).
+2. 시스템 전역 상태(`config.json`, `packages/`)는 인스턴스 삭제 시 보존되어야 한다(MUST).
+3. 감사 추적을 위해 인스턴스 라이프사이클 이벤트(delete 등)를 로그에 남기는 것을 권장한다(SHOULD).
 
 ---
 
 ## 12. 프로세스별 로깅
 
-v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 각 프로세스의 stdout/stderr를 활용한다.
+프로세스별 로그는 stdout/stderr 기반으로 기록한다.
 
 **규칙:**
 
@@ -704,7 +693,7 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 9. workspaceId는 Project Root 절대 경로의 SHA-256 해시로 결정론적으로 생성되어야 한다.
 10. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다.
 11. Extension state 파일은 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다.
-12. Tool/Extension은 System Root의 비밀값 저장소 파일을 직접 읽거나 수정해서는 안 된다.
+12. Tool/Extension은 System Root의 비밀값 저장소 구현체(파일/키체인 등)에 직접 접근하거나 수정해서는 안 된다.
 
 ### SHOULD 권장사항
 

@@ -1,11 +1,11 @@
 # Goondan Package 스펙 (v2.0)
 
-> **v2.0 주요 변경사항:**
-> - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
+> **현재 규범 요약:**
+> - `apiVersion`: `goondan.ai/v1`
 > - 시스템 루트: `~/.goondan/packages/` (패키지 저장 경로 명확화)
 > - Package spec: `version`, `description`, `dependencies` (name+version 객체 배열), `registry`
-> - 8종 Kind만 지원 (OAuthApp, ResourceType, ExtensionHandler 제거)
-> - Tool/Extension/Connector에서 `runtime` 필드 제거 (항상 Bun)
+> - 8종 Kind 지원
+> - Tool/Extension/Connector 실행 환경: Bun
 > - 레지스트리 설정 소스/우선순위 및 `gdn package` 도움말 매트릭스는 `docs/specs/help.md` 기준으로 통합
 
 ---
@@ -86,7 +86,7 @@ values 병합 우선순위는 다음 순서를 따라야 한다 (MUST). 후순�
 3. 패키지는 공개(public) 또는 제한(restricted) 접근 수준을 가져야 한다 (MUST).
 4. 제한 패키지의 게시/설치는 인증된 요청만 허용해야 한다 (MUST).
 5. 게시된 패키지 버전의 비게시(unpublish)를 지원해야 한다 (MUST).
-6. 비게시 대신 폐기(deprecate) 표시로 다운로드는 허용하되 경고를 제공하는 모드를 지원해야 한다 (SHOULD).
+6. 폐기(deprecate) 표시 모드를 지원해야 하며, 이 모드에서는 다운로드를 허용하되 경고를 제공해야 한다 (SHOULD).
 7. 다른 패키지가 의존하는 버전의 비게시 시 경고를 제공해야 한다 (SHOULD).
 8. dist-tag(latest, beta 등) 지정을 지원해야 한다 (SHOULD).
 9. `--dry-run` 모드로 게시 전 검증만 수행할 수 있어야 한다 (SHOULD).
@@ -113,7 +113,7 @@ values 병합 우선순위는 다음 순서를 따라야 한다 (MUST). 후순�
 Package는 goondan 프로젝트의 **루트 개념**이다.
 
 - **모든 리소스**(Model, Agent, Swarm, Tool, Extension, Connector, Connection)는 Package에 속한다
-- Package 문서가 없는 `goondan.yaml`도 유효하다 -- 단순한 리소스 번들로 동작 (하위 호환)
+- Package 문서가 없는 `goondan.yaml`도 유효하다 -- 단순한 리소스 번들로 동작
 - Package 문서가 있으면 의존성 해석, 배포, 버전 관리가 가능해진다
 
 ### 3.2 goondan.yaml 통합 구조
@@ -245,12 +245,12 @@ spec:
 3. 첫 번째 문서가 `kind: Package`가 아니면 Package 없는 단순 리소스 번들로 취급한다(MUST).
 4. 하나의 `goondan.yaml`에는 최대 하나의 Package 문서만 존재할 수 있다(MUST).
 
-### 5.5 하위 호환
+### 5.5 Package 문서 없는 번들
 
 Package 문서 없이 리소스만 있는 `goondan.yaml`은 그대로 동작한다(MUST).
 
 ```yaml
-# Package 없는 goondan.yaml -- 하위 호환
+# Package 없는 goondan.yaml
 apiVersion: goondan.ai/v1
 kind: Model
 metadata:
@@ -328,16 +328,8 @@ Resolution: Manually align version ranges or use explicit overrides.
 
 ### 7.3 values 병합 우선순위
 
-values 병합 우선순위는 다음 순서를 따라야 한다(MUST). 후순위가 선순위를 덮어쓴다.
-
-1. **패키지 기본값**: Package 내부에 정의된 기본 values
-2. **상위 패키지 override**: 상위(의존하는) Package에서 지정한 override
-3. **사용자 override**: 프로젝트 로컬(Package Root)에서 지정한 override
-
-추가 규칙:
-- 객체는 재귀 병합(deep merge)한다(SHOULD).
-- 배열은 기본 교체(replace) 정책을 사용한다(SHOULD).
-- 민감값은 values에 직접 입력하지 않고 ValueSource를 사용해야 한다(SHOULD).
+`values` 병합 우선순위의 규범 기준은 `2.3 values 병합 우선순위`를 단일 기준으로 따른다(MUST).
+본 절은 의존성 해석 문맥에서 해당 규칙이 동일하게 적용됨을 명시하기 위한 참조 절이다.
 
 ---
 
@@ -566,7 +558,7 @@ packages:
 
 1. `goondan.yaml`의 Package 문서 및 리소스 YAML의 **schema 검증을 수행**하고, 실패 시 로드를 중단해야 한다(MUST).
 2. 알 수 없는 `kind` 또는 필수 필드 누락은 오류로 처리한다(MUST).
-3. v2에서 제거된 Kind(OAuthApp, ResourceType, ExtensionHandler)는 로드 시 거부한다(MUST).
+3. 스키마에 정의된 Kind만 로드할 수 있어야 한다(MUST).
 
 ### 12.2 경로 탐색 방지
 
@@ -592,7 +584,8 @@ packages:
 ### 13.1 개요
 
 Goondan CLI(`gdn`)는 Package를 관리하기 위한 `package` 하위 명령어를 제공한다.
-지원되는 `gdn package` 명령어(`add`, `install`, `publish`)는 `goondan.yaml`의 Package 문서를 읽고 쓴다.
+명령어 매트릭스의 단일 기준은 `docs/specs/help.md` 5절이다.
+이 절은 Package 도메인 관점의 동작 의미(의존성 변경, 설치, 게시)만 기술한다.
 
 ### 13.2 의존성 추가
 
@@ -646,22 +639,13 @@ gdn package publish --dry-run
 
 ### 13.5 패키지 비게시/폐기
 
-v2 CLI에서는 `unpublish`/`deprecate` 서브커맨드를 제공하지 않는다.
+CLI는 `unpublish`/`deprecate` 서브커맨드를 지원하지 않는다.
 비게시/폐기는 레지스트리 관리 UI 또는 레지스트리 API(`8.2.5`, `8.2.6`)로 수행한다.
 
 ### 13.6 명령어 요약
 
-이 표는 `docs/specs/help.md` 5절과 동일하게 유지되어야 한다(MUST).
-
-| 명령어 | 설명 |
-|--------|------|
-| `gdn package add <ref>` | 의존성 추가 |
-| `gdn package install` | 의존성 설치 |
-| `gdn package publish` | 패키지 발행 |
-| `gdn package unpublish <ref>` | 제거됨 (레지스트리 UI/API 사용) |
-| `gdn package deprecate <ref>` | 제거됨 (레지스트리 UI/API 사용) |
-
-자세한 CLI 스펙은 `docs/specs/cli.md`를 참조한다.
+명령어 표는 `docs/specs/help.md` 5절을 단일 기준으로 따른다(MUST).
+CLI 인터페이스 상세(옵션/출력 형식)는 `docs/specs/cli.md`를 참조한다.
 
 ---
 
@@ -776,7 +760,7 @@ spec:
       - route: {}
 ```
 
-### 14.3 Package 없는 단순 프로젝트 (하위 호환)
+### 14.3 Package 없는 단순 프로젝트
 
 의존성 없이 모든 리소스를 인라인으로 정의하는 가장 단순한 형태.
 
@@ -826,36 +810,9 @@ spec:
 
 ## 15. 레지스트리 설정
 
-### 15.1 ~/.goondan/config.json
-
-```json
-{
-  "registry": "https://registry.goondan.ai"
-}
-```
-
-### 15.2 환경 변수
-
-```bash
-GOONDAN_REGISTRY=https://registry.goondan.ai
-GOONDAN_REGISTRY_TOKEN=your-auth-token
-```
-
-### 15.3 스코프별 레지스트리
-
-```json
-{
-  "registry": "https://registry.goondan.ai",
-  "scopedRegistries": {
-    "@myorg": "https://my-org-registry.example.com"
-  }
-}
-```
-
-**동작 규칙:**
-1. `@scope` 패턴에 매칭되는 패키지는 해당 scope의 레지스트리를 우선 사용해야 한다(SHOULD).
-2. 매칭되는 scope가 없으면 기본 레지스트리(`registry`)를 사용한다.
-3. scope별 레지스트리 라우팅은 설치(`install`/`add`), 게시(`publish`), 조회 모두에 적용된다.
+레지스트리 설정 소스/우선순위/설정 형식의 단일 기준은 `docs/specs/help.md` 4절이다.
+이 문서는 Package 라이프사이클 의미론(의존성 해석, 다운로드, 게시, lockfile)만 다루며,
+레지스트리 설정 세부(JSON 필드, 우선순위 표)는 재정의하지 않는다(SHOULD).
 
 ---
 

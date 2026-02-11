@@ -1,16 +1,19 @@
 # Goondan Connector 스펙 v2.0
 
+> `ConnectorContext`/`ConnectorEvent`의 타입 원형은 이 문서가 소유한다.
+> `secrets`/`verify` 해석과 ingress 라우팅 계약은 `docs/specs/connection.md`를 단일 기준으로 따른다.
+
 ## 1. 개요
 
 ### 1.1 배경 및 설계 철학
 
 Connector는 외부 채널 이벤트를 canonical **ConnectorEvent**로 정규화하는 **프로토콜 어댑터**다. Telegram, Slack, Discord, CLI, cron 등 다양한 외부 프로토콜을 통해 들어오는 이벤트를 단일 형식으로 변환하여 Orchestrator에 전달한다.
 
-v1에서는 Runtime이 프로토콜 수신(HTTP 서버, cron 스케줄러 등)을 대신 관리하고, Connector는 `triggers` 선언으로 프로토콜 타입만 지정했다. v2에서는 이 모델을 근본적으로 변경하여 **Connector가 프로토콜 수신을 직접 구현**하는 구조로 전환했다. 이로 인해:
+Connector는 **프로토콜 수신을 직접 구현**하는 구조를 사용한다. 이 구조는 다음 특성을 가진다:
 
 - **프로토콜 자유도 극대화**: Connector가 HTTP 서버, WebSocket, 롱 폴링, cron 등 어떤 프로토콜이든 자유롭게 구현할 수 있다.
 - **Process-per-Connector**: 각 Connector가 독립 Bun 프로세스로 실행되어 크래시 격리와 독립적 스케일링이 가능하다.
-- **단순화된 인터페이스**: `triggers`, `runtime`, `auth` 필드를 모두 제거하고, `entry` + `events`만으로 Connector를 정의한다.
+- **단순화된 인터페이스**: `entry` + `events` 중심으로 Connector를 정의한다.
 - **Connector/Connection 분리**: 프로토콜 구현(Connector)과 배포 바인딩(Connection)을 분리하여, 하나의 Connector를 여러 환경에서 재사용할 수 있게 한다.
 
 ### 1.2 핵심 책임
@@ -37,9 +40,8 @@ v1에서는 Runtime이 프로토콜 수신(HTTP 서버, cron 스케줄러 등)�
 
 1. Connector는 독립 Bun 프로세스로 실행되어야 한다(MUST). Orchestrator가 프로세스를 스폰하고 감시한다.
 2. Connector는 프로토콜 처리를 직접 구현해야 한다(MUST). Runtime이 프로토콜을 대신 관리하지 않는다.
-3. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다(항상 Bun).
+3. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST).
 4. entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
-5. `triggers` 필드는 v2에서 제거되었으므로 존재해서는 안 된다(MUST NOT).
 
 ### 2.2 이벤트 발행 규칙
 
@@ -110,7 +112,7 @@ interface EventPropertyType {
 }
 ```
 
-> **v2 변경**: `runtime` 필드 제거(항상 Bun), `triggers` 필드 제거(Connector가 프로토콜을 자체적으로 관리).
+> Connector entry는 Bun 프로세스에서 실행되며, 프로토콜 처리는 Connector가 직접 수행한다.
 
 ### 3.3 검증 규칙
 
@@ -119,7 +121,7 @@ interface EventPropertyType {
 | `spec.entry` | 필수, 유효한 파일 경로 | MUST |
 | `spec.events[].name` | Connector 내 고유 | MUST |
 | Entry default export | entry 모듈에 default export 함수 존재 | MUST |
-| `triggers` 필드 | 존재하지 않음 (v2에서 제거) | MUST NOT |
+| `triggers` 필드 | 존재하지 않음 | MUST NOT |
 | `runtime` 필드 | 존재하지 않음 (항상 Bun) | MUST NOT |
 
 ---
@@ -235,11 +237,8 @@ type ConnectorEventMessage =
 
 ### 5.4 서명 검증 규칙
 
-Connection이 `verify` 블록을 설정한 경우, Connector는 다음 규칙을 따라야 한다.
-
-1. Connector는 Connection이 제공한 서명 시크릿(`ctx.secrets`에 포함)을 사용하여 inbound 요청의 서명을 검증해야 한다(MUST).
-2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않고 처리를 거부해야 한다(MUST).
-3. 서명 검증 실패 시 Connector는 실패 사유를 `ctx.logger`로 기록해야 한다(SHOULD).
+Connection이 `verify`를 선언한 경우의 시크릿 전달/호환 규칙은 `docs/specs/connection.md` 8절을 단일 기준으로 따른다.
+Connector는 해당 시크릿을 `ctx.secrets`에서 읽어 검증을 수행하며, 실패 시 emit을 중단해야 한다(MUST).
 
 ---
 
@@ -543,21 +542,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 11. v1 → v2 변경 요약
-
-| 항목 | v1 | v2 |
-|------|----|----|
-| 프로세스 모델 | Runtime 내부에서 실행 | **별도 Bun 프로세스** |
-| `spec.runtime` | `node` (필수) | 제거 (항상 Bun) |
-| `spec.triggers` | `http` / `cron` / `cli` / `custom` 프로토콜 선언 | **제거** (Connector가 직접 구현) |
-| ConnectorContext | `event`, `connection`, `connector`, `emit`, `logger`, `oauth`, `verify` | **`emit`, `secrets`, `logger`** |
-| ConnectorEvent | `type: "connector.event"`, `auth` 필드 포함 | `name`, `message`, `properties`, `instanceKey` |
-| 서명 검증 | Runtime이 `context.verify`로 시크릿 전달 | `ctx.secrets`로 시크릿 전달, Connector가 직접 검증 |
-| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
-
----
-
-## 12. 참고 문서
+## 11. 관련 문서
 
 - `docs/specs/connection.md` - Connection 리소스 스펙 (secrets, ingress rules, verify)
 - `docs/specs/runtime.md` - Runtime 실행 모델 스펙 (Orchestrator, AgentProcess)

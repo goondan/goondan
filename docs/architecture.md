@@ -410,11 +410,11 @@ Bun 런타임 전용 설계로 빠른 프로세스 기동, 네이티브 TypeScri
 
 ### 5.3 미들웨어 단순화로 개발 생산성 향상
 
-기존 13개 파이프라인 포인트(Mutator + Middleware)를 3개 미들웨어(turn/step/toolCall)로 통합하여, Extension 개발자의 학습 곡선을 낮추고 코드 복잡성을 줄인다. `next()` 전후로 전처리/후처리를 수행하는 일관된 패턴으로 가독성이 높아진다.
+13개 세분화 파이프라인 포인트(Mutator + Middleware)를 3개 미들웨어(turn/step/toolCall)로 통합하여, Extension 개발자의 학습 곡선을 낮추고 코드 복잡성을 줄인다. `next()` 전후로 전처리/후처리를 수행하는 일관된 패턴으로 가독성이 높아진다.
 
 ### 5.4 Edit & Restart 단순성
 
-Changeset/SwarmBundleRef/Safe Point 메커니즘을 제거하고, 파일 수정 + Orchestrator 재시작이라는 직관적 모델로 대체하여 설정 변경의 복잡성을 대폭 줄인다. Watch 모드로 개발 중 자동 반영이 가능해 개발 속도가 향상된다.
+설정 변경은 파일 수정 + Orchestrator 재시작 모델을 사용한다. Watch 모드로 개발 중 자동 반영이 가능해 개발 속도가 향상된다.
 
 ### 5.5 이벤트 소싱 메시지 모델
 
@@ -426,7 +426,7 @@ Connector가 별도 프로세스로 프로토콜을 자체 관리하므로, 프�
 
 ### 5.7 리소스 Kind 축소로 인지 부하 감소
 
-11종에서 8종으로 축소하여(OAuthApp, ResourceType, ExtensionHandler 제거) 개발자가 파악해야 할 개념의 수를 줄인다. OAuth는 Extension 내부 구현으로 이동하여 필요한 Extension만 다루면 된다.
+8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package)로 개념 경계를 유지하여 개발자가 파악해야 할 대상 수를 줄인다. OAuth는 Extension 내부 구현으로 다룬다.
 
 ### 5.8 도구 이름 규칙 표준화
 
@@ -434,7 +434,7 @@ Connector가 별도 프로세스로 프로토콜을 자체 관리하므로, 프�
 
 ### 5.9 Workspace 2-root 단순화
 
-기존 3-root 분리를 2-root(프로젝트 디렉토리 + `~/.goondan/`)로 축소하여 파일 경로 관리를 단순화하고, 개발자의 프로젝트 구조 이해를 돕는다.
+2-root(프로젝트 디렉토리 + `~/.goondan/`) 구조로 파일 경로 관리를 단순화하고, 개발자의 프로젝트 구조 이해를 돕는다.
 
 ### 5.10 Observability 표준화
 
@@ -456,8 +456,8 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 
 | 문서 | 범위 |
 |------|------|
-| `specs/help.md` | 스펙 운영 도움말 - 문서 소유권 매트릭스, 공통 계약(ObjectRef/ValueSource/env 해석), 레지스트리 설정 우선순위, `gdn package` 도움말 기준 |
-| `specs/shared-types.md` | 공통 타입 SSOT - Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult |
+| `specs/help.md` | 스펙 운영 도움말 - 문서 소유권 매트릭스, 공통 계약(ObjectRef/ValueSource/env 해석), 레지스트리 설정 우선순위, `gdn package` 도움말 기준, 문서 링크 자동 점검 체크리스트 |
+| `specs/shared-types.md` | 공통 타입 SSOT - Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult |
 | `specs/resources.md` | Config Plane 리소스 정의 - 8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package), ObjectRef, Selector+Overrides, ValueSource |
 | `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
 | `specs/pipeline.md` | 라이프사이클 파이프라인 - Middleware 3종(turn/step/toolCall), Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry |
@@ -469,9 +469,8 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/bundle_package.md` | Package - 프로젝트 매니페스트, `~/.goondan/packages/`, 레지스트리 API, CLI 명령어 |
 | `specs/workspace.md` | Workspace 및 Storage 모델 - 2루트 분리(Project Root + System Root), Message 영속화, Extension state, 프로세스별 로깅 |
 | `specs/cli.md` | CLI 도구(gdn) - run, restart, validate, instance, package, doctor |
-| `specs/api.md` | Runtime/SDK API - ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API |
-| `specs/oauth.md` | OAuth - Extension 내부 구현으로 이동 (OAuthApp Kind 제거) |
-| `specs/changeset.md` | Changeset 제거 안내 - v2에서 Edit & Restart 모델로 대체, runtime.md 참조 |
+| `specs/api.md` | Runtime/SDK API - ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, Runtime Events API 표면 |
+| `specs/oauth.md` | OAuth 범위 문서 - Extension/Connection 조합 구현 원칙 |
 
 ---
 

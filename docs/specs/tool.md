@@ -1,6 +1,6 @@
 # Goondan Tool 시스템 스펙 v2.0
 
-> 공통 타입(`ToolCall`, `ToolCallResult`/`ToolResult`, `ToolContext`, `IpcMessage`)의 기준은 `docs/specs/shared-types.md`를 따른다.
+> 공통 타입(`ToolCall`, `ToolCallResult`, `ToolContext`, `IpcMessage`)의 기준은 `docs/specs/shared-types.md`를 따른다.
 
 ## 1. 개요
 
@@ -10,21 +10,9 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 
 - **Registry와 Catalog의 분리**: 실행 가능한 전체 도구 집합(Registry)과 LLM에 노출되는 도구 목록(Catalog)을 분리하여, Extension이 Step 단위로 도구 가시성을 제어할 수 있게 한다.
 - **더블 언더스코어 네이밍**: `{리소스명}__{export명}` 형식으로 리소스 경계를 명확히 하며, AI SDK에서 별도 인코딩 없이 사용 가능한 문자열을 구분자로 채택했다.
-- **Bun-native**: v2에서 `runtime` 필드를 제거하고, 모든 Tool 핸들러를 Bun으로 실행한다. Node.js 호환 오버헤드를 제거하고 성능을 극대화한다.
-- **통합 이벤트 기반 에이전트 간 통신**: v1의 인메모리 delegate를 Orchestrator 경유 IPC 통합 이벤트 모델로 전환. `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 제공한다.
-- **오류 전파 차단**: Tool 실행 오류는 예외로 전파하지 않고, 구조화된 ToolResult로 LLM에 전달하여 에이전트가 스스로 복구 전략을 수립할 수 있게 한다.
-
-### 1.2 v2 주요 변경
-
-| 항목 | v1 | v2 |
-|------|----|----|
-| `spec.runtime` | `node` (필수) | 제거 (항상 Bun) |
-| `spec.auth` | OAuthApp 참조 | 제거 (Extension 내부 구현) |
-| 도구 이름 구분자 | `.` (점) | `__` (더블 언더스코어) |
-| ToolContext | `instance`, `swarm`, `agent`, `oauth`, `swarmBundle` 포함 | `agentName`, `instanceKey`, `turnId`, `toolCallId`, `message`, `workdir`, `logger` |
-| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
-| 파이프라인 | `toolCall.pre` / `toolCall.exec` / `toolCall.post` (Mutator + Middleware) | `toolCall` 미들웨어 단일 통합 |
-| Handoff | 인메모리 delegate | 통합 이벤트 모델 (IPC, Orchestrator 경유) |
+- **Bun-native**: Tool 핸들러는 Bun으로 실행한다. 실행 환경 이질성을 줄이고 성능을 안정화한다.
+- **통합 이벤트 기반 에이전트 간 통신**: Orchestrator 경유 IPC 통합 이벤트 모델을 사용하며, `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 제공한다.
+- **오류 전파 차단**: Tool 실행 오류는 예외로 전파하지 않고, 구조화된 `ToolCallResult`로 LLM에 전달하여 에이전트가 스스로 복구 전략을 수립할 수 있게 한다.
 
 ---
 
@@ -51,11 +39,11 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 1. Tool call의 기본 허용 범위는 현재 Step의 Tool Catalog여야 한다(MUST).
 2. Catalog에 없는 도구 호출은 명시적 정책이 없는 한 거부해야 한다(MUST).
 3. Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다(MAY).
-4. 거부 결과는 구조화된 ToolResult(`status="error"`, `code`)로 반환해야 한다(MUST).
+4. 거부 결과는 구조화된 `ToolCallResult`(`status="error"`, `code`)로 반환해야 한다(MUST).
 
 ### 2.4 오류 처리 규칙
 
-1. AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
+1. AgentProcess는 Tool 실행 오류를 예외 전파 대신 `ToolCallResult`로 LLM에 전달해야 한다(MUST).
 2. `error.message` 길이는 `Tool.spec.errorMessageLimit`를 적용해야 한다(MUST).
 3. `errorMessageLimit` 미설정 시 기본값은 1000자여야 한다(MUST).
 4. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
@@ -65,7 +53,7 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 
 1. `workdir`은 해당 인스턴스의 워크스페이스 경로를 가리켜야 한다(MUST).
 2. bash, file-system 등 파일 시스템 접근 도구는 `ctx.workdir`을 기본 작업 디렉토리로 사용해야 한다(MUST).
-3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
+3. ToolContext에는 `swarmBundle`, `oauth` 같은 비소유 인터페이스를 포함해서는 안 된다(MUST NOT).
 4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
 
 ### 2.6 에이전트 간 통신 규칙
@@ -74,7 +62,7 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 2. `request`(응답 대기) 패턴은 `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭해야 한다(MUST).
 3. `send`(fire-and-forget) 패턴은 `AgentEvent.replyTo`를 생략해야 한다(MUST).
 4. 원래 Agent의 Turn/Trace 컨텍스트는 `replyTo.correlationId`를 통해 추적 가능해야 한다(MUST).
-5. 통신 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
+5. 통신 실패는 구조화된 `ToolCallResult`(`status="error"`)로 반환해야 한다(MUST).
 6. 기본 에이전트 간 통신 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
 7. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
 
@@ -177,7 +165,7 @@ interface ToolSpec {
 }
 ```
 
-> **v2 변경**: `runtime` 필드 제거(항상 Bun), `auth` 필드 제거(OAuth는 Extension 내부 구현으로 이동).
+> Tool 실행 환경은 Bun이며, 인증 연동은 Extension/Connection 조합으로 구성한다.
 
 ### 4.3 검증 규칙
 
@@ -331,7 +319,7 @@ export const handlers: Record<string, ToolHandler> = {
 
 ### 8.1 Middleware 기반 파이프라인
 
-v2에서는 모든 파이프라인 훅이 Middleware 형태로 통일된다. Tool 실행은 `toolCall` 미들웨어를 통과한다.
+모든 파이프라인 훅은 Middleware 형태로 동작한다. Tool 실행은 `toolCall` 미들웨어를 통과한다.
 
 ```
 LLM 응답에 tool_calls 포함
@@ -345,7 +333,7 @@ LLM 응답에 tool_calls 포함
 └──────────────────────────────────┘
            │
            ▼
-    ToolResult → MessageEvent(append) 발행
+    ToolCallResult → MessageEvent(append) 발행
 ```
 
 ### 8.2 ToolCall 구조
@@ -362,14 +350,14 @@ LLM 응답에 tool_calls 포함
 // extension entry point
 export function register(api: ExtensionApi): void {
   api.pipeline.register('toolCall', async (ctx) => {
-    // next() 전 = 입력 검증/변환 (기존 toolCall.pre)
+    // next() 전 = 입력 검증/변환
     api.logger.debug(`Tool 호출: ${ctx.toolName}`, ctx.args);
 
     const startTime = Date.now();
     const result = await ctx.next();
     const elapsed = Date.now() - startTime;
 
-    // next() 후 = 결과 후처리 (기존 toolCall.post)
+    // next() 후 = 결과 후처리
     api.logger.debug(`Tool 완료: ${ctx.toolName} (${elapsed}ms)`);
 
     return result;
@@ -388,7 +376,7 @@ export function register(api: ExtensionApi): void {
 | Catalog 기반 허용 | MUST | Tool call의 기본 허용 범위는 현재 Step의 Tool Catalog여야 한다 |
 | Catalog 외 거부 | MUST | Tool Catalog에 없는 도구 호출은 명시적 정책이 없는 한 거부해야 한다 |
 | Registry 직접 호출 | MAY | Tool Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다 |
-| 거부 결과 반환 | MUST | 거부 시 구조화된 ToolResult를 반환해야 한다 |
+| 거부 결과 반환 | MUST | 거부 시 구조화된 `ToolCallResult`를 반환해야 한다 |
 
 ### 9.2 거부 시 반환 형식
 
@@ -408,7 +396,7 @@ export function register(api: ExtensionApi): void {
 
 ## 10. Tool 결과 처리
 
-### 10.1 ToolCallResult(ToolResult) 구조
+### 10.1 ToolCallResult 구조
 
 ```typescript
 interface ToolError {
@@ -429,17 +417,17 @@ interface ToolError {
 }
 ```
 
-`ToolCallResult`/`ToolResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
+`ToolCallResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ### 10.2 동기/비동기 결과
 
 - **동기 완료**: 핸들러가 값을 반환하면 `output` 포함
 - **오류 완료**: 실패 시 `status: 'error'`와 `error`를 함께 반환
-- 장기 작업은 별도 상태 폴링 핸들을 ToolResult에 추가하지 않고, 통합 이벤트 모델 또는 도메인 이벤트로 모델링한다(SHOULD).
+- 장기 작업은 별도 상태 폴링 핸들을 `ToolCallResult`에 추가하지 않고, 통합 이벤트 모델 또는 도메인 이벤트로 모델링한다(SHOULD).
 
 ### 10.3 오류 결과 및 메시지 제한
 
-AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
+AgentProcess는 Tool 실행 오류를 예외 전파 대신 `ToolCallResult`로 LLM에 전달해야 한다(MUST).
 
 ```json
 {
@@ -498,9 +486,8 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 
 ### 11.2 IPC 메시지 형식
 
-통합 이벤트 모델에서 IPC는 3종(`event`, `shutdown`, `shutdown_ack`)이다. 에이전트 간 통신은 모두 `event` 타입을 사용한다.
-
-`IpcMessage` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
+IPC 메시지 타입/필드/전송 규칙의 단일 기준은 `docs/specs/runtime.md` 6절과 `docs/specs/shared-types.md` 5절이다.
+Tool 문맥에서는 에이전트 간 통신이 `event` 기반 `AgentEvent`로 정규화된다는 점만 보장한다(MUST).
 
 ### 11.3 에이전트 간 통신 규칙
 
@@ -509,7 +496,7 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 | 통합 이벤트 모델 | MUST | 에이전트 간 통신은 `AgentEvent` + `replyTo` 패턴을 사용해야 한다 |
 | request 패턴 | MUST | 요청-응답 통신은 `replyTo`를 설정하고, `correlationId`로 매칭해야 한다 |
 | send 패턴 | MUST | fire-and-forget 통신은 `replyTo`를 생략해야 한다 |
-| 실패 시 에러 반환 | MUST | 통신 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다 |
+| 실패 시 에러 반환 | MUST | 통신 실패는 구조화된 `ToolCallResult`(`status="error"`)로 반환해야 한다 |
 | 기본 구현체 | SHOULD | 기본 에이전트 간 통신 구현체를 `packages/base`에 제공하는 것이 권장된다 |
 | 자동 스폰 | MUST | Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다 |
 
@@ -787,7 +774,7 @@ spec:
 
 ---
 
-## 부록 B. 참고 문서
+## 부록 B. 관련 문서
 
 - `docs/architecture.md`: 아키텍처 개요 (핵심 개념, 설계 패턴)
 - `docs/specs/extension.md`: Extension 시스템 (동적 도구 등록, 미들웨어)

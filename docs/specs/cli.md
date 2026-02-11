@@ -6,11 +6,11 @@
 
 ## 1. 개요
 
-`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. v2에서는 Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞게 명령어 체계를 대폭 단순화하였다.
+`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞춰, Orchestrator 운영(`run`, `restart`)과 인스턴스 운영(`instance list/delete`), 패키지 운영(`package`) 중심의 명령 체계를 제공한다.
 
-v1에서 존재했던 `pause/resume/terminate`, `logs`, `config` 등의 명령어를 제거하고, Orchestrator 상주 프로세스 관리(`run`, `restart`)와 인스턴스 관리(`instance list/delete`), 패키지 관리(`package`) 중심으로 재편하여 개발자가 알아야 할 명령어 수를 최소화했다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/delete`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
-`gdn package` 지원/제거 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
+`gdn package` 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
 ### 1.1 설치
 
@@ -43,19 +43,6 @@ gdn <command> [subcommand] [options]
 | `--state-root <path>` | | System Root 경로 | `~/.goondan` |
 | `--no-color` | | 색상 출력 비활성화 | `false` |
 | `--json` | | JSON 형식 출력 | `false` |
-
-### 1.4 v1 대비 변경사항
-
-| 항목 | v1 | v2 |
-|------|------|------|
-| `gdn run` | 단일 프로세스 실행 | **Orchestrator 상주 프로세스 기동** |
-| `gdn restart` | 없음 | **신규: 실행 중인 Orchestrator에 재시작 신호** |
-| `gdn instance pause/resume/terminate` | 존재 | **제거 (restart로 통합)** |
-| `gdn logs` | 파일 기반 로그 조회 | **제거 (프로세스 stdout/stderr)** |
-| `gdn config` | CLI 하위 명령어 | **제거 (`~/.goondan/config.json` 직접 편집)** |
-| `gdn completion` | 쉘 자동완성 | **제거** |
-
----
 
 ## 2. 명령어 목록
 
@@ -215,7 +202,7 @@ gdn run [options]
 2. `.env.local` (로컬 머신 전용, gitignore 대상)
 3. `.env` (프로젝트 기본값)
 
-- 이미 시스템에 설정된 환경 변수는 **절대 덮어쓰지 않는다.**
+- 이미 시스템에 설정된 환경 변수는 **우선 유지된다.**
 - `.env` 파일이 없어도 에러 없이 진행한다.
 
 **예시 `.env` 파일:**
@@ -394,7 +381,7 @@ Errors: 1, Warnings: 1
 
 ## 7. gdn instance
 
-인스턴스를 관리한다. v2에서는 `list`와 `delete`만 지원한다.
+인스턴스를 관리한다. 표준 하위 명령은 `list`와 `delete`다.
 
 ### 7.1 하위 명령어
 
@@ -476,8 +463,7 @@ Package를 관리한다.
 | `gdn package install` | 의존성 설치 |
 | `gdn package publish` | 패키지 발행 |
 
-`unpublish`/`deprecate`/`remove`/`update`/`list`는 v2에서 제거되었으며, 상세 대체 경로는 `12. 제거된 명령어`를 따른다.
-표준 매트릭스는 `docs/specs/help.md` 5절을 따른다.
+`gdn package` 명령어 표면의 단일 기준은 `docs/specs/help.md` 5절을 따른다.
 
 ### 8.2 gdn package add
 
@@ -687,7 +673,7 @@ Summary
 
 ### 11.1 ~/.goondan/config.json
 
-전역 CLI 설정 파일. v2에서는 `~/.goondanrc` 대신 `~/.goondan/config.json`을 사용한다.
+전역 CLI 설정 파일 경로는 `~/.goondan/config.json`이다.
 
 ```json
 {
@@ -718,32 +704,7 @@ Summary
 
 ---
 
-## 12. 제거된 명령어
-
-다음 명령어는 v2에서 제거되었다:
-제거/대체 표준 매트릭스는 `docs/specs/help.md` 5.2를 기준으로 유지한다.
-
-| 제거된 명령어 | 대체 방법 |
-|---------------|-----------|
-| `gdn instance pause <id>` | `gdn restart` 사용 |
-| `gdn instance resume <id>` | `gdn restart` 사용 |
-| `gdn instance terminate <id>` | `gdn restart` 또는 `gdn instance delete` 사용 |
-| `gdn instance inspect <id>` | `gdn instance list`로 확인 |
-| `gdn logs` | 각 프로세스의 stdout/stderr 확인 |
-| `gdn config get/set/list/delete/path` | `~/.goondan/config.json` 직접 편집 |
-| `gdn completion <shell>` | 제거 |
-| `gdn package remove <ref>` | `goondan.yaml`에서 직접 제거 후 `gdn package install` |
-| `gdn package update [ref]` | `gdn package add <ref>@<version>` 사용 |
-| `gdn package list` | `goondan.yaml`의 Package dependencies 확인 |
-| `gdn package unpublish <ref>` | 레지스트리 관리 UI 사용 |
-| `gdn package deprecate <ref>` | 레지스트리 관리 UI 사용 |
-| `gdn package login/logout` | `~/.goondan/config.json`의 `registries` 직접 편집 |
-| `gdn package pack` | 제거 |
-| `gdn package info <ref>` | 레지스트리 웹 UI 사용 |
-
----
-
-## 13. 관련 문서
+## 12. 관련 문서
 
 - `docs/specs/runtime.md`: Runtime 실행 모델 스펙
 - `docs/specs/workspace.md`: Workspace 모델 스펙

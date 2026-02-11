@@ -10,7 +10,7 @@
 |------|------|
 | **Bun-native** | 스크립트 런타임은 Bun만 지원. Node.js 호환 레이어 불필요 |
 | **Process-per-Agent** | 각 AgentInstance는 독립 Bun 프로세스로 실행. 크래시 격리, 독립 스케일링 |
-| **Edit & Restart** | Changeset/SwarmBundleRef 제거. `goondan.yaml` 수정 후 인스턴스 재시작으로 반영 |
+| **Edit & Restart** | Changeset/SwarmBundleRef 제거. `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
 | **MessageEnvelope** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 확장 식별/조작 |
 | **Declarative YAML** | 리소스 정의는 기존과 동일하게 YAML 선언형 유지 |
 
@@ -81,7 +81,7 @@ tools:
 ### 3.1 계층 구조
 
 ```
-SwarmSupervisor (메인 프로세스)
+Orchestrator (상주 프로세스, gdn run으로 기동)
   ├── AgentProcess-A  (별도 Bun 프로세스)
   │   └── Turn → Step → Step → ...
   ├── AgentProcess-B  (별도 Bun 프로세스)
@@ -89,25 +89,35 @@ SwarmSupervisor (메인 프로세스)
   └── ConnectorProcess (별도 Bun 프로세스, 선택)
 ```
 
-### 3.2 SwarmSupervisor (메인 프로세스)
+### 3.2 Orchestrator (오케스트레이터 상주 프로세스)
 
-SwarmSupervisor는 `gdn run` 시 뜨는 **단일 메인 프로세스**:
+Orchestrator는 `gdn run` 시 뜨는 **상주 프로세스**로, Swarm의 전체 생명주기를 관리:
 
 - `goondan.yaml` 파싱 및 리소스 로딩
 - AgentProcess 스폰/감시/재시작
 - Connector 프로세스 관리
 - 인스턴스 라우팅 (`instanceKey` → AgentProcess 매핑)
 - IPC 메시지 브로커 (에이전트 간 delegate/handoff)
+- **설정 변경 감지 및 에이전트 프로세스 재시작** (자체 판단 또는 명령 수신)
+
+Orchestrator는 에이전트가 모두 종료되어도 살아 있으며, 새로운 이벤트(Connector 수신, CLI 입력 등)가 오면 필요한 AgentProcess를 다시 스폰한다.
 
 ```typescript
-interface SwarmSupervisor {
+interface Orchestrator {
   readonly swarmName: string;
   readonly bundleDir: string;
   readonly agents: Map<string, AgentProcessHandle>;
 
+  /** 에이전트 프로세스 스폰 */
   spawn(agentName: string, instanceKey: string): AgentProcessHandle;
-  restart(agentName: string): void;      // kill → re-spawn
-  restartAll(): void;                     // goondan.yaml 변경 시
+
+  /** 특정 에이전트 프로세스 kill → 새 설정으로 re-spawn */
+  restart(agentName: string): void;
+
+  /** goondan.yaml 재로딩 후 모든 에이전트 프로세스 재시작 */
+  reloadAndRestartAll(): void;
+
+  /** 오케스트레이터 종료 (모든 자식 프로세스도 종료) */
   shutdown(): void;
 
   // IPC
@@ -128,9 +138,10 @@ bun run agent-runner.ts \
 
 **프로세스 특성:**
 - 자체 메모리 공간 (크래시 격리)
-- Supervisor와 IPC (Bun의 `process.send`/`process.on("message")` 또는 Unix socket)
+- Orchestrator와 IPC (Bun의 `process.send`/`process.on("message")` 또는 Unix socket)
 - 독립적 Turn/Step 루프 실행
 - Extension/Tool 코드를 자체 프로세스에서 로딩
+- 크래시 시 Orchestrator가 감지하고 자동 재스폰 가능
 
 ```typescript
 interface AgentProcess {
@@ -162,10 +173,10 @@ interface IpcMessage {
 ```
 
 **위임 (Delegate) 흐름:**
-1. AgentA → Supervisor: `{ type: 'delegate', to: 'AgentB', payload: {...} }`
-2. Supervisor → AgentB 프로세스로 라우팅
-3. AgentB 처리 후 → Supervisor: `{ type: 'delegate_result', to: 'AgentA', ... }`
-4. Supervisor → AgentA로 결과 전달
+1. AgentA → Orchestrator: `{ type: 'delegate', to: 'AgentB', payload: {...} }`
+2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
+3. AgentB 처리 후 → Orchestrator: `{ type: 'delegate_result', to: 'AgentA', ... }`
+4. Orchestrator → AgentA로 결과 전달
 
 ### 3.5 Turn / Step
 
@@ -247,14 +258,34 @@ type EnvelopeSource =
   | { type: 'extension'; extensionName: string };
 ```
 
-### 4.2 메시지 상태 모델 (단순화)
+### 4.2 메시지 상태 모델 (이벤트 소싱 유지)
 
-기존의 `BaseMessages + SUM(Events)` 이벤트 소싱 모델을 **단순 배열**로 교체:
+기존의 `BaseMessages + SUM(Events)` 이벤트 소싱 모델을 **MessageEnvelope 기반**으로 유지:
+
+```
+NextEnvelopes = BaseEnvelopes + SUM(Events)
+```
 
 ```typescript
+/**
+ * MessageEnvelope에 대한 이벤트 소싱 이벤트.
+ * Extension 훅에서 메시지 추가/교체/삭제를 이벤트로 기록.
+ */
+type EnvelopeEvent =
+  | { type: 'append';   envelope: MessageEnvelope }
+  | { type: 'replace';  targetId: string; envelope: MessageEnvelope }
+  | { type: 'remove';   targetId: string }
+  | { type: 'truncate' };
+
 interface ConversationState {
-  /** 전체 대화 히스토리 (MessageEnvelope 배열) */
-  envelopes: MessageEnvelope[];
+  /** Turn 시작 시점의 확정된 메시지들 */
+  readonly baseEnvelopes: MessageEnvelope[];
+
+  /** Turn 진행 중 누적된 이벤트 */
+  readonly events: EnvelopeEvent[];
+
+  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
+  readonly nextEnvelopes: MessageEnvelope[];
 
   /** LLM에 보낼 메시지만 추출 (envelope.message 배열) */
   toLlmMessages(): CoreMessage[];
@@ -262,30 +293,41 @@ interface ConversationState {
 ```
 
 **영속화:**
-- 단일 파일: `messages.jsonl` (MessageEnvelope를 줄 단위로 저장)
-- Turn 종료 시 전체 rewrite (또는 append-only + compaction)
+- `messages/base.jsonl` — Turn 종료 시 확정된 MessageEnvelope 목록
+- `messages/events.jsonl` — Turn 진행 중 누적된 EnvelopeEvent 로그
+- Turn 종료 후: events → base로 폴딩, events 클리어
+
+**이벤트 소싱의 이점:**
+- 복구: base + events 재생으로 정확한 상태 복원
+- 관찰: 모든 메시지 변경이 이벤트로 추적됨
+- Extension 조작: 훅에서 이벤트를 발행하여 메시지 조작 (직접 배열 변경 대신)
+- Compaction: 주기적으로 events → base 폴딩으로 정리
 
 ### 4.3 Extension 훅에서의 활용
 
-Extension은 파이프라인 훅에서 `MessageEnvelope[]`를 받아 metadata를 기반으로 조작:
+Extension은 파이프라인 훅에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작:
 
 ```typescript
 // 예: compaction extension이 오래된 메시지를 요약으로 대체
 api.pipeline.register('turn.pre', async (ctx) => {
-  const envelopes = ctx.envelopes;
+  const { nextEnvelopes } = ctx.conversationState;
 
   // metadata로 "요약 가능" 메시지 식별
-  const compactable = envelopes.filter(
+  const compactable = nextEnvelopes.filter(
     e => e.metadata['compaction.eligible'] === true
   );
 
   if (compactable.length > 20) {
-    // 요약 생성 후 대체
     const summary = await summarize(compactable);
-    ctx.envelopes = [
-      createSystemEnvelope(summary),
-      ...envelopes.filter(e => !e.metadata['compaction.eligible'])
-    ];
+
+    // 이벤트 발행으로 메시지 조작
+    for (const e of compactable) {
+      ctx.emitEnvelopeEvent({ type: 'remove', targetId: e.id });
+    }
+    ctx.emitEnvelopeEvent({
+      type: 'append',
+      envelope: createSystemEnvelope(summary, { 'compaction.summary': true }),
+    });
   }
 
   return ctx;
@@ -294,7 +336,7 @@ api.pipeline.register('turn.pre', async (ctx) => {
 
 ```typescript
 // 예: 특정 Extension이 자기가 추가한 메시지만 찾기
-const myMessages = envelopes.filter(
+const myMessages = nextEnvelopes.filter(
   e => e.source.type === 'extension' && e.source.extensionName === 'my-ext'
 );
 ```
@@ -332,15 +374,17 @@ interface TurnPipelineContext {
   readonly agentName: string;
   readonly instanceKey: string;
   readonly inputEvent: AgentEvent;
-  envelopes: MessageEnvelope[];        // 조작 가능
-  metadata: Record<string, JsonValue>; // Turn 메타데이터
+  readonly conversationState: ConversationState;   // 읽기용
+  emitEnvelopeEvent(event: EnvelopeEvent): void;   // 이벤트 발행으로 조작
+  metadata: Record<string, JsonValue>;              // Turn 메타데이터
 }
 
 interface StepPipelineContext {
   readonly turn: Turn;
   readonly stepIndex: number;
-  envelopes: MessageEnvelope[];        // LLM에 보낼 메시지
-  toolCatalog: ToolCatalogItem[];      // 노출할 도구 목록
+  readonly conversationState: ConversationState;   // 읽기용
+  emitEnvelopeEvent(event: EnvelopeEvent): void;   // 이벤트 발행으로 조작
+  toolCatalog: ToolCatalogItem[];                   // 노출할 도구 목록
   metadata: Record<string, JsonValue>;
 }
 
@@ -539,31 +583,36 @@ spec:
 
 ```
 1. goondan.yaml (또는 개별 리소스 파일) 수정
-2. gdn restart [--agent <name>]   # 특정 에이전트만 또는 전체
-3. Supervisor가 프로세스 kill → 새 설정으로 re-spawn
+2. Orchestrator가 설정 변경을 감지하거나 명령을 수신
+3. Orchestrator가 해당 에이전트 프로세스 kill → 새 설정으로 re-spawn
 ```
 
 **동작 방식:**
-- Supervisor는 파일 시스템 감시(watch) 없음 (명시적 restart만)
+- Orchestrator는 상주 프로세스로서 에이전트 프로세스의 재시작을 직접 관리
+- 재시작 트리거:
+  - `--watch` 모드: 파일 변경 감지 시 자동 재시작
+  - CLI 명령: `gdn restart` → Orchestrator에 신호 전달
+  - Orchestrator 자체 판단 (크래시 감지 등)
 - 재시작 시 conversation history 유지 여부는 옵션:
   - `--fresh`: 대화 히스토리 초기화
-  - 기본: 기존 `messages.jsonl` 유지, 새 설정으로 계속
+  - 기본: 기존 메시지 히스토리 유지, 새 설정으로 계속
 
 ```typescript
-// CLI
 interface RestartOptions {
   agent?: string;     // 특정 에이전트만 재시작. 생략 시 전체
   fresh?: boolean;    // 대화 히스토리 초기화
 }
 ```
 
-### 8.3 Hot Reload (선택적 확장)
+### 8.3 Watch 모드
 
-향후 `--watch` 모드로 파일 변경 감지 + 자동 재시작 지원 가능:
+Orchestrator가 `--watch` 플래그로 기동되면 파일 변경을 감시하고 자동 재시작:
 
 ```bash
-gdn run --watch   # goondan.yaml 변경 시 자동 restart
+gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트 자동 restart
 ```
+
+Orchestrator는 어떤 리소스가 변경되었는지 파악하여 영향받는 에이전트 프로세스만 선택적으로 재시작한다.
 
 ---
 
@@ -630,7 +679,9 @@ spec:
         └── instances/
             └── <instanceKey>/           # 인스턴스별
                 ├── metadata.json        # 상태, 생성일시
-                ├── messages.jsonl       # MessageEnvelope 히스토리
+                ├── messages/
+                │   ├── base.jsonl       # 확정된 MessageEnvelope 목록
+                │   └── events.jsonl     # Turn 중 누적 EnvelopeEvent 로그
                 └── extensions/
                     └── <ext-name>.json  # Extension 상태
 ```
@@ -640,10 +691,19 @@ spec:
 
 ### 10.2 메시지 영속화
 
+**base.jsonl** (확정된 Envelope):
 ```jsonl
 {"id":"m1","message":{"role":"user","content":"Hello"},"metadata":{},"createdAt":"...","source":{"type":"user"},"seq":0}
 {"id":"m2","message":{"role":"assistant","content":"Hi!"},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s1"},"seq":1}
 ```
+
+**events.jsonl** (Turn 중 이벤트):
+```jsonl
+{"type":"append","envelope":{"id":"m3","message":{"role":"user","content":"Fix the bug"},"metadata":{},"createdAt":"...","source":{"type":"user"},"seq":2}}
+{"type":"append","envelope":{"id":"m4","message":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s2"},"seq":3}}
+```
+
+Turn 종료 시: `events.jsonl`의 이벤트를 `base.jsonl`에 폴딩 → `events.jsonl` 클리어
 
 ---
 
@@ -651,8 +711,8 @@ spec:
 
 ```
 gdn init [path]                  # 프로젝트 초기화
-gdn run [--watch]                # Swarm 실행
-gdn restart [--agent <name>] [--fresh]  # 에이전트 재시작
+gdn run [--watch]                # Orchestrator 기동 (상주 프로세스)
+gdn restart [--agent <name>] [--fresh]  # 실행 중인 Orchestrator에 재시작 신호 전송
 
 gdn instance list                # 인스턴스 목록
 gdn instance delete <key>        # 인스턴스 삭제
@@ -664,6 +724,9 @@ gdn package publish              # 레지스트리 배포
 gdn validate                     # 번들 검증
 gdn doctor                       # 환경 진단
 ```
+
+- `gdn run`: Orchestrator 상주 프로세스 기동. 에이전트/커넥터 프로세스를 스폰하고 관리
+- `gdn restart`: 실행 중인 Orchestrator에 IPC/신호를 보내 에이전트 프로세스 재시작 요청
 
 **제거된 명령어:**
 - `gdn instance pause/resume/terminate` → restart로 통합
@@ -679,9 +742,9 @@ gdn doctor                       # 환경 진단
 | **런타임** | Node.js (`runtime: node`) | Bun only (필드 제거) |
 | **에이전트 실행** | 단일 프로세스 내 다중 AgentInstance | **프로세스-per-에이전트** |
 | **에이전트 간 통신** | 인-메모리 호출 | IPC (Supervisor 경유) |
-| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** |
-| **메시지 타입** | 커스텀 `LlmMessage` + 이벤트 소싱 | **MessageEnvelope** (AI SDK `CoreMessage` 래핑) |
-| **메시지 상태** | `BaseMessages + SUM(Events)` 모델 | 단순 배열 (`MessageEnvelope[]`) |
+| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** (Orchestrator가 관리) |
+| **메시지 타입** | 커스텀 `LlmMessage` | **MessageEnvelope** (AI SDK `CoreMessage` 래핑) |
+| **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseEnvelopes + SUM(EnvelopeEvents)` (이벤트 소싱 유지) |
 | **파이프라인 포인트** | 13개 | **7개** |
 | **리소스 Kind** | 11종 | **8종** |
 | **OAuth** | 1급 리소스 (OAuthApp Kind) | Extension 내부 구현 |

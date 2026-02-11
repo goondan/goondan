@@ -6,6 +6,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 
 - `api.md` - Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, Runtime Events API 표면)
 - `help.md` - 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, `gdn package` 도움말 기준, 문서 링크 자동 점검 체크리스트)
+- `layers.md` - 구성 계층 역할 개요 v2.0 (`core/runtime`, `core/types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
 - `shared-types.md` - 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - `resources.md` - Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", Selector+Overrides, ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥, YAML 보안, 경로 해석, 분할 파일 구성)

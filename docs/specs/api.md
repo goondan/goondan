@@ -1,6 +1,6 @@
-# Goondan Runtime/SDK API 스펙 (v0.12)
+# Goondan Runtime/SDK API 스펙 (v2.0)
 
-본 문서는 `docs/requirements/index.md`를 기반으로 런타임과 확장(Extension/Tool/Connector)의 **실행 API**를 정의한다. 구성 스펙은 `docs/requirements/06_config-spec.md` 및 `docs/specs/bundle.md`를 따른다.
+본 문서는 `docs/requirements/index.md`를 기반으로 v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. v2에서는 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기반으로 API 표면을 대폭 단순화한다.
 
 ---
 
@@ -8,70 +8,36 @@
 
 ### 1.1 JSON 기본 타입
 
-```ts
-/**
- * JSON null, boolean, number, string
- */
+```typescript
 type JsonPrimitive = string | number | boolean | null;
-
-/**
- * JSON 배열
- */
 type JsonArray = JsonValue[];
-
-/**
- * JSON 객체
- */
 type JsonObject = { [key: string]: JsonValue };
-
-/**
- * 모든 JSON 값
- */
 type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 ```
 
 ### 1.2 리소스 참조 타입
 
-```ts
+```typescript
 /**
  * 리소스 참조 - 문자열 축약 또는 객체형
  *
- * 문자열 축약: "Kind/name" (예: "Tool/fileRead", "Agent/planner")
- * 객체형: { apiVersion?, kind, name }
+ * 문자열 축약: "Kind/name" (예: "Tool/bash", "Agent/coder")
+ * 객체형: { kind, name }
  */
 type ObjectRefLike =
-  | string                                      // "Kind/name" 축약
-  | { apiVersion?: string; kind: string; name: string };
+  | string
+  | { kind: string; name: string };
 
 // 사용 예시
-const toolRef1: ObjectRefLike = "Tool/fileRead";
-const toolRef2: ObjectRefLike = { kind: "Tool", name: "fileRead" };
-const toolRef3: ObjectRefLike = {
-  apiVersion: "agents.example.io/v1alpha1",
-  kind: "Tool",
-  name: "fileRead"
-};
-
-/**
- * ObjectRef를 정규화된 형태로 변환
- */
-function normalizeRef(ref: ObjectRefLike): { kind: string; name: string } {
-  if (typeof ref === 'string') {
-    const [kind, name] = ref.split('/');
-    return { kind, name };
-  }
-  return { kind: ref.kind, name: ref.name };
-}
+const toolRef1: ObjectRefLike = "Tool/bash";
+const toolRef2: ObjectRefLike = { kind: "Tool", name: "bash" };
 ```
 
 ### 1.3 Resource 제네릭 구조
 
-```ts
-/**
- * Config Plane 리소스 공통 형태
- */
+```typescript
 interface Resource<TSpec = JsonObject> {
-  apiVersion: string;
+  apiVersion: string;          // "goondan.ai/v1"
   kind: string;
   metadata: ResourceMetadata;
   spec: TSpec;
@@ -82,1140 +48,448 @@ interface ResourceMetadata {
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
 }
-
-// 사용 예시
-type ToolResource = Resource<ToolSpec>;
-type AgentResource = Resource<AgentSpec>;
-type SwarmResource = Resource<SwarmSpec>;
 ```
 
-### 1.4 LLM 메시지 타입
+### 1.4 Message 타입
 
-```ts
+v2에서는 AI SDK의 `CoreMessage`를 `Message`로 감싸서 관리한다.
+
+```typescript
+import type { CoreMessage } from 'ai';  // ai-sdk
+
 /**
- * LLM Tool 호출 정보
+ * AI SDK 메시지를 감싸는 관리 래퍼.
+ * Extension 미들웨어에서 메시지 식별/조작에 사용.
  */
+interface Message {
+  /** 고유 ID */
+  readonly id: string;
+
+  /** AI SDK CoreMessage (system | user | assistant | tool) */
+  readonly data: CoreMessage;
+
+  /** Extension/미들웨어가 읽고 쓸 수 있는 메타데이터 */
+  metadata: Record<string, JsonValue>;
+
+  /** 메시지 생성 시각 */
+  readonly createdAt: Date;
+
+  /** 이 메시지를 생성한 주체 */
+  readonly source: MessageSource;
+}
+
+type MessageSource =
+  | { type: 'user' }
+  | { type: 'assistant'; stepId: string }
+  | { type: 'tool'; toolCallId: string; toolName: string }
+  | { type: 'system' }
+  | { type: 'extension'; extensionName: string };
+```
+
+### 1.5 MessageEvent 타입
+
+메시지 상태는 이벤트 소싱 모델로 관리한다.
+
+```typescript
+/**
+ * NextMessages = BaseMessages + SUM(Events)
+ */
+type MessageEvent =
+  | { type: 'append';   message: Message }
+  | { type: 'replace';  targetId: string; message: Message }
+  | { type: 'remove';   targetId: string }
+  | { type: 'truncate' };
+```
+
+### 1.6 ConversationState
+
+```typescript
+interface ConversationState {
+  /** Turn 시작 시점의 확정된 메시지들 */
+  readonly baseMessages: Message[];
+
+  /** Turn 진행 중 누적된 이벤트 */
+  readonly events: MessageEvent[];
+
+  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
+  readonly nextMessages: Message[];
+
+  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
+  toLlmMessages(): CoreMessage[];
+}
+```
+
+### 1.7 Turn / Step 타입
+
+```typescript
+interface Turn {
+  readonly id: string;
+  readonly agentName: string;
+  readonly inputEvent: AgentEvent;
+  readonly messages: Message[];
+  readonly steps: Step[];
+  status: 'running' | 'completed' | 'failed';
+  metadata: Record<string, JsonValue>;
+}
+
+interface Step {
+  readonly id: string;
+  readonly index: number;
+  readonly toolCatalog: ToolCatalogItem[];
+  readonly toolCalls: ToolCall[];
+  readonly toolResults: ToolCallResult[];
+  status: 'llm_call' | 'tool_exec' | 'completed';
+}
+
+interface AgentEvent {
+  /** 이벤트 타입 */
+  type: 'user_message' | 'delegate' | 'connector_event';
+  /** 메시지 내용 */
+  message?: { type: 'text'; text: string };
+  /** 이벤트 속성 */
+  properties?: JsonObject;
+  /** 인스턴스 키 */
+  instanceKey?: string;
+  /** 메타데이터 */
+  metadata?: Record<string, JsonValue>;
+}
+
 interface ToolCall {
   id: string;
   name: string;
   args: JsonObject;
 }
-
-/**
- * LLM 메시지 - 역할별 variant
- */
-type LlmMessage =
-  | SystemMessage
-  | UserMessage
-  | AssistantMessage
-  | ToolMessage;
-
-/**
- * 시스템 메시지 - LLM에게 지시/컨텍스트 제공
- */
-interface SystemMessage {
-  id: string;
-  role: 'system';
-  content: string;
-}
-
-/**
- * 사용자 메시지 - 사용자 입력
- */
-interface UserMessage {
-  id: string;
-  role: 'user';
-  content: string;
-  /** 멀티모달 콘텐츠 (선택) */
-  attachments?: MessageAttachment[];
-}
-
-interface MessageAttachment {
-  type: 'image' | 'file';
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-}
-
-/**
- * 어시스턴트 메시지 - LLM 응답
- */
-interface AssistantMessage {
-  id: string;
-  role: 'assistant';
-  content?: string;
-  /** tool call 요청 목록 (선택) */
-  toolCalls?: ToolCall[];
-}
-
-/**
- * Tool 결과 메시지
- */
-interface ToolMessage {
-  id: string;
-  role: 'tool';
-  toolCallId: string;
-  toolName: string;
-  output: JsonValue;
-}
-
-type MessageEvent =
-  | { type: 'system_message'; seq: number; message: SystemMessage }
-  | { type: 'llm_message'; seq: number; message: UserMessage | AssistantMessage | ToolMessage }
-  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
-  | { type: 'remove'; seq: number; targetId: string }
-  | { type: 'truncate'; seq: number };
-
-// 사용 예시
-const messages: LlmMessage[] = [
-  { id: 'msg-sys-1', role: 'system', content: '너는 도움이 되는 AI 어시스턴트다.' },
-  { id: 'msg-user-1', role: 'user', content: '파일 목록을 보여줘' },
-  {
-    id: 'msg-asst-1',
-    role: 'assistant',
-    content: '파일 목록을 조회하겠습니다.',
-    toolCalls: [{ id: 'call_1', name: 'file.list', args: { path: '.' } }]
-  },
-  {
-    id: 'msg-tool-1',
-    role: 'tool',
-    toolCallId: 'call_1',
-    toolName: 'file.list',
-    output: { files: ['README.md', 'package.json'] }
-  }
-];
-```
-
-### 1.5 Turn/Step 컨텍스트 타입
-
-```ts
-/**
- * Turn - 하나의 입력 이벤트 처리 단위
- */
-interface Turn {
-  id: string;
-  /** 분산 추적용 Trace ID */
-  traceId: string;
-  /** Turn 메시지 상태 (NextMessages = BaseMessages + SUM(Events)) */
-  messageState: {
-    baseMessages: LlmMessage[];
-    events: MessageEvent[];
-    nextMessages: LlmMessage[];
-  };
-  /** Tool 실행 결과 (Step별 누적) */
-  toolResults: ToolResult[];
-  /** Turn 시작 시간 */
-  startedAt: string;
-  /** Turn 종료 시간 (선택) */
-  endedAt?: string;
-  /** 호출 맥락 정보 */
-  origin?: TurnOrigin;
-  /** 인증 컨텍스트 */
-  auth?: TurnAuth;
-  /** Turn 메타데이터 */
-  metadata?: JsonObject;
-  /** Turn 요약 (turn.post에서 생성) */
-  summary?: string;
-}
-
-/**
- * Turn 호출 맥락 정보
- */
-interface TurnOrigin {
-  connector: string;
-  channel?: string;
-  threadTs?: string;
-  [key: string]: JsonValue | undefined;
-}
-
-/**
- * Turn 인증 컨텍스트
- */
-interface TurnAuth {
-  actor: {
-    type: 'user' | 'service' | 'system';
-    id: string;
-    display?: string;
-  };
-  subjects: {
-    /** 전역 토큰 조회용 (예: slack:team:T111) */
-    global?: string;
-    /** 사용자별 토큰 조회용 (예: slack:user:T111:U234567) */
-    user?: string;
-  };
-}
-
-/**
- * Step - LLM 호출 1회 중심 단위
- */
-interface Step {
-  id: string;
-  index: number;
-  /** LLM 호출 결과 */
-  llmResult?: LlmResult;
-  /** Step 시작 시간 */
-  startedAt: string;
-  /** Step 종료 시간 (선택) */
-  endedAt?: string;
-  /** Step 상태 */
-  status: 'pending' | 'running' | 'completed' | 'failed';
-}
-
-/**
- * LLM 호출 결과
- */
-interface LlmResult {
-  message: AssistantMessage;
-  meta: {
-    usage?: {
-      promptTokens: number;
-      completionTokens: number;
-      totalTokens: number;
-    };
-    model?: string;
-    finishReason?: string;
-  };
-}
 ```
 
 ---
 
-## 2. Extension API
+## 2. ExtensionApi
 
-Extension은 런타임 라이프사이클의 특정 지점에 개입하기 위해 등록되는 실행 로직 묶음이다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. 상세 스펙은 `docs/specs/extension.md`를 참조한다.
 
 ### 2.1 엔트리포인트
 
-Extension 모듈은 `register(api)` 함수를 **반드시** 제공해야 한다.
-
-```ts
+```typescript
 /**
  * Extension 등록 함수
- * Runtime은 AgentInstance 초기화 시점에 확장 목록 순서대로 이를 호출한다.
+ * AgentProcess는 초기화 시 Agent에 선언된 Extension 목록 순서대로 이를 호출한다.
  */
-export async function register(api: ExtensionApi): Promise<void>;
-
-// 사용 예시
-export async function register(api: ExtensionApi<MyState, MyConfig>): Promise<void> {
-  // 상태 초기화
-  api.setState({ ...api.getState(), initialized: true });
-
-  // 파이프라인 등록
-  api.pipelines.mutate('step.blocks', async (ctx) => {
-    // 컨텍스트 블록 추가
-    return ctx;
-  });
-
-  // 동적 도구 등록
-  api.tools.register({
-    name: 'myExt.getData',
-    description: '데이터 조회',
-    parameters: { type: 'object', properties: {} },
-    handler: async (ctx, input) => ({ data: 'result' })
-  });
-}
+export function register(api: ExtensionApi): void;
 ```
 
 ### 2.2 ExtensionApi 인터페이스
 
-```ts
-/**
- * Extension 등록 시 제공되는 API
- */
-interface ExtensionApi<State = JsonObject, Config = JsonObject> {
-  /** Extension 리소스 정의 */
-  extension: Resource<ExtensionSpec<Config>>;
+```typescript
+interface ExtensionApi {
+  /** 미들웨어 등록 */
+  pipeline: PipelineRegistry;
 
-  /** 파이프라인 등록 API */
-  pipelines: PipelineApi;
+  /** 동적 도구 등록 */
+  tools: {
+    register(item: ToolCatalogItem, handler: ToolHandler): void;
+  };
 
-  /** 동적 Tool 등록 API */
-  tools: ToolRegistryApi;
+  /** Extension별 상태 (JSON, 영속화) */
+  state: {
+    get(): Promise<JsonValue>;
+    set(value: JsonValue): Promise<void>;
+  };
 
-  /** 이벤트 버스 */
-  events: EventBus;
-
-  /** SwarmBundle Changeset API (선택 - Runtime capability에 따라 제공) */
-  swarmBundle?: SwarmBundleApi;
-
-  /** Live Config API (선택 - Runtime capability에 따라 제공) */
-  liveConfig?: LiveConfigApi;
-
-  /** OAuth API */
-  oauth: OAuthApi;
-
-  /** 확장별 상태 조회 (인스턴스별 격리, 자동 영속화) */
-  getState: () => State;
-
-  /** 확장별 상태 저장 (Turn 종료 시 Runtime이 디스크에 자동 기록) */
-  setState: (next: State) => void;
+  /** 이벤트 버스 (프로세스 내) */
+  events: {
+    on(event: string, handler: (...args: unknown[]) => void): () => void;
+    emit(event: string, ...args: unknown[]): void;
+  };
 
   /** 로거 */
-  logger?: Console;
-}
-
-/**
- * Extension Spec 구조
- */
-interface ExtensionSpec<Config = JsonObject> {
-  runtime: 'node' | 'deno' | 'python';
-  entry: string;
-  config?: Config;
+  logger: Console;
 }
 ```
 
-### 2.3 PipelineApi 상세
+### 2.3 PipelineRegistry
 
-```ts
-/**
- * 파이프라인 등록 API
- */
-interface PipelineApi {
-  /**
-   * Mutator 등록 - 순차 실행을 통해 컨텍스트를 변형
-   * extensions 등록 순서대로 선형 실행
-   */
-  mutate<T extends PipelinePoint>(
-    point: T,
-    handler: MutatorHandler<PipelineContext[T]>
-  ): void;
-
-  /**
-   * Middleware 등록 - next() 기반 래핑 (onion 구조)
-   * 먼저 등록된 확장이 더 바깥 레이어
-   */
-  wrap<T extends PipelinePoint>(
-    point: T,
-    handler: MiddlewareHandler<PipelineContext[T]>
-  ): void;
+```typescript
+interface PipelineRegistry {
+  register(type: 'turn', fn: TurnMiddleware, options?: MiddlewareOptions): void;
+  register(type: 'step', fn: StepMiddleware, options?: MiddlewareOptions): void;
+  register(type: 'toolCall', fn: ToolCallMiddleware, options?: MiddlewareOptions): void;
 }
 
-/**
- * Mutator 핸들러 - 컨텍스트를 변형하여 반환
- */
-type MutatorHandler<Ctx> = (ctx: Ctx) => Promise<Ctx> | Ctx;
+type TurnMiddleware = (ctx: TurnMiddlewareContext) => Promise<TurnResult>;
+type StepMiddleware = (ctx: StepMiddlewareContext) => Promise<StepResult>;
+type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallResult>;
 
-/**
- * Middleware 핸들러 - next()로 다음 핸들러 호출
- */
-type MiddlewareHandler<Ctx> = (
-  ctx: Ctx,
-  next: (ctx: Ctx) => Promise<Ctx>
-) => Promise<Ctx>;
+interface MiddlewareOptions {
+  priority?: number;
+}
+```
 
-// 사용 예시: Mutator
-api.pipelines.mutate('step.blocks', async (ctx) => {
-  const blocks = [...(ctx.blocks || [])];
-  blocks.push({
-    type: 'custom.info',
-    data: { timestamp: Date.now() }
+상세 미들웨어 컨텍스트는 `docs/specs/pipeline.md` 3절을 참조한다.
+
+### 2.4 사용 예시
+
+```typescript
+export function register(api: ExtensionApi): void {
+  // 미들웨어 등록
+  api.pipeline.register('step', async (ctx) => {
+    const start = Date.now();
+    const result = await ctx.next();
+    api.logger.info(`Step ${ctx.stepIndex}: ${Date.now() - start}ms`);
+    return result;
   });
-  return { ...ctx, blocks };
-});
 
-// 사용 예시: Middleware (onion 구조)
-api.pipelines.wrap('step.llmCall', async (ctx, next) => {
-  const startTime = Date.now();
-  api.logger?.debug?.('LLM 호출 시작');
-
-  // 실제 LLM 호출
-  const result = await next(ctx);
-
-  const elapsed = Date.now() - startTime;
-  api.logger?.debug?.(`LLM 호출 완료: ${elapsed}ms`);
-  return result;
-});
-```
-
-### 2.4 Pipeline Point 전체 목록
-
-```ts
-/**
- * 파이프라인 포인트 - 라이프사이클 개입 지점
- */
-type PipelinePoint =
-  // Turn 레벨
-  | 'turn.pre'          // Turn 시작 전 (Mutator)
-  | 'turn.post'         // Turn 종료 후 (base/events 전달, Mutator)
-  // Step 레벨
-  | 'step.pre'          // Step 시작 전 (Mutator)
-  | 'step.config'       // SwarmBundleRef 활성화 + Config 로드 (Mutator)
-  | 'step.tools'        // Tool Catalog 구성 (Mutator)
-  | 'step.blocks'       // Context Blocks 구성 (Mutator)
-  | 'step.llmCall'      // LLM 호출 (Middleware)
-  | 'step.llmError'     // LLM 호출 실패 시 (Mutator)
-  | 'step.post'         // Step 종료 후 (Mutator)
-  // ToolCall 레벨
-  | 'toolCall.pre'      // Tool 호출 전 (Mutator)
-  | 'toolCall.exec'     // Tool 실행 (Middleware)
-  | 'toolCall.post'     // Tool 호출 후 (Mutator)
-  // Workspace 레벨
-  | 'workspace.repoAvailable'      // Repo 사용 가능 시
-  | 'workspace.worktreeMounted';   // Worktree 마운트 시
-
-/**
- * 각 파이프라인 포인트별 컨텍스트 타입
- */
-interface PipelineContext {
-  'turn.pre': TurnContext;
-  'turn.post': TurnContext;
-  'step.pre': StepContext;
-  'step.config': StepContext;
-  'step.tools': StepContext;
-  'step.blocks': StepContext;
-  'step.llmCall': StepContext;
-  'step.llmError': StepContext & { error: Error };
-  'step.post': StepContext;
-  'toolCall.pre': ToolCallContext;
-  'toolCall.exec': ToolCallContext;
-  'toolCall.post': ToolCallContext;
-  'workspace.repoAvailable': WorkspaceContext;
-  'workspace.worktreeMounted': WorkspaceContext;
-}
-
-/**
- * Turn 컨텍스트
- */
-interface TurnContext {
-  instance: SwarmInstanceRef;
-  swarm: Resource<SwarmSpec>;
-  agent: Resource<AgentSpec>;
-  turn: Turn;
-  /** turn.post에서 제공되는 기준 메시지 스냅샷 */
-  baseMessages?: LlmMessage[];
-  /** turn.post에서 제공되는 메시지 이벤트 뷰 */
-  messageEvents?: MessageEvent[];
-  effectiveConfig: EffectiveConfig;
-}
-
-/**
- * Step 컨텍스트
- */
-interface StepContext extends TurnContext {
-  step: Step;
-  /** Tool Catalog (step.tools 이후 사용 가능) */
-  toolCatalog?: ToolCatalogItem[];
-  /** Context Blocks (step.blocks 이후 사용 가능) */
-  blocks?: ContextBlock[];
-  /** LLM 결과 (step.llmCall 이후 사용 가능) */
-  llmResult?: LlmResult;
-}
-
-/**
- * ToolCall 컨텍스트
- */
-interface ToolCallContext extends StepContext {
-  toolCall: ToolCall;
-  toolResult?: ToolResult;
-}
-
-/**
- * Workspace 컨텍스트
- */
-interface WorkspaceContext {
-  path: string;
-  type: 'repo' | 'worktree';
-}
-
-/**
- * Context Block - LLM 컨텍스트에 주입되는 정보 블록
- */
-interface ContextBlock {
-  type: string;
-  data?: JsonObject;
-  items?: JsonArray;
-}
-```
-
-### 2.5 ToolRegistryApi 상세
-
-```ts
-/**
- * 동적 Tool 등록 API
- */
-interface ToolRegistryApi {
-  /**
-   * 동적 Tool 등록
-   * 등록된 Tool은 Registry에 추가되며, Catalog 노출은 별도 설정 필요
-   */
-  register(toolDef: DynamicToolDefinition): void;
-
-  /**
-   * 등록된 Tool 제거
-   */
-  unregister(name: string): void;
-
-  /**
-   * 등록된 Tool 조회
-   */
-  get(name: string): DynamicToolDefinition | undefined;
-
-  /**
-   * 등록된 모든 Tool 목록
-   */
-  list(): DynamicToolDefinition[];
-}
-
-/**
- * 동적 Tool 정의
- */
-interface DynamicToolDefinition {
-  name: string;
-  description: string;
-  parameters?: JsonObject;  // JSON Schema
-  handler: ToolHandler;
-  /** 이 Tool이 사용하는 OAuthApp (선택) */
-  auth?: {
-    oauthAppRef: ObjectRefLike;
-    scopes?: string[];
-  };
-}
-
-// 사용 예시
-api.tools.register({
-  name: 'myExt.search',
-  description: '데이터 검색',
-  parameters: {
-    type: 'object',
-    properties: {
-      query: { type: 'string', description: '검색어' },
-      limit: { type: 'number', description: '최대 결과 수' }
+  // 동적 도구 등록
+  api.tools.register(
+    {
+      name: 'my-ext__getData',
+      description: '데이터 조회',
+      parameters: { type: 'object', properties: { query: { type: 'string' } } },
     },
-    required: ['query']
-  },
-  handler: async (ctx, input) => {
-    const query = String(input.query || '');
-    const limit = Number(input.limit || 10);
-    // 검색 로직
-    return { results: [], total: 0 };
-  }
-});
-```
+    async (ctx, input) => {
+      return { data: 'result', query: input.query };
+    }
+  );
 
-### 2.6 EventBus 상세
+  // 상태 관리
+  api.state.set({ initialized: true, processedSteps: 0 });
 
-```ts
-/**
- * 런타임 이벤트 버스
- */
-interface EventBus {
-  /**
-   * 이벤트 발행
-   */
-  emit(type: string, payload?: JsonObject): void;
-
-  /**
-   * 이벤트 구독
-   */
-  on(type: string, handler: EventHandler): () => void;
-
-  /**
-   * 이벤트 일회성 구독
-   */
-  once(type: string, handler: EventHandler): () => void;
-
-  /**
-   * 구독 해제
-   */
-  off(type: string, handler: EventHandler): void;
-}
-
-type EventHandler = (payload: JsonObject) => void | Promise<void>;
-
-// 사용 예시
-// 이벤트 발행
-api.events.emit('myExtension.initialized', { timestamp: Date.now() });
-
-// 이벤트 구독
-const unsubscribe = api.events.on('workspace.repoAvailable', async (payload) => {
-  const repoPath = payload.path;
-  api.logger?.info?.(`Repo 사용 가능: ${repoPath}`);
-  // repo 스캔, 인덱싱 등
-});
-
-// 구독 해제
-unsubscribe();
-```
-
-### 2.7 SwarmBundleApi 상세
-
-```ts
-/**
- * SwarmBundle Changeset API
- * SwarmBundle 정의(YAML/코드)를 변경하기 위한 인터페이스
- */
-interface SwarmBundleApi {
-  /**
-   * Changeset 열기 - Git worktree 생성
-   */
-  openChangeset(input?: OpenChangesetInput): Promise<OpenChangesetResult>;
-
-  /**
-   * Changeset 커밋 - Git commit 생성 및 활성 Ref 업데이트
-   */
-  commitChangeset(input: CommitChangesetInput): Promise<CommitChangesetResult>;
-
-  /**
-   * 현재 활성 SwarmBundleRef 조회
-   */
-  getActiveRef(): string;
-}
-
-interface OpenChangesetInput {
-  reason?: string;
-}
-
-interface OpenChangesetResult {
-  changesetId: string;
-  baseRef: string;
-  workdir: string;
-  hint?: {
-    bundleRootInWorkdir: string;
-    recommendedFiles: string[];
-  };
-}
-
-interface CommitChangesetInput {
-  changesetId: string;
-  message?: string;
-}
-
-interface CommitChangesetResult {
-  status: 'ok' | 'rejected' | 'conflict' | 'failed';
-  changesetId: string;
-  baseRef: string;
-  newRef?: string;       // status === 'ok' 인 경우
-  summary?: {
-    filesChanged: string[];
-    filesAdded: string[];
-    filesDeleted: string[];
-  };
-  error?: {              // status !== 'ok' 인 경우
-    code: string;
-    message: string;
-  };
-}
-```
-
-### 2.8 LiveConfigApi 상세
-
-```ts
-/**
- * Live Config API
- * 실행 중 Config를 동적으로 변경하기 위한 인터페이스
- */
-interface LiveConfigApi {
-  /**
-   * Config 변경 패치 제안
-   */
-  proposePatch(patch: LiveConfigPatch): Promise<void>;
-
-  /**
-   * 현재 Effective Config 조회
-   */
-  getEffectiveConfig(): EffectiveConfig;
-
-  /**
-   * 현재 revision 조회
-   */
-  getRevision(): number;
-}
-
-interface LiveConfigPatch {
-  scope: 'swarm' | 'agent';
-  applyAt: 'step.config' | 'immediate';
-  patch: {
-    type: 'json6902';
-    ops: JsonPatchOperation[];
-  };
-  source: {
-    type: 'tool' | 'extension';
-    name: string;
-  };
-  reason?: string;
-}
-
-interface JsonPatchOperation {
-  op: 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
-  path: string;
-  value?: JsonValue;
-  from?: string;
-}
-
-// 사용 예시
-await ctx.liveConfig.proposePatch({
-  scope: 'agent',
-  applyAt: 'step.config',
-  patch: {
-    type: 'json6902',
-    ops: [{
-      op: 'add',
-      path: '/spec/tools/-',
-      value: { kind: 'Tool', name: 'newTool' }
-    }]
-  },
-  source: { type: 'tool', name: 'toolSearch' },
-  reason: '사용자 요청으로 도구 추가'
-});
-```
-
-### 2.9 getState/setState 상세
-
-```ts
-/**
- * 확장별 상태 저장소
- * SwarmInstance별로 격리되며 Runtime이 자동 영속화
- * Extension identity에 귀속되며 reconcile 규칙을 따른다
- *
- * 영속화 규칙:
- * - 인스턴스 초기화 시 디스크에서 자동 복원(MUST)
- * - Turn 종료 시 변경된 상태를 디스크에 자동 기록(MUST)
- * - 저장 경로: <instanceStateRoot>/extensions/<extensionName>/state.json
- */
-interface ExtensionApi<State = JsonObject, Config = JsonObject> {
-  /**
-   * 확장별 상태 조회
-   * 현재 상태의 스냅샷을 반환
-   * 인스턴스 재시작 시 디스크에서 복원된 상태가 반환됨
-   */
-  getState: () => State;
-
-  /**
-   * 확장별 상태 저장
-   * 새 상태로 교체 (변경 감지 가능)
-   * JSON 직렬화 가능한 값만 허용(MUST)
-   */
-  setState: (next: State) => void;
-}
-
-// 사용 예시
-interface MyExtensionState {
-  processedSteps: number;
-  lastCompactionStep?: string;
-  catalog: SkillItem[];
-}
-
-export async function register(
-  api: ExtensionApi<MyExtensionState, MyConfig>
-): Promise<void> {
-  // 인스턴스 재시작 시 이전 상태가 자동 복원됨
-  const existing = api.getState();
-  if (!existing.processedSteps) {
-    // 최초 실행: 초기 상태 설정
-    api.setState({
-      processedSteps: 0,
-      catalog: []
-    });
-  }
-
-  api.pipelines.mutate('step.post', async (ctx) => {
-    // 상태 업데이트 — Turn 종료 시 자동으로 디스크에 기록됨
-    const state = api.getState();
-    api.setState({
-      ...state,
-      processedSteps: state.processedSteps + 1
-    });
-    return ctx;
+  // 이벤트 구독
+  api.events.on('turn.completed', () => {
+    api.logger.info('Turn completed');
   });
 }
 ```
 
 ---
 
-## 3. Tool API
+## 3. ToolHandler API
 
 Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이다.
 
 ### 3.1 Tool 모듈 구조
 
-Tool 모듈은 `handlers` 맵 또는 default export로 핸들러를 제공한다.
+Tool 모듈은 `handlers` 맵으로 핸들러를 제공한다.
 
-```ts
+```typescript
 /**
  * Tool 핸들러 시그니처
  */
-export type ToolHandler = (
-  ctx: ToolContext,
-  input: JsonObject
-) => Promise<JsonValue> | JsonValue;
+interface ToolHandler {
+  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
+}
 
 /**
  * Tool 모듈 export 형식
  */
 export const handlers: Record<string, ToolHandler> = {
-  "tool.name": async (ctx, input) => {
-    // 구현
-    return { result: 'ok' };
-  }
-};
-
-// 사용 예시: 파일 읽기 도구
-export const handlers: Record<string, ToolHandler> = {
-  "file.read": async (ctx, input) => {
-    const path = String(input.path || '');
-    const encoding = String(input.encoding || 'utf8');
-
-    if (!path) {
-      throw new Error('path가 필요합니다.');
-    }
-
-    const content = await readFile(path, { encoding });
-    return {
-      path,
-      content,
-      size: content.length
-    };
+  exec: async (ctx, input) => {
+    const proc = Bun.spawn(['sh', '-c', input.command as string]);
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
   },
-
-  "file.write": async (ctx, input) => {
-    const path = String(input.path || '');
-    const content = String(input.content || '');
-
-    await writeFile(path, content);
-    return { path, written: content.length };
-  }
+  script: async (ctx, input) => {
+    const proc = Bun.spawn(['sh', input.path as string]);
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
+  },
 };
 ```
 
-### 3.2 ToolContext 전체 필드
+### 3.2 ToolContext
 
-```ts
-/**
- * Tool 실행 컨텍스트
- */
+```typescript
 interface ToolContext {
-  /** SwarmInstance 참조 */
-  instance: SwarmInstanceRef;
+  /** 현재 에이전트 이름 */
+  readonly agentName: string;
 
-  /** Swarm 리소스 정의 */
-  swarm: Resource<SwarmSpec>;
+  /** 현재 인스턴스 키 */
+  readonly instanceKey: string;
 
-  /** Agent 리소스 정의 */
-  agent: Resource<AgentSpec>;
+  /** 현재 Turn ID */
+  readonly turnId: string;
 
-  /** 현재 Turn */
-  turn: Turn;
+  /** 도구 호출 고유 ID */
+  readonly toolCallId: string;
 
-  /** 현재 Step */
-  step: Step;
-
-  /** 현재 Step에서 노출된 도구 목록 */
-  toolCatalog: ToolCatalogItem[];
-
-  /** SwarmBundle Changeset API */
-  swarmBundle: SwarmBundleApi;
-
-  /** Live Config API */
-  liveConfig: LiveConfigApi;
-
-  /** OAuth API */
-  oauth: OAuthApi;
-
-  /** 이벤트 버스 */
-  events: EventBus;
+  /** 이 도구 호출을 트리거한 메시지 */
+  readonly message: Message;
 
   /** 로거 */
-  logger: Console;
-
-  /** 인스턴스별 작업 디렉터리 (Tool CWD 바인딩용) */
-  workdir: string;
-
-  /** Agent 위임/관리 API */
-  agents: ToolAgentsApi;
-}
-
-/**
- * Agent 위임 옵션
- */
-interface AgentDelegateOptions {
-  /** 추가 컨텍스트 */
-  context?: string;
-  /** true면 비동기 실행 (응답 대기 안함) */
-  async?: boolean;
-}
-
-/**
- * Agent 위임/관리 API
- */
-interface ToolAgentsApi {
-  /** 다른 에이전트에 작업을 위임하고 결과를 반환 */
-  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
-  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
-  listInstances(): Promise<AgentInstanceInfo[]>;
-  /** 에이전트 이름으로 새 인스턴스를 생성 (Turn 실행 없이) */
-  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
-  /** 특정 인스턴스 ID의 에이전트에 작업을 위임 */
-  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
-  /** 인스턴스 ID로 에이전트 인스턴스를 삭제 */
-  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
-}
-
-interface AgentDelegateResult {
-  success: boolean;
-  agentName: string;
-  instanceId: string;
-  response?: string;
-  error?: string;
-}
-
-interface AgentSpawnResult {
-  instanceId: string;
-  agentName: string;
-}
-
-interface AgentDestroyResult {
-  success: boolean;
-  instanceId: string;
-  error?: string;
-}
-
-interface AgentInstanceInfo {
-  instanceId: string;
-  agentName: string;
-  status: string;
-}
-
-interface SwarmInstanceRef {
-  id: string;
-  instanceKey: string;
-  swarmName: string;
-  /** 인스턴스 공유 상태 (선택) */
-  shared?: JsonObject;
+  readonly logger: Console;
 }
 ```
 
-### 3.3 ToolCatalogItem 구조
+**제거된 필드:**
 
-```ts
-/**
- * Tool Catalog 항목
- * LLM에 노출되는 도구 정보
- */
+| 필드 | 사유 |
+|------|------|
+| `instance` (SwarmInstanceRef) | 프로세스-per-에이전트 모델에서 `agentName` + `instanceKey`로 대체 |
+| `swarm` / `agent` (Resource) | ToolHandler는 리소스 정의에 접근 불필요 |
+| `turn` / `step` (상세 객체) | `turnId` + `toolCallId`로 최소화 |
+| `toolCatalog` | ToolHandler는 카탈로그에 접근 불필요 |
+| `swarmBundle` (Changeset API) | Changeset 시스템 제거 |
+| `liveConfig` (Config 패치) | Edit & Restart 모델로 대체 |
+| `oauth` (OAuth API) | OAuthApp Kind 제거 |
+| `events` (EventBus) | ToolHandler는 이벤트 발행 불필요 |
+| `workdir` | 도구 자체적으로 관리 (필요시 `instanceKey` 기반 경로 계산) |
+| `agents` (ToolAgentsApi) | IPC 기반 delegate로 대체 (Orchestrator 경유) |
+
+### 3.3 ToolCatalogItem
+
+```typescript
 interface ToolCatalogItem {
-  /** 도구 이름 (LLM이 호출하는 이름) */
+  /** 도구 이름 ({리소스명}__{하위도구명} 형식) */
   name: string;
-
   /** 도구 설명 */
-  description?: string;
-
+  description: string;
   /** 입력 파라미터 JSON Schema */
   parameters?: JsonObject;
-
-  /** 원본 Tool 리소스 (선택) */
-  tool?: Resource<ToolSpec> | null;
-
-  /** Tool export 정의 (선택) */
-  export?: ToolExportSpec | null;
-
-  /** 도구 출처 정보 */
-  source?: {
-    type: 'config' | 'extension' | 'mcp';
-    name: string;
-  };
-}
-
-interface ToolExportSpec {
-  name: string;
-  description: string;
-  parameters?: JsonObject;
-  auth?: {
-    scopes?: string[];
-  };
 }
 ```
 
-### 3.4 ToolResult 구조
+### 3.4 ToolCallResult
 
-```ts
-/**
- * Tool 실행 결과
- */
-interface ToolResult {
+```typescript
+interface ToolCallResult {
   /** Tool 호출 ID */
   toolCallId: string;
-
   /** 도구 이름 */
   toolName: string;
-
-  /** 결과 상태 */
-  status: 'ok' | 'error' | 'pending';
-
-  /** 결과 데이터 (동기 완료 시) */
-  output?: JsonValue;
-
-  /** 비동기 핸들 (비동기 제출 시) */
-  handle?: string;
-
-  /** 오류 정보 (status === 'error' 시) */
+  /** 실행 결과 */
+  output: JsonValue;
+  /** 실행 상태 */
+  status: 'ok' | 'error';
+  /** 오류 정보 (status가 error인 경우) */
   error?: {
     name: string;
     message: string;
     code?: string;
-    /** 사용자에게 제시할 해결 제안 (선택) */
     suggestion?: string;
-    /** 관련 도움말 URL (선택) */
     helpUrl?: string;
   };
 }
-
-// Tool 오류 결과 예시
-const errorResult: ToolResult = {
-  toolCallId: 'call_123',
-  toolName: 'file.read',
-  status: 'error',
-  error: {
-    name: 'Error',
-    message: '파일을 찾을 수 없습니다: /nonexistent',
-    code: 'ENOENT',
-    suggestion: '파일 경로를 확인하세요',
-    helpUrl: 'https://docs.goondan.io/errors/ENOENT'
-  }
-};
 ```
 
-### 3.5 Tool 오류 처리
+### 3.5 도구 이름 규칙
 
-```ts
-/**
- * Tool 오류 메시지 제한
- * - error.message는 Tool.spec.errorMessageLimit 길이 제한 적용
- * - 기본값: 1000자
- */
+LLM에 노출되는 도구 이름은 **`{Tool 리소스 이름}__{하위 도구 이름}`** 형식을 따른다(MUST).
 
-// Tool 정의에서 errorMessageLimit 설정
-// spec:
-//   errorMessageLimit: 1200
+```text
+Tool 리소스: bash          ->  exports: exec, script
+LLM 도구 이름:  bash__exec,  bash__script
 
-// Runtime 처리 예시
-function limitErrorMessage(message: string, limit: number = 1000): string {
-  if (message.length <= limit) return message;
-  return message.slice(0, limit - 3) + '...';
-}
+Tool 리소스: file-system   ->  exports: read, write
+LLM 도구 이름:  file-system__read,  file-system__write
 ```
+
+`__` (더블 언더스코어)는 AI SDK에서 허용되는 문자이므로 별도 변환 없이 그대로 사용한다.
+
+**규칙:**
+
+1. LLM에 노출되는 도구 이름은 `{Tool 리소스 metadata.name}__{export name}` 형식이어야 한다(MUST).
+2. 구분자는 `__`(더블 언더스코어)를 사용해야 한다(MUST).
+3. Tool 리소스 이름과 export name에는 `__`가 포함되어서는 안 된다(MUST NOT).
+4. Tool 오류는 예외 전파 대신 구조화된 `ToolCallResult`로 LLM에 전달되어야 한다(MUST).
+
+### 3.6 Tool 리소스 스키마
+
+```yaml
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: bash
+  labels:
+    tier: base
+spec:
+  entry: "./tools/bash/index.ts"      # Bun으로 실행
+  exports:
+    - name: exec
+      description: "셸 명령 실행"
+      parameters:
+        type: object
+        properties:
+          command: { type: string }
+        required: [command]
+    - name: script
+      description: "스크립트 파일 실행"
+      parameters:
+        type: object
+        properties:
+          path: { type: string }
+        required: [path]
+```
+
+`runtime` 필드 제거 -- 항상 Bun.
 
 ---
 
-## 4. Connector API
+## 4. ConnectorContext API
 
-Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 역할을 한다. 응답 전송은 Tool을 통해 처리하며, Connector는 이벤트 수신과 정규화에만 집중한다.
+Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러 등)을 **자체적으로** 관리한다. 응답 전송은 Tool을 통해 처리하며, Connector는 이벤트 수신과 정규화에만 집중한다.
 
-### 4.1 ConnectorEntryFunction
+### 4.1 Connector 엔트리 함수
 
-Connector entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
+Connector entry 모듈은 **단일 default export 함수**를 제공해야 한다(MUST).
 
-```ts
+```typescript
 /**
  * Connector Entry Function
  * 단일 default export로 제공
+ * Connector가 프로토콜 처리를 직접 구현
  */
-type ConnectorEntryFunction = (
-  context: ConnectorContext
-) => Promise<void>;
+export default async function (ctx: ConnectorContext): Promise<void> {
+  // Connector가 직접 HTTP 서버를 열어 웹훅 수신
+  Bun.serve({
+    port: Number(ctx.secrets.PORT) || 3000,
+    async fetch(req) {
+      const body = await req.json();
+
+      await ctx.emit({
+        name: 'user_message',
+        message: { type: 'text', text: body.message.text },
+        properties: { chat_id: String(body.message.chat.id) },
+        instanceKey: `telegram:${body.message.chat.id}`,
+      });
+
+      return new Response('OK');
+    },
+  });
+
+  ctx.logger.info('Connector listening');
+}
 ```
 
-### 4.2 ConnectorContext
+### 4.2 ConnectorContext 인터페이스
 
-Entry 함수에 전달되는 컨텍스트. Connection마다 한 번씩 호출된다.
-
-```ts
+```typescript
 interface ConnectorContext {
-  /** 트리거 이벤트 정보 */
-  event: ConnectorTriggerEvent;
+  /** ConnectorEvent 발행 (Orchestrator로 전달) */
+  emit(event: ConnectorEvent): Promise<void>;
 
-  /** 현재 Connection 리소스 */
-  connection: Resource<ConnectionSpec>;
+  /** Connection이 제공한 시크릿 (API 토큰, 포트 등) */
+  secrets: Record<string, string>;
 
-  /** Connector 리소스 */
-  connector: Resource<ConnectorSpec>;
-
-  /** ConnectorEvent 발행 */
-  emit: (event: ConnectorEvent) => Promise<void>;
-
-  /** 로깅 */
+  /** 로거 */
   logger: Console;
-
-  /** OAuth 토큰 접근 (Connection의 OAuthApp 기반 모드인 경우) */
-  oauth?: {
-    getAccessToken: (request: OAuthTokenRequest) => Promise<OAuthTokenResult>;
-  };
-
-  /** 서명 검증 정보 (Connection의 verify 블록에서 해석) */
-  verify?: {
-    webhook?: {
-      /** 서명 시크릿 (Connection의 verify.webhook.signingSecret에서 해석된 값) */
-      signingSecret: string;
-    };
-  };
 }
 ```
 
-### 4.3 ConnectorTriggerEvent
+**제거된 필드:**
 
-트리거 프로토콜별 페이로드를 캡슐화한다.
+| 필드 | 사유 |
+|------|------|
+| `event` (ConnectorTriggerEvent) | Connector가 프로토콜을 자체 관리하므로 트리거 이벤트 불필요 |
+| `connection` (Resource) | 리소스 정의 접근 불필요. 필요한 정보는 `secrets`로 제공 |
+| `connector` (Resource) | 리소스 정의 접근 불필요 |
+| `oauth` | OAuthApp Kind 제거 |
+| `verify` | Connector가 자체적으로 서명 검증 수행 (시크릿은 `secrets`로 제공) |
 
-```ts
-interface ConnectorTriggerEvent {
-  type: 'connector.trigger';
-  trigger: TriggerPayload;
-  timestamp: string;
-}
+### 4.3 ConnectorEvent
 
-type TriggerPayload =
-  | HttpTriggerPayload
-  | CronTriggerPayload
-  | CliTriggerPayload;
+Connector가 `ctx.emit()`으로 Orchestrator에 전달하는 정규화된 이벤트.
 
-interface HttpTriggerPayload {
-  type: 'http';
-  payload: {
-    request: {
-      method: string;
-      path: string;
-      headers: Record<string, string>;
-      body: JsonObject;
-      rawBody?: string;
-    };
-  };
-}
-
-interface CronTriggerPayload {
-  type: 'cron';
-  payload: {
-    schedule: string;
-    scheduledAt: string;
-  };
-}
-
-interface CliTriggerPayload {
-  type: 'cli';
-  payload: {
-    text: string;
-    instanceKey?: string;
-  };
-}
-```
-
-### 4.4 ConnectorEvent
-
-Entry 함수가 `ctx.emit()`으로 발행하는 정규화된 이벤트이다.
-
-```ts
-/**
- * ConnectorEvent 메시지 (멀티모달)
- */
-type ConnectorEventMessage =
-  | { type: "text"; text: string }
-  | { type: "image"; image: string }
-  | { type: "file"; data: string; mediaType: string };
-
-/**
- * ConnectorEvent
- * Connector가 Runtime으로 전달하는 정규화된 이벤트
- */
+```typescript
 interface ConnectorEvent {
-  /** 이벤트 타입 (고정) */
-  type: "connector.event";
-
   /** 이벤트 이름 (connector의 events[]에 선언된 이름) */
   name: string;
 
@@ -1225,600 +499,378 @@ interface ConnectorEvent {
   /** 이벤트 속성 (events[].properties에 선언된 키-값) */
   properties?: JsonObject;
 
-  /** 인증 컨텍스트 */
+  /** 인스턴스 키 (Orchestrator가 AgentProcess로 라우팅) */
+  instanceKey: string;
+
+  /** 인증 컨텍스트 (선택) */
   auth?: {
     actor: { id: string; name?: string };
-    subjects: { global?: string; user?: string };
   };
 }
+
+type ConnectorEventMessage =
+  | { type: 'text'; text: string }
+  | { type: 'image'; image: string }
+  | { type: 'file'; data: string; mediaType: string };
 ```
 
-### 4.5 Runtime handleEvent 입력 구조
+### 4.4 Connector 리소스 스키마
 
-Runtime은 ConnectorEvent를 수신하여 Connection의 ingress rules에 따라 Agent로 라우팅한다.
-
-```ts
-/**
- * Runtime이 ConnectorEvent를 처리할 때의 내부 입력 구조
- */
-interface RuntimeEventInput {
-  /** 발신 Connection 참조 */
-  connectionRef: ObjectRefLike;
-
-  /** ConnectorEvent */
-  event: ConnectorEvent;
-
-  /** 대상 Agent 참조 (ingress rule의 route.agentRef에서 해석) */
-  agentRef?: ObjectRefLike;
-}
+```yaml
+apiVersion: goondan.ai/v1
+kind: Connector
+metadata:
+  name: telegram
+spec:
+  entry: "./connectors/telegram/index.ts"
+  events:
+    - name: user_message
+      properties:
+        chat_id: { type: string }
 ```
 
-### 4.6 사용 예시: Slack Connector Entry Function
+`triggers` 필드 제거 -- Connector가 프로토콜 처리를 직접 구현.
+`runtime` 필드 제거 -- 항상 Bun.
 
-```ts
-// ./connectors/slack/index.ts
-import type { ConnectorContext } from '@goondan/core';
+### 4.5 Connector 사용 예시: Telegram
 
-export default async function (context: ConnectorContext): Promise<void> {
-  const { event, emit, verify, logger } = context;
+```typescript
+export default async function (ctx: ConnectorContext): Promise<void> {
+  const { emit, secrets, logger } = ctx;
+  const botToken = secrets.BOT_TOKEN;
+  const port = Number(secrets.PORT) || 3000;
 
-  if (event.type !== "connector.trigger") return;
-  if (event.trigger.type !== "http") return;
+  Bun.serve({
+    port,
+    async fetch(req) {
+      const url = new URL(req.url);
 
-  const req = event.trigger.payload.request;
+      // 서명 검증 (Connector가 자체 수행)
+      if (secrets.WEBHOOK_SECRET) {
+        const signature = req.headers.get('x-telegram-bot-api-secret-token');
+        if (signature !== secrets.WEBHOOK_SECRET) {
+          logger.warn('Telegram 서명 검증 실패');
+          return new Response('Unauthorized', { status: 401 });
+        }
+      }
 
-  // 서명 검증
-  const signingSecret = verify?.webhook?.signingSecret;
-  if (signingSecret) {
-    const isValid = await verifySlackSignature(req, signingSecret);
-    if (!isValid) {
-      logger.warn("Slack 서명 검증 실패");
-      return;
-    }
-  }
+      const body = await req.json();
+      const message = body.message;
+      if (!message?.text) return new Response('OK');
 
-  // 이벤트 파싱 및 emit
-  const body = req.body;
-  const slackEvent = body.event;
-  if (!slackEvent || typeof slackEvent !== "object") return;
+      await emit({
+        name: 'user_message',
+        message: { type: 'text', text: message.text },
+        properties: {
+          chat_id: String(message.chat.id),
+          message_id: String(message.message_id),
+        },
+        instanceKey: `telegram:${message.chat.id}`,
+      });
 
-  const eventType = typeof slackEvent.type === "string" ? slackEvent.type : "";
-  const userId = typeof slackEvent.user === "string" ? slackEvent.user : "";
-  const teamId = typeof body.team_id === "string" ? body.team_id : "";
-  const text = typeof slackEvent.text === "string" ? slackEvent.text : "";
-
-  await emit({
-    type: "connector.event",
-    name: eventType === "app_mention" ? "app_mention" : "message.im",
-    message: { type: "text", text },
-    properties: {
-      channel_id: typeof slackEvent.channel === "string" ? slackEvent.channel : "",
-      ts: typeof slackEvent.ts === "string" ? slackEvent.ts : "",
-    },
-    auth: {
-      actor: { id: `slack:${userId}` },
-      subjects: {
-        global: `slack:team:${teamId}`,
-        user: `slack:user:${teamId}:${userId}`,
-      },
+      return new Response('OK');
     },
   });
+
+  logger.info(`Telegram connector listening on port ${port}`);
 }
 ```
 
 ---
 
-## 5. SwarmBundle Changeset API
+## 5. Connection 리소스
 
-SwarmBundle 변경은 Changeset을 통해 수행한다. (세부: `docs/requirements/06_config-spec.md` 6.4)
+Connection은 Connector를 특정 배포 환경에 바인딩하는 리소스다. 시크릿을 제공하고, ingress 라우팅 규칙을 정의한다.
 
-Runtime이 Extension/Tool 실행 컨텍스트에 programmatic API를 제공하며, 다음과 같은 인터페이스를 사용한다(MUST). 단, 제공 된 것을 실제로 사용할지 여부는 SwarmBundle의 설정에 따른다.
+### 5.1 Connection 리소스 스키마
 
-### 5.1 openChangeset 상세
-
-```ts
-/**
- * Changeset 열기
- * Git worktree를 생성하여 파일 수정 가능한 workdir 반환
- */
-interface SwarmBundleApi {
-  openChangeset(input?: OpenChangesetInput): Promise<OpenChangesetResult>;
-}
-
-interface OpenChangesetInput {
-  /** 변경 사유 (커밋 메시지 등에 활용) */
-  reason?: string;
-}
-
-interface OpenChangesetResult {
-  /** Changeset 식별자 */
-  changesetId: string;
-
-  /** 기준 SwarmBundleRef */
-  baseRef: string;
-
-  /**
-   * 작업 디렉터리 경로
-   * 이 경로에서 파일을 읽고 수정할 수 있음
-   */
-  workdir: string;
-
-  /** 작업 힌트 (선택) */
-  hint?: {
-    /** workdir 내 bundle root 경로 */
-    bundleRootInWorkdir: string;
-    /** 권장 수정 대상 파일 패턴 */
-    recommendedFiles: string[];
-  };
-}
-
-// 사용 예시
-const result = await ctx.swarmBundle.openChangeset({
-  reason: '프롬프트 개선'
-});
-
-console.log(result);
-// {
-//   changesetId: "cs-000123",
-//   baseRef: "git:HEAD",
-//   workdir: "/home/user/.goondan/worktrees/workspace-abc/changesets/cs-000123/",
-//   hint: {
-//     bundleRootInWorkdir: ".",
-//     recommendedFiles: ["goondan.yaml", "prompts/**"]
-//   }
-// }
+```yaml
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: telegram-to-swarm
+spec:
+  connectorRef: "Connector/telegram"
+  swarmRef: "Swarm/default"
+  secrets:
+    BOT_TOKEN:
+      valueFrom:
+        env: TELEGRAM_BOT_TOKEN
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
+    WEBHOOK_SECRET:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_SECRET
+  ingress:
+    rules:
+      - match:
+          event: user_message
+        route:
+          agentRef: "Agent/handler"
 ```
 
-### 5.2 commitChangeset 상세
+### 5.2 ConnectionSpec
 
-```ts
-/**
- * Changeset 커밋
- * workdir의 변경을 Git commit으로 만들고 SwarmBundleRoot의 활성 Ref 업데이트
- */
-interface SwarmBundleApi {
-  commitChangeset(input: CommitChangesetInput): Promise<CommitChangesetResult>;
-}
+```typescript
+interface ConnectionSpec {
+  /** Connector 참조 */
+  connectorRef: ObjectRefLike;
 
-interface CommitChangesetInput {
-  /** Changeset 식별자 */
-  changesetId: string;
+  /** Swarm 참조 */
+  swarmRef: ObjectRefLike;
 
-  /** 커밋 메시지 (선택) */
-  message?: string;
-}
+  /** Connector에 전달할 시크릿 */
+  secrets?: Record<string, ValueSource>;
 
-interface CommitChangesetResult {
-  /** 결과 상태 */
-  status: 'ok' | 'rejected' | 'conflict' | 'failed';
-
-  /** Changeset 식별자 */
-  changesetId: string;
-
-  /** 기준 SwarmBundleRef */
-  baseRef: string;
-
-  /** 새 SwarmBundleRef (status === 'ok' 시) */
-  newRef?: string;
-
-  /** 변경 요약 (status === 'ok' 시) */
-  summary?: {
-    filesChanged: string[];
-    filesAdded: string[];
-    filesDeleted: string[];
-  };
-
-  /** 오류 정보 (status !== 'ok' 시) */
-  error?: {
-    code: string;
-    message: string;
+  /** Ingress 라우팅 규칙 */
+  ingress?: {
+    rules: IngressRule[];
   };
 }
 
-// 성공 응답 예시
-const successResult: CommitChangesetResult = {
-  status: 'ok',
-  changesetId: 'cs-000123',
-  baseRef: 'git:3d2a...9f',
-  newRef: 'git:9b1c...77',
-  summary: {
-    filesChanged: ['prompts/planner.system.md'],
-    filesAdded: [],
-    filesDeleted: []
-  }
-};
+interface IngressRule {
+  /** 이벤트 매칭 조건 */
+  match?: {
+    event?: string;
+    properties?: Record<string, string | number | boolean>;
+  };
+  /** 라우팅 대상 */
+  route: {
+    agentRef?: ObjectRefLike;
+  };
+}
 
-// 거부 응답 예시 (ChangesetPolicy 위반)
-const rejectedResult: CommitChangesetResult = {
-  status: 'rejected',
-  changesetId: 'cs-000123',
-  baseRef: 'git:3d2a...9f',
-  error: {
-    code: 'POLICY_VIOLATION',
-    message: 'goondan.yaml 파일은 변경이 허용되지 않습니다.'
-  }
-};
-
-// 충돌 응답 예시 (baseRef가 현재 HEAD와 불일치)
-const conflictResult: CommitChangesetConflict = {
-  status: 'conflict',
-  changesetId: 'cs-000123',
-  baseRef: 'git:3d2a...9f',
-  currentHeadRef: 'git:5e8f...b2',
-  conflicts: ['prompts/planner.system.md'],
-  suggestedAction: '기존 changeset에서 충돌 파일을 수정한 뒤 다시 commitChangeset을 시도하세요'
-};
+type ValueSource =
+  | { value: string }
+  | { valueFrom: { env: string } };
 ```
 
-**CommitChangesetConflict variant:**
+**규칙:**
 
-```ts
-/**
- * Changeset 충돌 (baseRef와 현재 HEAD가 불일치)
- */
-interface CommitChangesetConflict {
-  status: 'conflict';
-  changesetId: string;
-  baseRef: string;
-  /** 현재 HEAD Ref */
-  currentHeadRef: string;
-  /** 충돌 파일 목록 */
-  conflicts: string[];
-  /** 권장 조치 (선택) */
-  suggestedAction?: string;
+1. Connection은 Connector가 사용할 시크릿을 제공해야 한다(MUST).
+2. Connection의 ingress 규칙은 ConnectorEvent를 특정 Agent로 라우팅하는 데 사용되어야 한다(MUST).
+3. `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅해야 한다(MUST).
+
+---
+
+## 6. Orchestrator API
+
+Orchestrator는 `gdn run`으로 기동되는 **상주 프로세스**로, Swarm의 전체 생명주기를 관리한다.
+
+### 6.1 Orchestrator 인터페이스
+
+```typescript
+interface Orchestrator {
+  readonly swarmName: string;
+  readonly bundleDir: string;
+  readonly agents: Map<string, AgentProcessHandle>;
+
+  /** 에이전트 프로세스 스폰 */
+  spawn(agentName: string, instanceKey: string): AgentProcessHandle;
+
+  /** 특정 에이전트 프로세스 kill -> 새 설정으로 re-spawn */
+  restart(agentName: string): void;
+
+  /** goondan.yaml 재로딩 후 모든 에이전트 프로세스 재시작 */
+  reloadAndRestartAll(): void;
+
+  /** 오케스트레이터 종료 (모든 자식 프로세스도 종료) */
+  shutdown(): void;
+
+  /** IPC 메시지 라우팅 */
+  route(message: IpcMessage): void;
 }
 
-### 5.3 ChangesetPolicy 검증
+interface AgentProcessHandle {
+  readonly agentName: string;
+  readonly instanceKey: string;
+  readonly pid: number;
+  readonly status: 'idle' | 'processing' | 'terminated';
+}
+```
 
-```ts
-/**
- * ChangesetPolicy 검증 규칙
- *
- * Swarm.spec.policy.changesets.allowed.files: 최대 허용 범위
- * Agent.spec.changesets.allowed.files: 추가 제약 (더 좁게)
- *
- * 변경은 Swarm + Agent 모두를 만족해야 허용됨
- */
+### 6.2 책임
 
-// Swarm ChangesetPolicy 예시
-// spec:
-//   policy:
-//     changesets:
-//       enabled: true
-//       applyAt:
-//         - step.config
-//       allowed:
-//         files:
-//           - "resources/**"
-//           - "prompts/**"
-//           - "tools/**"
-//           - "extensions/**"
-//       emitRevisionChangedEvent: true
+- `goondan.yaml` 파싱 및 리소스 로딩
+- AgentProcess 스폰/감시/재시작
+- Connector 프로세스 스폰/감시
+- 인스턴스 라우팅 (`instanceKey` -> AgentProcess 매핑)
+- IPC 메시지 브로커 (에이전트 간 delegate/handoff)
+- 설정 변경 감지 및 에이전트 프로세스 재시작 (watch 모드)
 
-// Agent ChangesetPolicy 예시 (추가 제약)
-// spec:
-//   changesets:
-//     allowed:
-//       files:
-//         - "prompts/**"
-//         - "resources/**"
+### 6.3 재시작 옵션
 
-// 검증 로직 개념
-function validateChangesetPolicy(
-  changedFiles: string[],
-  swarmPolicy: ChangesetPolicy,
-  agentPolicy?: ChangesetPolicy
-): { valid: boolean; violations: string[] } {
-  const violations: string[] = [];
-
-  for (const file of changedFiles) {
-    // Swarm 정책 검사
-    if (!matchesGlob(file, swarmPolicy.allowed.files)) {
-      violations.push(`Swarm 정책 위반: ${file}`);
-      continue;
-    }
-
-    // Agent 정책 검사 (있는 경우)
-    if (agentPolicy && !matchesGlob(file, agentPolicy.allowed.files)) {
-      violations.push(`Agent 정책 위반: ${file}`);
-    }
-  }
-
-  return {
-    valid: violations.length === 0,
-    violations
-  };
+```typescript
+interface RestartOptions {
+  /** 특정 에이전트만 재시작. 생략 시 전체 */
+  agent?: string;
+  /** 대화 히스토리 초기화 */
+  fresh?: boolean;
 }
 ```
 
 ---
 
-## 6. OAuth API
+## 7. AgentProcess API
 
-OAuth 토큰 접근 인터페이스. Tool/Connector/Extension이 외부 API 호출에 필요한 토큰을 획득한다.
+각 AgentInstance는 **독립 Bun 프로세스**로 실행된다.
 
-### 6.1 ctx.oauth.getAccessToken 상세
+### 7.1 AgentProcess 인터페이스
 
-```ts
-/**
- * OAuth API
- */
-interface OAuthApi {
-  /**
-   * Access Token 획득
-   * Grant가 있으면 토큰 반환, 없으면 승인 URL 반환
-   */
-  getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
-}
+```typescript
+interface AgentProcess {
+  readonly agentName: string;
+  readonly instanceKey: string;
+  readonly pid: number;
 
-interface OAuthTokenRequest {
-  /** OAuthApp 참조 */
-  oauthAppRef: ObjectRefLike;
+  /** Turn 실행 */
+  processTurn(event: AgentEvent): Promise<TurnResult>;
 
-  /**
-   * 요청 스코프 (선택)
-   * OAuthApp.spec.scopes의 부분집합만 허용
-   * 미지정 시 OAuthApp.spec.scopes 사용
-   */
-  scopes?: string[];
+  /** 상태 */
+  readonly status: 'idle' | 'processing' | 'terminated';
 
-  /**
-   * 최소 TTL (선택)
-   * 토큰 만료가 이 시간 이내면 refresh 시도
-   */
-  minTtlSeconds?: number;
+  /** 대화 히스토리 */
+  readonly conversationHistory: Message[];
 }
 ```
 
-### 6.2 OAuthTokenResult 모든 variant
+### 7.2 프로세스 기동
 
-```ts
-/**
- * OAuth Token 결과
- */
-type OAuthTokenResult =
-  | OAuthTokenReady
-  | OAuthTokenAuthorizationRequired
-  | OAuthTokenError;
-
-/**
- * 토큰 준비 완료
- */
-interface OAuthTokenReady {
-  status: 'ready';
-
-  /** Access Token */
-  accessToken: string;
-
-  /** 토큰 타입 (일반적으로 'bearer') */
-  tokenType: string;
-
-  /** 토큰 만료 시간 */
-  expiresAt: string;
-
-  /** 부여된 스코프 */
-  scopes: string[];
-}
-
-/**
- * 사용자 승인 필요
- */
-interface OAuthTokenAuthorizationRequired {
-  status: 'authorization_required';
-
-  /** 승인 세션 ID */
-  authSessionId: string;
-
-  /** 승인 URL (사용자에게 안내) */
-  authorizationUrl: string;
-
-  /** 세션 만료 시간 */
-  expiresAt: string;
-
-  /** 사용자 안내 메시지 */
-  message: string;
-
-  /** Device Code 플로우 시 추가 정보 (선택) */
-  deviceCode?: {
-    verificationUri: string;
-    userCode: string;
-    expiresIn: number;
-  };
-}
-
-/**
- * 오류
- */
-interface OAuthTokenError {
-  status: 'error';
-
-  error: {
-    code: string;
-    message: string;
-  };
-}
-
-// 사용 예시: Tool에서 OAuth 토큰 사용
-export const handlers: Record<string, ToolHandler> = {
-  'slack.postMessage': async (ctx, input) => {
-    // 토큰 획득 시도
-    const tokenResult = await ctx.oauth.getAccessToken({
-      oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
-      scopes: ['chat:write']
-    });
-
-    // 상태별 처리
-    if (tokenResult.status === 'authorization_required') {
-      return {
-        status: 'authorization_required',
-        message: tokenResult.message,
-        authorizationUrl: tokenResult.authorizationUrl
-      };
-    }
-
-    if (tokenResult.status === 'error') {
-      throw new Error(tokenResult.error.message);
-    }
-
-    // 토큰 사용하여 API 호출
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${tokenResult.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        channel: input.channel,
-        text: input.text
-      })
-    });
-
-    return await response.json();
-  }
-};
+```bash
+bun run agent-runner.ts \
+  --bundle-dir ./my-swarm \
+  --agent-name coder \
+  --instance-key "user:123"
 ```
 
-### 6.3 OAuth Subject 결정 규칙
+### 7.3 프로세스 특성
 
-```ts
-/**
- * OAuth Subject 결정 규칙
- *
- * OAuthApp.spec.subjectMode에 따라 Turn에서 subject 결정:
- * - subjectMode=global: turn.auth.subjects.global 사용
- * - subjectMode=user: turn.auth.subjects.user 사용
- *
- * 해당 키가 Turn에 없으면 오류
- */
+- 자체 메모리 공간 (크래시 격리)
+- Orchestrator와 IPC (Bun의 `process.send`/`process.on("message")` 또는 Unix socket)
+- 독립적 Turn/Step 루프 실행
+- Extension/Tool 코드를 자체 프로세스에서 로딩
+- 크래시 시 Orchestrator가 감지하고 자동 재스폰 가능
 
-// OAuthApp 정의 예시
-// kind: OAuthApp
-// metadata:
-//   name: slack-bot
-// spec:
-//   subjectMode: global  # 팀 단위 토큰
-//   ...
+### 7.4 TurnResult
 
-// Turn 컨텍스트 예시
-// turn.auth:
-//   subjects:
-//     global: "slack:team:T111"        # subjectMode=global 시 사용
-//     user: "slack:user:T111:U234567"  # subjectMode=user 시 사용
+```typescript
+interface TurnResult {
+  status: 'completed' | 'failed';
+  response?: Message;
+  metadata: Record<string, JsonValue>;
+}
 ```
 
 ---
 
-## 7. Runtime Events
+## 8. IPC API
 
-Runtime이 발행하는 표준 이벤트 목록.
+에이전트 간 통신은 Orchestrator를 경유하는 메시지 패싱으로 구현한다.
 
-### 7.1 표준 이벤트 타입
+### 8.1 IpcMessage 타입
 
-```ts
-/**
- * 표준 Runtime 이벤트 타입
- */
+```typescript
+interface IpcMessage {
+  /** 메시지 타입 */
+  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
+  /** 발신 에이전트 */
+  from: string;
+  /** 수신 에이전트 */
+  to: string;
+  /** 메시지 페이로드 */
+  payload: JsonValue;
+  /** 요청-응답 연결용 ID */
+  correlationId?: string;
+}
+```
+
+### 8.2 위임(Delegate) 흐름
+
+1. AgentA -> Orchestrator: `{ type: 'delegate', to: 'AgentB', payload: {...} }`
+2. Orchestrator -> AgentB 프로세스로 라우팅 (필요시 스폰)
+3. AgentB 처리 후 -> Orchestrator: `{ type: 'delegate_result', to: 'AgentA', ... }`
+4. Orchestrator -> AgentA로 결과 전달
+
+**규칙:**
+
+1. 위임 요청은 Orchestrator가 수신하여 대상 AgentProcess로 라우팅해야 한다(MUST).
+2. 대상 프로세스가 없으면 Orchestrator가 자동 스폰해야 한다(MUST).
+3. 위임 결과는 `correlationId`를 통해 원래 요청자에게 반환되어야 한다(MUST).
+4. IPC 메시지 타입은 최소 `delegate`, `delegate_result`, `event`, `shutdown`을 포함해야 한다(MUST).
+
+---
+
+## 9. Runtime Events
+
+Runtime이 발행하는 표준 이벤트 목록. Extension은 `api.events.on()`으로 구독할 수 있다.
+
+### 9.1 표준 이벤트 타입
+
+```typescript
 type RuntimeEventType =
-  // Turn 이벤트
   | 'turn.started'
   | 'turn.completed'
   | 'turn.failed'
-  // Step 이벤트
   | 'step.started'
   | 'step.completed'
   | 'step.failed'
-  // Tool 이벤트
   | 'tool.called'
   | 'tool.completed'
-  | 'tool.failed'
-  // Agent 이벤트
-  | 'agent.delegate'
-  | 'agent.delegationResult'
-  // Auth 이벤트
-  | 'auth.granted'
-  | 'auth.revoked'
-  // SwarmBundle 이벤트
-  | 'swarmBundle.revisionChanged'
-  // Workspace 이벤트
-  | 'workspace.repoAvailable'
-  | 'workspace.worktreeMounted';
+  | 'tool.failed';
 ```
 
-### 7.2 이벤트 Payload 구조
+### 9.2 이벤트 Payload 구조
 
-```ts
-/**
- * Turn 시작 이벤트
- */
+```typescript
 interface TurnStartedEvent {
   type: 'turn.started';
   turnId: string;
-  instanceId: string;
-  instanceKey: string;
   agentName: string;
-  input: string;
+  instanceKey: string;
   timestamp: string;
 }
 
-/**
- * Turn 완료 이벤트
- */
 interface TurnCompletedEvent {
   type: 'turn.completed';
   turnId: string;
-  instanceId: string;
-  instanceKey: string;
   agentName: string;
+  instanceKey: string;
   stepCount: number;
   duration: number;
   timestamp: string;
 }
 
-/**
- * Step 시작 이벤트
- */
 interface StepStartedEvent {
   type: 'step.started';
   stepId: string;
   stepIndex: number;
   turnId: string;
-  instanceId: string;
   agentName: string;
   timestamp: string;
 }
 
-/**
- * Step 완료 이벤트
- */
 interface StepCompletedEvent {
   type: 'step.completed';
   stepId: string;
   stepIndex: number;
   turnId: string;
-  instanceId: string;
   agentName: string;
   toolCallCount: number;
   duration: number;
   timestamp: string;
 }
 
-/**
- * Tool 호출 이벤트
- */
 interface ToolCalledEvent {
   type: 'tool.called';
   toolCallId: string;
   toolName: string;
   stepId: string;
   turnId: string;
-  instanceId: string;
   agentName: string;
   timestamp: string;
 }
 
-/**
- * Tool 완료 이벤트
- */
 interface ToolCompletedEvent {
   type: 'tool.completed';
   toolCallId: string;
@@ -1827,180 +879,79 @@ interface ToolCompletedEvent {
   duration: number;
   stepId: string;
   turnId: string;
-  instanceId: string;
   agentName: string;
   timestamp: string;
-}
-
-/**
- * Agent 위임 이벤트
- */
-interface AgentDelegateEvent {
-  type: 'agent.delegate';
-  fromAgent: string;
-  toAgent: string;
-  turnId: string;
-  instanceId: string;
-  input: string;
-  timestamp: string;
-}
-
-/**
- * OAuth 승인 완료 이벤트
- */
-interface AuthGrantedEvent {
-  type: 'auth.granted';
-  oauthAppRef: ObjectRefLike;
-  subject: string;
-  scopes: string[];
-  instanceId: string;
-  agentName: string;
-  timestamp: string;
-}
-
-/**
- * SwarmBundle Revision 변경 이벤트
- */
-interface SwarmBundleRevisionChangedEvent {
-  type: 'swarmBundle.revisionChanged';
-  baseRef: string;
-  newRef: string;
-  changesetId: string;
-  changedFiles: string[];
-  timestamp: string;
-}
-
-/**
- * Workspace Repo 사용 가능 이벤트
- */
-interface WorkspaceRepoAvailableEvent {
-  type: 'workspace.repoAvailable';
-  path: string;
-  instanceId: string;
-  timestamp: string;
-}
-```
-
-### 7.3 이벤트 구독 예시
-
-```ts
-// Extension에서 이벤트 구독
-export async function register(api: ExtensionApi): Promise<void> {
-  // Turn 완료 시 통계 수집
-  api.events.on('turn.completed', async (payload) => {
-    const event = payload as TurnCompletedEvent;
-    api.logger?.info?.(
-      `Turn ${event.turnId} 완료: ${event.stepCount} steps, ${event.duration}ms`
-    );
-  });
-
-  // OAuth 승인 완료 시 처리
-  api.events.on('auth.granted', async (payload) => {
-    const event = payload as AuthGrantedEvent;
-    api.logger?.info?.(
-      `OAuth 승인 완료: ${event.oauthAppRef} for ${event.subject}`
-    );
-  });
-
-  // Workspace repo 사용 가능 시 스캔
-  api.events.on('workspace.repoAvailable', async (payload) => {
-    const event = payload as WorkspaceRepoAvailableEvent;
-    await scanRepository(event.path);
-  });
 }
 ```
 
 ---
 
-## 8. 부록: 전체 타입 참조
+## 10. 제거된 API
 
-### 8.1 Spec 타입 모음
+v2에서 다음 API는 **제거**된다.
 
-```ts
+| 제거된 API | 사유 |
+|------------|------|
+| **OAuthApi** (`getAccessToken`) | OAuthApp Kind 제거. Extension 내부 구현 |
+| **SwarmBundleApi** (`openChangeset`, `commitChangeset`, `getActiveRef`) | Changeset 시스템 제거. Edit & Restart 모델로 대체 |
+| **LiveConfigApi** (`proposePatch`, `getEffectiveConfig`) | 동적 Config 변경은 Edit & Restart로 대체 |
+| **ChangesetPolicy** 검증 | Changeset 시스템 제거 |
+| **ToolAgentsApi** (`delegate`, `listInstances`, `spawnInstance`, `delegateToInstance`, `destroyInstance`) | IPC 기반 delegate로 대체 (Orchestrator 경유) |
+| **EffectiveConfig** 구조 | Edit & Restart에서 불필요 |
+| **Reconcile** 알고리즘 | Edit & Restart에서 불필요 |
+| 복잡한 **Lifecycle** API (`pause`, `resume`, `terminate`) | `restart`로 통합 |
+| **ConnectorTriggerEvent** / **TriggerPayload** | Connector가 프로토콜 자체 관리 |
+| **HookSpec** / **HookAction** | Agent Hooks 제거, Extension 미들웨어로 대체 |
+| **LlmMessage** (커스텀) | **Message** (AI SDK `CoreMessage` 래핑)로 대체 |
+| **ExtensionHandler** Kind | 제거 |
+| `runtime` 필드 (Tool/Extension/Connector) | 항상 Bun |
+
+---
+
+## 부록: Spec 타입 요약 (v2)
+
+```typescript
 // Model Spec
 interface ModelSpec {
   provider: 'openai' | 'anthropic' | 'google' | string;
-  name: string;
-  endpoint?: string;
+  model: string;
+  apiKey?: ValueSource;
   options?: JsonObject;
-  capabilities?: {
-    streaming?: boolean;
-    toolCalling?: boolean;
-    [key: string]: boolean | undefined;
-  };
 }
 
 // Tool Spec
 interface ToolSpec {
-  runtime: 'node' | 'deno' | 'python';
   entry: string;
-  errorMessageLimit?: number;
-  auth?: {
-    oauthAppRef: ObjectRefLike;
-    scopes?: string[];
-  };
   exports: ToolExportSpec[];
+  errorMessageLimit?: number;
+}
+
+interface ToolExportSpec {
+  name: string;
+  description: string;
+  parameters?: JsonObject;
 }
 
 // Extension Spec
 interface ExtensionSpec<Config = JsonObject> {
-  runtime: 'node' | 'deno' | 'python';
   entry: string;
   config?: Config;
 }
 
 // Agent Spec
 interface AgentSpec {
-  modelConfig: {
-    modelRef: ObjectRefLike;
-    params?: {
-      temperature?: number;
-      maxTokens?: number;
-      [key: string]: JsonValue | undefined;
-    };
-  };
-  prompts: {
-    system?: string;
-    systemRef?: string;
-  };
+  modelRef: ObjectRefLike;
+  systemPrompt?: string;
   tools?: ObjectRefLike[];
   extensions?: ObjectRefLike[];
-  hooks?: HookSpec[];
-  changesets?: {
-    allowed?: {
-      files?: string[];
-    };
-  };
-}
-
-// Hook Spec
-interface HookSpec {
-  id?: string;
-  point: PipelinePoint;
-  priority?: number;
-  action: HookAction;
-}
-
-// Hook Action (스크립트 실행 기술자)
-interface HookAction {
-  runtime: 'node' | 'deno' | 'python';
-  entry: string;
-  export: string;
-  input: Record<string, JsonValue | { expr: string }>;
 }
 
 // Swarm Spec
 interface SwarmSpec {
-  entrypoint: ObjectRefLike;
   agents: ObjectRefLike[];
+  entryAgent: ObjectRefLike;
   policy?: {
     maxStepsPerTurn?: number;
-    queueMode?: 'serial';
-    lifecycle?: {
-      autoPauseIdleSeconds?: number;
-      ttlSeconds?: number;
-      gcGraceSeconds?: number;
-    };
     retry?: {
       maxRetries?: number;
       backoffMs?: number;
@@ -2009,109 +960,36 @@ interface SwarmSpec {
       stepTimeoutMs?: number;
       turnTimeoutMs?: number;
     };
-    changesets?: {
-      enabled?: boolean;
-      applyAt?: string[];
-      allowed?: {
-        files?: string[];
-      };
-      emitRevisionChangedEvent?: boolean;
-    };
   };
 }
 
-// Connector Spec (프로토콜 선언 + 이벤트 스키마)
+// Connector Spec
 interface ConnectorSpec {
-  runtime: 'node';
   entry: string;
-  triggers: TriggerDeclaration[];
   events?: EventSchema[];
 }
 
-type TriggerDeclaration =
-  | { type: 'http'; endpoint: { path: string; method: string } }
-  | { type: 'cron'; schedule: string }
-  | { type: 'cli' };
-
 interface EventSchema {
   name: string;
-  properties?: Record<string, { type: 'string' | 'number' | 'boolean'; optional?: boolean }>;
+  properties?: Record<string, { type: 'string' | 'number' | 'boolean' }>;
 }
 
-// Connection Spec (배포 바인딩 정의)
+// Connection Spec
 interface ConnectionSpec {
   connectorRef: ObjectRefLike;
-  auth?: ConnectorAuth;
+  swarmRef: ObjectRefLike;
+  secrets?: Record<string, ValueSource>;
   ingress?: {
     rules: IngressRule[];
   };
-  verify?: {
-    webhook?: {
-      signingSecret: ValueSource;
-    };
-  };
 }
 
-// Ingress Rule
-interface IngressRule {
-  match?: IngressMatch;
-  route: IngressRoute;
-}
-
-interface IngressMatch {
-  event?: string;
-  properties?: Record<string, string | number | boolean>;
-}
-
-interface IngressRoute {
-  agentRef?: ObjectRefLike;
-}
-
-// OAuthApp Spec
-interface OAuthAppSpec {
-  provider: string;
-  flow: 'authorizationCode' | 'deviceCode';
-  subjectMode: 'global' | 'user';
-  client: {
-    clientId: ValueSource;
-    clientSecret: ValueSource;
-  };
-  endpoints: {
-    authorizationUrl: string;
-    tokenUrl: string;
-  };
-  scopes: string[];
-  redirect: {
-    callbackPath: string;
-  };
-  options?: JsonObject;
-}
-
-// ValueSource
-type ValueSource =
-  | { value: string }
-  | { valueFrom: { env: string } }
-  | { valueFrom: { secretRef: { ref: string; key: string } } };
-```
-
-### 8.2 Effective Config 구조
-
-```ts
-/**
- * Effective Config
- * 실행 시점에 해석된 최종 Config
- */
-interface EffectiveConfig {
-  swarm: Resource<SwarmSpec>;
-  agents: Map<string, Resource<AgentSpec>>;
-  models: Map<string, Resource<ModelSpec>>;
-  tools: Map<string, Resource<ToolSpec>>;
-  extensions: Map<string, Resource<ExtensionSpec>>;
-  connectors: Map<string, Resource<ConnectorSpec>>;
-  connections: Map<string, Resource<ConnectionSpec>>;
-  oauthApps: Map<string, Resource<OAuthAppSpec>>;
-  revision: number;
-  swarmBundleRef: string;
+// Package Spec
+interface PackageSpec {
+  name: string;
+  version: string;
+  description?: string;
+  dependencies?: Record<string, string>;
 }
 ```
 
@@ -2119,30 +997,25 @@ interface EffectiveConfig {
 
 ## 변경 이력
 
-- v0.12 (2026-02-08): Connector/Connection API 대규모 리팩터링
-  - §4.1 ConnectorAdapter 삭제 → ConnectorEntryFunction (단일 default export)
-  - §4.2 RuntimeEventInput 리팩터 (swarmRef/instanceKey → connectionRef + ConnectorEvent 기반)
-  - §4.3 TriggerHandler/CanonicalEvent 삭제 → ConnectorContext/ConnectorTriggerEvent/ConnectorEvent
-  - 부록: ConnectorSpec에서 type 제거, triggers를 프로토콜 선언으로, events 스키마 추가
-  - 부록: ConnectionSpec에서 egress 제거, verify에서 provider 제거, IngressMatch를 event/properties로, IngressRoute를 agentRef로 변경
-- v0.10 (2026-02-07): 요구사항 정합성 보강
-  - CommitChangesetResult에 'conflict' 상태 및 CommitChangesetConflict variant 추가
-  - ConnectorSpec에서 auth/ingress/egress 분리, ConnectionSpec 신규 정의
-  - EffectiveConfig에 connections 맵 추가
-  - HookAction을 스크립트 실행 기술자 형식으로 변경
-  - ModelSpec에 capabilities 필드 추가
-  - SwarmSpec.policy에 queueMode, lifecycle, retry, timeout 추가
-  - Turn에 traceId 필드 추가
-  - ToolResult.error에 suggestion, helpUrl 필드 추가
-  - ToolCall.arguments → args 필드명 변경
-  - ExtensionApi: extState() → getState()/setState() 패턴 변경
-  - ExtensionApi: swarmBundle, liveConfig를 선택 속성(?)으로 변경
-- v0.9 (2026-02-05): 전체 API 스펙 대폭 보강
-  - 공통 타입 상세화 (JsonObject, ObjectRefLike, Resource, LlmMessage)
-  - Extension API 전체 인터페이스 상세화
-  - Tool API ToolHandler, ToolContext, ToolResult 상세화
-  - Connector API TriggerHandler, CanonicalEvent 추가
-  - SwarmBundle Changeset API 입출력 상세화
-  - OAuth API 전체 variant 문서화
-  - Runtime Events 표준 이벤트 타입 추가
-- v0.8: 초기 버전
+- v2.0 (2026-02-12): Goondan v2 전면 재설계
+  - 프로세스-per-에이전트 모델 (Orchestrator + AgentProcess + IPC)
+  - Bun-native 런타임 (`runtime` 필드 제거)
+  - Middleware Only 파이프라인 (Mutator 제거, 13 포인트 -> 3 미들웨어)
+  - Message 래퍼 (AI SDK `CoreMessage` 기반)
+  - 이벤트 소싱 유지 (`NextMessages = BaseMessages + SUM(Events)`)
+  - ExtensionApi 단순화 (OAuth/SwarmBundle/LiveConfig/Hooks 제거)
+  - Connector 자체 프로토콜 관리 (triggers 제거)
+  - Edit & Restart 모델 (Changeset/Reconcile 제거)
+  - `apiVersion: goondan.ai/v1`
+
+---
+
+## 참조
+
+- @docs/requirements/05_core-concepts.md - 핵심 개념 (v2)
+- @docs/requirements/11_lifecycle-pipelines.md - 라이프사이클 파이프라인 (v2)
+- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스 (v2)
+- @docs/requirements/14_usage-patterns.md - 활용 예시 패턴 (v2)
+- @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
+- @docs/specs/extension.md - Extension 시스템 스펙 (v2)
+- @docs/new_spec.md - Goondan v2 간소화 스펙 원본

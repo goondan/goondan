@@ -24,20 +24,20 @@
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
 ### 구현 스펙 문서 (docs/specs/)
-- docs/specs/cli.md : CLI 도구(gdn) 스펙 (명령어, 옵션, 패키지 관리, 인스턴스 관리)
-- docs/specs/api.md : Runtime/SDK API 스펙 (Extension, Tool, Connector, Connection, OAuth API)
-- docs/specs/resources.md : Config Plane 리소스 정의 스펙 (리소스 공통 형식, ObjectRef, Selector, ValueSource, Kind별 스키마)
-- docs/specs/bundle.md : Bundle YAML 스펙 (리소스 정의, 검증 규칙)
-- docs/specs/bundle_package.md : Package 스펙 (프로젝트 루트 리소스, 레지스트리 기반 패키징/참조, CLI 명령어)
-- docs/specs/runtime.md : Runtime 실행 모델 스펙 (Instance/Turn/Step, 라우팅, 메시지 누적, Auth 보존, 코드 변경 반영, GC)
-- docs/specs/pipeline.md : 라이프사이클 파이프라인(훅) 스펙 (Mutator, Middleware, 파이프라인 포인트, Reconcile)
-- docs/specs/tool.md : Tool 시스템 스펙 (Registry/Catalog, 핸들러, OAuth 통합, Handoff 패턴)
-- docs/specs/extension.md : Extension 시스템 스펙 (ExtensionApi, 파이프라인, MCP/Skill 패턴, getState/setState)
-- docs/specs/connector.md : Connector 시스템 스펙 (프로토콜 수신 선언, 이벤트 스키마, 단일 default export, ConnectorEvent 발행)
-- docs/specs/connection.md : Connection 시스템 스펙 (인증, Ingress 라우팅 규칙, 서명 검증 시크릿)
-- docs/specs/oauth.md : OAuth 시스템 스펙 (OAuthApp, OAuthStore, PKCE 플로우, Token 관리)
-- docs/specs/changeset.md : Changeset/SwarmBundle 스펙 (SwarmBundleRef, SwarmBundleManager, ChangesetPolicy, Safe Point, Conflict)
-- docs/specs/workspace.md : Workspace 및 Storage 모델 스펙 (3루트 분리, 경로 규칙, 로그 스키마, Metrics, Lifecycle)
+- docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
+- docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API)
+- docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마)
+- docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안)
+- docs/specs/bundle_package.md : Package 스펙 v2.0 (프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, CLI 명령어)
+- docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
+- docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
+- docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, IPC Handoff, Bun-only)
+- docs/specs/extension.md : Extension 시스템 스펙 v2.0 (ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
+- docs/specs/connector.md : Connector 시스템 스펙 v2.0 (별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
+- docs/specs/connection.md : Connection 시스템 스펙 v2.0 (secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증)
+- docs/specs/oauth.md : OAuth 스펙 v2.0 (OAuthApp Kind 제거, Extension 내부 구현으로 이동)
+- docs/specs/changeset.md : Edit & Restart 리다이렉트 (v2에서 Changeset 시스템 제거, runtime.md 참조)
+- docs/specs/workspace.md : **[v2.0]** Workspace 및 Storage 모델 스펙 (2루트 분리: Project Root + System Root, Message 영속화, Extension state, 프로세스별 로깅)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
@@ -65,7 +65,12 @@
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
 - Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함)
 
-## 최근 코어 동기화
-- Runtime: `step.pre` 파이프라인 호출, Turn 종료 시 `events -> base -> clear` 반영 훅 추가
-- Extension/Workspace: extension/shared state 파일 복원/영속화 최소 경로(`createPersistentStateStore`) 추가
-- Runtime/Workspace: pause/resume/terminate/delete 시 metadata 갱신을 위한 lifecycle hook 연결 경로 추가
+## v2 주요 변경사항
+- Runtime: Process-per-Agent 아키텍처 (Orchestrator 상주 프로세스 + 독립 AgentProcess/ConnectorProcess)
+- Pipeline: Mutator 제거, Middleware 3종(turn/step/toolCall) 통합
+- Message: AI SDK CoreMessage 래퍼 (`Message.data`), MessageEvent 이벤트 소싱
+- Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), runtime 필드 제거
+- Connector: 자체 프로세스로 프로토콜 직접 관리, triggers 필드 제거
+- Workspace: 3루트 → 2루트 (Project Root + `~/.goondan/`)
+- Config: apiVersion `goondan.ai/v1`, 11종 → 8종 Kind (OAuthApp/ResourceType/ExtensionHandler 제거)
+- Changeset: 제거 → Edit & Restart 모델

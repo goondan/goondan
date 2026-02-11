@@ -1,18 +1,21 @@
-# Goondan CLI (gdn) 스펙 (v0.11)
+# Goondan CLI (gdn) 스펙 (v2.0)
 
-본 문서는 Goondan CLI 도구 `gdn`의 명령어, 옵션, 동작 규격을 정의한다.
+본 문서는 Goondan v2 CLI 도구 `gdn`의 명령어, 옵션, 동작 규격을 정의한다.
 
 ---
 
 ## 1. 개요
 
-`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다.
+`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. v2에서는 Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞게 명령어 체계를 대폭 단순화하였다.
 
 ### 1.1 설치
 
 ```bash
+# Bun 사용 (권장)
+bun add -g @goondan/cli
+
+# npm/pnpm도 지원
 npm install -g @goondan/cli
-# 또는
 pnpm add -g @goondan/cli
 ```
 
@@ -33,9 +36,20 @@ gdn <command> [subcommand] [options]
 | `--verbose` | `-v` | 상세 출력 활성화 | `false` |
 | `--quiet` | `-q` | 출력 최소화 | `false` |
 | `--config <path>` | `-c` | 설정 파일 경로 | `goondan.yaml` |
-| `--state-root <path>` | | System State Root 경로 | `~/.goondan` |
+| `--state-root <path>` | | System Root 경로 | `~/.goondan` |
 | `--no-color` | | 색상 출력 비활성화 | `false` |
 | `--json` | | JSON 형식 출력 | `false` |
+
+### 1.4 v1 대비 변경사항
+
+| 항목 | v1 | v2 |
+|------|------|------|
+| `gdn run` | 단일 프로세스 실행 | **Orchestrator 상주 프로세스 기동** |
+| `gdn restart` | 없음 | **신규: 실행 중인 Orchestrator에 재시작 신호** |
+| `gdn instance pause/resume/terminate` | 존재 | **제거 (restart로 통합)** |
+| `gdn logs` | 파일 기반 로그 조회 | **제거 (프로세스 stdout/stderr)** |
+| `gdn config` | CLI 하위 명령어 | **제거 (`~/.goondan/config.json` 직접 편집)** |
+| `gdn completion` | 쉘 자동완성 | **제거** |
 
 ---
 
@@ -44,13 +58,11 @@ gdn <command> [subcommand] [options]
 | 명령어 | 설명 |
 |--------|------|
 | `gdn init` | 새 Swarm 프로젝트 초기화 |
-| `gdn run` | Swarm 실행 |
+| `gdn run` | Orchestrator 기동 (상주 프로세스) |
+| `gdn restart` | 실행 중인 Orchestrator에 재시작 신호 전송 |
 | `gdn validate` | Bundle 구성 검증 |
-| `gdn package` | 패키지 관리 (install, add, remove, publish, unpublish, deprecate, login) |
-| `gdn instance` | 인스턴스 관리 (list, inspect, pause, resume, terminate, delete) |
-| `gdn logs` | 로그 조회 |
-| `gdn config` | CLI 설정 관리 |
-| `gdn completion` | 쉘 자동완성 스크립트 생성 |
+| `gdn instance` | 인스턴스 관리 (list, delete) |
+| `gdn package` | 패키지 관리 (add, install, publish) |
 | `gdn doctor` | 환경 진단 및 문제 확인 |
 
 ---
@@ -110,34 +122,54 @@ gdn init --package --name @myorg/my-tools
 ### 3.6 생성되는 파일 구조
 
 **default 템플릿:**
+
 ```
 <project>/
-  goondan.yaml           # 메인 구성 파일
+  goondan.yaml           # 메인 구성 파일 (apiVersion: goondan.ai/v1)
   prompts/
     default.system.md    # 기본 시스템 프롬프트
+  .env                   # 환경 변수 템플릿
   .gitignore             # Git 무시 파일
 ```
 
-**package 템플릿:**
-```
-<project>/
-  goondan.yaml           # Package 문서 + 리소스 정의 통합 파일
-  src/
-    tools/
-      example/
-        tool.yaml
-        index.ts
-  dist/                  # 빌드 출력 (gitignore)
-  tsconfig.json
-  package.json
-  .gitignore
+**생성되는 goondan.yaml 예시:**
+
+```yaml
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: claude
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: assistant
+spec:
+  modelRef: "Model/claude"
+  systemPrompt: |
+    You are a helpful assistant.
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  agents:
+    - ref: "Agent/assistant"
+  entryAgent: "Agent/assistant"
 ```
 
 ---
 
 ## 4. gdn run
 
-Swarm을 실행한다.
+Orchestrator를 **상주 프로세스**로 기동한다. 에이전트/커넥터 프로세스를 스폰하고 관리한다.
 
 ### 4.1 사용법
 
@@ -150,19 +182,29 @@ gdn run [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--swarm <name>` | `-s` | 실행할 Swarm 이름. 미지정 시 `default`를 찾고, 없으면 Swarm이 1개일 때 자동 선택 | `default` |
-| `--connector <name>` | | 사용할 Connector | 구성에 따름 |
 | `--instance-key <key>` | `-i` | 인스턴스 키 | 자동 생성 |
+| `--watch` | `-w` | 파일 변경 감시 모드 (변경 시 자동 재시작) | `false` |
 | `--input <text>` | | 초기 입력 메시지 | - |
 | `--input-file <path>` | | 입력 파일 경로 | - |
 | `--interactive` | | 대화형 모드 | CLI Connector 시 기본 |
-| `--watch` | `-w` | 파일 변경 감시 모드 | `false` |
-| `--port <number>` | `-p` | HTTP 서버 포트 | - |
 | `--no-install` | | 의존성 자동 설치 안 함 | `false` |
 | `--env-file <path>` | | 커스텀 환경 변수 파일 경로 | - |
 
-### 4.3 환경 변수 파일 자동 로딩
+### 4.3 동작 방식
 
-`gdn run`은 번들 루트 디렉토리에서 `.env` 파일을 자동으로 로드한다.
+`gdn run`은 다음 순서로 동작한다:
+
+1. `goondan.yaml` 및 관련 리소스 파일을 파싱
+2. Orchestrator 상주 프로세스 기동
+3. 정의된 Connector에 대해 ConnectorProcess 스폰
+4. CLI Connector(기본)인 경우 대화형 루프 시작
+5. 이벤트 수신 시 필요한 AgentProcess 스폰
+
+**Orchestrator는 에이전트가 모두 종료되어도 살아 있으며**, 새로운 이벤트가 오면 필요한 AgentProcess를 다시 스폰한다.
+
+### 4.4 환경 변수 파일 자동 로딩
+
+`gdn run`은 프로젝트 루트 디렉토리에서 `.env` 파일을 자동으로 로드한다.
 
 **로딩 우선순위** (먼저 로드된 값이 우선):
 1. `--env-file` 로 지정한 파일 (최우선)
@@ -173,51 +215,39 @@ gdn run [options]
 - `.env` 파일이 없어도 에러 없이 진행한다.
 
 **예시 `.env` 파일:**
+
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
 BRAVE_SEARCH_API_KEY=BSA...
 TELEGRAM_BOT_TOKEN=123456:ABC...
 ```
 
-### 4.4 Connector 모드
+### 4.5 Watch 모드
 
-**CLI Connector (기본):**
 ```bash
-# 대화형 모드
-gdn run
-
-# 단일 입력
-gdn run --input "Hello, agent!"
-
-# 파일 입력
-gdn run --input-file ./request.txt
-```
-
-**HTTP Connector:**
-```bash
-# HTTP 서버 모드로 실행
-gdn run --connector http --port 3000
-```
-
-**Watch 모드:**
-```bash
-# 파일 변경 시 자동 재시작
+# 파일 변경 시 해당 에이전트 자동 재시작
 gdn run --watch
 ```
 
-### 4.5 환경 변수
+`--watch` 모드에서 Orchestrator는:
+- `goondan.yaml` 및 관련 리소스 파일의 변경을 감시한다(MUST).
+- 어떤 리소스가 변경되었는지 파악하여 영향받는 AgentProcess만 선택적으로 재시작한다(SHOULD).
+- Tool/Extension/Connector entry 파일 변경 시에도 해당 프로세스를 재시작한다(SHOULD).
+
+### 4.6 환경 변수
 
 | 변수 | 설명 |
 |------|------|
 | `GOONDAN_LOG_LEVEL` | 로그 레벨 (`debug`, `info`, `warn`, `error`) |
-| `GOONDAN_STATE_ROOT` | System State Root 경로 |
+| `GOONDAN_STATE_ROOT` | System Root 경로 |
 | `OPENAI_API_KEY` | OpenAI API 키 |
 | `ANTHROPIC_API_KEY` | Anthropic API 키 |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI API 키 |
 
-### 4.6 예시
+### 4.7 예시
 
 ```bash
-# 기본 실행
+# 기본 실행 (CLI 대화형 모드)
 gdn run
 
 # 특정 Swarm 실행
@@ -229,29 +259,73 @@ gdn run --instance-key session-001
 # 개발 모드 (watch)
 gdn run --watch
 
-# HTTP 서버로 실행
-gdn run --connector http --port 8080
+# 단일 입력 후 종료
+gdn run --input "Hello, agent!"
+
+# 파일 입력
+gdn run --input-file ./request.txt
 ```
 
 ---
 
-## 5. gdn validate
+## 5. gdn restart
+
+실행 중인 Orchestrator에 재시작 신호를 전송한다. Orchestrator가 해당 에이전트 프로세스를 kill한 뒤 새 설정으로 re-spawn한다.
+
+### 5.1 사용법
+
+```bash
+gdn restart [options]
+```
+
+### 5.2 옵션
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--agent <name>` | `-a` | 특정 에이전트만 재시작. 생략 시 전체 | 전체 |
+| `--fresh` | | 대화 히스토리 초기화 후 재시작 | `false` |
+
+### 5.3 동작 방식
+
+1. 실행 중인 Orchestrator 프로세스를 탐지한다.
+2. IPC 또는 시그널을 통해 재시작 명령을 전달한다.
+3. Orchestrator가 해당 AgentProcess를 kill → 새 설정으로 re-spawn한다.
+
+### 5.4 예시
+
+```bash
+# 모든 에이전트 프로세스 재시작
+gdn restart
+
+# 특정 에이전트만 재시작
+gdn restart --agent coder
+
+# 대화 히스토리 초기화 후 재시작
+gdn restart --fresh
+
+# 특정 에이전트를 초기화하며 재시작
+gdn restart --agent coder --fresh
+```
+
+---
+
+## 6. gdn validate
 
 Bundle 구성을 검증한다.
 
-### 5.1 사용법
+### 6.1 사용법
 
 ```bash
 gdn validate [path] [options]
 ```
 
-### 5.2 인자
+### 6.2 인자
 
 | 인자 | 설명 | 기본값 |
 |------|------|--------|
 | `path` | 검증할 Bundle 경로 | `.` |
 
-### 5.3 옵션
+### 6.3 옵션
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
@@ -259,26 +333,26 @@ gdn validate [path] [options]
 | `--fix` | | 자동 수정 가능한 문제 수정 | `false` |
 | `--format <format>` | | 출력 형식 (`text`, `json`, `github`) | `text` |
 
-### 5.4 검증 항목
+### 6.4 검증 항목
 
-1. **스키마 검증**: YAML 리소스의 스키마 준수 여부
+1. **스키마 검증**: YAML 리소스의 스키마 준수 여부 (`apiVersion: goondan.ai/v1`)
 2. **참조 무결성**: ObjectRef 대상 존재 여부
-3. **파일 존재**: entry, systemRef 등 파일 경로 존재 여부
-4. **scopes 검증**: OAuth scopes 부분집합 관계
-5. **순환 참조**: 리소스 간 순환 참조 탐지
-6. **명명 규칙**: metadata.name 형식 검증
-7. **Model capability 검증**: Agent 요구 capability와 Model 선언 capability의 일치 여부
+3. **파일 존재**: entry 파일 경로 존재 여부
+4. **순환 참조**: 리소스 간 순환 참조 탐지
+5. **명명 규칙**: `metadata.name` 형식 검증
+6. **Kind 검증**: 지원되는 8종 Kind인지 확인 (Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package)
 
-### 5.5 출력 예시
+### 6.5 출력 예시
 
 **텍스트 형식:**
+
 ```
 Validating /path/to/project...
 
 ✓ Schema validation passed
 ✓ Reference integrity passed
 ✗ File existence check failed
-  - prompts/missing.md: File not found (referenced in Agent/planner)
+  - tools/missing/index.ts: File not found (referenced in Tool/missing)
 ⚠ Naming convention warning
   - Tool/MyTool: Name should be lowercase with hyphens
 
@@ -286,6 +360,7 @@ Errors: 1, Warnings: 1
 ```
 
 **JSON 형식:**
+
 ```json
 {
   "valid": false,
@@ -293,10 +368,10 @@ Errors: 1, Warnings: 1
     {
       "code": "FILE_NOT_FOUND",
       "message": "File not found",
-      "path": "prompts/missing.md",
-      "resource": "Agent/planner",
-      "field": "spec.prompts.systemRef",
-      "suggestion": "prompts/ 디렉터리에 해당 파일을 생성하세요",
+      "path": "tools/missing/index.ts",
+      "resource": "Tool/missing",
+      "field": "spec.entry",
+      "suggestion": "해당 파일을 생성하거나 경로를 수정하세요",
       "helpUrl": "https://docs.goondan.io/errors/FILE_NOT_FOUND"
     }
   ],
@@ -313,62 +388,96 @@ Errors: 1, Warnings: 1
 
 ---
 
-## 6. gdn package
+## 7. gdn instance
 
-Package를 관리한다.
+인스턴스를 관리한다. v2에서는 `list`와 `delete`만 지원한다.
 
-### 6.1 하위 명령어
+### 7.1 하위 명령어
 
 | 명령어 | 설명 |
 |--------|------|
-| `gdn package install` | 의존성 설치 |
-| `gdn package add <ref>` | 의존성 추가 |
-| `gdn package remove <ref>` | 의존성 제거 |
-| `gdn package update` | 의존성 업데이트 |
-| `gdn package list` | 설치된 패키지 목록 |
-| `gdn package publish` | 패키지 발행 |
-| `gdn package unpublish` | 패키지 버전 비게시 |
-| `gdn package deprecate` | 패키지 폐기 표시 |
-| `gdn package login` | 레지스트리 로그인 |
-| `gdn package logout` | 레지스트리 로그아웃 |
-| `gdn package pack` | 로컬 tarball 생성 |
-| `gdn package info <ref>` | 패키지 정보 조회 |
+| `gdn instance list` | 인스턴스 목록 |
+| `gdn instance delete <key>` | 인스턴스 삭제 |
 
----
+### 7.2 gdn instance list
 
-### 6.2 gdn package install
-
-`goondan.yaml`의 Package 문서에 정의된 모든 의존성을 설치한다.
+인스턴스 목록을 출력한다.
 
 **사용법:**
+
 ```bash
-gdn package install [options]
+gdn instance list [options]
 ```
 
 **옵션:**
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--frozen-lockfile` | | lockfile 업데이트 안 함 | `false` |
-| `--ignore-scripts` | | 설치 스크립트 무시 | `false` |
-| `--production` | | devDependencies 제외 | `false` |
+| `--agent <name>` | `-a` | Agent 이름으로 필터 | - |
+| `--limit <n>` | `-n` | 최대 개수 | `20` |
+| `--all` | | 모든 인스턴스 | `false` |
+
+**출력 예시:**
+
+```
+INSTANCE KEY         AGENT       STATUS      CREATED              UPDATED
+user:123             coder       idle        2026-02-05 10:30:00  2026-02-05 10:45:00
+user:456             coder       processing  2026-02-05 11:00:00  2026-02-05 11:02:00
+telegram:789         handler     idle        2026-02-04 15:20:00  2026-02-04 15:35:00
+```
+
+### 7.3 gdn instance delete
+
+인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다.
+
+**사용법:**
+
+```bash
+gdn instance delete <key> [options]
+```
+
+**인자:**
+
+| 인자 | 설명 |
+|------|------|
+| `key` | 삭제할 인스턴스 키 |
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--force` | `-f` | 확인 없이 삭제 | `false` |
 
 **예시:**
-```bash
-# 모든 의존성 설치
-gdn package install
 
-# lockfile 기준으로 설치 (CI용)
-gdn package install --frozen-lockfile
+```bash
+# 인스턴스 삭제 (확인 프롬프트)
+gdn instance delete user:123
+
+# 확인 없이 삭제
+gdn instance delete user:123 --force
 ```
 
 ---
 
-### 6.3 gdn package add
+## 8. gdn package
+
+Package를 관리한다.
+
+### 8.1 하위 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `gdn package add <ref>` | 의존성 추가 |
+| `gdn package install` | 의존성 설치 |
+| `gdn package publish` | 패키지 발행 |
+
+### 8.2 gdn package add
 
 새 의존성을 추가한다.
 
 **사용법:**
+
 ```bash
 gdn package add <ref> [options]
 ```
@@ -388,6 +497,7 @@ gdn package add <ref> [options]
 | `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
 
 **예시:**
+
 ```bash
 # 패키지 추가 (최신 버전)
 gdn package add @goondan/base
@@ -397,103 +507,40 @@ gdn package add @goondan/base@1.2.0
 
 # 정확한 버전 고정
 gdn package add @goondan/base@1.2.0 --exact
-
-# 개발 의존성으로 추가
-gdn package add @goondan/testing --dev
 ```
 
----
+### 8.3 gdn package install
 
-### 6.4 gdn package remove
-
-의존성을 제거한다.
+`goondan.yaml`의 Package 문서에 정의된 모든 의존성을 설치한다.
 
 **사용법:**
+
 ```bash
-gdn package remove <ref>
-```
-
-**예시:**
-```bash
-gdn package remove @goondan/base
-```
-
----
-
-### 6.5 gdn package update
-
-의존성을 업데이트한다.
-
-**사용법:**
-```bash
-gdn package update [ref] [options]
-```
-
-**인자:**
-
-| 인자 | 설명 |
-|------|------|
-| `ref` | 업데이트할 패키지 (생략 시 전체) |
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--latest` | | 최신 버전으로 업데이트 | `false` |
-
-**예시:**
-```bash
-# 모든 패키지 업데이트
-gdn package update
-
-# 특정 패키지 업데이트
-gdn package update @goondan/base
-
-# 최신 버전으로 업데이트
-gdn package update --latest
-```
-
----
-
-### 6.6 gdn package list
-
-설치된 패키지 목록을 출력한다.
-
-**사용법:**
-```bash
-gdn package list [options]
+gdn package install [options]
 ```
 
 **옵션:**
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--depth <n>` | | 의존성 트리 깊이 | `0` |
-| `--all` | `-a` | 모든 의존성 표시 | `false` |
+| `--frozen-lockfile` | | lockfile 업데이트 안 함 | `false` |
 
-**출력 예시:**
-```
-@goondan/base@1.0.0
-@goondan/slack-toolkit@2.1.0
-@myorg/custom-tools@1.0.0
-```
+**예시:**
 
-**트리 출력 (`--depth 1`):**
-```
-@goondan/base@1.0.0
-├── @goondan/core-utils@0.5.2
-└── @goondan/common@1.0.0
-@goondan/slack-toolkit@2.1.0
-└── @goondan/base@1.0.0
+```bash
+# 모든 의존성 설치
+gdn package install
+
+# lockfile 기준으로 설치 (CI용)
+gdn package install --frozen-lockfile
 ```
 
----
-
-### 6.7 gdn package publish
+### 8.4 gdn package publish
 
 패키지를 레지스트리에 발행한다.
 
 **사용법:**
+
 ```bash
 gdn package publish [path] [options]
 ```
@@ -514,6 +561,7 @@ gdn package publish [path] [options]
 | `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
 
 **예시:**
+
 ```bash
 # 패키지 발행
 gdn package publish
@@ -521,14 +569,12 @@ gdn package publish
 # 베타 태그로 발행
 gdn package publish --tag beta
 
-# 비공개 패키지로 발행
-gdn package publish --access restricted
-
 # 시뮬레이션
 gdn package publish --dry-run
 ```
 
 **발행 전 검증:**
+
 1. `goondan.yaml`의 Package 문서 존재 확인
 2. `spec.dist` 디렉터리 존재 확인
 3. `spec.exports` 파일 존재 확인
@@ -537,508 +583,85 @@ gdn package publish --dry-run
 
 ---
 
-### 6.8 gdn package unpublish
+## 9. gdn doctor
 
-게시된 패키지 버전을 비게시(unpublish)한다.
+환경을 진단하고 일반적인 문제를 확인한다.
 
-**사용법:**
+### 9.1 사용법
+
 ```bash
-gdn package unpublish <ref> [options]
+gdn doctor [options]
 ```
 
-**인자:**
-
-| 인자 | 설명 |
-|------|------|
-| `ref` | 비게시할 패키지 (예: `@goondan/base@1.0.0`) |
-
-**옵션:**
+### 9.2 옵션
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--force` | `-f` | 확인 없이 비게시 | `false` |
-| `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
+| `--fix` | | 자동 수정 시도 (placeholder) | `false` |
 
-**예시:**
-```bash
-# 특정 버전 비게시
-gdn package unpublish @goondan/base@1.0.0
+### 9.3 검사 항목
 
-# 확인 없이 비게시
-gdn package unpublish @goondan/base@1.0.0 --force
+**System:**
+
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| Bun | 버전 확인 | fail |
+| npm/pnpm | 패키지 매니저 설치 확인 | warn |
+
+**API Keys:**
+
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| ANTHROPIC_API_KEY | Anthropic API 키 | warn |
+| OPENAI_API_KEY | OpenAI API 키 | warn |
+| GOOGLE_GENERATIVE_AI_API_KEY | Google AI API 키 | warn |
+
+**Goondan Packages:**
+
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| @goondan/core | core 패키지 버전 | warn |
+| @goondan/cli | cli 패키지 버전 | warn |
+| @goondan/base | base 패키지 버전 | warn |
+
+**Project:**
+
+| 항목 | 설명 | 수준 |
+|------|------|------|
+| Bundle Config | goondan.yaml 존재 여부 | warn |
+| Bundle Validation | goondan.yaml 유효성 검증 | fail/warn |
+
+### 9.4 출력 예시
+
+```
+Goondan Doctor
+Checking your environment...
+
+System
+  ✓ Bun: Bun 1.1.x
+  ✓ pnpm: pnpm 9.x.x
+
+API Keys
+  ✓ Anthropic API Key: ANTHROPIC_API_KEY is set (sk-a...****)
+  ⚠ OpenAI API Key: OPENAI_API_KEY is not set
+    Set if using OpenAI: export OPENAI_API_KEY=your-api-key
+
+Goondan Packages
+  ✓ @goondan/core: @goondan/core@2.0.0
+  ✓ @goondan/cli: @goondan/cli@2.0.0
+  ✓ @goondan/base: @goondan/base@2.0.0
+
+Project
+  ✓ Bundle Config: Found goondan.yaml
+  ✓ Bundle Validation: Valid (5 resources)
+
+Summary
+  8 passed, 1 warnings, 0 errors
 ```
 
 ---
 
-### 6.9 gdn package deprecate
-
-패키지에 폐기(deprecate) 표시를 설정한다.
-
-**사용법:**
-```bash
-gdn package deprecate <ref> [options]
-```
-
-**인자:**
-
-| 인자 | 설명 |
-|------|------|
-| `ref` | 폐기 표시할 패키지 (예: `@goondan/base@1.0.0`) |
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--message <msg>` | `-m` | 폐기 사유 메시지 | - |
-| `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
-
-**예시:**
-```bash
-# 폐기 표시
-gdn package deprecate @goondan/base@1.0.0 --message "2.0.0으로 마이그레이션하세요"
-
-# 폐기 표시 해제 (빈 메시지)
-gdn package deprecate @goondan/base@1.0.0 --message ""
-```
-
----
-
-### 6.10 gdn package login
-
-레지스트리에 로그인한다.
-
-**사용법:**
-```bash
-gdn package login [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--registry <url>` | | 레지스트리 URL | `https://registry.goondan.io` |
-| `--scope <scope>` | | 스코프별 로그인 | - |
-| `--token <token>` | | 토큰 직접 지정 | - |
-
-**예시:**
-```bash
-# 기본 레지스트리 로그인
-gdn package login
-
-# 프라이빗 레지스트리 로그인
-gdn package login --registry https://my-registry.example.com
-
-# 스코프별 로그인
-gdn package login --scope @myorg --registry https://my-org-registry.example.com
-
-# 토큰으로 로그인 (CI용)
-gdn package login --token $GOONDAN_REGISTRY_TOKEN
-```
-
-**인증 정보 저장:**
-인증 정보는 `~/.goondanrc`에 저장된다:
-```yaml
-registries:
-  "https://registry.goondan.io":
-    token: "xxx..."
-  "https://my-org-registry.example.com":
-    token: "yyy..."
-
-scopedRegistries:
-  "@myorg": "https://my-org-registry.example.com"
-```
-
----
-
-### 6.11 gdn package logout
-
-레지스트리에서 로그아웃한다.
-
-**사용법:**
-```bash
-gdn package logout [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--registry <url>` | | 레지스트리 URL | `https://registry.goondan.io` |
-| `--scope <scope>` | | 스코프별 로그아웃 | - |
-
----
-
-### 6.12 gdn package pack
-
-로컬 tarball 파일을 생성한다.
-
-**사용법:**
-```bash
-gdn package pack [path] [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--out <path>` | `-o` | 출력 경로 | 현재 디렉터리 |
-
-**예시:**
-```bash
-# tarball 생성
-gdn package pack
-
-# 출력 경로 지정
-gdn package pack --out ./dist
-```
-
-**출력:**
-```
-Created: my-package-1.0.0.tgz
-```
-
----
-
-### 6.13 gdn package info
-
-패키지 정보를 조회한다.
-
-**사용법:**
-```bash
-gdn package info <ref> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--registry <url>` | | 레지스트리 URL | 설정 파일 기준 |
-
-**출력 예시:**
-```
-@goondan/base@1.0.0
-
-Description: Goondan 기본 Tool/Extension 번들
-Published:   2026-01-15T10:30:00Z
-
-dist-tags:
-  latest: 1.0.0
-  beta:   2.0.0-beta.1
-
-versions:
-  1.0.0, 0.9.0, 0.8.0
-
-dependencies:
-  @goondan/core-utils: ^0.5.0
-
-resources:
-  - tools/fileRead/tool.yaml
-  - extensions/skills/extension.yaml
-
-tarball: https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz
-shasum:  abc123def456...
-```
-
----
-
-## 7. gdn instance
-
-실행 중이거나 저장된 인스턴스를 관리한다.
-
-### 7.1 하위 명령어
-
-| 명령어 | 설명 |
-|--------|------|
-| `gdn instance list` | 인스턴스 목록 |
-| `gdn instance inspect <id>` | 인스턴스 상세 정보 |
-| `gdn instance pause <id>` | 인스턴스 일시 중지 |
-| `gdn instance resume <id>` | 인스턴스 재개 |
-| `gdn instance terminate <id>` | 인스턴스 종료 |
-| `gdn instance delete <id>` | 인스턴스 삭제 |
-
----
-
-### 7.2 gdn instance list
-
-인스턴스 목록을 출력한다.
-
-**사용법:**
-```bash
-gdn instance list [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--swarm <name>` | `-s` | Swarm 이름으로 필터 | - |
-| `--status <status>` | | 상태 필터 (`running`, `paused`, `terminated`) | - |
-| `--limit <n>` | `-n` | 최대 개수 | `20` |
-| `--all` | `-a` | 모든 인스턴스 | `false` |
-
-**출력 예시:**
-```
-INSTANCE ID          SWARM       STATUS      CREATED              TURNS
-default-cli          default     active      2026-02-05 10:30:00  5
-default-1700000000   default     idle        2026-02-04 15:20:00  12
-code-review-pr-123   code-rev    completed   2026-02-03 09:00:00  8
-```
-
----
-
-### 7.3 gdn instance inspect
-
-인스턴스 상세 정보를 출력한다.
-
-**사용법:**
-```bash
-gdn instance inspect <id>
-```
-
-**출력 예시:**
-```
-Instance: default-cli
-Swarm:    default
-Status:   active
-Created:  2026-02-05 10:30:00
-Updated:  2026-02-05 10:45:00
-
-Agents:
-  planner:
-    Turns: 3
-    Messages: 15
-    Last Active: 2026-02-05 10:45:00
-  coder:
-    Turns: 2
-    Messages: 10
-    Last Active: 2026-02-05 10:43:00
-
-Active SwarmBundleRef: git:abc123def456...
-
-State Root: ~/.goondan/instances/a1b2c3d4e5f6/default-cli/
-```
-
----
-
-### 7.4 gdn instance pause
-
-인스턴스를 일시 중지한다. 새 Turn 실행을 중지하고 현재 진행 중인 Turn이 완료되면 paused 상태로 전환한다.
-
-**사용법:**
-```bash
-gdn instance pause <id> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--force` | `-f` | 진행 중인 Turn도 즉시 중지 | `false` |
-
----
-
-### 7.5 gdn instance resume
-
-일시 중지된 인스턴스를 재개한다.
-
-**사용법:**
-```bash
-gdn instance resume <id> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--input <text>` | | 재개 시 입력 메시지 | - |
-
----
-
-### 7.6 gdn instance terminate
-
-인스턴스를 종료한다. 종료된 인스턴스는 더 이상 Turn을 처리하지 않으며, 상태는 terminated로 변경된다.
-
-**사용법:**
-```bash
-gdn instance terminate <id> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--force` | `-f` | 확인 없이 종료 | `false` |
-| `--reason <text>` | | 종료 사유 | - |
-
----
-
-### 7.7 gdn instance delete
-
-인스턴스 상태를 삭제한다.
-
-**사용법:**
-```bash
-gdn instance delete <id> [options]
-```
-
-**옵션:**
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--force` | `-f` | 확인 없이 삭제 | `false` |
-
----
-
-## 8. gdn logs
-
-인스턴스 로그를 조회한다.
-
-### 8.1 사용법
-
-```bash
-gdn logs [instance-id] [options]
-```
-
-### 8.2 옵션
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--agent <name>` | `-a` | 특정 에이전트 로그만 | - |
-| `--type <type>` | `-t` | 로그 유형 (`messages`, `events`, `all`) | `all` |
-| `--follow` | `-f` | 실시간 로그 스트리밍 | `false` |
-| `--tail <n>` | | 마지막 n줄 | - |
-| `--since <time>` | | 특정 시간 이후 | - |
-| `--until <time>` | | 특정 시간 이전 | - |
-| `--turn <id>` | | 특정 Turn 로그만 | - |
-| `--trace <id>` | | 특정 traceId 로그만 | - |
-
-### 8.3 예시
-
-```bash
-# 현재 인스턴스 로그
-gdn logs
-
-# 특정 인스턴스 로그
-gdn logs default-cli
-
-# 실시간 로그
-gdn logs --follow
-
-# 메시지 로그만
-gdn logs --type messages
-
-# 특정 에이전트 로그
-gdn logs --agent planner
-
-# 마지막 100줄
-gdn logs --tail 100
-
-# 특정 시간 이후
-gdn logs --since "2026-02-05 10:00:00"
-```
-
-### 8.4 출력 형식
-
-**기본 출력:**
-```
-[2026-02-05 10:30:00] [planner] turn.started turnId=turn-abc123
-[2026-02-05 10:30:01] [planner] step.started stepId=step-xyz789
-[2026-02-05 10:30:02] [planner] user: 파일 목록을 보여줘
-[2026-02-05 10:30:03] [planner] assistant: [tool_call] file.list(path=".")
-[2026-02-05 10:30:04] [planner] tool: ["README.md", "package.json"]
-[2026-02-05 10:30:05] [planner] assistant: 현재 디렉터리에는...
-```
-
-**JSON 출력 (`--json`):**
-```json
-{"timestamp":"2026-02-05T10:30:00.000Z","agent":"planner","type":"event","kind":"turn.started","turnId":"turn-abc123"}
-{"timestamp":"2026-02-05T10:30:02.000Z","agent":"planner","type":"message","role":"user","content":"파일 목록을 보여줘"}
-```
-
----
-
-## 9. gdn config
-
-CLI 설정을 관리한다.
-
-### 9.1 하위 명령어
-
-| 명령어 | 설명 |
-|--------|------|
-| `gdn config get <key>` | 설정 값 조회 |
-| `gdn config set <key> <value>` | 설정 값 저장 |
-| `gdn config list` | 모든 설정 출력 |
-| `gdn config delete <key>` | 설정 삭제 |
-| `gdn config path` | 설정 파일 경로 출력 |
-
-### 9.2 설정 키
-
-| 키 | 설명 | 기본값 |
-|----|------|--------|
-| `registry` | 기본 패키지 레지스트리 | `https://registry.goondan.io` |
-| `stateRoot` | System State Root 경로 | `~/.goondan` |
-| `logLevel` | 로그 레벨 | `info` |
-| `color` | 색상 출력 | `true` |
-| `editor` | 기본 에디터 | `$EDITOR` |
-
-### 9.3 예시
-
-```bash
-# 설정 조회
-gdn config get registry
-
-# 설정 저장
-gdn config set registry https://my-registry.example.com
-
-# 모든 설정 출력
-gdn config list
-
-# 설정 파일 경로
-gdn config path
-# => ~/.goondanrc
-```
-
----
-
-## 10. gdn completion
-
-쉘 자동완성 스크립트를 생성한다.
-
-### 10.1 사용법
-
-```bash
-gdn completion <shell>
-```
-
-### 10.2 지원 쉘
-
-- `bash`
-- `zsh`
-- `fish`
-- `powershell`
-
-### 10.3 설정 방법
-
-**Bash:**
-```bash
-# ~/.bashrc에 추가
-eval "$(gdn completion bash)"
-```
-
-**Zsh:**
-```bash
-# ~/.zshrc에 추가
-eval "$(gdn completion zsh)"
-```
-
-**Fish:**
-```bash
-gdn completion fish > ~/.config/fish/completions/gdn.fish
-```
-
----
-
-## 11. 종료 코드
+## 10. 종료 코드
 
 | 코드 | 의미 |
 |------|------|
@@ -1053,181 +676,72 @@ gdn completion fish > ~/.config/fish/completions/gdn.fish
 
 ---
 
-## 12. 설정 파일
+## 11. 설정 파일
 
-### 12.1 ~/.goondanrc
+### 11.1 ~/.goondan/config.json
 
-전역 CLI 설정 파일:
+전역 CLI 설정 파일. v2에서는 `~/.goondanrc` 대신 `~/.goondan/config.json`을 사용한다.
 
-```yaml
-# 기본 레지스트리
-registry: "https://registry.goondan.io"
-
-# System State Root
-stateRoot: "~/.goondan"
-
-# 로그 레벨
-logLevel: "info"
-
-# 색상 출력
-color: true
-
-# 레지스트리 인증
-registries:
-  "https://registry.goondan.io":
-    token: "xxx..."
-
-# 스코프별 레지스트리
-scopedRegistries:
-  "@myorg": "https://my-org-registry.example.com"
-```
-
-### 12.2 환경 변수 우선순위
-
-설정 우선순위 (높은 것이 우선):
-
-1. CLI 옵션 (`--registry`, `--state-root` 등)
-2. 환경 변수 (`GOONDAN_REGISTRY`, `GOONDAN_STATE_ROOT` 등)
-3. 프로젝트 설정 (`.goondanrc` in project root)
-4. 전역 설정 (`~/.goondanrc`)
-5. 기본값
-
----
-
-## 13. gdn doctor
-
-환경을 진단하고 일반적인 문제를 확인한다.
-
-### 13.1 사용법
-
-```bash
-gdn doctor [options]
-```
-
-### 13.2 옵션
-
-| 옵션 | 단축 | 설명 | 기본값 |
-|------|------|------|--------|
-| `--fix` | | 자동 수정 시도 (placeholder) | `false` |
-
-### 13.3 Health Check
-
-`gdn doctor`는 환경 진단 외에 실행 중인 Runtime의 상태 점검(health check) 기능도 제공한다.
-
-**Runtime Health Check:**
-```bash
-# 실행 중인 인스턴스의 상태 점검
-gdn doctor --runtime
-
-# HTTP 모드 서버 상태 점검
-gdn doctor --runtime --port 3000
-```
-
-**HTTP 모드 Health Endpoint:**
-
-`gdn run --connector http`로 실행 시 `/health` 엔드포인트를 자동 제공한다.
-
-```
-GET /health
-```
-
-**응답 예시:**
 ```json
 {
-  "status": "healthy",
-  "uptime": 3600,
-  "instances": {
-    "running": 3,
-    "paused": 1,
-    "terminated": 0
+  "registry": "https://registry.goondan.io",
+  "logLevel": "info",
+  "registries": {
+    "https://registry.goondan.io": {
+      "token": "xxx..."
+    }
   },
-  "timestamp": "2026-02-05T10:30:00.000Z"
+  "scopedRegistries": {
+    "@myorg": "https://my-org-registry.example.com"
+  }
 }
 ```
 
-### 13.4 검사 항목
+설정을 변경하려면 이 파일을 직접 편집한다.
 
-**System:**
-| 항목 | 설명 | 수준 |
-|------|------|------|
-| Node.js | 버전 >=18 확인 | fail |
-| npm | npm 설치 확인 | fail |
-| pnpm | pnpm 설치 확인 | warn |
-| TypeScript | tsc 설치 확인 | warn |
+### 11.2 환경 변수 우선순위
 
-**API Keys:**
-| 항목 | 설명 | 수준 |
-|------|------|------|
-| ANTHROPIC_API_KEY | Anthropic API 키 | warn |
-| OPENAI_API_KEY | OpenAI API 키 | warn |
-| GOOGLE_GENERATIVE_AI_API_KEY | Google AI API 키 | warn |
+설정 우선순위 (높은 것이 우선):
 
-**Goondan Packages:**
-| 항목 | 설명 | 수준 |
-|------|------|------|
-| @goondan/core | core 패키지 버전 | warn |
-| @goondan/cli | cli 패키지 버전 | warn |
-| @goondan/base | base 패키지 버전 | warn |
-
-**Project:**
-| 항목 | 설명 | 수준 |
-|------|------|------|
-| Bundle Config | goondan.yaml 존재 여부 | warn |
-| Dependencies | node_modules 존재 여부 | warn |
-| Bundle Validation | goondan.yaml 유효성 검증 | fail/warn |
-
-### 13.5 출력 예시
-
-```
-Goondan Doctor
-Checking your environment...
-
-System
-  ✓ Node.js: Node.js v20.11.0
-  ✓ npm: npm 10.2.4
-  ✓ pnpm: pnpm 9.1.0
-  ✓ TypeScript: TypeScript 5.4.5
-
-API Keys
-  ✓ Anthropic API Key: ANTHROPIC_API_KEY is set (sk-a...****)
-  ⚠ OpenAI API Key: OPENAI_API_KEY is not set
-    Set if using OpenAI: export OPENAI_API_KEY=your-api-key
-
-Goondan Packages
-  ✓ @goondan/core: @goondan/core@0.0.1
-  ✓ @goondan/cli: @goondan/cli@0.0.1
-  ✓ @goondan/base: @goondan/base@0.0.1
-
-Project
-  ✓ Bundle Config: Found goondan.yaml
-  ✓ Dependencies: node_modules found
-  ✓ Bundle Validation: Valid (5 resources)
-
-Summary
-  9 passed, 1 warnings, 0 errors
-```
-
-### 13.6 예시
-
-```bash
-# 환경 진단
-gdn doctor
-
-# JSON 형식 출력
-gdn doctor --json
-```
+1. CLI 옵션 (`--state-root` 등)
+2. 환경 변수 (`GOONDAN_STATE_ROOT`, `GOONDAN_REGISTRY` 등)
+3. `~/.goondan/config.json`
+4. 기본값
 
 ---
 
-## 14. 관련 문서
+## 12. 제거된 명령어
 
+다음 명령어는 v2에서 제거되었다:
+
+| 제거된 명령어 | 대체 방법 |
+|---------------|-----------|
+| `gdn instance pause <id>` | `gdn restart` 사용 |
+| `gdn instance resume <id>` | `gdn restart` 사용 |
+| `gdn instance terminate <id>` | `gdn restart` 또는 `gdn instance delete` 사용 |
+| `gdn instance inspect <id>` | `gdn instance list`로 확인 |
+| `gdn logs` | 각 프로세스의 stdout/stderr 확인 |
+| `gdn config get/set/list/delete/path` | `~/.goondan/config.json` 직접 편집 |
+| `gdn completion <shell>` | 제거 |
+| `gdn package remove <ref>` | `goondan.yaml`에서 직접 제거 후 `gdn package install` |
+| `gdn package update [ref]` | `gdn package add <ref>@<version>` 사용 |
+| `gdn package list` | `goondan.yaml`의 Package dependencies 확인 |
+| `gdn package unpublish <ref>` | 레지스트리 관리 UI 사용 |
+| `gdn package deprecate <ref>` | 레지스트리 관리 UI 사용 |
+| `gdn package login/logout` | `~/.goondan/config.json`의 `registries` 직접 편집 |
+| `gdn package pack` | 제거 |
+| `gdn package info <ref>` | 레지스트리 웹 UI 사용 |
+
+---
+
+## 13. 관련 문서
+
+- `docs/specs/runtime.md`: Runtime 실행 모델 스펙
+- `docs/specs/workspace.md`: Workspace 모델 스펙
 - `docs/specs/bundle.md`: Bundle YAML 스펙
 - `docs/specs/bundle_package.md`: Package 스펙
-- `docs/specs/workspace.md`: Workspace 모델 스펙
-- `docs/specs/runtime.md`: Runtime 실행 모델 스펙
-- `docs/specs/changeset.md`: Changeset 스펙
 
 ---
 
-**문서 버전**: v0.12
-**최종 수정**: 2026-02-08
+**문서 버전**: v2.0
+**최종 수정**: 2026-02-12

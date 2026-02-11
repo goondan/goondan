@@ -1,99 +1,163 @@
-## 부록 A. 실행 모델 및 훅 위치 다이어그램
+## 부록 A. 실행 모델 및 미들웨어 다이어그램
 
-### A-1. Instance → Turn → Step 라이프사이클과 파이프라인 포인트(ASCII)
+### A-1. Orchestrator → AgentProcess/ConnectorProcess 프로세스 구조(ASCII)
 
 ```
-[External Event via Connector]
+                    ┌─────────────────────────────────────────────┐
+                    │          Orchestrator (상주 프로세스)          │
+                    │                                             │
+                    │  - goondan.yaml 파싱/리소스 로딩             │
+                    │  - 프로세스 스폰/감시/재시작                  │
+                    │  - IPC 메시지 브로커 (delegate/handoff)       │
+                    │  - 설정 변경 감지 (--watch)                  │
+                    └───────┬──────────────┬──────────────┬───────┘
+                            │              │              │
+                     IPC    │       IPC    │       IPC    │
+                            │              │              │
+                    ┌───────▼──────┐ ┌─────▼──────┐ ┌────▼─────────────┐
+                    │ AgentProcess │ │ AgentProcess│ │ ConnectorProcess │
+                    │   (Agent A)  │ │  (Agent B)  │ │   (telegram)     │
+                    │              │ │             │ │                  │
+                    │ Turn → Step  │ │ Turn → Step │ │ 자체 HTTP 서버   │
+                    │   루프 실행  │ │   루프 실행 │ │ /cron 등 프로토콜│
+                    └──────────────┘ └─────────────┘ └──────────────────┘
+```
+
+### A-2. AgentProcess 내부: Turn → Step 실행 흐름과 3-Layer 미들웨어(ASCII)
+
+```
+[Orchestrator로부터 AgentEvent 수신 (IPC)]
           │
           ▼
-   [SwarmInstance (instanceKey)]
+   [AgentProcess (agentName, instanceKey)]
+          │
+          │ 메시지 상태 로드
+          │  - base.jsonl → BaseMessages
+          │  - events.jsonl → 잔존 Events (크래시 복원 시)
+          ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │                                                          │
+   │  ┌────────────────────────────────────────────────────┐  │
+   │  │         Turn Middleware (onion 체이닝)              │  │
+   │  │                                                    │  │
+   │  │  Extension A (turn) ─┐                             │  │
+   │  │  Extension B (turn) ─┤  next() 전 = 전처리(pre)    │  │
+   │  │        ...           │                             │  │
+   │  │                      ▼                             │  │
+   │  │  ┌──────────────────────────────────────────────┐  │  │
+   │  │  │         코어 Turn 로직                       │  │  │
+   │  │  │                                              │  │  │
+   │  │  │  ConversationState 준비                      │  │  │
+   │  │  │   - baseMessages 로드                        │  │  │
+   │  │  │   - emitMessageEvent → events 누적           │  │  │
+   │  │  │   - nextMessages = base + SUM(events)        │  │  │
+   │  │  │                                              │  │  │
+   │  │  │  ┌──────────── Step Loop (0..N) ──────────┐  │  │  │
+   │  │  │  │                                        │  │  │  │
+   │  │  │  │  ┌──────────────────────────────────┐  │  │  │  │
+   │  │  │  │  │  Step Middleware (onion 체이닝)   │  │  │  │  │
+   │  │  │  │  │                                  │  │  │  │  │
+   │  │  │  │  │  next() 전:                      │  │  │  │  │
+   │  │  │  │  │   - toolCatalog 조작 가능        │  │  │  │  │
+   │  │  │  │  │   - emitMessageEvent 가능        │  │  │  │  │
+   │  │  │  │  │                                  │  │  │  │  │
+   │  │  │  │  │  ┌────────────────────────────┐  │  │  │  │  │
+   │  │  │  │  │  │  코어 Step 로직            │  │  │  │  │  │
+   │  │  │  │  │  │                            │  │  │  │  │  │
+   │  │  │  │  │  │  1. LLM 호출               │  │  │  │  │  │
+   │  │  │  │  │  │     (toLlmMessages() 전달) │  │  │  │  │  │
+   │  │  │  │  │  │                            │  │  │  │  │  │
+   │  │  │  │  │  │  2. 응답 파싱              │  │  │  │  │  │
+   │  │  │  │  │  │     ├─ 텍스트만 → Step 종료│  │  │  │  │  │
+   │  │  │  │  │  │     └─ tool_calls 존재:    │  │  │  │  │  │
+   │  │  │  │  │  │                            │  │  │  │  │  │
+   │  │  │  │  │  │  3. 각 tool call 실행:     │  │  │  │  │  │
+   │  │  │  │  │  │  ┌──────────────────────┐  │  │  │  │  │  │
+   │  │  │  │  │  │  │ ToolCall Middleware  │  │  │  │  │  │  │
+   │  │  │  │  │  │  │  (onion 체이닝)     │  │  │  │  │  │  │
+   │  │  │  │  │  │  │                     │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ next() 전:          │  │  │  │  │  │  │
+   │  │  │  │  │  │  │  - args 검증/변환   │  │  │  │  │  │  │
+   │  │  │  │  │  │  │                     │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ ┌─────────────────┐ │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ │ 코어 Tool 실행  │ │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ │ (ToolHandler)   │ │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ └─────────────────┘ │  │  │  │  │  │  │
+   │  │  │  │  │  │  │                     │  │  │  │  │  │  │
+   │  │  │  │  │  │  │ next() 후:          │  │  │  │  │  │  │
+   │  │  │  │  │  │  │  - 결과 변환/로깅   │  │  │  │  │  │  │
+   │  │  │  │  │  │  └──────────────────────┘  │  │  │  │  │  │
+   │  │  │  │  │  │                            │  │  │  │  │  │
+   │  │  │  │  │  └────────────────────────────┘  │  │  │  │  │
+   │  │  │  │  │                                  │  │  │  │  │
+   │  │  │  │  │  next() 후:                      │  │  │  │  │
+   │  │  │  │  │   - 결과 검사/변환               │  │  │  │  │
+   │  │  │  │  │   - 로깅, 재시도 판단            │  │  │  │  │
+   │  │  │  │  └──────────────────────────────────┘  │  │  │  │
+   │  │  │  │                                        │  │  │  │
+   │  │  │  │  tool_calls 있으면 → 다음 Step         │  │  │  │
+   │  │  │  │  텍스트 응답만 있으면 → Step Loop 종료  │  │  │  │
+   │  │  │  └────────────────────────────────────────┘  │  │  │
+   │  │  │                                              │  │  │
+   │  │  └──────────────────────────────────────────────┘  │  │
+   │  │                      ▲                             │  │
+   │  │  Extension B (turn) ─┤  next() 후 = 후처리(post)   │  │
+   │  │  Extension A (turn) ─┘                             │  │
+   │  │                                                    │  │
+   │  └────────────────────────────────────────────────────┘  │
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
+          │
+          │ Turn 종료 처리
+          ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │ 메시지 상태 영속화                                       │
+   │                                                          │
+   │  1. events → base 폴딩                                   │
+   │     NextMessages = BaseMessages + SUM(Events)            │
+   │  2. base.jsonl 갱신 (확정된 Message 목록)                │
+   │  3. events.jsonl 클리어                                  │
+   │  4. Extension 상태 디스크 기록                           │
+   └──────────────────────────────────────────────────────────┘
           │
           ▼
-   [AgentInstance Event Queue]
-          │  (dequeue 1 event)
-          ▼
-     ┌───────────────┐
-     │   Turn Start   │
-     └───────────────┘
-          │
-          │ load BaseMessages (base.jsonl)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ Message State Init                    │
-   │  - BaseMessages loaded                │
-   │  - Events = []                        │
-   └───────────────────────────────────────┘
-          │
-          │ turn.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │            Step Loop (0..N)           │
-   └───────────────────────────────────────┘
-          │
-          │ step.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.config     (Mutator)             │
-   │  - activate SwarmBundleRef + load cfg │
-   └───────────────────────────────────────┘
-          │
-          │ step.tools      (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.tools      (Mutator)             │
-   │  - build/transform Tool Catalog       │
-   └───────────────────────────────────────┘
-          │
-          │ step.blocks     (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.blocks     (Mutator)             │
-   │  - build/transform Context Blocks     │
-   │  - compose Next = Base + SUM(Events)  │
-   └───────────────────────────────────────┘
-          │
-          │ step.llmCall    (Middleware)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.llmCall    (Middleware onion)    │
-   │  EXT.before → CORE LLM → EXT.after    │
-   └───────────────────────────────────────┘
-          │
-          ├──── tool calls exist? ────┐
-          │                           │
-          ▼                           ▼
- (for each tool call)            (no tool call)
-          │
-          │ toolCall.pre   (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ toolCall.exec   (Middleware onion)    │
-   │  EXT.before → CORE exec → EXT.after   │
-   └───────────────────────────────────────┘
-          │
-          │ toolCall.post  (Mutator)
-          ▼
-          │ step.post      (Mutator)
-          ▼
-     ┌───────────────────────┐
-     │ Continue Step loop?   │
-     └───────────────────────┘
-          │yes                      │no
-          └───────────┐             └─────────────┐
-                      ▼                           ▼
-                  (next Step)               turn.post (Mutator)
-                                                │
-                                                │ hooks receive (base, events)
-                                                │ hooks may emit events
-                                                ▼
-                                   fold: Base + SUM(Events)
-                                                │
-                                                ▼
-                                  persist base.jsonl + clear events.jsonl
-                                                │
-                                                ▼
-                                             Turn End
-                                                │
-                                                ▼
-                                        wait next event…
+   다음 이벤트 대기 (Orchestrator IPC 수신)
+```
+
+### A-3. 메시지 상태 모델: 이벤트 소싱 흐름(ASCII)
+
+```
+   Turn 시작
+       │
+       ▼
+  ┌─────────────────┐
+  │  base.jsonl     │ ──→ BaseMessages 로드
+  │  (확정 메시지)  │
+  └─────────────────┘
+       │
+       │  + 미들웨어 emitMessageEvent()
+       │    (append / replace / remove / truncate)
+       ▼
+  ┌─────────────────┐
+  │  events.jsonl   │ ──→ Events 누적
+  │  (이벤트 로그)  │
+  └─────────────────┘
+       │
+       │  NextMessages = Base + SUM(Events)
+       ▼
+  ┌─────────────────┐
+  │  nextMessages   │ ──→ toLlmMessages() → LLM 호출
+  │  (계산된 상태)  │
+  └─────────────────┘
+       │
+       │  Turn 종료
+       ▼
+  ┌─────────────────┐
+  │  base.jsonl     │ ──→ events 폴딩된 새 base
+  │  (갱신)         │
+  └─────────────────┘
+  ┌─────────────────┐
+  │  events.jsonl   │ ──→ 클리어
+  │  (비움)         │
+  └─────────────────┘
 ```

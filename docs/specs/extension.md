@@ -1,35 +1,28 @@
-# Goondan Extension 시스템 스펙 (v0.10)
+# Goondan Extension 시스템 스펙 (v2.0)
 
-본 문서는 `@docs/requirements/index.md`를 기반으로 Extension 시스템의 **구현 스펙**을 정의한다.
-
-## 목차
-
-1. [개요](#1-개요)
-2. [Extension 리소스 스키마](#2-extension-리소스-스키마)
-3. [Extension 엔트리포인트](#3-extension-엔트리포인트)
-4. [ExtensionApi 인터페이스](#4-extensionapi-인터페이스)
-5. [파이프라인 API](#5-파이프라인-api)
-6. [Tool 등록 API](#6-tool-등록-api)
-7. [이벤트 API](#7-이벤트-api)
-8. [SwarmBundle API](#8-swarmbundle-api)
-9. [상태 관리](#9-상태-관리)
-10. [Extension 로딩과 초기화](#10-extension-로딩과-초기화)
-11. [MCP Extension 패턴](#11-mcp-extension-패턴)
-12. [Skill Extension 패턴](#12-skill-extension-패턴)
+본 문서는 `docs/requirements/13_extension-interface.md`를 기반으로 v2 Extension 시스템의 **구현 스펙**을 정의한다. v2에서는 ExtensionApi를 대폭 단순화하고, 모든 파이프라인 훅을 Middleware 형태로 통일하며, OAuth/SwarmBundle/LiveConfig 등은 Extension 내부 구현으로 이동한다.
 
 ---
 
 ## 1. 개요
 
-Extension은 런타임 라이프사이클의 특정 지점에 개입하기 위해 등록되는 실행 로직 묶음이다. Extension은 파이프라인 포인트에 핸들러를 등록하여 다음에 영향을 줄 수 있다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다.
 
-- **도구 카탈로그**: LLM에 노출되는 도구 목록 조작
-- **컨텍스트 블록**: LLM 입력에 포함되는 정보 블록 추가/변경
-- **LLM 호출**: 호출 전후 래핑, 재시도, 로깅
-- **도구 실행**: 도구 호출 전후 처리, 권한 검사
-- **워크스페이스 이벤트**: repo 확보, worktree 마운트 등
+Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
-Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, 런타임 내부에서 자동으로 실행된다.
+### 1.1 v1 대비 변경 요약
+
+| v1 (기존) | v2 (신규) |
+|-----------|-----------|
+| `ExtensionApi<TState, TConfig>` (제네릭) | **`ExtensionApi`** (단순 인터페이스) |
+| `pipelines.mutate()` / `pipelines.wrap()` | **`pipeline.register(type, fn)`** |
+| `extension` (Resource 접근) | 제거 |
+| `swarmBundle` (Changeset API) | 제거 |
+| `liveConfig` (Config 패치) | 제거 |
+| `oauth` (OAuth API) | 제거 (Extension 내부 구현) |
+| `getState()` / `setState()` (동기) | **`state.get()` / `state.set()`** (비동기, JSON) |
+| `instance.shared` (공유 상태) | 제거 |
+| `runtime: 'node'` 필드 | 제거 (항상 Bun) |
 
 ---
 
@@ -38,15 +31,14 @@ Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, 런타임 내�
 ### 2.1 기본 구조
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: <확장 이름>
   labels:
     tier: base           # 선택
 spec:
-  runtime: node          # 필수: 런타임 환경
-  entry: "./index.js"    # 필수: 엔트리 모듈 경로 (Package Root 기준)
+  entry: "./index.ts"    # 필수: 엔트리 모듈 경로 (Bundle Root 기준)
   config:                # 선택: 확장별 설정
     <key>: <value>
 ```
@@ -56,14 +48,9 @@ spec:
 ```typescript
 interface ExtensionSpec<TConfig = JsonObject> {
   /**
-   * 런타임 환경
-   * @required
-   */
-  runtime: 'node';
-
-  /**
    * 엔트리 모듈 경로
-   * Package Root 기준 상대 경로
+   * Bundle Root 기준 상대 경로
+   * Bun으로 실행
    * @required
    */
   entry: string;
@@ -77,60 +64,46 @@ interface ExtensionSpec<TConfig = JsonObject> {
 }
 ```
 
-### 2.3 예시: 기본 Extension
+**제거된 필드:**
+- `runtime` -- 항상 Bun이므로 불필요
+
+### 2.3 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+# Compaction Extension
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: compaction
 spec:
-  runtime: node
-  entry: "./extensions/compaction/index.js"
+  entry: "./extensions/compaction/index.ts"
   config:
     maxTokens: 8000
-    maxChars: 32000
-    enableLogging: true
-```
-
-### 2.4 예시: MCP 연동 Extension
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
+    maxMessages: 50
+---
+# Logging Extension
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
-  name: mcp-github
+  name: logging
 spec:
-  runtime: node
-  entry: "./extensions/mcp/index.js"
+  entry: "./extensions/logging/index.ts"
   config:
-    transport:
-      type: stdio
-      command: ["npx", "-y", "@modelcontextprotocol/server-github"]
-    attach:
-      mode: stateful
-      scope: instance
-    expose:
-      tools: true
-      resources: true
-      prompts: true
-```
-
-### 2.5 예시: Skill Extension
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
+    level: debug
+    includeToolArgs: true
+---
+# Skills Extension
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: skills
 spec:
-  runtime: node
-  entry: "./extensions/skills/index.js"
+  entry: "./extensions/skills/index.ts"
   config:
     discovery:
       repoSkillDirs:
-        - ".claude/skills"
-        - ".agent/skills"
+        - ".agents/skills"
+        - "skills"
 ```
 
 ---
@@ -139,73 +112,57 @@ spec:
 
 ### 3.1 register 함수
 
-Extension 모듈은 `register(api)` 함수를 **반드시** 제공해야 한다(MUST).
+Extension 모듈은 `register(api)` 함수를 **반드시** export해야 한다(MUST).
 
 ```typescript
 /**
  * Extension 엔트리포인트
- * Runtime은 AgentInstance 초기화 시점에 이 함수를 호출한다.
+ * AgentProcess는 초기화 시 Agent에 선언된 Extension 목록 순서대로 이를 호출한다.
  *
  * @param api - Extension API 인터페이스
- * @returns Promise<void> 또는 void
  */
-export async function register(api: ExtensionApi): Promise<void>;
+export function register(api: ExtensionApi): void;
 ```
+
+**규칙:**
+
+1. Extension 모듈은 named export `register`를 제공해야 한다(MUST).
+2. `register` 함수는 동기(`void`) 또는 비동기(`Promise<void>`)를 반환할 수 있다(MAY).
+3. AgentProcess는 `register()` 반환(또는 Promise resolve)을 대기해야 한다(MUST).
+4. 이전 Extension의 `register()` 완료 후 다음 Extension의 `register()`를 호출해야 한다(MUST).
+5. `register()` 중 발생한 예외는 AgentProcess 초기화 실패로 처리해야 한다(MUST).
 
 ### 3.2 기본 구현 예시
 
 ```typescript
 // extensions/my-extension/index.ts
-import type { ExtensionApi, StepContext } from '@goondan/core';
+import type { ExtensionApi } from '@goondan/core';
 
-interface MyConfig {
-  maxTokens?: number;
-  enableLogging?: boolean;
-}
-
-interface MyState {
-  processedSteps: number;
-  lastProcessedAt?: number;
-}
-
-export async function register(
-  api: ExtensionApi<MyState, MyConfig>
-): Promise<void> {
-  // 1. 상태 초기화
-  api.state.set({
-    processedSteps: 0,
-    lastProcessedAt: undefined,
+export function register(api: ExtensionApi): void {
+  // 1. 미들웨어 등록
+  api.pipeline.register('step', async (ctx) => {
+    const start = Date.now();
+    const result = await ctx.next();
+    api.logger.info(`Step ${ctx.stepIndex} completed in ${Date.now() - start}ms`);
+    return result;
   });
 
-  // 2. 설정 읽기
-  const config = api.extension.spec?.config ?? {};
-  const maxTokens = config.maxTokens ?? 8000;
-
-  // 3. 파이프라인 등록
-  api.pipelines.mutate('step.post', async (ctx: StepContext) => {
-    const prev = api.state.get();
-    api.state.set({
-      ...prev,
-      processedSteps: prev.processedSteps + 1,
-      lastProcessedAt: Date.now(),
-    });
-
-    if (config.enableLogging) {
-      api.logger?.info?.(`Step ${api.state.get().processedSteps} completed`);
+  // 2. 동적 도구 등록
+  api.tools.register(
+    {
+      name: 'my-ext__status',
+      description: 'Get extension status',
+      parameters: { type: 'object', properties: {} },
+    },
+    async (ctx, input) => {
+      const state = await api.state.get();
+      return { status: 'ok', state };
     }
+  );
 
-    return ctx;
-  });
-
-  // 4. 이벤트 구독 (선택)
-  api.events.on?.('workspace.repoAvailable', async (payload) => {
-    api.logger?.info?.(`Repo available: ${payload.path}`);
-  });
-
-  // 5. 초기화 완료 이벤트 발행 (선택)
-  api.events.emit?.('extension.initialized', {
-    name: api.extension.metadata?.name,
-    timestamp: Date.now(),
+  // 3. 이벤트 구독
+  api.events.on('turn.completed', () => {
+    api.logger.info('Turn completed');
   });
 }
 ```
@@ -216,996 +173,283 @@ export async function register(
 
 ### 4.1 전체 인터페이스
 
-```typescript
-interface ExtensionApi<
-  TState = JsonObject,
-  TConfig = JsonObject
-> {
-  /**
-   * Extension 리소스 정의
-   * YAML에 정의된 Extension 리소스 전체
-   */
-  extension: Resource<ExtensionSpec<TConfig>>;
-
-  /**
-   * 파이프라인 등록 API
-   * mutate/wrap 메서드로 파이프라인 포인트에 핸들러 등록
-   */
-  pipelines: PipelineApi;
-
-  /**
-   * Tool 등록 API
-   * Extension에서 동적으로 Tool을 등록
-   */
-  tools: ToolRegistryApi;
-
-  /**
-   * 이벤트 버스
-   * 런타임 이벤트 발행/구독
-   */
-  events: EventBus;
-
-  /**
-   * SwarmBundle Changeset API
-   * SwarmBundle 변경 작업 (구현 선택)
-   */
-  swarmBundle: SwarmBundleApi;
-
-  /**
-   * Live Config API
-   * 동적 Config 패치 제안
-   */
-  liveConfig: LiveConfigApi;
-
-  /**
-   * OAuth API
-   * OAuth 토큰 접근 (Tool의 ctx.oauth와 동일)
-   */
-  oauth: OAuthApi;
-
-  /**
-   * 확장별 상태 접근 API
-   * Extension 인스턴스별 격리된 상태
-   */
-  state: {
-    /** 현재 상태를 반환 */
-    get(): TState;
-    /** 상태를 교체 (불변 패턴) */
-    set(next: TState): void;
-  };
-
-  /**
-   * 인스턴스 공유 상태
-   * 동일 AgentInstance 내 Extension 간 공유
-   */
-  instance: {
-    shared: JsonObject;
-  };
-
-  /**
-   * 로거
-   * 런타임 로거 인스턴스
-   */
-  logger?: Console;
-}
-```
-
-### 4.2 Resource 타입
-
-```typescript
-interface Resource<TSpec> {
-  apiVersion?: string;
-  kind: string;
-  metadata?: {
-    name: string;
-    labels?: Record<string, string>;
-    annotations?: Record<string, string>;
-  };
-  spec?: TSpec;
-}
-```
-
----
-
-## 5. 파이프라인 API
-
-### 5.1 PipelineApi 인터페이스
-
-```typescript
-interface PipelineApi {
-  /**
-   * Mutator 등록
-   * 순차 실행으로 컨텍스트를 변형
-   *
-   * @param point - 파이프라인 포인트
-   * @param handler - 변형 핸들러
-   */
-  mutate<T extends PipelineContext>(
-    point: MutatorPoint,
-    handler: MutatorHandler<T>
-  ): void;
-
-  /**
-   * Middleware 등록
-   * next() 기반 래핑 (onion 구조)
-   *
-   * @param point - 파이프라인 포인트
-   * @param handler - 미들웨어 핸들러
-   */
-  wrap<T extends PipelineContext>(
-    point: MiddlewarePoint,
-    handler: MiddlewareHandler<T>
-  ): void;
-}
-```
-
-### 5.2 파이프라인 포인트
-
-```typescript
-/**
- * 모든 파이프라인 포인트
- */
-type PipelinePoint =
-  // Turn 레벨
-  | 'turn.pre'
-  | 'turn.post'
-  // Step 레벨
-  | 'step.pre'
-  | 'step.config'
-  | 'step.tools'
-  | 'step.blocks'
-  | 'step.llmCall'
-  | 'step.llmError'
-  | 'step.post'
-  // ToolCall 레벨
-  | 'toolCall.pre'
-  | 'toolCall.exec'
-  | 'toolCall.post'
-  // Workspace 레벨
-  | 'workspace.repoAvailable'
-  | 'workspace.worktreeMounted';
-
-/**
- * Mutator 포인트
- * 순차 실행으로 컨텍스트 변형
- */
-type MutatorPoint =
-  | 'turn.pre'
-  | 'turn.post'
-  | 'step.pre'
-  | 'step.config'
-  | 'step.tools'
-  | 'step.blocks'
-  | 'step.llmError'
-  | 'step.post'
-  | 'toolCall.pre'
-  | 'toolCall.post'
-  | 'workspace.repoAvailable'
-  | 'workspace.worktreeMounted';
-
-/**
- * Middleware 포인트
- * next() 기반 래핑
- */
-type MiddlewarePoint =
-  | 'step.llmCall'
-  | 'toolCall.exec';
-```
-
-### 5.3 핸들러 타입
-
-```typescript
-/**
- * Mutator 핸들러
- * 컨텍스트를 받아 변형된 컨텍스트를 반환
- */
-type MutatorHandler<T extends PipelineContext> = (
-  ctx: T
-) => Promise<T> | T;
-
-/**
- * Middleware 핸들러
- * 컨텍스트와 next 함수를 받아 결과를 반환
- */
-type MiddlewareHandler<T extends PipelineContext> = (
-  ctx: T,
-  next: (ctx: T) => Promise<T>
-) => Promise<T>;
-```
-
-### 5.4 컨텍스트 타입
-
-```typescript
-interface TurnContext {
-  turn: Turn;
-  swarm: Resource<SwarmSpec>;
-  agent: Resource<AgentSpec>;
-  effectiveConfig: EffectiveConfig;
-  /** turn 시작 기준 메시지 */
-  baseMessages?: LlmMessage[];
-  /** turn 중 누적 메시지 이벤트 */
-  messageEvents?: MessageEvent[];
-  /** turn 메시지 이벤트 발행 */
-  emitMessageEvent?: (event: MessageEvent) => Promise<void>;
-}
-
-interface StepContext extends TurnContext {
-  step: Step;
-  blocks: ContextBlock[];
-  toolCatalog: ToolCatalogItem[];
-}
-
-interface ToolCallContext extends StepContext {
-  toolCall: ToolCall;
-  toolResult?: ToolResult;
-}
-
-interface WorkspaceContext {
-  path: string;
-  type: 'repo' | 'worktree';
-  metadata?: JsonObject;
-}
-```
-
-### 5.5 Mutator 사용 예시
-
-```typescript
-// step.blocks: 컨텍스트 블록 추가
-api.pipelines.mutate('step.blocks', async (ctx: StepContext) => {
-  const blocks = [...ctx.blocks];
-
-  // 커스텀 블록 추가
-  blocks.push({
-    type: 'custom.info',
-    data: {
-      timestamp: Date.now(),
-      stepIndex: ctx.step?.index,
-    },
-  });
-
-  return { ...ctx, blocks };
-});
-
-// step.tools: 도구 카탈로그 필터링
-api.pipelines.mutate('step.tools', async (ctx: StepContext) => {
-  const filteredCatalog = ctx.toolCatalog.filter(
-    tool => !tool.name.startsWith('internal.')
-  );
-
-  return { ...ctx, toolCatalog: filteredCatalog };
-});
-
-// turn.pre: Turn 시작 전 메타데이터 설정
-api.pipelines.mutate('turn.pre', async (ctx: TurnContext) => {
-  ctx.turn.metadata = {
-    ...ctx.turn.metadata,
-    startTime: Date.now(),
-    extensionVersion: '1.0.0',
-  };
-  return ctx;
-});
-
-// turn.post: Turn 종료 후 메트릭 수집
-api.pipelines.mutate('turn.post', async (ctx: TurnContext) => {
-  const duration = Date.now() - (ctx.turn.metadata?.startTime ?? 0);
-  api.logger?.info?.(`Turn completed in ${duration}ms`);
-
-  // turn.post에서 메시지 이벤트 추가 발행 가능
-  await ctx.emitMessageEvent?.({
-    type: 'replace',
-    seq: Date.now(),
-    targetId: 'msg-summary',
-    message: {
-      id: 'msg-summary',
-      role: 'assistant',
-      content: `작업이 ${duration}ms 만에 완료되었습니다.`,
-    },
-  });
-
-  return ctx;
-});
-```
-
-### 5.6 Middleware 사용 예시
-
-```typescript
-// step.llmCall: LLM 호출 래핑
-api.pipelines.wrap('step.llmCall', async (ctx, next) => {
-  const startTime = Date.now();
-
-  // 호출 전 로깅
-  api.logger?.debug?.('LLM call starting', {
-    model: ctx.agent.spec?.modelConfig?.modelRef,
-    toolCount: ctx.toolCatalog.length,
-  });
-
-  try {
-    // 실제 LLM 호출
-    const result = await next(ctx);
-
-    // 호출 후 로깅
-    const elapsed = Date.now() - startTime;
-    api.logger?.debug?.(`LLM call completed in ${elapsed}ms`);
-
-    return result;
-  } catch (error) {
-    api.logger?.error?.('LLM call failed', error);
-    throw error;
-  }
-});
-
-// toolCall.exec: Tool 실행 래핑
-api.pipelines.wrap('toolCall.exec', async (ctx, next) => {
-  const toolName = ctx.toolCall?.name;
-
-  // 권한 검사 예시
-  if (toolName?.startsWith('admin.') && !ctx.turn?.auth?.actor?.isAdmin) {
-    throw new Error(`Permission denied for tool: ${toolName}`);
-  }
-
-  try {
-    const result = await next(ctx);
-    return result;
-  } catch (error) {
-    api.logger?.error?.(`Tool execution failed: ${toolName}`, error);
-    throw error;
-  }
-});
-
-// step.llmError: LLM 오류 처리 (Mutator)
-api.pipelines.mutate('step.llmError', async (ctx) => {
-  // 재시도 설정
-  return {
-    ...ctx,
-    shouldRetry: ctx.retryCount < 3,
-    retryDelayMs: Math.min(1000 * Math.pow(2, ctx.retryCount), 10000),
-  };
-});
-```
-
-### 5.7 실행 순서 규칙
-
-**Mutator 포인트:**
-- Extension 등록 순서대로 선형 실행
-- 이전 핸들러의 반환값이 다음 핸들러의 입력
-
-**Middleware 포인트:**
-- 먼저 등록된 Extension이 더 바깥 레이어 (onion 구조)
-- 실행 순서: Ext1.before -> Ext2.before -> Core -> Ext2.after -> Ext1.after
-
-**hooks 합성:**
-- 동일 포인트 내 실행 순서는 결정론적으로 재현 가능해야 한다(MUST)
-- priority가 있으면 priority 정렬 후 안정 정렬(SHOULD)
-
----
-
-## 6. Tool 등록 API
-
-### 6.1 ToolRegistryApi 인터페이스
-
-```typescript
-interface ToolRegistryApi {
-  /**
-   * 동적 Tool 등록
-   * Extension에서 런타임에 Tool을 등록
-   *
-   * @param toolDef - Tool 정의
-   */
-  register(toolDef: DynamicToolDefinition): void;
-
-  /**
-   * Tool 등록 해제
-   * 이전에 등록한 Tool 제거
-   *
-   * @param name - Tool 이름
-   */
-  unregister?(name: string): void;
-}
-```
-
-### 6.2 DynamicToolDefinition 타입
-
-```typescript
-interface DynamicToolDefinition {
-  /**
-   * Tool 이름
-   * LLM이 호출할 때 사용하는 식별자
-   * @required
-   */
-  name: string;
-
-  /**
-   * Tool 설명
-   * LLM에게 이 도구의 용도를 설명
-   * @required
-   */
-  description: string;
-
-  /**
-   * 파라미터 스키마
-   * JSON Schema 형식
-   * @optional
-   */
-  parameters?: {
-    type: 'object';
-    properties?: Record<string, JsonSchemaProperty>;
-    required?: string[];
-    additionalProperties?: boolean;
-  };
-
-  /**
-   * Tool 핸들러
-   * 실제 실행 로직
-   * @required
-   */
-  handler: DynamicToolHandler;
-
-  /**
-   * 메타데이터
-   * 추가 정보 (source extension 등)
-   * @optional
-   */
-  metadata?: {
-    source?: string;
-    version?: string;
-    [key: string]: JsonValue | undefined;
-  };
-}
-
-type DynamicToolHandler = (
-  ctx: ToolContext,
-  input: JsonObject
-) => Promise<JsonValue> | JsonValue;
-```
-
-### 6.3 동적 Tool 등록 예시
-
-```typescript
-export async function register(api: ExtensionApi): Promise<void> {
-  // 단순 Tool 등록
-  api.tools.register({
-    name: 'myExt.echo',
-    description: 'Echo the input message',
-    parameters: {
-      type: 'object',
-      properties: {
-        message: {
-          type: 'string',
-          description: 'Message to echo',
-        },
-      },
-      required: ['message'],
-    },
-    handler: async (ctx, input) => {
-      return { echoed: input.message };
-    },
-    metadata: {
-      source: 'myExtension',
-      version: '1.0.0',
-    },
-  });
-
-  // 파라미터 없는 Tool
-  api.tools.register({
-    name: 'myExt.getStatus',
-    description: 'Get current extension status',
-    handler: async (ctx) => {
-      const s = api.state.get();
-      return {
-        processedSteps: s.processedSteps,
-        uptime: Date.now() - s.startTime,
-      };
-    },
-  });
-
-  // 복잡한 파라미터 Tool
-  api.tools.register({
-    name: 'myExt.search',
-    description: 'Search for items matching criteria',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search query',
-        },
-        filters: {
-          type: 'object',
-          properties: {
-            type: { type: 'string' },
-            status: { type: 'string', enum: ['active', 'inactive'] },
-          },
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum results',
-        },
-      },
-      required: ['query'],
-    },
-    handler: async (ctx, input) => {
-      const query = String(input.query);
-      const limit = Number(input.limit) || 10;
-      // 검색 로직...
-      return { results: [], total: 0 };
-    },
-  });
-}
-```
-
-### 6.4 Tool Catalog 노출 규칙
-
-동적으로 등록된 Tool이 LLM에 노출되려면 다음 조건 중 하나를 만족해야 한다.
-
-1. Agent의 `spec.tools`에 해당 Tool 참조가 포함됨
-2. `step.tools` 파이프라인에서 toolCatalog에 추가됨
-3. LiveConfig 패치로 Tool 참조가 추가됨
-
----
-
-## 7. 이벤트 API
-
-### 7.1 EventBus 인터페이스
-
-```typescript
-interface EventBus {
-  /**
-   * 이벤트 발행
-   *
-   * @param type - 이벤트 타입
-   * @param payload - 이벤트 페이로드
-   */
-  emit?(type: string, payload?: JsonObject): void;
-
-  /**
-   * 이벤트 구독
-   *
-   * @param type - 이벤트 타입 (glob 패턴 지원)
-   * @param handler - 이벤트 핸들러
-   * @returns 구독 해제 함수
-   */
-  on?(
-    type: string,
-    handler: (payload: JsonObject) => Promise<void> | void
-  ): () => void;
-
-  /**
-   * 일회성 이벤트 구독
-   *
-   * @param type - 이벤트 타입
-   * @param handler - 이벤트 핸들러
-   */
-  once?(
-    type: string,
-    handler: (payload: JsonObject) => Promise<void> | void
-  ): void;
-}
-```
-
-### 7.2 표준 이벤트 타입
-
-```typescript
-/**
- * Workspace 이벤트
- */
-interface WorkspaceRepoAvailableEvent {
-  type: 'workspace.repoAvailable';
-  path: string;
-  metadata?: {
-    remote?: string;
-    branch?: string;
-  };
-}
-
-interface WorkspaceWorktreeMountedEvent {
-  type: 'workspace.worktreeMounted';
-  path: string;
-  changesetId?: string;
-}
-
-/**
- * Auth 이벤트
- */
-interface AuthGrantedEvent {
-  type: 'auth.granted';
-  oauthAppRef: ObjectRef;
-  subject: string;
-  scopes: string[];
-}
-
-/**
- * Agent 이벤트
- */
-interface AgentDelegateEvent {
-  type: 'agent.delegate';
-  targetAgent: string;
-  input: string;
-  metadata?: JsonObject;
-}
-
-interface AgentDelegationResultEvent {
-  type: 'agent.delegationResult';
-  sourceAgent: string;
-  result: JsonValue;
-}
-```
-
-### 7.3 이벤트 사용 예시
-
-```typescript
-export async function register(api: ExtensionApi): Promise<void> {
-  // 이벤트 구독
-  api.events.on?.('workspace.repoAvailable', async (payload) => {
-    const { path, metadata } = payload;
-    api.logger?.info?.(`Repo available at ${path}`);
-
-    // repo 스캔, 인덱싱 등
-    await scanRepository(path);
-  });
-
-  // glob 패턴으로 구독
-  api.events.on?.('workspace.*', async (payload) => {
-    api.logger?.debug?.('Workspace event:', payload);
-  });
-
-  // 일회성 구독
-  api.events.once?.('auth.granted', async (payload) => {
-    api.logger?.info?.('OAuth granted:', payload.oauthAppRef);
-  });
-
-  // 이벤트 발행
-  api.events.emit?.('myExtension.initialized', {
-    name: api.extension.metadata?.name,
-    timestamp: Date.now(),
-    config: api.extension.spec?.config,
-  });
-}
-```
-
----
-
-## 8. SwarmBundle API
-
-### 8.1 SwarmBundleApi 인터페이스
-
-```typescript
-interface SwarmBundleApi {
-  /**
-   * Changeset 열기
-   * Git worktree를 생성하고 workdir 경로 반환
-   *
-   * @param input - 옵션 (reason 등)
-   * @returns Changeset 정보
-   */
-  openChangeset(input?: {
-    reason?: string;
-  }): Promise<OpenChangesetResult> | OpenChangesetResult;
-
-  /**
-   * Changeset 커밋
-   * workdir 변경사항을 Git commit으로 생성
-   *
-   * @param input - changesetId와 커밋 메시지
-   * @returns 커밋 결과
-   */
-  commitChangeset(input: {
-    changesetId: string;
-    message?: string;
-  }): Promise<CommitChangesetResult> | CommitChangesetResult;
-}
-```
-
-### 8.2 결과 타입
-
-```typescript
-interface OpenChangesetResult {
-  changesetId: string;
-  baseRef: string;
-  workdir: string;
-  hint?: {
-    bundleRootInWorkdir: string;
-    recommendedFiles: string[];
-  };
-}
-
-interface CommitChangesetResult {
-  status: 'ok' | 'rejected' | 'failed';
-  changesetId: string;
-  baseRef: string;
-  newRef?: string;           // status=ok인 경우
-  summary?: {
-    filesChanged: string[];
-    filesAdded: string[];
-    filesDeleted: string[];
-  };
-  error?: {                  // status=rejected|failed인 경우
-    code: string;
-    message: string;
-  };
-}
-```
-
-### 8.3 SwarmBundle 변경 예시
-
-```typescript
-export async function register(api: ExtensionApi): Promise<void> {
-  api.tools.register({
-    name: 'myExt.updatePrompt',
-    description: 'Update agent system prompt',
-    parameters: {
-      type: 'object',
-      properties: {
-        newPrompt: { type: 'string' },
-      },
-      required: ['newPrompt'],
-    },
-    handler: async (ctx, input) => {
-      // 1. Changeset 열기
-      const { changesetId, workdir } = await api.swarmBundle.openChangeset({
-        reason: 'Update system prompt via myExt',
-      });
-
-      // 2. 파일 수정
-      const fs = await import('fs/promises');
-      const path = await import('path');
-      const promptPath = path.join(workdir, 'prompts', 'system.md');
-      await fs.writeFile(promptPath, String(input.newPrompt), 'utf8');
-
-      // 3. Changeset 커밋
-      const result = await api.swarmBundle.commitChangeset({
-        changesetId,
-        message: 'chore: update system prompt',
-      });
-
-      if (result.status === 'ok') {
-        return {
-          success: true,
-          newRef: result.newRef,
-          message: 'Prompt updated. Changes will apply from next Step.',
-        };
-      } else {
-        return {
-          success: false,
-          error: result.error,
-        };
-      }
-    },
-  });
-}
-```
-
----
-
-## 9. 상태 관리
-
-### 9.1 확장별 상태 (getState/setState)
-
-각 Extension은 SwarmInstance별로 격리된 상태 저장소를 가진다. Runtime이 자동으로 영속화를 관리한다.
-
-```typescript
-interface ExtensionApi<TState = JsonObject> {
-  /**
-   * 확장별 상태 조회
-   * 현재 상태의 스냅샷을 반환
-   * 인스턴스 초기화 시 디스크에서 자동 복원됨
-   */
-  getState(): TState;
-
-  /**
-   * 확장별 상태 저장
-   * 새 상태로 교체 (변경 감지 가능)
-   * Runtime이 Turn 종료 시 자동으로 디스크에 기록
-   */
-  setState(next: TState): void;
-}
-```
-
-**특징:**
-- Extension별 격리 (다른 Extension과 공유되지 않음)
-- **SwarmInstance별 관리**: 동일 Extension이라도 인스턴스가 다르면 상태가 독립적
-- **Runtime 자동 영속화**: Turn 종료 시 Runtime이 Instance State Root에 자동 기록(MUST)
-- **자동 복원**: 인스턴스 재시작/재개 시 Runtime이 디스크에서 상태를 자동 로드(MUST)
-- `getState()/setState()` 패턴으로 상태 변경을 추적 가능
-- 저장 경로: `<instanceStateRoot>/extensions/<extensionName>/state.json` (workspace.md §5.4 참조)
-
-**사용 예시:**
-
-```typescript
-interface MyState {
-  processedSteps: number;
-  catalog: SkillItem[];
-  lastUpdated: number;
-}
-
-export async function register(
-  api: ExtensionApi<MyState>
-): Promise<void> {
-  // 초기 상태 설정 (디스크에 저장된 상태가 있으면 자동 복원됨)
-  const existing = api.getState();
-  if (!existing.processedSteps) {
-    api.setState({
-      processedSteps: 0,
-      catalog: [],
-      lastUpdated: Date.now(),
-    });
-  }
-
-  // 파이프라인에서 상태 접근
-  api.pipelines.mutate('step.post', async (ctx) => {
-    const prev = api.getState();
-    api.setState({
-      ...prev,
-      processedSteps: prev.processedSteps + 1,
-      lastUpdated: Date.now(),
-    });
-    // Turn 종료 시 Runtime이 자동으로 디스크에 기록
-    return ctx;
-  });
-
-  // Tool에서 상태 접근
-  api.tools.register({
-    name: 'myExt.getStats',
-    description: 'Get extension statistics',
-    handler: async () => {
-      const s = api.getState();
-      return {
-        processedSteps: s.processedSteps,
-        catalogSize: s.catalog.length,
-        lastUpdated: s.lastUpdated,
-      };
-    },
-  });
-}
-```
-
-### 9.2 인스턴스 공유 상태 (instance.shared)
-
-동일 SwarmInstance 내 Extension 간 상태 공유가 필요한 경우 사용한다. Extension별 상태와 마찬가지로 Runtime이 자동 영속화한다.
+AgentProcess는 Extension에 다음 API를 제공해야 한다(MUST).
 
 ```typescript
 interface ExtensionApi {
-  instance: {
-    /**
-     * 인스턴스 공유 상태
-     * 동일 SwarmInstance 내 모든 Extension이 접근 가능
-     * Runtime이 Turn 종료 시 자동으로 디스크에 기록
-     */
-    shared: JsonObject;
+  /** 미들웨어 등록 */
+  pipeline: PipelineRegistry;
+
+  /** 동적 도구 등록 */
+  tools: {
+    register(item: ToolCatalogItem, handler: ToolHandler): void;
   };
+
+  /** Extension별 상태 (JSON, 영속화) */
+  state: {
+    get(): Promise<JsonValue>;
+    set(value: JsonValue): Promise<void>;
+  };
+
+  /** 이벤트 버스 (프로세스 내) */
+  events: {
+    on(event: string, handler: (...args: unknown[]) => void): () => void;
+    emit(event: string, ...args: unknown[]): void;
+  };
+
+  /** 로거 */
+  logger: Console;
 }
 ```
 
-**특징:**
-- 동일 SwarmInstance 내 모든 Extension이 접근 가능
-- 키 충돌 방지를 위해 네임스페이스(`extensionName:key`) 사용 권장(SHOULD)
-- **Runtime 자동 영속화**: Turn 종료 시 Instance State Root에 자동 기록(MUST)
-- **자동 복원**: 인스턴스 재시작/재개 시 자동 로드(MUST)
-- 저장 경로: `<instanceStateRoot>/extensions/_shared.json` (workspace.md §5.4 참조)
+**제거된 필드:**
+
+| 제거된 필드 | 사유 |
+|-------------|------|
+| `extension` (Resource 접근) | Extension이 자신의 리소스 정의에 접근할 필요 없음. config는 `spec.config`를 런타임이 주입 |
+| `swarmBundle` (Changeset API) | Changeset 시스템 제거. Edit & Restart 모델로 대체 |
+| `liveConfig` (Config 패치) | 동적 Config 변경은 Edit & Restart로 대체 |
+| `oauth` (OAuth API) | OAuthApp Kind 제거. Extension이 필요시 자체 구현 |
+| `instance.shared` (공유 상태) | 프로세스-per-에이전트 모델에서 불필요. 필요시 이벤트 버스 사용 |
+| `runtime` 필드 | 항상 Bun |
+
+### 4.2 PipelineRegistry
+
+미들웨어 등록 API. 상세 스펙은 `docs/specs/pipeline.md`를 참조한다.
+
+```typescript
+interface PipelineRegistry {
+  register(type: 'turn', fn: TurnMiddleware, options?: MiddlewareOptions): void;
+  register(type: 'step', fn: StepMiddleware, options?: MiddlewareOptions): void;
+  register(type: 'toolCall', fn: ToolCallMiddleware, options?: MiddlewareOptions): void;
+}
+
+type TurnMiddleware = (ctx: TurnMiddlewareContext) => Promise<TurnResult>;
+type StepMiddleware = (ctx: StepMiddlewareContext) => Promise<StepResult>;
+type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallResult>;
+
+interface MiddlewareOptions {
+  /** 실행 우선순위 (낮을수록 바깥 레이어, 기본: 0) */
+  priority?: number;
+}
+```
+
+**규칙:**
+
+1. 미들웨어 타입은 `'turn'`, `'step'`, `'toolCall'` 세 가지만 허용해야 한다(MUST).
+2. v1의 `mutate(point, fn)`, `wrap(point, fn)` API는 제거한다(MUST NOT).
+3. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
+4. 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있어야 한다(MUST).
+5. 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있어야 한다(MAY).
+
+### 4.3 Tool 등록 API
+
+Extension이 런타임에 동적으로 도구를 등록하는 API.
+
+```typescript
+interface ExtensionToolsApi {
+  /**
+   * 동적 Tool 등록
+   * @param item - Tool Catalog 항목 (이름, 설명, 파라미터 스키마)
+   * @param handler - Tool 핸들러 함수
+   */
+  register(item: ToolCatalogItem, handler: ToolHandler): void;
+}
+
+interface ToolCatalogItem {
+  /** 도구 이름 ({리소스명}__{하위도구명} 형식) */
+  name: string;
+  /** 도구 설명 */
+  description: string;
+  /** 입력 파라미터 JSON Schema */
+  parameters?: JsonObject;
+}
+
+interface ToolHandler {
+  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
+}
+```
+
+**규칙:**
+
+1. `api.tools.register()`로 등록한 도구는 도구 이름 규칙(`{리소스명}__{하위도구명}`)을 따라야 한다(MUST).
+2. 동적 등록된 도구는 `step` 미들웨어의 `ctx.toolCatalog`에 자동으로 포함되어야 한다(SHOULD).
+3. 동일 이름의 도구를 중복 등록하면 나중 등록이 이전 등록을 덮어써야 한다(MUST).
+
+### 4.4 State API
+
+Extension별 JSON 상태를 관리하는 API. 인스턴스별로 격리되며 AgentProcess가 영속화를 자동 관리한다.
+
+```typescript
+interface ExtensionStateApi {
+  /** 현재 상태 조회 (없으면 null 반환) */
+  get(): Promise<JsonValue>;
+
+  /** 상태 저장 */
+  set(value: JsonValue): Promise<void>;
+}
+```
+
+**규칙:**
+
+1. `api.state.get()`과 `api.state.set(value)`를 통해 Extension별 JSON 상태를 관리해야 한다(MUST).
+2. 상태 저장은 Extension identity(이름)에 귀속되어야 한다(MUST).
+3. Extension 상태는 인스턴스별로 격리되어야 한다(MUST).
+4. AgentProcess는 인스턴스 초기화 시 디스크에서 Extension 상태를 자동 복원해야 한다(MUST).
+5. AgentProcess는 Turn 종료 시점에 변경된 Extension 상태를 디스크에 기록해야 한다(MUST).
+6. Extension 상태 파일은 `extensions/<ext-name>.json` 경로에 저장해야 한다(MUST).
+7. 상태 값은 JSON 직렬화 가능한 값만 포함해야 한다(MUST). 함수, Symbol, 순환 참조 등은 허용되지 않는다.
+
+**저장 경로:**
+
+```text
+~/.goondan/workspaces/<workspaceId>/instances/<instanceKey>/extensions/<ext-name>.json
+```
 
 **사용 예시:**
 
 ```typescript
-export async function register(api: ExtensionApi): Promise<void> {
-  const extName = api.extension.metadata?.name ?? 'unknown';
+export function register(api: ExtensionApi): void {
+  api.pipeline.register('step', async (ctx) => {
+    // 상태 조회
+    const state = (await api.state.get()) ?? { processedSteps: 0 };
+    const count = (state as Record<string, unknown>).processedSteps as number;
 
-  // 네임스페이스로 키 충돌 방지
-  const sharedKey = `${extName}:data`;
+    // 상태 업데이트
+    await api.state.set({
+      processedSteps: count + 1,
+      lastStepAt: Date.now(),
+    });
 
-  api.instance.shared[sharedKey] = {
-    initialized: true,
-    version: '1.0.0',
-  };
-
-  // 다른 Extension의 데이터 읽기 (주의: 존재 여부 확인 필요)
-  api.pipelines.mutate('step.pre', async (ctx) => {
-    const otherExtData = api.instance.shared['otherExt:data'];
-    if (otherExtData) {
-      api.logger?.debug?.('Other extension data:', otherExtData);
-    }
-    return ctx;
+    return ctx.next();
   });
 }
 ```
 
-### 9.3 영속화 규칙
+### 4.5 Events API
 
-Extension 상태의 영속화는 Runtime이 자동으로 관리한다. Extension 개발자가 직접 파일 I/O를 수행할 필요가 없다.
+프로세스 내 이벤트 버스. Extension 간 느슨한 결합을 위한 pub/sub 패턴.
+
+```typescript
+interface ExtensionEventsApi {
+  /**
+   * 이벤트 구독
+   * @param event - 이벤트 이름
+   * @param handler - 이벤트 핸들러
+   * @returns 구독 해제 함수
+   */
+  on(event: string, handler: (...args: unknown[]) => void): () => void;
+
+  /**
+   * 이벤트 발행
+   * @param event - 이벤트 이름
+   * @param args - 이벤트 인자
+   */
+  emit(event: string, ...args: unknown[]): void;
+}
+```
 
 **규칙:**
 
-1. Runtime은 인스턴스 초기화 시 디스크에 저장된 Extension 상태를 자동 복원해야 한다(MUST).
-2. Runtime은 Turn 종료 시(turn.post 파이프라인 완료 후) 변경된 Extension 상태를 디스크에 기록해야 한다(MUST).
-3. `setState()` 호출 시 Runtime은 변경 여부를 추적하고, 변경이 없으면 디스크 쓰기를 생략해야 한다(SHOULD).
-4. Extension 상태는 JSON 직렬화 가능한 값만 포함해야 한다(MUST). 함수, Symbol, 순환 참조 등은 허용되지 않는다.
-5. 인스턴스 pause 시 현재 상태를 디스크에 기록해야 하며(MUST), resume 시 복원해야 한다(MUST).
-6. Extension이 자체적으로 추가 영속 저장이 필요한 경우(예: 대용량 데이터, 외부 DB 연동), 별도 파일이나 외부 저장소를 직접 사용할 수 있다(MAY).
+1. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
+2. 이벤트는 프로세스 내(동일 AgentProcess) 범위에서만 전파되어야 한다(MUST).
+3. 이벤트 핸들러에서 발생한 예외는 다른 핸들러의 실행을 방해하지 않아야 한다(SHOULD).
+
+**표준 이벤트:**
+
+| 이벤트 | 설명 |
+|--------|------|
+| `turn.started` | Turn 시작 |
+| `turn.completed` | Turn 완료 |
+| `turn.failed` | Turn 실패 |
+| `step.started` | Step 시작 |
+| `step.completed` | Step 완료 |
+| `tool.called` | Tool 호출 |
+| `tool.completed` | Tool 완료 |
+
+### 4.6 Logger
+
+표준 `Console` 인터페이스를 따르는 로거.
+
+```typescript
+// api.logger 사용 예시
+api.logger.info('Extension initialized');
+api.logger.debug('Processing step', { stepIndex: 3 });
+api.logger.warn('Approaching token limit');
+api.logger.error('Failed to load state', error);
+```
 
 ---
 
-## 10. Extension 로딩과 초기화
+## 5. Extension 로딩과 초기화
 
-### 10.1 로딩 순서
+### 5.1 로딩 순서
 
-Runtime은 AgentInstance 초기화 시점에 다음 순서로 Extension을 로드한다.
+AgentProcess는 초기화 시점에 다음 순서로 Extension을 로드한다.
 
 1. Agent의 `spec.extensions` 배열 순서대로 Extension 리소스 해석
-2. 각 Extension의 entry 모듈 로드
+2. 각 Extension의 entry 모듈 로드 (Bun으로 import)
 3. `register(api)` 함수 순차 호출
-4. 파이프라인/Tool/이벤트 핸들러 등록 완료
+4. 미들웨어/Tool/이벤트 핸들러 등록 완료
 
-```typescript
-// Agent.spec.extensions 순서대로 로드
-extensions:
-  - { kind: Extension, name: compaction }    // 1번째
-  - { kind: Extension, name: skills }        // 2번째
-  - { kind: Extension, name: mcp-github }    // 3번째
+```yaml
+# Agent.spec.extensions 순서대로 로드
+kind: Agent
+spec:
+  extensions:
+    - ref: "Extension/compaction"    # 1번째
+    - ref: "Extension/skills"        # 2번째
+    - ref: "Extension/logging"       # 3번째
 ```
 
-### 10.2 초기화 규칙
+### 5.2 초기화 규칙
 
 **MUST:**
-- Runtime은 `register(api)` 반환(또는 Promise resolve)을 대기해야 한다
-- 이전 Extension의 register 완료 후 다음 Extension register 호출
-- register 중 발생한 예외는 AgentInstance 초기화 실패로 처리
+- AgentProcess는 `register(api)` 반환(또는 Promise resolve)을 대기해야 한다
+- 이전 Extension의 `register()` 완료 후 다음 Extension의 `register()` 호출
+- `register()` 중 발생한 예외는 AgentProcess 초기화 실패로 처리
+- 코어 API 부재로 Extension이 초기화 실패하는 상황이 없어야 한다
 
 **SHOULD:**
 - Extension 로드 실패 시 상세 오류 메시지 로깅
-- 순환 의존성 감지 및 경고
+- `apiVersion: goondan.ai/v1` 호환성 검증을 로드 단계에서 수행
 
-### 10.3 Reconcile 규칙
-
-Runtime은 step.config 이후 reconcile 단계에서 Extension 배열을 identity 기반으로 비교해야 한다(MUST).
-
-**Identity Key 정의:**
-```typescript
-// ExtensionRef identity: "{kind}/{name}"
-const extensionIdentity = `${ref.kind}/${ref.name}`;
-```
-
-**Reconcile 알고리즘 요구사항:**
-- 동일 identity key가 Effective Config에 계속 존재하는 한, 실행 상태 유지
-- 배열의 순서 변경은 연결/상태 재생성의 원인이 되어서는 안 됨
-
-### 10.4 정리(Cleanup)
+### 5.3 정리(Cleanup)
 
 Extension이 리소스 정리가 필요한 경우, 다음 패턴을 권장한다.
 
 ```typescript
-export async function register(api: ExtensionApi): Promise<void> {
+export function register(api: ExtensionApi): void {
   // 리소스 할당
-  const connection = await createConnection();
+  const connection = createConnection();
 
-  // cleanup 이벤트 구독 (구현에 따라 제공)
-  api.events.on?.('extension.cleanup', async () => {
-    await connection.close();
-  });
-
-  // 또는 process 이벤트 활용
+  // process 이벤트 활용 (Bun 프로세스 종료 시)
   process.on('beforeExit', async () => {
     await connection.close();
   });
 }
 ```
 
-### 10.5 에러 보고 및 호환성 검증
+---
 
-#### 10.5.1 표준 오류 코드 (MUST)
+## 6. 에러/호환성 정책
+
+### 6.1 표준 오류 코드
 
 Extension 초기화/실행 오류는 다음 표준 오류 코드와 함께 보고해야 한다(MUST):
 
 | 오류 코드 | 설명 |
 |-----------|------|
 | `E_EXT_LOAD` | Extension 모듈 로드 실패 (entry 경로 오류, 모듈 형식 불일치) |
-| `E_EXT_INIT` | Extension register() 함수 실행 중 예외 |
-| `E_EXT_CONFIG` | Extension 구성(spec.config) 검증 실패 |
-| `E_EXT_COMPAT` | Extension 호환성 검증 실패 (apiVersion/capability 불일치) |
+| `E_EXT_INIT` | Extension `register()` 함수 실행 중 예외 |
+| `E_EXT_CONFIG` | Extension 구성(`spec.config`) 검증 실패 |
+| `E_EXT_COMPAT` | Extension 호환성 검증 실패 (`apiVersion` 불일치) |
 
-#### 10.5.2 suggestion/helpUrl 포함 (SHOULD)
+### 6.2 suggestion/helpUrl 포함
 
 Extension 오류 보고 시 사용자 복구를 돕는 `suggestion`과 관련 문서 `helpUrl`을 포함하는 것을 권장한다(SHOULD).
 
 ```typescript
-// Extension 오류 보고 예시
 interface ExtensionError extends Error {
   /** 표준 오류 코드 */
   code: string;
@@ -1216,849 +460,320 @@ interface ExtensionError extends Error {
 }
 ```
 
-#### 10.5.3 호환성 검증 (SHOULD)
+### 6.3 호환성 검증
 
-Runtime은 Extension 로드 단계에서 다음 호환성 검증을 수행하는 것을 권장한다(SHOULD):
+AgentProcess는 Extension 로드 단계에서 `apiVersion: goondan.ai/v1` 호환성 검증을 수행해야 한다(SHOULD). Extension이 필요한 API가 없어 초기화 실패하는 경우 명확한 에러 메시지와 함께 AgentProcess 기동을 중단해야 한다(MUST).
 
-- **capability 검증**: Extension이 요구하는 Runtime capability가 현재 Runtime에서 제공되는지 확인
-- **apiVersion 검증**: Extension의 apiVersion이 현재 Runtime이 지원하는 범위에 포함되는지 확인
+---
+
+## 7. 활용 패턴
+
+### 7.1 Skill 패턴
+
+Skill은 `SKILL.md` 중심 번들을 런타임에 노출하는 Extension 패턴이다.
+
+**권장 미들웨어 활용:**
+- `step` 미들웨어: `ctx.toolCatalog`를 조작하여 스킬 관련 도구 노출 제어. 스킬 컨텍스트를 `emitMessageEvent()`로 주입.
+- `turn` 미들웨어: 스킬 실행 결과를 Turn 단위로 추적하고 후처리.
 
 ```typescript
-// 호환성 검증 예시
-function validateExtensionCompatibility(
-  extension: Resource<ExtensionSpec>,
-  runtimeCapabilities: string[],
-  supportedApiVersions: string[]
-): void {
-  const apiVersion = extension.apiVersion ?? 'agents.example.io/v1alpha1';
-  if (!supportedApiVersions.includes(apiVersion)) {
-    const error = new Error(
-      `Extension '${extension.metadata?.name}' requires apiVersion '${apiVersion}' which is not supported.`
+export function register(api: ExtensionApi): void {
+  // 스킬 카탈로그를 동적 도구로 등록
+  api.tools.register(
+    {
+      name: 'skills__list',
+      description: 'List all available skills',
+      parameters: { type: 'object', properties: {} },
+    },
+    async (ctx, input) => {
+      const skills = await scanSkillDirs();
+      return { skills };
+    }
+  );
+
+  api.tools.register(
+    {
+      name: 'skills__open',
+      description: 'Open a skill to read its SKILL.md content',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+    },
+    async (ctx, input) => {
+      const content = await readSkillMd(String(input.name));
+      return { content };
+    }
+  );
+
+  // step 미들웨어로 활성 스킬 컨텍스트 주입
+  api.pipeline.register('step', async (ctx) => {
+    const state = await api.state.get();
+    const activeSkill = (state as Record<string, unknown>)?.activeSkill;
+
+    if (activeSkill) {
+      ctx.emitMessageEvent({
+        type: 'append',
+        message: createSystemMessage(`Active skill context: ${activeSkill}`),
+      });
+    }
+
+    return ctx.next();
+  });
+}
+```
+
+### 7.2 Tool Search 패턴
+
+ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕는 메타 도구다.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  // toolSearch 도구 등록
+  api.tools.register(
+    {
+      name: 'tool-search__search',
+      description: 'Search available tools by query',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+      },
+    },
+    async (ctx, input) => {
+      const results = searchTools(String(input.query));
+      // 선택된 도구를 상태에 저장 -> 다음 Step에서 반영
+      await api.state.set({ selectedTools: results.map(r => r.name) });
+      return { results };
+    }
+  );
+
+  // step 미들웨어에서 선택된 도구 목록 반영
+  api.pipeline.register('step', async (ctx) => {
+    const state = await api.state.get();
+    const selected = (state as Record<string, unknown>)?.selectedTools;
+
+    if (Array.isArray(selected)) {
+      ctx.toolCatalog = ctx.toolCatalog.filter(
+        t => selected.includes(t.name)
+      );
+    }
+
+    return ctx.next();
+  });
+}
+```
+
+### 7.3 Compaction 패턴
+
+컨텍스트 윈도우 관리는 `turn` 미들웨어에서 `emitMessageEvent()`로 MessageEvent를 발행하여 구현한다.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  api.pipeline.register('turn', async (ctx) => {
+    const { nextMessages } = ctx.conversationState;
+
+    const compactable = nextMessages.filter(
+      m => m.metadata['compaction.eligible'] === true
+        && m.metadata['pinned'] !== true
     );
-    Object.assign(error, {
-      code: 'E_EXT_COMPAT',
-      suggestion: `지원되는 apiVersion: ${supportedApiVersions.join(', ')}`,
-    });
-    throw error;
-  }
-}
-```
 
----
+    if (compactable.length > 20) {
+      const summary = await summarize(compactable);
 
-## 11. MCP Extension 패턴
-
-MCP(Model Context Protocol) 연동은 Extension 패턴으로 구현된다. MCP Extension은 외부 MCP 서버와 통신하여 도구/리소스/프롬프트를 제공한다.
-
-### 11.1 MCP Extension Config 스키마
-
-```typescript
-interface MCPExtensionConfig {
-  /**
-   * Transport 설정
-   * MCP 서버와의 통신 방식
-   */
-  transport: MCPTransportConfig;
-
-  /**
-   * Attach 설정
-   * 연결 생명주기 관리
-   */
-  attach: MCPAttachConfig;
-
-  /**
-   * Expose 설정
-   * 노출할 기능 선택
-   */
-  expose: MCPExposeConfig;
-}
-
-interface MCPTransportConfig {
-  /**
-   * Transport 타입
-   * stdio: 자식 프로세스로 MCP 서버 실행
-   * http: HTTP 엔드포인트로 MCP 서버 연결
-   */
-  type: 'stdio' | 'http';
-
-  // stdio 전용
-  command?: string[];        // 실행 명령어
-  env?: Record<string, string>;  // 환경 변수
-
-  // http 전용
-  endpoint?: string;         // HTTP 엔드포인트 URL
-  headers?: Record<string, string>;  // HTTP 헤더
-}
-
-interface MCPAttachConfig {
-  /**
-   * 연결 모드
-   * stateful: 연결 유지 (프로세스/세션 지속)
-   * stateless: 요청별 연결
-   */
-  mode: 'stateful' | 'stateless';
-
-  /**
-   * 연결 스코프
-   * instance: SwarmInstance별 1개 연결
-   * agent: AgentInstance별 1개 연결
-   */
-  scope: 'instance' | 'agent';
-}
-
-interface MCPExposeConfig {
-  /**
-   * MCP 도구 노출 여부
-   */
-  tools?: boolean;
-
-  /**
-   * MCP 리소스 노출 여부
-   */
-  resources?: boolean;
-
-  /**
-   * MCP 프롬프트 노출 여부
-   */
-  prompts?: boolean;
-}
-```
-
-### 11.2 MCP Extension YAML 예시
-
-```yaml
-# stdio transport
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: mcp-github
-spec:
-  runtime: node
-  entry: "./extensions/mcp/index.js"
-  config:
-    transport:
-      type: stdio
-      command:
-        - "npx"
-        - "-y"
-        - "@modelcontextprotocol/server-github"
-      env:
-        GITHUB_TOKEN: "${GITHUB_TOKEN}"
-    attach:
-      mode: stateful
-      scope: instance
-    expose:
-      tools: true
-      resources: true
-      prompts: true
-
----
-# http transport
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: mcp-custom-api
-spec:
-  runtime: node
-  entry: "./extensions/mcp/index.js"
-  config:
-    transport:
-      type: http
-      endpoint: "http://localhost:8080/mcp"
-      headers:
-        Authorization: "Bearer ${API_TOKEN}"
-    attach:
-      mode: stateless
-      scope: agent
-    expose:
-      tools: true
-      resources: false
-      prompts: false
-```
-
-### 11.3 MCP Extension 구현 예시
-
-```typescript
-// extensions/mcp/index.ts
-import type { ExtensionApi, StepContext } from '@goondan/core';
-import { spawn, type ChildProcess } from 'child_process';
-
-interface MCPConfig {
-  transport: {
-    type: 'stdio' | 'http';
-    command?: string[];
-    env?: Record<string, string>;
-    endpoint?: string;
-    headers?: Record<string, string>;
-  };
-  attach: {
-    mode: 'stateful' | 'stateless';
-    scope: 'instance' | 'agent';
-  };
-  expose: {
-    tools?: boolean;
-    resources?: boolean;
-    prompts?: boolean;
-  };
-}
-
-interface MCPState {
-  process?: ChildProcess;
-  tools: MCPTool[];
-  resources: MCPResource[];
-  prompts: MCPPrompt[];
-  connected: boolean;
-}
-
-interface MCPTool {
-  name: string;
-  description: string;
-  inputSchema: JsonObject;
-}
-
-interface MCPResource {
-  uri: string;
-  name: string;
-  mimeType?: string;
-}
-
-interface MCPPrompt {
-  name: string;
-  description?: string;
-  arguments?: JsonObject[];
-}
-
-export async function register(
-  api: ExtensionApi<MCPState, MCPConfig>
-): Promise<void> {
-  api.state.set({
-    tools: [],
-    resources: [],
-    prompts: [],
-    connected: false,
-  });
-  const state = api.state.get();
-  const config = api.extension.spec?.config;
-
-  if (!config) {
-    api.logger?.warn?.('MCP Extension: config is missing');
-    return;
-  }
-
-  // Stateful 모드: 초기화 시 연결
-  if (config.attach.mode === 'stateful') {
-    await connect(config, state, api.logger);
-  }
-
-  // MCP 도구를 Tool Catalog에 추가
-  if (config.expose.tools) {
-    api.pipelines.mutate('step.tools', async (ctx: StepContext) => {
-      // Stateless 모드: 매 Step마다 연결/해제
-      if (config.attach.mode === 'stateless') {
-        await connect(config, state, api.logger);
+      for (const m of compactable) {
+        ctx.emitMessageEvent({ type: 'remove', targetId: m.id });
       }
-
-      const mcpTools = state.tools.map(tool => ({
-        name: `mcp.${tool.name}`,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        source: { type: 'mcp', extension: api.extension.metadata?.name },
-      }));
-
-      return {
-        ...ctx,
-        toolCatalog: [...ctx.toolCatalog, ...mcpTools],
-      };
-    });
-  }
-
-  // MCP 리소스를 컨텍스트 블록에 추가
-  if (config.expose.resources) {
-    api.pipelines.mutate('step.blocks', async (ctx: StepContext) => {
-      if (state.resources.length > 0) {
-        const blocks = [...ctx.blocks];
-        blocks.push({
-          type: 'mcp.resources',
-          items: state.resources,
-          source: api.extension.metadata?.name,
-        });
-        return { ...ctx, blocks };
-      }
-      return ctx;
-    });
-  }
-
-  // MCP 도구 핸들러 등록
-  for (const tool of state.tools) {
-    api.tools.register({
-      name: `mcp.${tool.name}`,
-      description: tool.description,
-      parameters: tool.inputSchema,
-      handler: async (ctx, input) => {
-        return await invokeMCPTool(state, tool.name, input, api.logger);
-      },
-      metadata: {
-        source: 'mcp',
-        mcpServer: api.extension.metadata?.name,
-      },
-    });
-  }
-
-  // Cleanup 이벤트 처리
-  api.events.on?.('extension.cleanup', async () => {
-    if (state.process) {
-      state.process.kill();
-      state.connected = false;
-    }
-  });
-}
-
-async function connect(
-  config: MCPConfig,
-  state: MCPState,
-  logger?: Console
-): Promise<void> {
-  if (config.transport.type === 'stdio') {
-    await connectStdio(config, state, logger);
-  } else if (config.transport.type === 'http') {
-    await connectHttp(config, state, logger);
-  }
-}
-
-async function connectStdio(
-  config: MCPConfig,
-  state: MCPState,
-  logger?: Console
-): Promise<void> {
-  const command = config.transport.command;
-  if (!command || command.length === 0) {
-    throw new Error('MCP stdio transport requires command');
-  }
-
-  const [cmd, ...args] = command;
-  const proc = spawn(cmd, args, {
-    env: { ...process.env, ...config.transport.env },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  state.process = proc;
-  state.connected = true;
-
-  // MCP 프로토콜 초기화 및 도구 목록 조회
-  // (실제 구현에서는 MCP JSON-RPC 프로토콜 사용)
-  const tools = await listMCPTools(proc);
-  state.tools = tools;
-
-  if (config.expose.resources) {
-    const resources = await listMCPResources(proc);
-    state.resources = resources;
-  }
-
-  if (config.expose.prompts) {
-    const prompts = await listMCPPrompts(proc);
-    state.prompts = prompts;
-  }
-
-  logger?.info?.(`MCP connected: ${command.join(' ')}`);
-}
-
-async function connectHttp(
-  config: MCPConfig,
-  state: MCPState,
-  logger?: Console
-): Promise<void> {
-  const endpoint = config.transport.endpoint;
-  if (!endpoint) {
-    throw new Error('MCP http transport requires endpoint');
-  }
-
-  // HTTP 엔드포인트에서 도구 목록 조회
-  const response = await fetch(`${endpoint}/tools/list`, {
-    headers: config.transport.headers,
-  });
-  const data = await response.json();
-  state.tools = data.tools || [];
-  state.connected = true;
-
-  logger?.info?.(`MCP HTTP connected: ${endpoint}`);
-}
-
-async function listMCPTools(proc: ChildProcess): Promise<MCPTool[]> {
-  // MCP JSON-RPC: tools/list 호출
-  // 실제 구현 필요
-  return [];
-}
-
-async function listMCPResources(proc: ChildProcess): Promise<MCPResource[]> {
-  // MCP JSON-RPC: resources/list 호출
-  return [];
-}
-
-async function listMCPPrompts(proc: ChildProcess): Promise<MCPPrompt[]> {
-  // MCP JSON-RPC: prompts/list 호출
-  return [];
-}
-
-async function invokeMCPTool(
-  state: MCPState,
-  toolName: string,
-  input: JsonObject,
-  logger?: Console
-): Promise<JsonValue> {
-  // MCP JSON-RPC: tools/call 호출
-  // 실제 구현 필요
-  logger?.debug?.(`MCP tool call: ${toolName}`, input);
-  return { status: 'not_implemented' };
-}
-```
-
-### 11.4 Stateful MCP 연결 유지 규칙
-
-- `config.attach.mode=stateful`인 MCP Extension은 동일 identity key로 Effective Config에 유지되는 동안 연결(프로세스/세션)을 유지해야 한다(MUST)
-- Runtime이 stateful MCP 연결을 재연결할 수 있는 경우는 다음에 한정된다(MUST):
-  - 해당 MCP Extension이 Effective Config에서 제거된 경우
-  - 해당 Extension의 연결 구성(transport/attach/expose 등)이 변경되어 연결 호환성이 깨진 경우
-
----
-
-## 12. Skill Extension 패턴
-
-Skill Extension은 SKILL.md 기반 파일 번들을 발견/카탈로그화/실행하는 Extension 패턴이다.
-
-### 12.1 Skill Extension Config 스키마
-
-```typescript
-interface SkillExtensionConfig {
-  /**
-   * Skill 발견 설정
-   */
-  discovery: {
-    /**
-     * Skill 디렉터리 목록
-     * repo root 기준 상대 경로
-     */
-    repoSkillDirs: string[];
-  };
-
-  /**
-   * 자동 스캔 설정
-   */
-  autoScan?: {
-    /**
-     * workspace.repoAvailable 이벤트 시 자동 스캔
-     */
-    onRepoAvailable?: boolean;
-
-    /**
-     * 초기화 시 스캔
-     */
-    onInit?: boolean;
-  };
-}
-```
-
-### 12.2 Skill Extension YAML 예시
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Extension
-metadata:
-  name: skills
-spec:
-  runtime: node
-  entry: "./extensions/skills/index.js"
-  config:
-    discovery:
-      repoSkillDirs:
-        - ".claude/skills"
-        - ".agent/skills"
-        - "skills"
-    autoScan:
-      onRepoAvailable: true
-      onInit: true
-```
-
-### 12.3 Skill 디렉터리 구조
-
-```
-.claude/skills/
-├── deploy/
-│   ├── SKILL.md          # Skill 설명 및 사용법
-│   ├── deploy.sh         # 실행 스크립트
-│   └── config.yaml       # 설정 파일
-├── test/
-│   ├── SKILL.md
-│   └── run-tests.sh
-└── refactor/
-    ├── SKILL.md
-    └── refactor.py
-```
-
-### 12.4 SKILL.md 형식
-
-```markdown
-# Deploy to Production
-
-Production 환경에 애플리케이션을 배포합니다.
-
-## 사용법
-
-```bash
-./deploy.sh [environment] [version]
-```
-
-## 파라미터
-
-- `environment`: 배포 환경 (staging, production)
-- `version`: 배포할 버전 태그
-
-## 예시
-
-```bash
-./deploy.sh production v1.2.3
-```
-
-## 주의사항
-
-- Production 배포 전 staging에서 테스트 필수
-- 배포 시간: 약 5-10분 소요
-```
-
-### 12.5 Skill Extension 구현 예시
-
-```typescript
-// extensions/skills/index.ts
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { spawn } from 'child_process';
-import type { ExtensionApi, StepContext } from '@goondan/core';
-
-interface SkillConfig {
-  discovery: {
-    repoSkillDirs: string[];
-  };
-  autoScan?: {
-    onRepoAvailable?: boolean;
-    onInit?: boolean;
-  };
-}
-
-interface SkillItem {
-  name: string;
-  path: string;
-  dir: string;
-  description: string;
-  content?: string;
-}
-
-interface SkillState {
-  catalog: SkillItem[];
-  rootDir: string;
-  openedSkills: Map<string, string>;  // name -> content
-}
-
-export async function register(
-  api: ExtensionApi<SkillState, SkillConfig>
-): Promise<void> {
-  api.state.set({
-    catalog: [],
-    rootDir: process.cwd(),
-    openedSkills: new Map(),
-  });
-  const state = api.state.get();
-  const config = api.extension.spec?.config;
-
-  if (!config) {
-    api.logger?.warn?.('Skills Extension: config is missing');
-    return;
-  }
-
-  const skillDirs = config.discovery.repoSkillDirs || ['.claude/skills'];
-
-  // 초기화 시 스캔
-  if (config.autoScan?.onInit !== false) {
-    state.catalog = await scanSkills(state.rootDir, skillDirs, api.logger);
-  }
-
-  // workspace.repoAvailable 이벤트 시 재스캔
-  if (config.autoScan?.onRepoAvailable !== false) {
-    api.events.on?.('workspace.repoAvailable', async (payload) => {
-      const repoPath = payload.path || state.rootDir;
-      state.rootDir = repoPath;
-      state.catalog = await scanSkills(repoPath, skillDirs, api.logger);
-      api.logger?.info?.(`Skills rescanned: ${state.catalog.length} found`);
-    });
-  }
-
-  // 컨텍스트 블록에 스킬 카탈로그 추가
-  api.pipelines.mutate('step.blocks', async (ctx: StepContext) => {
-    const blocks = [...ctx.blocks];
-
-    // 스킬 카탈로그 블록
-    if (state.catalog.length > 0) {
-      blocks.push({
-        type: 'skills.catalog',
-        items: state.catalog.map(s => ({
-          name: s.name,
-          description: s.description,
-        })),
+      ctx.emitMessageEvent({
+        type: 'append',
+        message: createSystemMessage(summary, { 'compaction.summary': true }),
       });
     }
 
-    // 열린 스킬 내용 블록
-    for (const [name, content] of state.openedSkills) {
-      blocks.push({
-        type: 'skills.open',
-        name,
-        content,
-      });
-    }
-
-    return { ...ctx, blocks };
-  });
-
-  // skills.list Tool
-  api.tools.register({
-    name: 'skills.list',
-    description: 'List all available skills with their descriptions',
-    handler: async () => ({
-      items: state.catalog.map(s => ({
-        name: s.name,
-        description: s.description,
-        path: s.path,
-      })),
-      total: state.catalog.length,
-    }),
-  });
-
-  // skills.open Tool
-  api.tools.register({
-    name: 'skills.open',
-    description: 'Open a skill to read its full SKILL.md content and get the skill directory path',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Name of the skill to open',
-        },
-      },
-      required: ['name'],
-    },
-    handler: async (ctx, input) => {
-      const name = String(input.name);
-      const skill = state.catalog.find(s => s.name === name);
-
-      if (!skill) {
-        throw new Error(`Skill not found: ${name}`);
-      }
-
-      // SKILL.md 전체 내용 읽기
-      const content = await fs.readFile(skill.path, 'utf8');
-
-      // 열린 스킬 목록에 추가 (다음 Step 블록에 포함됨)
-      state.openedSkills.set(name, content);
-
-      return {
-        name: skill.name,
-        path: skill.path,
-        dir: skill.dir,
-        content,
-        hint: 'Use skills.run to execute scripts in the skill directory',
-      };
-    },
-  });
-
-  // skills.close Tool
-  api.tools.register({
-    name: 'skills.close',
-    description: 'Close an opened skill (remove from context)',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Name of the skill to close',
-        },
-      },
-      required: ['name'],
-    },
-    handler: async (ctx, input) => {
-      const name = String(input.name);
-      const removed = state.openedSkills.delete(name);
-      return { closed: removed, name };
-    },
-  });
-
-  // skills.run Tool
-  api.tools.register({
-    name: 'skills.run',
-    description: 'Run a command in the skill directory',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Name of the skill',
-        },
-        command: {
-          type: 'string',
-          description: 'Command to run (e.g., "./deploy.sh production")',
-        },
-        args: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Command arguments',
-        },
-        timeout: {
-          type: 'number',
-          description: 'Timeout in milliseconds (default: 60000)',
-        },
-      },
-      required: ['name', 'command'],
-    },
-    handler: async (ctx, input) => {
-      const name = String(input.name);
-      const command = String(input.command);
-      const args = Array.isArray(input.args)
-        ? input.args.map(String)
-        : [];
-      const timeout = Number(input.timeout) || 60000;
-
-      const skill = state.catalog.find(s => s.name === name);
-      if (!skill) {
-        throw new Error(`Skill not found: ${name}`);
-      }
-
-      return new Promise((resolve, reject) => {
-        const proc = spawn(command, args, {
-          cwd: skill.dir,
-          shell: true,
-          timeout,
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout?.on('data', (d) => { stdout += d; });
-        proc.stderr?.on('data', (d) => { stderr += d; });
-
-        proc.on('error', (err) => {
-          reject(new Error(`Failed to run command: ${err.message}`));
-        });
-
-        proc.on('close', (code) => {
-          resolve({
-            code,
-            stdout: stdout.trim(),
-            stderr: stderr.trim(),
-            skill: name,
-            command,
-            args,
-          });
-        });
-      });
-    },
+    const result = await ctx.next();
+    return result;
   });
 }
+```
 
-async function scanSkills(
-  rootDir: string,
-  dirs: string[],
-  logger?: Console
-): Promise<SkillItem[]> {
-  const items: SkillItem[] = [];
+**권장 전략:**
+- Sliding window: 오래된 메시지 `remove` 이벤트 발행
+- Turn 요약(compaction): 복수 메시지를 `remove` 후 요약 메시지 `append`
+- 중요 메시지 pinning: `metadata`에 `pinned: true` 표시하여 compaction 대상에서 제외
+- Truncate: 전체 메시지 초기화(`truncate`) 후 요약 `append`
 
-  for (const dir of dirs) {
-    const skillRoot = path.join(rootDir, dir);
+### 7.4 Logging 패턴
+
+Step/ToolCall 미들웨어를 활용한 관찰 패턴.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  // Step 실행 시간 로깅
+  api.pipeline.register('step', async (ctx) => {
+    const start = Date.now();
+    api.logger.info(`[Step ${ctx.stepIndex}] 시작`);
 
     try {
-      const entries = await fs.readdir(skillRoot, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const skillDir = path.join(skillRoot, entry.name);
-        const skillMdPath = path.join(skillDir, 'SKILL.md');
-
-        try {
-          const content = await fs.readFile(skillMdPath, 'utf8');
-          const firstLine = content.split('\n')[0] || '';
-          const description = firstLine.replace(/^#\s*/, '').trim();
-
-          items.push({
-            name: entry.name,
-            path: skillMdPath,
-            dir: skillDir,
-            description: description || `Skill: ${entry.name}`,
-          });
-
-          logger?.debug?.(`Skill found: ${entry.name}`);
-        } catch {
-          // SKILL.md 없음 - 스킵
-        }
-      }
-    } catch {
-      // 디렉터리 없음 - 스킵
-      logger?.debug?.(`Skill directory not found: ${skillRoot}`);
+      const result = await ctx.next();
+      api.logger.info(`[Step ${ctx.stepIndex}] 완료: ${Date.now() - start}ms`);
+      return result;
+    } catch (error) {
+      api.logger.error(`[Step ${ctx.stepIndex}] 실패:`, error);
+      throw error;
     }
-  }
+  });
 
-  return items;
+  // ToolCall 실행 로깅
+  api.pipeline.register('toolCall', async (ctx) => {
+    api.logger.debug(`[Tool] ${ctx.toolName} 호출:`, ctx.args);
+
+    const start = Date.now();
+    const result = await ctx.next();
+
+    api.logger.debug(`[Tool] ${ctx.toolName} 완료: ${Date.now() - start}ms`);
+    return result;
+  });
 }
 ```
 
-### 12.6 Skill Extension 동작 요약
+### 7.5 MCP Extension 패턴
 
-1. **발견(Discovery)**: 지정된 디렉터리에서 SKILL.md가 있는 폴더 스캔
-2. **카탈로그화**: 스캔된 스킬을 `skills.catalog` 블록으로 LLM에 노출
-3. **열기(Open)**: `skills.open` 도구로 SKILL.md 전체 내용과 경로 제공
-4. **실행(Run)**: `skills.run` 도구로 스킬 디렉터리에서 명령 실행
-5. **재스캔**: `workspace.repoAvailable` 이벤트 시 자동 재스캔
+MCP 연동은 Extension의 `tools.register`를 통해 동적으로 도구를 등록하는 방식으로 구현한다(MAY). MCP 서버와의 연결/통신은 Extension이 자체적으로 관리한다.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  // MCP 서버 연결 (Extension 자체 관리)
+  const mcpClient = connectToMcpServer({
+    command: ['npx', '-y', '@modelcontextprotocol/server-github'],
+  });
+
+  // MCP 도구를 동적 등록
+  for (const tool of mcpClient.tools) {
+    api.tools.register(
+      {
+        name: `mcp-github__${tool.name}`,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      },
+      async (ctx, input) => {
+        return await mcpClient.callTool(tool.name, input);
+      }
+    );
+  }
+
+  // 프로세스 종료 시 MCP 연결 정리
+  process.on('beforeExit', () => {
+    mcpClient.disconnect();
+  });
+}
+```
 
 ---
 
-## 부록: 타입 정의 요약
+## 8. 미들웨어 컨텍스트 요약
+
+각 미들웨어 타입은 전용 컨텍스트를 받으며, `next()` 호출 전후로 전처리/후처리를 수행한다. 상세 인터페이스는 `docs/specs/pipeline.md` 3절을 참조한다.
+
+### 8.1 TurnMiddlewareContext
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `agentName` | `string` (readonly) | 현재 에이전트 이름 |
+| `instanceKey` | `string` (readonly) | 현재 인스턴스 키 |
+| `inputEvent` | `AgentEvent` (readonly) | Turn을 트리거한 입력 이벤트 |
+| `conversationState` | `ConversationState` (readonly) | 대화 상태 (base + events) |
+| `emitMessageEvent` | `(event: MessageEvent) => void` | 메시지 이벤트 발행 |
+| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
+| `next` | `() => Promise<TurnResult>` | 다음 미들웨어 또는 코어 로직 |
+
+### 8.2 StepMiddlewareContext
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `turn` | `Turn` (readonly) | 현재 Turn 정보 |
+| `stepIndex` | `number` (readonly) | 현재 Step 인덱스 |
+| `conversationState` | `ConversationState` (readonly) | 대화 상태 |
+| `emitMessageEvent` | `(event: MessageEvent) => void` | 메시지 이벤트 발행 |
+| `toolCatalog` | `ToolCatalogItem[]` (mutable) | 도구 카탈로그 (조작 가능) |
+| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
+| `next` | `() => Promise<StepResult>` | 다음 미들웨어 또는 코어 로직 |
+
+### 8.3 ToolCallMiddlewareContext
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `toolName` | `string` (readonly) | 도구 이름 |
+| `toolCallId` | `string` (readonly) | 호출 고유 ID |
+| `args` | `JsonObject` (mutable) | 호출 인자 (조작 가능) |
+| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
+| `next` | `() => Promise<ToolCallResult>` | 다음 미들웨어 또는 코어 로직 |
+
+### 8.4 ConversationState
 
 ```typescript
-// JSON 타입
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonObject = { [key: string]: JsonValue };
-type JsonArray = JsonValue[];
-
-// 리소스 참조
-type ObjectRef = { kind: string; name: string };
-type ObjectRefLike = string | ObjectRef;
-
-// Extension 등록 함수
-type RegisterFunction<TState, TConfig> = (
-  api: ExtensionApi<TState, TConfig>
-) => Promise<void> | void;
-
-// 컨텍스트 블록
-interface ContextBlock {
-  type: string;
-  [key: string]: JsonValue;
-}
-
-// Tool Catalog Item
-interface ToolCatalogItem {
-  name: string;
-  description?: string;
-  parameters?: JsonObject;
-  tool?: Resource<ToolSpec>;
-  export?: ToolExportSpec;
-  source?: JsonObject;
+interface ConversationState {
+  readonly baseMessages: Message[];
+  readonly events: MessageEvent[];
+  readonly nextMessages: Message[];
+  toLlmMessages(): CoreMessage[];
 }
 ```
+
+### 8.5 MessageEvent
+
+```typescript
+type MessageEvent =
+  | { type: 'append';   message: Message }
+  | { type: 'replace';  targetId: string; message: Message }
+  | { type: 'remove';   targetId: string }
+  | { type: 'truncate' };
+```
+
+---
+
+## 9. 제거된 항목
+
+v2에서 다음 항목은 제거된다:
+
+### 9.1 제거된 API
+
+| 항목 | 사유 |
+|------|------|
+| `api.extension` (Resource 접근) | Extension이 자신의 리소스 전체에 접근할 필요 없음 |
+| `api.swarmBundle` (Changeset API) | Changeset 시스템 제거 |
+| `api.liveConfig` (Config 패치) | Edit & Restart 모델로 대체 |
+| `api.oauth` (OAuth API) | OAuthApp Kind 제거, Extension 내부 구현 |
+| `api.instance.shared` (공유 상태) | 프로세스-per-에이전트 모델에서 불필요 |
+| `api.pipelines.mutate()` | Mutator 타입 제거 |
+| `api.pipelines.wrap()` | `api.pipeline.register()`로 통합 |
+| `api.tools.unregister()` | 단순화 |
+| `api.tools.get()` / `api.tools.list()` | 단순화 |
+
+### 9.2 제거된 리소스
+
+| 항목 | 사유 |
+|------|------|
+| `OAuthApp` Kind | Extension 내부 구현으로 이동 |
+| `ResourceType` Kind | 커스텀 Kind 불필요 |
+| `ExtensionHandler` Kind | 제거 |
+
+### 9.3 제거된 패턴
+
+| 항목 | 사유 |
+|------|------|
+| `runtime: 'node'` 필드 | 항상 Bun |
+| Reconcile Identity 규칙 | Edit & Restart 모델로 대체 |
+| Stateful MCP 연결 유지 규칙 | Extension 자체 관리 |
+| ContextBlock 시스템 | `emitMessageEvent()`로 대체 |
 
 ---
 
 ## 관련 문서
 
-- @docs/requirements/05_core-concepts.md - Extension 핵심 개념
-- @docs/requirements/07_config-resources.md - Extension 리소스 스키마
-- @docs/requirements/11_lifecycle-pipelines.md - 파이프라인 스펙
-- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스
-- @docs/specs/api.md - Runtime/SDK API 스펙
+- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스 요구사항 (v2)
+- @docs/requirements/05_core-concepts.md - 핵심 개념 (v2)
+- @docs/requirements/14_usage-patterns.md - 활용 예시 패턴 (v2)
+- @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
+- @docs/specs/api.md - Runtime/SDK API 스펙 (v2)
+- @docs/new_spec.md - Goondan v2 간소화 스펙 원본

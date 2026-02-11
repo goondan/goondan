@@ -1,6 +1,18 @@
-# Goondan Config Plane 리소스 정의 스펙 (v0.11)
+# Goondan Config Plane 리소스 정의 스펙 (v2.0)
 
 본 문서는 `docs/requirements/06_config-spec.md`(리소스 공통 형식, ObjectRef, Selector+Overrides, ValueSource)와 `docs/requirements/07_config-resources.md`(각 리소스 Kind별 정의)를 기반으로 Config Plane 리소스의 상세 스키마, TypeScript 인터페이스, 검증 규칙을 정의한다.
+
+> **v2.0 주요 변경사항:**
+> - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
+> - Kind 축소: 11종 -> **8종** (OAuthApp, ResourceType, ExtensionHandler 제거)
+> - `runtime` 필드 제거: Tool, Extension, Connector 모두 항상 Bun으로 실행
+> - Tool: `exports` 배열 기반 하위 도구 선언, 도구 이름 `{ToolName}__{subName}` 형식
+> - Connector: `triggers` 필드 제거, 프로토콜 자체 관리
+> - Agent: hooks/changesets 제거, 미들웨어 기반 라이프사이클
+> - Model: `apiKey` 필드 추가 (ValueSource)
+> - ObjectRef: `"Kind/name"` 문자열 축약형
+
+---
 
 ## 목차
 
@@ -16,11 +28,8 @@
    - [6.4 Agent](#64-agent)
    - [6.5 Swarm](#65-swarm)
    - [6.6 Connector](#66-connector)
-   - [6.7 OAuthApp](#67-oauthapp)
-   - [6.8 ResourceType](#68-resourcetype)
-   - [6.9 ExtensionHandler](#69-extensionhandler)
-   - [6.10 Connection](#610-connection)
-   - [6.11 Package](#611-package)
+   - [6.7 Connection](#67-connection)
+   - [6.8 Package](#68-package)
 7. [공통 타입 정의](#7-공통-타입-정의)
 8. [Validation 규칙 요약](#8-validation-규칙-요약)
 
@@ -31,7 +40,7 @@
 모든 Config Plane 리소스는 다음 필드를 MUST 포함한다.
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: <Kind>
 metadata:
   name: <string>
@@ -48,7 +57,7 @@ spec:
  * 모든 리소스의 기본 형태
  */
 interface Resource<T = unknown> {
-  /** API 버전 (예: "agents.example.io/v1alpha1") */
+  /** API 버전. "goondan.ai/v1" */
   apiVersion: string;
   /** 리소스 종류 */
   kind: string;
@@ -59,28 +68,27 @@ interface Resource<T = unknown> {
 }
 
 /**
- * 알려진 Kind의 유니온 타입
+ * v2에서 지원하는 8종의 Kind
  */
 type KnownKind =
   | 'Model'
-  | 'Tool'
-  | 'Extension'
   | 'Agent'
   | 'Swarm'
+  | 'Tool'
+  | 'Extension'
   | 'Connector'
   | 'Connection'
-  | 'OAuthApp'
-  | 'ResourceType'
-  | 'ExtensionHandler'
   | 'Package';
 ```
 
 ### 규칙
 
-1. `apiVersion`은 MUST 유효한 API 버전 문자열이어야 한다 (예: `agents.example.io/v1alpha1`).
-2. `kind`는 MUST 알려진 Kind 또는 ResourceType으로 등록된 사용자 정의 Kind이어야 한다.
+1. `apiVersion`은 MUST `goondan.ai/v1`이어야 한다.
+2. `kind`는 MUST 8종의 알려진 Kind 중 하나여야 한다: `Model`, `Agent`, `Swarm`, `Tool`, `Extension`, `Connector`, `Connection`, `Package`.
 3. `metadata.name`은 MUST 동일 Kind 내에서 고유해야 한다.
 4. 단일 YAML 파일에 여러 문서를 `---`로 구분하여 포함할 수 있다 (MAY).
+5. 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현해야 한다 (MUST).
+6. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
 
 ---
 
@@ -101,9 +109,6 @@ interface ResourceMetadata {
 
   /** 어노테이션 (선택) - 임의의 메타데이터 저장 */
   annotations?: Record<string, string>;
-
-  /** 네임스페이스 (선택, 향후 확장) */
-  namespace?: string;
 }
 ```
 
@@ -124,8 +129,10 @@ metadata:
 
 1. `name`은 MUST 비어있지 않은 문자열이어야 한다.
 2. `name`은 SHOULD 영문 소문자, 숫자, 하이픈(`-`)으로 구성되며, 영문 소문자로 시작해야 한다.
-3. `labels`의 키와 값은 MUST 문자열이어야 한다.
-4. `labels`는 MAY Selector에서 리소스 매칭에 사용될 수 있다.
+3. `name`은 SHOULD 63자를 초과하지 않아야 한다.
+4. `labels`의 키와 값은 MUST 문자열이어야 한다.
+5. `labels`는 MAY Selector에서 리소스 매칭에 사용될 수 있다.
+6. `annotations`는 런타임 동작에 영향을 주지 않는 메타 정보 저장용이다.
 
 ---
 
@@ -137,7 +144,8 @@ ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 
 ```typescript
 /**
- * 객체 참조의 유니온 타입
+ * 객체 참조의 유니온 타입.
+ * 문자열 축약형 "Kind/name" 또는 객체형.
  */
 type ObjectRefLike = string | ObjectRef;
 
@@ -145,14 +153,14 @@ type ObjectRefLike = string | ObjectRef;
  * 객체형 참조
  */
 interface ObjectRef {
-  /** API 버전 (선택) */
-  apiVersion?: string;
   /** 리소스 종류 */
   kind: string;
   /** 리소스 이름 */
   name: string;
   /** 패키지 이름 (선택, Package 간 참조 시 사용) */
   package?: string;
+  /** API 버전 (선택) */
+  apiVersion?: string;
 }
 
 /**
@@ -161,9 +169,14 @@ interface ObjectRef {
 function normalizeObjectRef(ref: ObjectRefLike): ObjectRef {
   if (typeof ref === 'string') {
     // "Kind/name" 형식 파싱
-    const [kind, name] = ref.split('/');
-    if (!kind || !name) {
+    const slashIndex = ref.indexOf('/');
+    if (slashIndex === -1 || slashIndex === 0 || slashIndex === ref.length - 1) {
       throw new Error(`Invalid ObjectRef string: ${ref}`);
+    }
+    const kind = ref.slice(0, slashIndex);
+    const name = ref.slice(slashIndex + 1);
+    if (name.includes('/')) {
+      throw new Error(`Invalid ObjectRef string (multiple slashes): ${ref}`);
     }
     return { kind, name };
   }
@@ -174,38 +187,31 @@ function normalizeObjectRef(ref: ObjectRefLike): ObjectRef {
 ### YAML 예시
 
 ```yaml
-# 문자열 축약 형식
-tools:
-  - Tool/fileRead
-  - Tool/webSearch
+# 문자열 축약 형식 (권장)
+modelRef: "Model/claude"
+toolRef: "Tool/bash"
+agentRef: "Agent/coder"
 
 # 객체형 참조
-tools:
-  - kind: Tool
-    name: fileRead
-  - kind: Tool
-    name: webSearch
-
-# 전체 참조 (apiVersion 포함)
-tools:
-  - apiVersion: agents.example.io/v1alpha1
-    kind: Tool
-    name: fileRead
+modelRef:
+  kind: Model
+  name: claude
 
 # 패키지 참조 (다른 Package의 리소스 참조)
-tools:
-  - kind: Tool
-    name: fileRead
-    package: core-tools
+toolRef:
+  kind: Tool
+  name: bash
+  package: "@goondan/base"
 ```
 
 ### 규칙
 
 1. 문자열 축약 형식은 MUST `Kind/name` 패턴을 따라야 한다.
 2. 객체형 참조는 MUST `kind`와 `name` 필드를 포함해야 한다.
-3. `apiVersion`은 MAY 생략할 수 있으며, 생략 시 현재 문서의 apiVersion을 사용한다.
+3. `apiVersion`은 MAY 생략할 수 있으며, 생략 시 `goondan.ai/v1`을 사용한다.
 4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
-5. `package`는 MAY Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다 (SHOULD).
+5. `package`는 MAY Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다.
+6. `/`가 없거나 2개 이상이면 검증 오류로 처리해야 한다 (MUST).
 
 ---
 
@@ -254,7 +260,7 @@ type RefOrSelector = ObjectRefLike | SelectorWithOverrides;
 tools:
   - selector:
       kind: Tool
-      name: fileRead
+      name: bash
 
 # 라벨 기반 선택 + 오버라이드
 tools:
@@ -266,67 +272,27 @@ tools:
       spec:
         errorMessageLimit: 2000
 
-# 여러 라벨 조건
-extensions:
+# Agent에서 혼합 사용 (ref + selector)
+tools:
+  - ref: "Tool/bash"
+  - ref: "Tool/file-system"
   - selector:
-      kind: Extension
+      kind: Tool
       matchLabels:
-        category: mcp
-        env: production
+        tier: base
     overrides:
       spec:
-        config:
-          attach:
-            mode: stateful
+        errorMessageLimit: 2000
 ```
 
 ### 병합 규칙
 
-```typescript
-/**
- * 깊은 병합 함수
- */
-function deepMerge<T extends Record<string, unknown>>(
-  base: T,
-  override: Partial<T>
-): T {
-  const result = { ...base };
-
-  for (const key in override) {
-    const baseVal = base[key];
-    const overrideVal = override[key];
-
-    if (
-      typeof baseVal === 'object' &&
-      baseVal !== null &&
-      !Array.isArray(baseVal) &&
-      typeof overrideVal === 'object' &&
-      overrideVal !== null &&
-      !Array.isArray(overrideVal)
-    ) {
-      // 객체: 재귀 병합
-      result[key] = deepMerge(
-        baseVal as Record<string, unknown>,
-        overrideVal as Record<string, unknown>
-      ) as T[typeof key];
-    } else if (overrideVal !== undefined) {
-      // 스칼라 또는 배열: 덮어쓰기
-      result[key] = overrideVal as T[typeof key];
-    }
-  }
-
-  return result;
-}
-```
-
-### 규칙
-
 1. `selector` 블록이 있으면 MUST 선택형으로 해석한다.
-2. `matchLabels`의 모든 키-값 쌍이 일치하는 리소스만 선택된다 (MUST).
+2. `matchLabels`의 모든 키-값 쌍이 일치하는 리소스만 선택된다 (MUST, AND 조건).
 3. 병합 규칙 (SHOULD):
-   - 객체: 재귀적으로 병합
-   - 스칼라: 덮어쓰기
-   - 배열: 전체 교체 (요소 병합 아님)
+   - **객체**: 재귀적으로 병합
+   - **스칼라**: 덮어쓰기
+   - **배열**: 전체 교체 (요소 병합 아님)
 4. `selector.name`과 `selector.matchLabels`가 동시에 있으면 AND 조건으로 해석한다 (MUST).
 
 ---
@@ -361,77 +327,26 @@ interface SecretRef {
   /** Secret 내의 키 */
   key: string;
 }
-
-/**
- * ValueSource 해석 함수
- */
-function resolveValueSource(
-  source: ValueSource,
-  ctx: {
-    env: Record<string, string | undefined>;
-    secrets: Record<string, Record<string, string>>;
-  }
-): string {
-  if ('value' in source && source.value !== undefined) {
-    return source.value;
-  }
-
-  if ('valueFrom' in source && source.valueFrom !== undefined) {
-    const { valueFrom } = source;
-
-    if ('env' in valueFrom && valueFrom.env !== undefined) {
-      const envValue = ctx.env[valueFrom.env];
-      if (envValue === undefined) {
-        throw new Error(`Environment variable not found: ${valueFrom.env}`);
-      }
-      return envValue;
-    }
-
-    if ('secretRef' in valueFrom && valueFrom.secretRef !== undefined) {
-      const { ref, key } = valueFrom.secretRef;
-      // "Secret/name" 형식 파싱
-      const match = ref.match(/^Secret\/(.+)$/);
-      if (!match) {
-        throw new Error(`Invalid secretRef format: ${ref}`);
-      }
-      const secretName = match[1];
-      const secret = ctx.secrets[secretName];
-      if (!secret) {
-        throw new Error(`Secret not found: ${secretName}`);
-      }
-      const secretValue = secret[key];
-      if (secretValue === undefined) {
-        throw new Error(`Secret key not found: ${key} in ${secretName}`);
-      }
-      return secretValue;
-    }
-  }
-
-  throw new Error('Invalid ValueSource: neither value nor valueFrom provided');
-}
 ```
 
 ### YAML 예시
 
 ```yaml
 # 직접 값
-client:
-  clientId:
-    value: "my-client-id"
+apiKey:
+  value: "plain-text-value"
 
-# 환경 변수에서 주입
-client:
-  clientId:
-    valueFrom:
-      env: "SLACK_CLIENT_ID"
+# 환경 변수에서 주입 (권장)
+apiKey:
+  valueFrom:
+    env: "ANTHROPIC_API_KEY"
 
 # 비밀 저장소에서 주입
-client:
-  clientSecret:
-    valueFrom:
-      secretRef:
-        ref: "Secret/slack-oauth"
-        key: "client_secret"
+clientSecret:
+  valueFrom:
+    secretRef:
+      ref: "Secret/slack-oauth"
+      key: "client_secret"
 ```
 
 ### 규칙
@@ -440,7 +355,7 @@ client:
 2. `valueFrom` 내에서 `env`와 `secretRef`는 MUST 동시에 존재할 수 없다.
 3. `secretRef.ref`는 MUST `"Secret/<name>"` 형식이어야 한다.
 4. Base Config에 비밀값을 직접 포함하지 않도록 SHOULD 한다.
-5. 런타임은 `Secret`을 예약된 kind로 취급하고, 비밀 저장소 엔트리를 가리키는 것으로 해석해야 한다 (MUST).
+5. 둘 다 없으면 검증 오류로 처리한다 (MUST).
 
 ---
 
@@ -448,7 +363,7 @@ client:
 
 ### 6.1 Model
 
-Model은 LLM 모델 설정을 정의한다.
+Model은 LLM 프로바이더 설정을 정의한다.
 
 #### TypeScript 인터페이스
 
@@ -457,10 +372,12 @@ Model은 LLM 모델 설정을 정의한다.
  * Model 리소스 스펙
  */
 interface ModelSpec {
-  /** LLM 제공자 (openai, anthropic, google 등) */
+  /** LLM 제공자 (anthropic, openai, google 등) */
   provider: string;
-  /** 모델 이름 (예: "gpt-5", "claude-sonnet-4-5") */
-  name: string;
+  /** 모델 이름 (예: "claude-sonnet-4-20250514", "gpt-5") */
+  model: string;
+  /** API 키 (ValueSource) */
+  apiKey?: ValueSource;
   /** 커스텀 엔드포인트 URL (선택) */
   endpoint?: string;
   /** 제공자별 추가 옵션 (선택) */
@@ -487,32 +404,33 @@ type ModelResource = Resource<ModelSpec>;
 #### YAML 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
-  name: openai-gpt-5
+  name: claude
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: gpt
   labels:
     provider: openai
 spec:
   provider: openai
-  name: gpt-5
+  model: gpt-5
+  apiKey:
+    valueFrom:
+      env: OPENAI_API_KEY
   endpoint: "https://api.openai.com/v1"
   options:
     organization: "org-xxxxx"
-  capabilities:
-    streaming: true
-    toolCalling: true
-
----
-apiVersion: agents.example.io/v1alpha1
-kind: Model
-metadata:
-  name: anthropic-claude
-  labels:
-    provider: anthropic
-spec:
-  provider: anthropic
-  name: claude-sonnet-4-5
   capabilities:
     streaming: true
     toolCalling: true
@@ -523,19 +441,22 @@ spec:
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
 | `provider` | MUST | string | 비어있지 않은 문자열 |
-| `name` | MUST | string | 비어있지 않은 문자열 |
+| `model` | MUST | string | 비어있지 않은 문자열 |
+| `apiKey` | MAY | ValueSource | 유효한 ValueSource |
 | `endpoint` | MAY | string | 유효한 URL 형식 |
 | `options` | MAY | object | 임의의 키-값 쌍 |
-| `capabilities` | MAY | object | 모델 기능 플래그 (streaming, toolCalling 등) |
+| `capabilities` | MAY | object | 모델 기능 플래그 |
 
 **추가 검증 규칙:**
 - Agent가 요구하는 capability(`toolCalling`, `streaming` 등)를 모델이 선언하지 않은 경우, Runtime은 로드 단계에서 거부해야 한다 (MUST).
+- Runtime은 provider 차이를 추상화한 공통 호출 인터페이스를 제공해야 한다 (MUST).
+- provider 전용 옵션은 `spec.options`로 캡슐화해야 한다 (MUST).
 
 ---
 
 ### 6.2 Tool
 
-Tool은 LLM이 호출할 수 있는 함수 엔드포인트를 정의한다.
+Tool은 LLM이 호출할 수 있는 함수를 정의한다. 모든 Tool은 Bun으로 실행된다 (`runtime` 필드 없음).
 
 #### TypeScript 인터페이스
 
@@ -544,42 +465,24 @@ Tool은 LLM이 호출할 수 있는 함수 엔드포인트를 정의한다.
  * Tool 리소스 스펙
  */
 interface ToolSpec {
-  /** 런타임 환경 */
-  runtime: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 (Bundle Root 기준) */
+  /** 엔트리 파일 경로 (Bundle Root 기준, Bun으로 실행) */
   entry: string;
   /** 에러 메시지 최대 길이 (기본값: 1000) */
   errorMessageLimit?: number;
-  /** OAuth 인증 설정 (선택) */
-  auth?: ToolAuth;
   /** 내보내는 함수 목록 */
   exports: ToolExport[];
-}
-
-/**
- * Tool 수준 인증 설정
- */
-interface ToolAuth {
-  /** 참조할 OAuthApp */
-  oauthAppRef: ObjectRef;
-  /** 필요한 스코프 (OAuthApp.spec.scopes의 부분집합) */
-  scopes?: string[];
 }
 
 /**
  * Tool이 내보내는 함수 정의
  */
 interface ToolExport {
-  /** 함수 이름 (예: "slack.postMessage") */
+  /** 함수 이름 (예: "exec"). LLM에는 "{ToolName}__{name}"로 노출 */
   name: string;
   /** 함수 설명 (LLM에 제공) */
   description: string;
   /** JSON Schema 형식의 파라미터 정의 */
   parameters: JsonSchema;
-  /** export 수준 인증 설정 (선택, Tool 수준보다 좁게만 가능) */
-  auth?: {
-    scopes?: string[];
-  };
 }
 
 /**
@@ -602,79 +505,127 @@ type ToolResource = Resource<ToolSpec>;
 #### YAML 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: slackToolkit
+  name: bash
   labels:
     tier: base
-    category: communication
 spec:
-  runtime: node
-  entry: "./tools/slack/index.js"
+  entry: "./tools/bash/index.ts"
   errorMessageLimit: 1200
-
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-    scopes: ["chat:write", "channels:read"]
-
   exports:
-    - name: slack.postMessage
-      description: "Slack 채널에 메시지를 전송합니다"
+    - name: exec                       # LLM에는 "bash__exec"로 노출
+      description: "셸 명령 실행"
       parameters:
         type: object
         properties:
-          channel:
-            type: string
-            description: "채널 ID"
-          text:
-            type: string
-            description: "메시지 내용"
-          threadTs:
-            type: string
-            description: "스레드 타임스탬프 (선택)"
-        required: ["channel", "text"]
-      auth:
-        scopes: ["chat:write"]
+          command: { type: string }
+        required: [command]
+    - name: script                     # LLM에는 "bash__script"로 노출
+      description: "스크립트 파일 실행"
+      parameters:
+        type: object
+        properties:
+          path: { type: string }
+        required: [path]
 
-    - name: slack.getChannels
-      description: "사용 가능한 채널 목록을 조회합니다"
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: file-system
+  labels:
+    tier: base
+    category: filesystem
+spec:
+  entry: "./tools/file-system/index.ts"
+  exports:
+    - name: read                       # LLM에는 "file-system__read"로 노출
+      description: "파일을 읽습니다"
       parameters:
         type: object
         properties:
-          limit:
-            type: number
-            description: "최대 결과 수"
-            default: 100
-      auth:
-        scopes: ["channels:read"]
+          path: { type: string }
+        required: [path]
+    - name: write                      # LLM에는 "file-system__write"로 노출
+      description: "파일에 내용을 씁니다"
+      parameters:
+        type: object
+        properties:
+          path: { type: string }
+          content: { type: string }
+        required: [path, content]
 ```
+
+#### Tool Handler 구현 형식
+
+entry 모듈은 `handlers: Record<string, ToolHandler>` 형식으로 하위 도구 핸들러를 export해야 한다 (MUST).
+
+```typescript
+export const handlers: Record<string, ToolHandler> = {
+  'exec': async (ctx, input) => {
+    const proc = Bun.spawn(['sh', '-c', input.command]);
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
+  },
+  'script': async (ctx, input) => {
+    const proc = Bun.spawn(['sh', input.path]);
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
+  },
+};
+
+interface ToolHandler {
+  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
+}
+
+interface ToolContext {
+  readonly agentName: string;
+  readonly instanceKey: string;
+  readonly turnId: string;
+  readonly toolCallId: string;
+  readonly message: Message;
+  readonly logger: Console;
+}
+```
+
+#### 도구 이름 규칙
+
+LLM에 노출되는 도구 이름은 **`{Tool metadata.name}__{export name}`** 형식이다 (MUST).
+
+```
+Tool 리소스: bash          ->  exports: exec, script
+LLM 도구 이름:  bash__exec,  bash__script
+
+Tool 리소스: file-system   ->  exports: read, write
+LLM 도구 이름:  file-system__read,  file-system__write
+```
+
+`__` (더블 언더스코어)는 AI SDK에서 허용되는 문자이므로 별도 변환 없이 그대로 사용한다.
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `runtime` | MUST | enum | `"node"`, `"python"`, `"deno"` 중 하나 |
 | `entry` | MUST | string | 유효한 파일 경로 |
 | `errorMessageLimit` | MAY | number | 양의 정수, 기본값 1000 |
-| `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
-| `auth.scopes` | MAY | string[] | OAuthApp.spec.scopes의 부분집합 |
 | `exports` | MUST | array | 최소 1개 이상의 export |
-| `exports[].name` | MUST | string | 비어있지 않은 문자열 |
+| `exports[].name` | MUST | string | 비어있지 않은 문자열, Tool 내 고유 |
 | `exports[].description` | MUST | string | 비어있지 않은 문자열 |
 | `exports[].parameters` | MUST | object | 유효한 JSON Schema |
-| `exports[].auth.scopes` | MAY | string[] | Tool.auth.scopes의 부분집합 |
 
 **추가 검증 규칙:**
-- `auth.scopes`가 선언된 경우, OAuthApp.spec.scopes의 부분집합인지 검증해야 한다 (MUST).
-- `exports[].auth.scopes`가 선언된 경우, Tool.auth.scopes의 부분집합인지 검증해야 한다 (MUST).
-- 스코프는 "추가 권한 요청"이 아닌 "범위 제한"의 의미로 사용된다 (MUST).
+- `runtime` 필드는 존재하지 않는다. 항상 Bun으로 실행한다.
+- `exports[].name`은 Tool 리소스 내에서 고유해야 한다 (MUST).
+- Tool 리소스 이름과 export name에는 `__`가 포함되어서는 안 된다 (MUST NOT).
+- `auth` 필드는 v2에서 제거되었다. OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
 
 ---
 
 ### 6.3 Extension
 
-Extension은 런타임 라이프사이클에 개입하는 확장 로직을 정의한다.
+Extension은 라이프사이클 미들웨어 인터셉터를 정의한다. 모든 Extension은 Bun으로 실행된다 (`runtime` 필드 없음).
 
 #### TypeScript 인터페이스
 
@@ -683,49 +634,10 @@ Extension은 런타임 라이프사이클에 개입하는 확장 로직을 정�
  * Extension 리소스 스펙
  */
 interface ExtensionSpec {
-  /** 런타임 환경 */
-  runtime: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 (Bundle Root 기준) */
+  /** 엔트리 파일 경로 (Bundle Root 기준, Bun으로 실행) */
   entry: string;
-  /** Extension별 설정 (선택) */
+  /** Extension별 설정 (선택, 자유 형식) */
   config?: Record<string, unknown>;
-}
-
-/**
- * MCP 연동 Extension의 config 구조
- */
-interface McpExtensionConfig {
-  /** MCP 서버 연결 방식 */
-  transport: McpTransport;
-  /** 연결 유지 방식 */
-  attach: McpAttach;
-  /** 노출할 기능 */
-  expose: McpExpose;
-}
-
-interface McpTransport {
-  /** stdio 또는 http */
-  type: 'stdio' | 'http';
-  /** stdio 모드에서 실행할 명령어 */
-  command?: string[];
-  /** http 모드에서 연결할 URL */
-  url?: string;
-}
-
-interface McpAttach {
-  /** stateful (연결 유지) 또는 stateless (요청마다 연결) */
-  mode: 'stateful' | 'stateless';
-  /** 연결 범위 */
-  scope: 'instance' | 'agent';
-}
-
-interface McpExpose {
-  /** MCP 도구 노출 여부 */
-  tools?: boolean;
-  /** MCP 리소스 노출 여부 */
-  resources?: boolean;
-  /** MCP 프롬프트 노출 여부 */
-  prompts?: boolean;
 }
 
 type ExtensionResource = Resource<ExtensionSpec>;
@@ -734,38 +646,40 @@ type ExtensionResource = Resource<ExtensionSpec>;
 #### YAML 예시
 
 ```yaml
-# 일반 Extension
-apiVersion: agents.example.io/v1alpha1
+# 로깅 Extension
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: logging
+spec:
+  entry: "./extensions/logging/index.ts"
+  config:
+    level: info
+
+---
+# Skill Extension
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: skills
-  labels:
-    category: skills
 spec:
-  runtime: node
-  entry: "./extensions/skills/index.js"
+  entry: "./extensions/skills/index.ts"
   config:
     discovery:
-      repoSkillDirs: [".claude/skills", ".agent/skills"]
+      repoSkillDirs: [".claude/skills", ".agents/skills"]
 
 ---
 # MCP 연동 Extension
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: mcp-github
-  labels:
-    category: mcp
 spec:
-  runtime: node
-  entry: "./extensions/mcp/index.js"
+  entry: "./extensions/mcp/index.ts"
   config:
     transport:
       type: stdio
-      command: ["npx", "-y", "@modelcontextprotocol/server-github"]
-    attach:
-      mode: stateful
-      scope: instance
+      command: ["npx", "-y", "@acme/github-mcp"]
     expose:
       tools: true
       resources: true
@@ -773,29 +687,51 @@ spec:
 
 ---
 # Compaction Extension
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: compaction
 spec:
-  runtime: node
-  entry: "./extensions/compaction/index.js"
+  entry: "./extensions/compaction/index.ts"
   config:
     maxTokens: 8000
     enableLogging: true
+```
+
+#### Extension entry 모듈
+
+entry 모듈은 `register(api: ExtensionApi)` 함수를 export해야 한다 (MUST).
+
+```typescript
+export function register(api: ExtensionApi): void {
+  // 미들웨어 등록
+  api.pipeline.register('turn', async (ctx) => {
+    const result = await ctx.next();
+    return result;
+  });
+
+  // 동적 도구 등록
+  api.tools.register(catalogItem, handler);
+
+  // 상태 관리
+  const state = await api.state.get();
+  await api.state.set(newState);
+}
 ```
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `runtime` | MUST | enum | `"node"`, `"python"`, `"deno"` 중 하나 |
 | `entry` | MUST | string | 유효한 파일 경로 |
 | `config` | MAY | object | Extension별 자유 형식 |
 
-**MCP Extension config 추가 검증:**
-- `transport.type=stdio`인 경우 `command`가 필수 (MUST).
-- `transport.type=http`인 경우 `url`이 필수 (MUST).
+**추가 검증 규칙:**
+- `runtime` 필드는 존재하지 않는다. 항상 Bun으로 실행한다.
+- Extension은 `api.pipeline.register()`를 통해 `turn`, `step`, `toolCall` 미들웨어를 등록할 수 있다 (MAY).
+- Extension은 `api.tools.register()`를 통해 동적으로 도구를 등록할 수 있다 (MAY).
+- Extension은 `api.state.get()`/`api.state.set()`을 통해 JSON 기반 상태를 영속화할 수 있다 (MAY).
+- OAuth 인증이 필요한 경우 Extension이 직접 관리한다 (OAuthApp Kind 제거).
 
 ---
 
@@ -818,10 +754,6 @@ interface AgentSpec {
   tools?: RefOrSelector[];
   /** 사용할 Extension 목록 */
   extensions?: RefOrSelector[];
-  /** 훅 목록 */
-  hooks?: HookSpec[];
-  /** Changeset 정책 (선택) */
-  changesets?: AgentChangesetPolicy;
 }
 
 /**
@@ -850,76 +782,9 @@ interface ModelParams {
  */
 interface AgentPrompts {
   /** 시스템 프롬프트 (인라인) */
-  system?: string;
+  systemPrompt?: string;
   /** 시스템 프롬프트 (파일 참조) */
   systemRef?: string;
-}
-
-/**
- * 훅 정의
- */
-interface HookSpec {
-  /** 훅 ID (선택, reconcile용) */
-  id?: string;
-  /** 파이프라인 포인트 */
-  point: PipelinePoint;
-  /** 실행 우선순위 (낮을수록 먼저 실행) */
-  priority?: number;
-  /** 실행할 액션 */
-  action: HookAction;
-}
-
-type PipelinePoint =
-  | 'turn.pre'
-  | 'turn.post'
-  | 'step.pre'
-  | 'step.config'
-  | 'step.tools'
-  | 'step.blocks'
-  | 'step.llmCall'
-  | 'step.llmError'
-  | 'step.post'
-  | 'toolCall.pre'
-  | 'toolCall.exec'
-  | 'toolCall.post'
-  | 'workspace.repoAvailable'
-  | 'workspace.worktreeMounted';
-
-/**
- * Hook 액션 - 스크립트 실행 기술자
- * toolCall 스키마를 직접 사용해서는 안 된다(MUST NOT).
- * 필요 시 스크립트 핸들러 내에서 표준 API를 통해 도구를 간접 호출할 수 있다.
- */
-interface HookAction {
-  /** 런타임 환경 */
-  runtime: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 (Bundle Root 기준) */
-  entry: string;
-  /** export 함수 이름 */
-  export: string;
-  /** 입력 파라미터 (정적 값 또는 표현식) */
-  input?: Record<string, unknown | ExprValue>;
-}
-
-interface ExprValue {
-  /** JSONPath 표현식 */
-  expr: string;
-}
-
-/**
- * turn.post 표현식 컨텍스트:
- * - $.baseMessages: turn 시작 기준 메시지 배열
- * - $.messageEvents: turn 중 누적 메시지 이벤트 배열
- */
-
-/**
- * Agent 수준 Changeset 정책
- */
-interface AgentChangesetPolicy {
-  allowed?: {
-    /** 허용되는 파일 패턴 */
-    files?: string[];
-  };
 }
 
 type AgentResource = Resource<AgentSpec>;
@@ -928,98 +793,74 @@ type AgentResource = Resource<AgentSpec>;
 #### YAML 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
-  name: planner
-  labels:
-    role: planner
+  name: coder
 spec:
   modelConfig:
-    modelRef: { kind: Model, name: openai-gpt-5 }
+    modelRef: "Model/claude"
     params:
       temperature: 0.5
-      maxTokens: 4096
 
   prompts:
-    # 파일 참조 방식
-    systemRef: "./prompts/planner.system.md"
-    # 또는 인라인 방식
-    # system: |
-    #   너는 planner 에이전트다.
-    #   사용자의 요청을 분석하고 작업 계획을 수립하라.
+    systemPrompt: |
+      You are a coding assistant.
+    systemRef: "./prompts/coder.system.md"   # 선택: 외부 파일 참조
 
   tools:
-    # 직접 참조
-    - { kind: Tool, name: fileRead }
-    - { kind: Tool, name: webSearch }
-    # Selector + Overrides
+    - ref: "Tool/bash"
+    - ref: "Tool/file-system"
     - selector:
         kind: Tool
         matchLabels:
           tier: base
-      overrides:
-        spec:
-          errorMessageLimit: 2000
 
   extensions:
-    - { kind: Extension, name: skills }
-    - { kind: Extension, name: compaction }
-    - { kind: Extension, name: mcp-github }
+    - ref: "Extension/logging"
+    - ref: "Extension/skills"
 
-  hooks:
-    - id: notify-on-turn-complete
-      point: turn.post
-      priority: 0
-      action:
-        runtime: node
-        entry: "./hooks/notify-summary.js"
-        export: default
-        input:
-          channel: { expr: "$.turn.origin.channel" }
-          threadTs: { expr: "$.turn.origin.threadTs" }
-          text: { expr: "$.turn.summary" }
-          systemPrompt: { expr: "$.baseMessages[0].content" }
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: reviewer
+  labels:
+    role: reviewer
+spec:
+  modelConfig:
+    modelRef: "Model/claude"
+    params:
+      temperature: 0.3
+      maxTokens: 4096
 
-    - point: step.llmError
-      priority: 10
-      action:
-        runtime: node
-        entry: "./hooks/log-error.js"
-        export: default
-        input:
-          error: { expr: "$.error.message" }
+  prompts:
+    systemRef: "./prompts/reviewer.system.md"
 
-  changesets:
-    allowed:
-      files:
-        - "prompts/**"
-        - "resources/**"
+  tools:
+    - ref: "Tool/file-system"
+
+  extensions:
+    - ref: "Extension/logging"
 ```
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `modelConfig.modelRef` | MUST | ObjectRef | 유효한 Model 참조 |
+| `modelConfig.modelRef` | MUST | ObjectRefLike | 유효한 Model 참조 |
 | `modelConfig.params.temperature` | MAY | number | 0.0 ~ 2.0 범위 |
 | `modelConfig.params.maxTokens` | MAY | number | 양의 정수 |
-| `prompts` | MUST | object | `system` 또는 `systemRef` 중 하나 필수 |
-| `prompts.system` | MAY | string | 인라인 프롬프트 |
+| `prompts` | MUST | object | `systemPrompt` 또는 `systemRef` 중 하나 이상 |
+| `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
 | `prompts.systemRef` | MAY | string | 파일 경로 |
 | `tools` | MAY | array | ObjectRef 또는 Selector 배열 |
 | `extensions` | MAY | array | ObjectRef 또는 Selector 배열 |
-| `hooks[].point` | MUST | enum | 유효한 PipelinePoint |
-| `hooks[].priority` | MAY | number | 정수, 기본값 0 |
-| `hooks[].action.runtime` | MUST | enum | `"node"`, `"python"`, `"deno"` 중 하나 |
-| `hooks[].action.entry` | MUST | string | 엔트리 파일 경로 |
-| `hooks[].action.export` | MUST | string | export 함수 이름 |
-| `hooks[].action.input` | MAY | object | 입력 파라미터 (정적 값 또는 expr) |
-| `changesets.allowed.files` | MAY | string[] | glob 패턴 배열 |
 
 **추가 검증 규칙:**
-- `prompts.system`과 `prompts.systemRef`가 동시에 존재하면 오류 (MUST).
-- `changesets.allowed.files`는 Swarm의 `allowed.files` 범위 내여야 한다 (MUST).
+- `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
+- Agent 리소스에는 `hooks` 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다 (MUST).
+- Agent 리소스에는 `changesets` 필드가 존재하지 않는다. 설정 변경은 Edit & Restart 모델을 사용한다.
 
 ---
 
@@ -1035,9 +876,9 @@ Swarm은 Agent들의 집합과 실행 정책을 정의한다.
  */
 interface SwarmSpec {
   /** 진입점 Agent */
-  entrypoint: ObjectRefLike;
+  entryAgent: ObjectRefLike;
   /** 포함된 Agent 목록 */
-  agents: ObjectRefLike[];
+  agents: RefOrSelector[];
   /** 실행 정책 */
   policy?: SwarmPolicy;
 }
@@ -1048,60 +889,18 @@ interface SwarmSpec {
 interface SwarmPolicy {
   /** Turn당 최대 Step 수 */
   maxStepsPerTurn?: number;
-  /** 큐 처리 모드 (기본: serial) */
-  queueMode?: 'serial';
   /** 인스턴스 라이프사이클 정책 */
   lifecycle?: SwarmLifecyclePolicy;
-  /** Changeset 정책 */
-  changesets?: SwarmChangesetPolicy;
-  /** Live Config 정책 */
-  liveConfig?: LiveConfigPolicy;
 }
 
 /**
  * 인스턴스 라이프사이클 정책
  */
 interface SwarmLifecyclePolicy {
-  /** 유휴 시 자동 일시정지까지의 시간 (초) */
-  autoPauseIdleSeconds?: number;
   /** 인스턴스 최대 수명 (초) */
   ttlSeconds?: number;
   /** GC 유예 기간 (초) */
   gcGraceSeconds?: number;
-}
-
-/**
- * Swarm 수준 Changeset 정책
- */
-interface SwarmChangesetPolicy {
-  /** Changeset 기능 활성화 여부 */
-  enabled?: boolean;
-  /** 적용 시점 */
-  applyAt?: PipelinePoint[];
-  /** 허용 범위 */
-  allowed?: {
-    /** 허용되는 파일 패턴 */
-    files?: string[];
-  };
-  /** revision 변경 이벤트 발행 여부 */
-  emitRevisionChangedEvent?: boolean;
-}
-
-/**
- * Live Config 정책
- */
-interface LiveConfigPolicy {
-  /** Live Config 활성화 여부 */
-  enabled?: boolean;
-  /** 적용 시점 */
-  applyAt?: PipelinePoint[];
-  /** 허용되는 patch 경로 */
-  allowedPaths?: {
-    /** Agent 기준 상대 경로 */
-    agentRelative?: string[];
-    /** Swarm 기준 상대 경로 */
-    swarmRelative?: string[];
-  };
 }
 
 type SwarmResource = Resource<SwarmSpec>;
@@ -1110,76 +909,43 @@ type SwarmResource = Resource<SwarmSpec>;
 #### YAML 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
-  labels:
-    env: production
 spec:
-  entrypoint: { kind: Agent, name: planner }
-
+  entryAgent: "Agent/coder"
   agents:
-    - { kind: Agent, name: planner }
-    - { kind: Agent, name: executor }
-    - { kind: Agent, name: reviewer }
-
+    - ref: "Agent/coder"
+    - ref: "Agent/reviewer"
   policy:
     maxStepsPerTurn: 32
-    queueMode: serial
     lifecycle:
-      autoPauseIdleSeconds: 3600
       ttlSeconds: 604800
       gcGraceSeconds: 86400
-
-    changesets:
-      enabled: true
-      applyAt:
-        - step.config
-      allowed:
-        files:
-          - "resources/**"
-          - "prompts/**"
-          - "tools/**"
-          - "extensions/**"
-      emitRevisionChangedEvent: true
-
-    liveConfig:
-      enabled: true
-      applyAt:
-        - step.config
-      allowedPaths:
-        agentRelative:
-          - "/spec/tools"
-          - "/spec/extensions"
 ```
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `entrypoint` | MUST | ObjectRef | 유효한 Agent 참조 |
+| `entryAgent` | MUST | ObjectRefLike | 유효한 Agent 참조 |
 | `agents` | MUST | array | 최소 1개 이상의 Agent 참조 |
 | `policy.maxStepsPerTurn` | MAY | number | 양의 정수, 기본값 32 |
-| `policy.queueMode` | MAY | enum | `"serial"`, 기본값 serial |
-| `policy.lifecycle.autoPauseIdleSeconds` | MAY | number | 양의 정수 (초) |
 | `policy.lifecycle.ttlSeconds` | MAY | number | 양의 정수 (초) |
 | `policy.lifecycle.gcGraceSeconds` | MAY | number | 양의 정수 (초) |
-| `policy.changesets.enabled` | MAY | boolean | 기본값 false |
-| `policy.changesets.applyAt` | MAY | array | PipelinePoint 배열 |
-| `policy.changesets.allowed.files` | MAY | array | glob 패턴 배열 |
 
 **추가 검증 규칙:**
-- `entrypoint`는 `agents` 배열에 포함되어야 한다 (MUST).
-- `policy.queueMode`는 기본 `serial`이며, AgentInstance 큐는 FIFO 직렬 처리되어야 한다 (MUST).
-- `policy.lifecycle`가 설정되면 Runtime은 pause/resume/terminate/delete/GC 정책에 반영해야 한다 (SHOULD).
-- `changesets.applyAt`에는 `step.config`가 포함되어야 한다 (SHOULD).
+- `entryAgent`는 `agents` 배열에 포함된 Agent를 참조해야 한다 (MUST).
+- `policy.maxStepsPerTurn` 값에 도달하면 Turn을 강제 종료해야 한다 (MUST).
+- `policy.lifecycle`가 설정되면 Runtime은 인스턴스 TTL 및 GC 정책에 반영해야 한다 (SHOULD).
+- v2에서 `changesets`, `liveConfig`, `queueMode` 정책은 제거되었다. 설정 변경은 Edit & Restart 모델을 사용한다.
 
 ---
 
 ### 6.6 Connector
 
-Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 실행 패키지를 정의한다. 인증, 라우팅(ingress), 서명 검증 시크릿은 Connection 리소스에서 관리한다.
+Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 **독립 프로세스**를 정의한다. Connector는 프로토콜 처리(HTTP 서버, cron 스케줄러, WebSocket 등)를 **자체적으로** 관리한다. 모든 Connector는 Bun으로 실행된다 (`runtime` 필드 없음).
 
 #### TypeScript 인터페이스
 
@@ -1188,45 +954,10 @@ Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 Connecto
  * Connector 리소스 스펙
  */
 interface ConnectorSpec {
-  /** 런타임 환경 */
-  runtime: 'node';
-  /** 엔트리 파일 경로 (단일 default export) */
+  /** 엔트리 파일 경로 (단일 default export, Bun으로 실행) */
   entry: string;
-  /** Trigger 프로토콜 선언 목록 */
-  triggers: TriggerDeclaration[];
-  /** 커넥터가 emit할 수 있는 이벤트 스키마 */
-  events?: EventSchema[];
-}
-
-/**
- * Trigger 프로토콜 선언
- */
-type TriggerDeclaration =
-  | HttpTrigger
-  | CronTrigger
-  | CliTrigger
-  | CustomTrigger;
-
-interface HttpTrigger {
-  type: 'http';
-  endpoint: {
-    path: string;
-    method: 'POST' | 'GET' | 'PUT' | 'DELETE';
-  };
-}
-
-interface CronTrigger {
-  type: 'cron';
-  schedule: string;
-}
-
-interface CliTrigger {
-  type: 'cli';
-}
-
-/** Connector가 자체적으로 이벤트 소스를 관리 (롱 폴링, WebSocket 등) */
-interface CustomTrigger {
-  type: 'custom';
+  /** Connector가 emit할 수 있는 이벤트 스키마 */
+  events: EventSchema[];
 }
 
 /**
@@ -1250,456 +981,82 @@ type ConnectorResource = Resource<ConnectorSpec>;
 #### YAML 예시
 
 ```yaml
-# Slack Connector (HTTP trigger + events 스키마)
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Connector
 metadata:
-  name: slack
+  name: telegram
 spec:
-  runtime: node
-  entry: "./connectors/slack/index.ts"
-  triggers:
-    - type: http
-      endpoint:
-        path: /webhook/slack/events
-        method: POST
+  entry: "./connectors/telegram/index.ts"
   events:
-    - name: app_mention
+    - name: user_message
       properties:
-        channel_id: { type: string }
-        ts: { type: string }
-        thread_ts: { type: string, optional: true }
-    - name: message.im
+        chat_id: { type: string }
+    - name: command
       properties:
-        channel_id: { type: string }
-        ts: { type: string }
+        chat_id: { type: string }
+        command: { type: string }
 
 ---
-# CLI Connector
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Connector
 metadata:
   name: cli
 spec:
-  runtime: node
   entry: "./connectors/cli/index.ts"
-  triggers:
-    - type: cli
   events:
     - name: user_input
+```
 
----
-# Cron Connector
-apiVersion: agents.example.io/v1alpha1
-kind: Connector
-metadata:
-  name: daily-reporter
-spec:
-  runtime: node
-  entry: "./connectors/daily-reporter/index.ts"
-  triggers:
-    - type: cron
-      schedule: "0 9 * * MON-FRI"
-  events:
-    - name: daily_report
-      properties:
-        scheduled_at: { type: string }
+#### Connector Handler 구현 형식
+
+entry 모듈은 단일 default export 함수를 제공해야 한다 (MUST). Connector가 프로토콜 처리를 직접 구현한다.
+
+```typescript
+export default async function (ctx: ConnectorContext): Promise<void> {
+  const { emit, secrets, logger } = ctx;
+
+  // Connector가 직접 HTTP 서버를 열어 웹훅 수신
+  Bun.serve({
+    port: Number(secrets.PORT) || 3000,
+    async fetch(req) {
+      const body = await req.json();
+
+      // 외부 페이로드 -> ConnectorEvent 정규화 후 Orchestrator로 전달
+      await emit({
+        name: 'user_message',
+        message: { type: 'text', text: body.message.text },
+        properties: { chat_id: String(body.message.chat.id) },
+        instanceKey: `telegram:${body.message.chat.id}`,
+      });
+
+      return new Response('OK');
+    },
+  });
+
+  logger.info('Telegram connector listening');
+};
 ```
 
 #### Validation 규칙
 
 | 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
-| `runtime` | MUST | string | `"node"` |
 | `entry` | MUST | string | 유효한 파일 경로 |
-| `triggers` | MUST | array | 최소 1개 이상의 trigger 선언 |
-| `triggers[].type` | MUST | string | `"http"`, `"cron"`, `"cli"`, `"custom"` 중 하나 |
-| `triggers[].endpoint.path` | MUST (http) | string | `/`로 시작 |
-| `triggers[].endpoint.method` | MUST (http) | string | HTTP 메서드 |
-| `triggers[].schedule` | MUST (cron) | string | 유효한 cron 표현식 |
+| `events` | MUST | array | 최소 1개 이상의 이벤트 스키마 |
 | `events[].name` | MUST | string | Connector 내 고유 |
 
 **추가 검증 규칙:**
+- `runtime` 필드는 존재하지 않는다. 항상 Bun으로 실행한다.
+- `triggers` 필드는 존재하지 않는다. Connector가 프로토콜 수신을 자체적으로 관리한다.
 - Entry 모듈에 단일 default export 함수가 존재해야 한다 (MUST).
-- `events[].name`은 Connector 내에서 고유해야 한다 (MUST).
+- ConnectorEvent는 `instanceKey`를 포함하여 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있게 해야 한다 (MUST).
+- Connector는 Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 서명 검증을 수행해야 한다 (MUST).
 
 ---
 
-### 6.7 OAuthApp
+### 6.7 Connection
 
-OAuthApp은 외부 시스템 OAuth 인증을 위한 클라이언트 및 엔드포인트를 정의한다.
-
-#### TypeScript 인터페이스
-
-```typescript
-/**
- * OAuthApp 리소스 스펙
- */
-interface OAuthAppSpec {
-  /** OAuth 제공자 식별자 */
-  provider: string;
-  /** OAuth 플로우 타입 */
-  flow: 'authorizationCode' | 'deviceCode';
-  /** Subject 모드 */
-  subjectMode: 'global' | 'user';
-  /** 클라이언트 자격 증명 */
-  client: OAuthClient;
-  /** OAuth 엔드포인트 */
-  endpoints: OAuthEndpoints;
-  /** 요청할 스코프 목록 */
-  scopes: string[];
-  /** 리다이렉트 설정 */
-  redirect: OAuthRedirect;
-  /** 제공자별 옵션 */
-  options?: Record<string, unknown>;
-}
-
-/**
- * OAuth 클라이언트 자격 증명
- */
-interface OAuthClient {
-  /** 클라이언트 ID */
-  clientId: ValueSource;
-  /** 클라이언트 시크릿 */
-  clientSecret: ValueSource;
-}
-
-/**
- * OAuth 엔드포인트
- */
-interface OAuthEndpoints {
-  /** 인가 URL */
-  authorizationUrl: string;
-  /** 토큰 URL */
-  tokenUrl: string;
-  /** 토큰 취소 URL (선택) */
-  revokeUrl?: string;
-  /** 사용자 정보 URL (선택) */
-  userInfoUrl?: string;
-}
-
-/**
- * OAuth 리다이렉트 설정
- */
-interface OAuthRedirect {
-  /** 콜백 경로 */
-  callbackPath: string;
-}
-
-type OAuthAppResource = Resource<OAuthAppSpec>;
-```
-
-#### YAML 예시
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: OAuthApp
-metadata:
-  name: slack-bot
-  labels:
-    provider: slack
-spec:
-  provider: slack
-  flow: authorizationCode
-  subjectMode: global
-
-  client:
-    clientId:
-      valueFrom:
-        env: "SLACK_CLIENT_ID"
-    clientSecret:
-      valueFrom:
-        secretRef:
-          ref: "Secret/slack-oauth"
-          key: "client_secret"
-
-  endpoints:
-    authorizationUrl: "https://slack.com/oauth/v2/authorize"
-    tokenUrl: "https://slack.com/api/oauth.v2.access"
-    revokeUrl: "https://slack.com/api/auth.revoke"
-
-  scopes:
-    - "chat:write"
-    - "channels:read"
-    - "users:read"
-
-  redirect:
-    callbackPath: "/oauth/callback/slack-bot"
-
-  options:
-    slack:
-      tokenMode: "bot"
-
----
-apiVersion: agents.example.io/v1alpha1
-kind: OAuthApp
-metadata:
-  name: github-user
-spec:
-  provider: github
-  flow: authorizationCode
-  subjectMode: user
-
-  client:
-    clientId:
-      valueFrom:
-        env: "GITHUB_CLIENT_ID"
-    clientSecret:
-      valueFrom:
-        secretRef:
-          ref: "Secret/github-oauth"
-          key: "client_secret"
-
-  endpoints:
-    authorizationUrl: "https://github.com/login/oauth/authorize"
-    tokenUrl: "https://github.com/login/oauth/access_token"
-
-  scopes:
-    - "repo"
-    - "read:user"
-
-  redirect:
-    callbackPath: "/oauth/callback/github"
-```
-
-#### Validation 규칙
-
-| 필드 | 필수 | 타입 | 규칙 |
-|------|------|------|------|
-| `provider` | MUST | string | 비어있지 않은 문자열 |
-| `flow` | MUST | enum | `"authorizationCode"` 또는 `"deviceCode"` |
-| `subjectMode` | MUST | enum | `"global"` 또는 `"user"` |
-| `client.clientId` | MUST | ValueSource | 유효한 ValueSource |
-| `client.clientSecret` | MUST | ValueSource | 유효한 ValueSource |
-| `endpoints.authorizationUrl` | MUST | string | 유효한 URL (authorizationCode 시) |
-| `endpoints.tokenUrl` | MUST | string | 유효한 URL |
-| `scopes` | MUST | array | 최소 1개 이상의 스코프 |
-| `redirect.callbackPath` | MUST | string | `/`로 시작하는 경로 (authorizationCode 시) |
-
-**추가 검증 규칙:**
-- `flow=authorizationCode`인 경우 `endpoints.authorizationUrl`과 `redirect.callbackPath`가 필수 (MUST).
-- `flow=deviceCode`는 런타임이 지원하지 않으면 구성 로드 단계에서 거부 (MUST).
-- Runtime은 `flow=authorizationCode`에 대해 Authorization Code + PKCE(S256)를 필수 지원해야 한다 (MUST).
-
----
-
-### 6.8 ResourceType
-
-ResourceType은 사용자 정의 Kind의 등록을 정의한다.
-
-#### TypeScript 인터페이스
-
-```typescript
-/**
- * ResourceType 리소스 스펙
- */
-interface ResourceTypeSpec {
-  /** API 그룹 */
-  group: string;
-  /** 이름 정의 */
-  names: ResourceTypeNames;
-  /** 버전 목록 */
-  versions: ResourceTypeVersion[];
-  /** 핸들러 참조 */
-  handlerRef: ObjectRef;
-}
-
-interface ResourceTypeNames {
-  /** Kind 이름 (단수형) */
-  kind: string;
-  /** 복수형 이름 */
-  plural: string;
-  /** 약어 (선택) */
-  shortNames?: string[];
-}
-
-interface ResourceTypeVersion {
-  /** 버전 이름 */
-  name: string;
-  /** 제공 여부 */
-  served: boolean;
-  /** 저장 버전 여부 */
-  storage: boolean;
-}
-
-type ResourceTypeResource = Resource<ResourceTypeSpec>;
-```
-
-#### YAML 예시
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: ResourceType
-metadata:
-  name: rag.acme.io/Retrieval
-spec:
-  group: rag.acme.io
-
-  names:
-    kind: Retrieval
-    plural: retrievals
-    shortNames:
-      - ret
-
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-    - name: v1beta1
-      served: true
-      storage: false
-
-  handlerRef:
-    kind: ExtensionHandler
-    name: retrieval-handler
-
----
-apiVersion: agents.example.io/v1alpha1
-kind: ResourceType
-metadata:
-  name: memory.acme.io/Memory
-spec:
-  group: memory.acme.io
-
-  names:
-    kind: Memory
-    plural: memories
-
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-
-  handlerRef:
-    kind: ExtensionHandler
-    name: memory-handler
-```
-
-#### Validation 규칙
-
-| 필드 | 필수 | 타입 | 규칙 |
-|------|------|------|------|
-| `group` | MUST | string | 도메인 형식 (예: `rag.acme.io`) |
-| `names.kind` | MUST | string | PascalCase 형식 |
-| `names.plural` | MUST | string | 소문자 복수형 |
-| `versions` | MUST | array | 최소 1개 이상 |
-| `versions[].name` | MUST | string | 버전 형식 (예: `v1alpha1`) |
-| `versions[].served` | MUST | boolean | |
-| `versions[].storage` | MUST | boolean | |
-| `handlerRef` | MUST | ObjectRef | 유효한 ExtensionHandler 참조 |
-
-**추가 검증 규칙:**
-- `versions` 중 정확히 하나만 `storage: true`여야 한다 (MUST).
-- `handlerRef`가 유효한 ExtensionHandler를 참조해야 한다 (MUST).
-
----
-
-### 6.9 ExtensionHandler
-
-ExtensionHandler는 사용자 정의 Kind의 검증/변환 로직을 정의한다.
-
-#### TypeScript 인터페이스
-
-```typescript
-/**
- * ExtensionHandler 리소스 스펙
- */
-interface ExtensionHandlerSpec {
-  /** 런타임 환경 */
-  runtime: 'node' | 'python' | 'deno';
-  /** 엔트리 파일 경로 */
-  entry: string;
-  /** export하는 함수 목록 */
-  exports: ExtensionHandlerExport[];
-}
-
-type ExtensionHandlerExport = 'validate' | 'default' | 'materialize';
-
-type ExtensionHandlerResource = Resource<ExtensionHandlerSpec>;
-```
-
-#### YAML 예시
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: ExtensionHandler
-metadata:
-  name: retrieval-handler
-spec:
-  runtime: node
-  entry: "./extensions/retrieval/handler.js"
-  exports:
-    - validate
-    - default
-    - materialize
-
----
-apiVersion: agents.example.io/v1alpha1
-kind: ExtensionHandler
-metadata:
-  name: memory-handler
-spec:
-  runtime: node
-  entry: "./extensions/memory/handler.js"
-  exports:
-    - validate
-    - default
-```
-
-#### Handler 함수 인터페이스
-
-```typescript
-/**
- * validate: 리소스 검증
- */
-type ValidateFunction = (
-  resource: Resource<unknown>
-) => Promise<ValidationResult>;
-
-interface ValidationResult {
-  valid: boolean;
-  errors?: ValidationError[];
-}
-
-interface ValidationError {
-  path: string;
-  message: string;
-}
-
-/**
- * default: 기본값 적용
- */
-type DefaultFunction = (
-  resource: Resource<unknown>
-) => Promise<Resource<unknown>>;
-
-/**
- * materialize: 런타임 리소스로 변환
- */
-type MaterializeFunction = (
-  resource: Resource<unknown>,
-  ctx: MaterializeContext
-) => Promise<unknown>;
-
-interface MaterializeContext {
-  runtime: unknown;
-  config: unknown;
-}
-```
-
-#### Validation 규칙
-
-| 필드 | 필수 | 타입 | 규칙 |
-|------|------|------|------|
-| `runtime` | MUST | enum | `"node"`, `"python"`, `"deno"` 중 하나 |
-| `entry` | MUST | string | 유효한 파일 경로 |
-| `exports` | MUST | array | `validate`, `default`, `materialize` 중 최소 1개 |
-
----
-
-### 6.10 Connection
-
-Connection은 Connector와 Agent 사이의 배포 바인딩을 정의한다. 인증 설정, ConnectorEvent 기반 라우팅 규칙(ingress), 서명 검증 시크릿을 포함한다.
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
 
 #### TypeScript 인터페이스
 
@@ -1710,10 +1067,10 @@ Connection은 Connector와 Agent 사이의 배포 바인딩을 정의한다. 인
 interface ConnectionSpec {
   /** 참조할 Connector */
   connectorRef: ObjectRefLike;
-  /** 바인딩할 Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
+  /** 바인딩할 Swarm 참조 */
   swarmRef?: ObjectRefLike;
-  /** 인증 설정 */
-  auth?: ConnectorAuth;
+  /** Connector 프로세스에 전달할 시크릿 */
+  secrets?: Record<string, ValueSource>;
   /** 인바운드 라우팅 규칙 */
   ingress?: IngressConfig;
   /** 서명 검증 설정 */
@@ -1729,24 +1086,6 @@ interface IngressConfig {
 }
 
 /**
- * Connection 서명 검증 설정
- */
-interface ConnectionVerify {
-  /** Webhook 서명 검증 */
-  webhook?: {
-    /** 서명 시크릿 (ValueSource 패턴) */
-    signingSecret: ValueSource;
-  };
-}
-
-/**
- * Connector 인증 설정
- */
-type ConnectorAuth =
-  | { oauthAppRef: ObjectRef; staticToken?: never }
-  | { oauthAppRef?: never; staticToken: ValueSource };
-
-/**
  * Ingress 라우팅 규칙
  */
 interface IngressRule {
@@ -1758,7 +1097,6 @@ interface IngressRule {
 
 /**
  * 이벤트 매칭 조건
- * Connector의 events 스키마를 기반으로 매칭
  */
 interface IngressMatch {
   /** ConnectorEvent.name과 매칭할 이벤트 이름 */
@@ -1771,8 +1109,19 @@ interface IngressMatch {
  * 라우팅 설정
  */
 interface IngressRoute {
-  /** 대상 Agent (선택, 생략 시 Swarm entrypoint로 라우팅) */
+  /** 대상 Agent (선택, 생략 시 Swarm entryAgent로 라우팅) */
   agentRef?: ObjectRefLike;
+}
+
+/**
+ * Connection 서명 검증 설정
+ */
+interface ConnectionVerify {
+  /** Webhook 서명 검증 */
+  webhook?: {
+    /** 서명 시크릿 (ValueSource 패턴) */
+    signingSecret: ValueSource;
+  };
 }
 
 type ConnectionResource = Resource<ConnectionSpec>;
@@ -1781,62 +1130,47 @@ type ConnectionResource = Resource<ConnectionSpec>;
 #### YAML 예시
 
 ```yaml
-# CLI Connection
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Connection
 metadata:
-  name: cli-to-default
+  name: telegram-to-swarm
 spec:
-  connectorRef: { kind: Connector, name: cli }
-  swarmRef: { kind: Swarm, name: default }
-  ingress:
-    rules:
-      - route: {}  # entrypoint Agent로 라우팅
-
----
-# Slack Connection with auth + verify
-apiVersion: agents.example.io/v1alpha1
-kind: Connection
-metadata:
-  name: slack-main
-spec:
-  connectorRef: { kind: Connector, name: slack }
-  swarmRef: { kind: Swarm, name: default }
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
+  connectorRef: "Connector/telegram"
+  swarmRef: "Swarm/default"
+  secrets:
+    botToken:
+      valueFrom:
+        env: TELEGRAM_BOT_TOKEN
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
   ingress:
     rules:
       - match:
-          event: app_mention
+          event: user_message
         route:
-          agentRef: { kind: Agent, name: planner }
+          agentRef: "Agent/handler"
       - match:
-          event: message.im
-        route: {}  # entrypoint로 라우팅
+          event: command
+        route: {}  # entryAgent로 라우팅
   verify:
     webhook:
       signingSecret:
         valueFrom:
-          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
+          env: TELEGRAM_WEBHOOK_SECRET
 
 ---
-# Telegram Connection (Static Token)
-apiVersion: agents.example.io/v1alpha1
+# CLI Connection (가장 단순한 형태)
+apiVersion: goondan.ai/v1
 kind: Connection
 metadata:
-  name: telegram-main
+  name: cli-to-default
 spec:
-  connectorRef: { kind: Connector, name: telegram }
-  swarmRef: { kind: Swarm, name: coding-swarm }
-  auth:
-    staticToken:
-      valueFrom:
-        env: "TELEGRAM_BOT_TOKEN"
+  connectorRef: "Connector/cli"
+  swarmRef: "Swarm/default"
   ingress:
     rules:
-      - match:
-          event: message
-        route: {}  # entrypoint로 라우팅
+      - route: {}  # entryAgent로 라우팅
 ```
 
 #### Validation 규칙
@@ -1845,9 +1179,7 @@ spec:
 |------|------|------|------|
 | `connectorRef` | MUST | ObjectRefLike | 유효한 Connector 참조 |
 | `swarmRef` | MAY | ObjectRefLike | 유효한 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm) |
-| `auth.oauthAppRef` | MAY | ObjectRef | 유효한 OAuthApp 참조 |
-| `auth.staticToken` | MAY | ValueSource | 유효한 ValueSource |
-| `auth` | MUST | - | oauthAppRef와 staticToken은 동시에 존재할 수 없음 |
+| `secrets` | MAY | Record<string, ValueSource> | Connector에 전달할 시크릿 |
 | `ingress.rules` | MAY | array | IngressRule 배열 |
 | `ingress.rules[].match.event` | SHOULD | string | Connector의 events[].name에 선언된 이름 |
 | `ingress.rules[].route.agentRef` | MAY | ObjectRefLike | 유효한 Agent 참조 |
@@ -1856,14 +1188,17 @@ spec:
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
 - `swarmRef`가 지정된 경우, 유효한 Swarm 리소스를 참조해야 한다 (MUST). 생략 시 Bundle 내 첫 번째 Swarm을 사용한다 (MUST).
-- `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다 (MUST).
-- `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 `swarmRef`가 가리키는 Swarm의 `agents` 배열에 포함되어야 한다 (SHOULD).
-- Connection은 Connector가 서명 검증에 사용할 시크릿을 제공해야 한다 (MUST).
+- `secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다 (MUST).
 - 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다 (MUST).
+- 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다 (MUST).
+- `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다 (MUST).
+- OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT). `auth` 필드는 v2에서 제거되었다.
 
-### 6.11 Package
+---
 
-Package는 goondan 프로젝트의 **최상위 리소스**로, 프로젝트 메타데이터, 의존성, export 선언을 포함한다. `goondan.yaml`의 **첫 번째 YAML 문서**에만 위치할 수 있으며, 생략 가능하다(Package 없이 리소스만 있는 파일도 유효).
+### 6.8 Package
+
+Package는 프로젝트의 최상위 매니페스트 리소스이다. 의존성, 버전, 레지스트리 정보를 포함한다.
 
 #### TypeScript 인터페이스
 
@@ -1872,14 +1207,28 @@ Package는 goondan 프로젝트의 **최상위 리소스**로, 프로젝트 메�
  * Package 리소스 스펙
  */
 interface PackageSpec {
+  /** 패키지 버전 (semver) */
+  version?: string;
+  /** 패키지 설명 */
+  description?: string;
   /** 접근 수준 */
   access?: 'public' | 'restricted';
-  /** 의존하는 Package Ref 목록 */
-  dependencies?: string[];
-  /** 배포 시 포함할 리소스 YAML 경로 */
-  exports?: string[];
-  /** tarball에 포함할 빌드 아티팩트 디렉터리 */
-  dist?: string[];
+  /** 의존하는 Package 목록 */
+  dependencies?: PackageDependency[];
+  /** 레지스트리 설정 */
+  registry?: PackageRegistry;
+}
+
+interface PackageDependency {
+  /** 패키지 이름 (예: "@goondan/base") */
+  name: string;
+  /** 버전 범위 (semver range, 예: "^1.0.0") */
+  version: string;
+}
+
+interface PackageRegistry {
+  /** 레지스트리 URL */
+  url: string;
 }
 
 type PackageResource = Resource<PackageSpec>;
@@ -1888,36 +1237,37 @@ type PackageResource = Resource<PackageSpec>;
 #### YAML 예시
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Package
 metadata:
-  name: "@goondan/base"
-  version: "1.0.0"
-  annotations:
-    description: "Goondan 기본 Tool, Extension, Connector 번들"
+  name: my-coding-swarm
 spec:
-  exports:
-    - tools/bash/tool.yaml
-    - connectors/telegram/connector.yaml
-  dist:
-    - dist/
+  version: "1.0.0"
+  description: "코딩 에이전트 스웜"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^1.0.0"
+  registry:
+    url: "https://registry.goondan.ai"
 ```
 
-#### Package 필드 검증
+#### Validation 규칙
 
-| 필드 | 필수 | 타입 | 설명 |
+| 필드 | 필수 | 타입 | 규칙 |
 |------|------|------|------|
 | `metadata.name` | MUST | string | 패키지 식별명 (scope 포함 가능: `@scope/name`) |
-| `metadata.version` | MUST (publish 시) | string | semver 형식 |
+| `spec.version` | MUST (publish 시) | string | semver 형식 |
 | `spec.access` | MAY | string | `'public'` (기본) 또는 `'restricted'` |
-| `spec.dependencies` | MAY | string[] | Package Ref 문자열 배열 |
-| `spec.exports` | MAY | string[] | 배포할 리소스 YAML 경로 |
-| `spec.dist` | MAY | string[] | tarball에 포함할 빌드 아티팩트 디렉터리 |
+| `spec.dependencies` | MAY | array | PackageDependency 배열 |
+| `spec.dependencies[].name` | MUST | string | 패키지 이름 |
+| `spec.dependencies[].version` | MUST | string | semver 범위 |
+| `spec.registry.url` | MAY | string | 유효한 URL |
 
 **위치 규칙:**
 1. Package 문서는 `goondan.yaml`의 **첫 번째 YAML 문서**에만 위치할 수 있다 (MUST).
 2. 두 번째 이후 문서에 `kind: Package`가 있으면 검증 오류이다 (MUST).
 3. 하나의 `goondan.yaml`에는 최대 하나의 Package 문서만 존재할 수 있다 (MUST).
+4. `spec.dependencies`는 의존성 DAG를 형성하며, 순환 의존은 로드 단계에서 거부해야 한다 (MUST).
 
 상세 스펙(레지스트리, 의존성 해석, lockfile 등)은 `docs/specs/bundle_package.md`를 참조한다.
 
@@ -1981,6 +1331,13 @@ function isObjectRef(value: unknown): value is ObjectRef {
 }
 
 /**
+ * ObjectRefLike 판별 (문자열 또는 객체)
+ */
+function isObjectRefLike(value: unknown): value is ObjectRefLike {
+  return typeof value === 'string' || isObjectRef(value);
+}
+
+/**
  * Selector 판별
  */
 function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides {
@@ -2000,8 +1357,8 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
-| apiVersion 필수 | MUST | 모든 리소스에 apiVersion이 있어야 함 |
-| kind 필수 | MUST | 모든 리소스에 kind가 있어야 함 |
+| apiVersion 필수 | MUST | 모든 리소스에 `goondan.ai/v1`이어야 함 |
+| kind 필수 | MUST | 모든 리소스에 8종 Kind 중 하나여야 함 |
 | metadata.name 필수 | MUST | 모든 리소스에 name이 있어야 함 |
 | name 고유성 | MUST | 동일 Kind 내에서 name이 고유해야 함 |
 | ObjectRef 유효성 | MUST | 참조된 리소스가 존재해야 함 |
@@ -2012,129 +1369,54 @@ function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides
 
 | Kind | 규칙 | 수준 |
 |------|------|------|
-| Model | provider, name 필수 | MUST |
+| Model | provider, model 필수 | MUST |
 | Model | Agent 요구 capability와 Model 선언 capability 매칭 | MUST |
 | Tool | entry, exports 필수 | MUST |
 | Tool | exports 최소 1개 | MUST |
-| Tool | auth.scopes는 OAuthApp.scopes 부분집합 | MUST |
+| Tool | exports[].name Tool 내 고유 | MUST |
+| Tool | 리소스 이름/export name에 `__` 금지 | MUST NOT |
 | Extension | entry 필수 | MUST |
 | Agent | modelConfig.modelRef 필수 | MUST |
-| Agent | prompts (system 또는 systemRef) 필수 | MUST |
-| Agent | changesets.allowed는 Swarm 범위 내 | MUST |
-| Swarm | entrypoint, agents 필수 | MUST |
-| Swarm | entrypoint는 agents에 포함 | MUST |
-| Connector | runtime, entry 필수 | MUST |
-| Connector | triggers 최소 1개 프로토콜 선언 | MUST |
+| Agent | prompts (systemPrompt 또는 systemRef) 필수 | MUST |
+| Swarm | entryAgent, agents 필수 | MUST |
+| Swarm | entryAgent는 agents에 포함 | MUST |
+| Connector | entry, events 필수 | MUST |
 | Connector | events[].name Connector 내 고유 | MUST |
 | Connection | connectorRef 필수 | MUST |
 | Connection | swarmRef 지정 시 유효한 Swarm 참조 | MUST |
-| Connection | oauthAppRef와 staticToken 동시 불가 | MUST |
 | Connection | ingress.rules[].match.event는 Connector events에 선언된 이름 | SHOULD |
-| Connection | verify.webhook 서명 검증 시크릿 제공 | MUST |
-| OAuthApp | flow, subjectMode 필수 | MUST |
-| OAuthApp | authorizationCode 시 authorizationUrl, callbackPath 필수 | MUST |
-| OAuthApp | deviceCode 미지원 시 거부 | MUST |
-| ResourceType | handlerRef가 유효한 ExtensionHandler 참조 | MUST |
-| ResourceType | versions 중 하나만 storage: true | MUST |
-| ExtensionHandler | exports 최소 1개 | MUST |
+| Package | 첫 번째 YAML 문서에만 위치 | MUST |
+| Package | publish 시 version (semver) 필수 | MUST |
+| Package | dependencies는 DAG (순환 참조 금지) | MUST |
 
-### 검증 함수 예시
+### 검증 오류 형식
+
+검증 오류는 위치와 코드가 포함된 구조화된 형식으로 반환해야 한다 (MUST).
 
 ```typescript
-interface ValidationContext {
-  resources: Map<string, Resource>;
-  errors: ValidationError[];
-}
-
 interface ValidationError {
-  resource: string;
-  path: string;
+  /** 오류 코드 (예: "E_CONFIG_REF_NOT_FOUND") */
+  code: string;
+  /** 오류 메시지 */
   message: string;
-  level: 'error' | 'warning';
+  /** 리소스 내 위치 (예: "resources/agent.yaml#spec.tools[0]") */
+  path: string;
+  /** 사용자 복구를 위한 제안 */
+  suggestion?: string;
+  /** 도움말 URL */
+  helpUrl?: string;
 }
+```
 
-function validateResources(
-  resources: Resource[],
-  ctx: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+오류 예시:
 
-  for (const resource of resources) {
-    // 공통 검증
-    if (!resource.apiVersion) {
-      errors.push({
-        resource: `${resource.kind}/${resource.metadata?.name ?? 'unknown'}`,
-        path: '/apiVersion',
-        message: 'apiVersion is required',
-        level: 'error',
-      });
-    }
-
-    // Kind별 검증
-    switch (resource.kind) {
-      case 'Tool':
-        errors.push(...validateTool(resource as ToolResource, ctx));
-        break;
-      case 'Agent':
-        errors.push(...validateAgent(resource as AgentResource, ctx));
-        break;
-      case 'OAuthApp':
-        errors.push(...validateOAuthApp(resource as OAuthAppResource, ctx));
-        break;
-      // ... 기타 Kind별 검증
-    }
-  }
-
-  return errors;
-}
-
-function validateTool(
-  tool: ToolResource,
-  ctx: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  const name = `Tool/${tool.metadata.name}`;
-
-  if (!tool.spec.entry) {
-    errors.push({
-      resource: name,
-      path: '/spec/entry',
-      message: 'entry is required',
-      level: 'error',
-    });
-  }
-
-  if (!tool.spec.exports || tool.spec.exports.length === 0) {
-    errors.push({
-      resource: name,
-      path: '/spec/exports',
-      message: 'at least one export is required',
-      level: 'error',
-    });
-  }
-
-  // auth.scopes 검증
-  if (tool.spec.auth?.oauthAppRef && tool.spec.auth?.scopes) {
-    const oauthAppRef = normalizeObjectRef(tool.spec.auth.oauthAppRef);
-    const oauthAppKey = `OAuthApp/${oauthAppRef.name}`;
-    const oauthApp = ctx.resources.get(oauthAppKey) as OAuthAppResource | undefined;
-
-    if (oauthApp) {
-      const allowedScopes = new Set(oauthApp.spec.scopes);
-      for (const scope of tool.spec.auth.scopes) {
-        if (!allowedScopes.has(scope)) {
-          errors.push({
-            resource: name,
-            path: '/spec/auth/scopes',
-            message: `scope "${scope}" is not a subset of OAuthApp scopes`,
-            level: 'error',
-          });
-        }
-      }
-    }
-  }
-
-  return errors;
+```json
+{
+  "code": "E_CONFIG_REF_NOT_FOUND",
+  "message": "Tool/bash 참조를 찾을 수 없습니다.",
+  "path": "resources/agent.yaml#spec.tools[0]",
+  "suggestion": "kind/name 또는 package 범위를 확인하세요.",
+  "helpUrl": "https://docs.goondan.ai/errors/E_CONFIG_REF_NOT_FOUND"
 }
 ```
 
@@ -2145,4 +1427,6 @@ function validateTool(
 - `/docs/requirements/06_config-spec.md` - Config 스펙 요구사항
 - `/docs/requirements/07_config-resources.md` - Config 리소스 정의 요구사항
 - `/docs/specs/bundle.md` - Bundle YAML 스펙
+- `/docs/specs/bundle_package.md` - Package 스펙
+- `/docs/new_spec.md` - Goondan v2 설계 스펙
 - `/GUIDE.md` - 개발자 가이드

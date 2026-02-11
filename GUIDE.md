@@ -321,6 +321,7 @@ spec:
 ### 6.2 핸들러 모듈
 
 `entry` 모듈은 `handlers: Record<string, ToolHandler>`를 export해야 한다.
+Tool 호출은 AgentProcess(Bun) 내부에서 `entry` 모듈 로드 후 같은 프로세스의 JS 함수 호출로 실행된다.
 
 ```typescript
 import type { ToolHandler } from '@goondan/core';

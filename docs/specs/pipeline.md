@@ -1,5 +1,7 @@
 # Goondan 라이프사이클 파이프라인 스펙 (v2.0)
 
+> 공통 타입(`Message`, `MessageEvent`, `ConversationState`, `TurnResult`, `ToolCallResult`)의 기준은 `docs/specs/shared-types.md`를 따른다.
+
 ---
 
 ## 1. 개요
@@ -262,56 +264,25 @@ interface ConversationState {
 5. `next()` 호출 전은 전처리(pre) 시점이고, `next()` 호출 후는 후처리(post) 시점이다(MUST).
 6. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고, `conversationState` + `emitMessageEvent`로 대체해야 한다(MUST).
 
-### 4.5 MessageEvent 타입
+### 4.5 MessageEvent / Message 타입
 
-```typescript
-type MessageEvent =
-  | { type: 'append';   message: Message }
-  | { type: 'replace';  targetId: string; message: Message }
-  | { type: 'remove';   targetId: string }
-  | { type: 'truncate' };
-```
+`MessageEvent`, `Message`, `MessageSource`의 원형은 `docs/specs/shared-types.md`를 참조한다.
 
-### 4.6 Message 타입
-
-```typescript
-import type { CoreMessage } from 'ai';  // ai-sdk
-
-interface Message {
-  /** 고유 ID */
-  readonly id: string;
-
-  /** AI SDK CoreMessage (system | user | assistant | tool) */
-  readonly data: CoreMessage;
-
-  /** Extension/미들웨어가 읽고 쓸 수 있는 메타데이터 */
-  metadata: Record<string, JsonValue>;
-
-  /** 메시지 생성 시각 */
-  readonly createdAt: Date;
-
-  /** 이 메시지를 생성한 주체 */
-  readonly source: MessageSource;
-}
-
-type MessageSource =
-  | { type: 'user' }
-  | { type: 'assistant'; stepId: string }
-  | { type: 'tool'; toolCallId: string; toolName: string }
-  | { type: 'system' }
-  | { type: 'extension'; extensionName: string };
-```
-
-### 4.7 결과 타입
+### 4.6 결과 타입
 
 ```typescript
 interface TurnResult {
-  /** Turn 상태 */
-  status: 'completed' | 'failed';
-  /** 최종 응답 메시지 (있는 경우) */
-  response?: Message;
-  /** Turn 메타데이터 */
-  metadata: Record<string, JsonValue>;
+  /** Turn ID */
+  readonly turnId: string;
+  /** 최종 응답 메시지 */
+  readonly responseMessage?: Message;
+  /** Turn 종료 사유 */
+  readonly finishReason: 'text_response' | 'max_steps' | 'error';
+  /** 오류 정보 (실패 시) */
+  readonly error?: {
+    message: string;
+    code?: string;
+  };
 }
 
 interface StepResult {
@@ -333,7 +304,7 @@ interface ToolCallResult {
   /** 도구 이름 */
   toolName: string;
   /** 실행 결과 */
-  output: JsonValue;
+  output?: JsonValue;
   /** 실행 상태 */
   status: 'ok' | 'error';
   /** 오류 정보 (status가 error인 경우) */
@@ -651,12 +622,14 @@ async function executeTurn(
   inputEvent: AgentEvent,
   conversationState: ConversationState
 ): Promise<TurnResult> {
+  const pendingEvents: MessageEvent[] = [];
+
   const turnCtx: TurnMiddlewareContext = {
     agentName: currentAgent.name,
     instanceKey: currentInstance.key,
     inputEvent,
     conversationState,
-    emitMessageEvent: (event) => conversationState.pushEvent(event),
+    emitMessageEvent: (event) => pendingEvents.push(event),
     metadata: {},
     next: null!, // buildChain이 바인딩
   };
@@ -672,9 +645,8 @@ async function executeTurn(
     } while (lastStepResult.hasToolCalls);
 
     return {
-      status: 'completed',
-      response: lastStepResult.metadata.response,
-      metadata: {},
+      turnId: currentTurn.id,
+      finishReason: lastStepResult.hasToolCalls ? 'max_steps' : 'text_response',
     };
   });
 

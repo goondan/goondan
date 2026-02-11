@@ -474,6 +474,8 @@ Package를 관리한다.
 | `gdn package install` | 의존성 설치 |
 | `gdn package publish` | 패키지 발행 |
 
+`unpublish`/`deprecate`/`remove`/`update`/`list`는 v2에서 제거되었으며, 상세 대체 경로는 `12. 제거된 명령어`를 따른다.
+
 ### 8.2 gdn package add
 
 새 의존성을 추가한다.

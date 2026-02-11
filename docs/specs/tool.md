@@ -1,5 +1,7 @@
 # Goondan Tool 시스템 스펙 v2.0
 
+> 공통 타입(`ToolCall`, `ToolCallResult`/`ToolResult`, `ToolContext`, `IpcMessage`)의 기준은 `docs/specs/shared-types.md`를 따른다.
+
 ## 1. 개요
 
 ### 1.1 배경 및 설계 철학
@@ -457,22 +459,28 @@ export function register(api: ExtensionApi): void {
 
 ## 10. Tool 결과 처리
 
-### 10.1 ToolResult 구조
+### 10.1 ToolCallResult(ToolResult) 구조
 
 ```typescript
-interface ToolResult {
+interface ToolCallResult {
+  /** 해당 tool call ID */
+  toolCallId: string;
+
+  /** 도구 이름 */
+  toolName: string;
+
   /** 결과 상태 */
-  status: 'ok' | 'error' | 'pending';
+  status: 'ok' | 'error';
 
-  /** 동기 완료 시 출력값 */
+  /** 실행 결과 */
   output?: JsonValue;
-
-  /** 비동기 제출 시 핸들 */
-  handle?: string;
 
   /** 오류 정보 (status='error' 시) */
   error?: ToolError;
 }
+
+/** 하위 호환 별칭 */
+type ToolResult = ToolCallResult;
 
 interface ToolError {
   /** 오류 메시지 (errorMessageLimit 적용됨) */
@@ -495,7 +503,8 @@ interface ToolError {
 ### 10.2 동기/비동기 결과
 
 - **동기 완료**: 핸들러가 값을 반환하면 `output` 포함
-- **비동기 제출**: `handle` 포함(완료 이벤트 또는 polling)
+- **오류 완료**: 실패 시 `status: 'error'`와 `error`를 함께 반환
+- 장기 작업은 별도 상태 폴링 핸들을 ToolResult에 추가하지 않고, 통합 이벤트 모델 또는 도메인 이벤트로 모델링한다(SHOULD).
 
 ### 10.3 오류 결과 및 메시지 제한
 
@@ -859,33 +868,7 @@ spec:
 
 ## 부록 A. 타입 정의 요약
 
-```typescript
-// 기본 JSON 타입
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonObject = { [key: string]: JsonValue };
-type JsonArray = JsonValue[];
-
-// Message (AI SDK CoreMessage 래퍼)
-interface Message {
-  readonly id: string;
-  readonly data: CoreMessage;
-  metadata: Record<string, JsonValue>;
-  readonly createdAt: Date;
-  readonly source: MessageSource;
-}
-
-// Tool 핸들러
-type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> | JsonValue;
-
-// Tool 결과
-interface ToolResult {
-  status: 'ok' | 'error' | 'pending';
-  output?: JsonValue;
-  handle?: string;
-  error?: ToolError;
-}
-```
+공통 타입 요약은 `docs/specs/shared-types.md`를 참조한다.
 
 ---
 

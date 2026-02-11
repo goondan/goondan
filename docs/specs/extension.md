@@ -1,5 +1,7 @@
 # Goondan Extension 시스템 스펙 (v2.0)
 
+> 공통 타입(`TurnResult`, `ConversationState`, `MessageEvent`, `ToolCallResult`)은 `docs/specs/shared-types.md`를 기준으로 한다.
+
 ---
 
 ## 1. 개요
@@ -750,24 +752,11 @@ export function register(api: ExtensionApi): void {
 
 ### 9.4 ConversationState
 
-```typescript
-interface ConversationState {
-  readonly baseMessages: Message[];
-  readonly events: MessageEvent[];
-  readonly nextMessages: Message[];
-  toLlmMessages(): CoreMessage[];
-}
-```
+`ConversationState` 원형은 `docs/specs/shared-types.md`를 참조한다.
 
 ### 9.5 MessageEvent
 
-```typescript
-type MessageEvent =
-  | { type: 'append';   message: Message }
-  | { type: 'replace';  targetId: string; message: Message }
-  | { type: 'remove';   targetId: string }
-  | { type: 'truncate' };
-```
+`MessageEvent` 원형은 `docs/specs/shared-types.md`를 참조한다.
 
 ---
 

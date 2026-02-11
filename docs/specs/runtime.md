@@ -1,6 +1,7 @@
 # Goondan Runtime 실행 모델 스펙 (v2.0)
 
 > 이 문서는 Goondan v2 Runtime의 유일한 source of truth이다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
+> 공통 타입(`Message`, `MessageEvent`, `AgentEvent`, `IpcMessage`, `TurnResult`, `ToolCallResult` 등)은 `docs/specs/shared-types.md`를 기준으로 동기화한다.
 
 ---
 
@@ -122,6 +123,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 ## 3. 핵심 타입 정의
 
 ### 3.1 공통 타입
+
+런타임 설명에 필요한 핵심 타입만 요약한다. 공통 타입 원형은 `docs/specs/shared-types.md`를 참조한다.
 
 ```typescript
 /**
@@ -1303,7 +1306,7 @@ interface ToolCatalogItem {
 }
 ```
 
-### 13.2 ToolCall / ToolResult
+### 13.2 ToolCall / ToolCallResult
 
 ```typescript
 interface ToolCall {
@@ -1317,7 +1320,7 @@ interface ToolCall {
   readonly args: JsonObject;
 }
 
-interface ToolResult {
+interface ToolCallResult {
   /** 해당 tool call ID */
   readonly toolCallId: string;
 
@@ -1327,16 +1330,21 @@ interface ToolResult {
   /** 실행 결과 */
   readonly output?: JsonValue;
 
+  /** 실행 상태 */
+  readonly status: 'ok' | 'error';
+
   /** 오류 정보 */
   readonly error?: {
-    status: 'error';
-    error: {
-      message: string;
-      name?: string;
-      code?: string;
-    };
+    message: string;
+    name?: string;
+    code?: string;
+    suggestion?: string;
+    helpUrl?: string;
   };
 }
+
+/** 하위 호환 별칭 */
+type ToolResult = ToolCallResult;
 ```
 
 ### 13.3 ToolHandler / ToolContext

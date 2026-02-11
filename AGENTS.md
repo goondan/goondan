@@ -24,13 +24,13 @@
 
 ### 구현 스펙 문서 (docs/specs/)
 - docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
-- docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API)
-- docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, 검증 오류 형식)
+- docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델)
+- docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
 - docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 분할 파일 구성)
 - docs/specs/bundle_package.md : Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
-- docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
+- docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, **Reconciliation Loop**, **Graceful Shutdown Protocol**, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
-- docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, IPC Handoff, Bun-only)
+- docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, Bun-only)
 - docs/specs/extension.md : Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - docs/specs/connector.md : Connector 시스템 스펙 v2.0 (별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - docs/specs/connection.md : Connection 시스템 스펙 v2.0 (secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증)
@@ -48,7 +48,7 @@
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**
   - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
-  - sample-3-self-evolving: Changeset 기반 자기 수정 에이전트
+  - sample-3-self-evolving: Edit & Restart 기반 자기 진화 에이전트 (파일 수정 + 재시작)
   - sample-4-compaction: LLM 대화 Compaction Extension (Token/Turn/Sliding Window 전략)
   - sample-5-package-consumer: sample-1 패키지를 의존성으로 참조하는 예제
   - sample-6-cli-chatbot: CLI 채팅봇 (초보자용 가장 단순한 구성)
@@ -65,7 +65,9 @@
 - Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함)
 
 ## v2 주요 변경사항
-- Runtime: Process-per-Agent 아키텍처 (Orchestrator 상주 프로세스 + 독립 AgentProcess/ConnectorProcess)
+- Runtime: Process-per-Agent 아키텍처 (Orchestrator 상주 프로세스 + 독립 AgentProcess/ConnectorProcess), Reconciliation Loop, Graceful Shutdown
+- Runtime 상태: ProcessStatus 7종(`spawning`, `idle`, `processing`, `draining`, `terminated`, `crashed`, `crashLoopBackOff`)
+- IPC: 3종 메시지(`event`, `shutdown`, `shutdown_ack`) + 통합 이벤트 모델(`AgentEvent`, `replyTo`)
 - Pipeline: Mutator 제거, Middleware 3종(turn/step/toolCall) 통합
 - Message: AI SDK CoreMessage 래퍼 (`Message.data`), MessageEvent 이벤트 소싱
 - Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), runtime 필드 제거

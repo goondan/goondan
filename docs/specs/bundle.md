@@ -146,7 +146,6 @@ metadata:
 | `connector` / `connectors` | Connector 리소스 |
 | `connection` / `connections` | Connection 리소스 |
 | `swarm` / `swarms` | Swarm 리소스 |
-| `secret` / `secrets` | Secret 리소스 |
 | `resources` | 여러 종류를 담는 범용 파일 |
 
 확장자는 `.yaml` 또는 `.yml` 모두 허용. 하위 디렉토리 포함 재귀 검색.

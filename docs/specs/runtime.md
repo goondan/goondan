@@ -58,6 +58,10 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 6. Orchestrator는 설정 변경 감지 또는 외부 명령 수신 시 에이전트 프로세스를 재시작할 수 있어야 한다(MUST).
 7. Orchestrator는 모든 AgentProcess가 종료되어도 상주해야 하며, 새로운 이벤트 발생 시 필요한 AgentProcess를 다시 스폰해야 한다(MUST).
 8. Orchestrator가 종료될 때 모든 자식 프로세스(AgentProcess, ConnectorProcess)도 종료해야 한다(MUST).
+9. Orchestrator는 주기적으로 실제 프로세스 상태와 설정 상태를 비교하여 불일치를 교정해야 한다(MUST). (Reconciliation Loop)
+10. AgentProcess가 반복적으로 크래시하면 Orchestrator는 지수 백오프(exponential backoff)를 적용하여 재스폰 간격을 늘려야 한다(MUST).
+11. Orchestrator는 에이전트 프로세스 종료 시 현재 진행 중인 Turn이 완료될 때까지 유예 기간(grace period)을 제공해야 한다(MUST).
+12. 유예 기간이 초과되면 Orchestrator는 프로세스를 강제 종료(SIGKILL)해야 한다(MUST).
 
 ### 2.2 AgentProcess 규칙
 
@@ -67,14 +71,17 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 4. AgentProcess의 이벤트 큐는 FIFO 순서로 직렬 처리되어야 한다(MUST).
 5. 같은 AgentProcess에 대해 Turn을 동시에 실행해서는 안 된다(MUST NOT).
 6. AgentProcess가 비정상 종료(크래시)되면 Orchestrator가 자동 재스폰할 수 있어야 한다(SHOULD).
+7. AgentProcess는 `shutdown` IPC 메시지를 수신하면 새 이벤트 수신을 중단하고, 현재 Turn을 마무리한 뒤 정상 종료해야 한다(MUST).
 
 ### 2.3 IPC 규칙
 
-1. IPC 메시지는 최소 `delegate`, `delegate_result`, `event`, `shutdown` 타입을 지원해야 한다(MUST).
+1. IPC 메시지는 `event`, `shutdown`, `shutdown_ack` 3종을 지원해야 한다(MUST).
 2. 모든 IPC 메시지는 `from`, `to`, `payload`를 포함해야 한다(MUST).
-3. `delegate`와 `delegate_result`는 `correlationId`를 포함하여 요청-응답을 매칭할 수 있어야 한다(MUST).
+3. 에이전트 간 요청-응답은 `AgentEvent.replyTo.correlationId`로 매칭해야 한다(MUST).
 4. IPC 메시지는 JSON 직렬화 가능해야 한다(MUST).
 5. 메시지 순서가 보장되어야 한다(MUST).
+6. `shutdown` 메시지의 `payload`는 `gracePeriodMs`(밀리초)와 `reason`을 포함해야 한다(MUST).
+7. `shutdown_ack` 메시지는 AgentProcess가 drain 완료 후 Orchestrator에 전송해야 한다(MUST).
 
 ### 2.4 Turn/Step 규칙
 
@@ -107,7 +114,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 
 1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
-3. 재시작 시 Orchestrator는 해당 AgentProcess를 kill한 뒤 새 설정으로 re-spawn해야 한다(MUST).
+3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown(§4.6)을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST).
 4. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
 
 ---
@@ -213,14 +220,70 @@ interface AgentProcessHandle {
   readonly instanceKey: string;
 
   /** 프로세스 상태 */
-  readonly status: 'starting' | 'idle' | 'processing' | 'terminated';
+  readonly status: ProcessStatus;
+
+  /** 연속 크래시 횟수 (reconciliation에 사용) */
+  readonly consecutiveCrashes: number;
+
+  /** 다음 재스폰 허용 시각 (crashLoopBackOff 시 설정) */
+  readonly nextSpawnAllowedAt?: Date;
 
   /** IPC 메시지 전송 */
   send(message: IpcMessage): void;
 
-  /** 프로세스 종료 */
+  /** Graceful shutdown 요청 (유예 기간 후 강제 종료) */
+  shutdown(options?: ShutdownOptions): Promise<void>;
+
+  /** 프로세스 강제 종료 (SIGKILL) */
   kill(): void;
 }
+
+/**
+ * 프로세스 상태
+ */
+type ProcessStatus =
+  | 'spawning'         // 프로세스 스폰 중
+  | 'idle'             // 대기 중 (이벤트 없음)
+  | 'processing'       // Turn 처리 중
+  | 'draining'         // Graceful shutdown: 현재 Turn 마무리 중, 새 이벤트 수신 중단
+  | 'terminated'       // 정상 종료됨
+  | 'crashed'          // 비정상 종료 (재스폰 대기)
+  | 'crashLoopBackOff'; // 반복 크래시로 백오프 중
+
+/**
+ * Graceful Shutdown 옵션
+ */
+interface ShutdownOptions {
+  /** 유예 기간 (밀리초). 기본값: SwarmPolicy.shutdown.gracePeriodSeconds * 1000 */
+  gracePeriodMs?: number;
+  /** 종료 사유 */
+  reason?: ShutdownReason;
+}
+
+type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
+
+/**
+ * ProcessStatus 감지 메커니즘.
+ *
+ * Orchestrator는 두 가지 소스로 프로세스 상태를 파악한다:
+ *
+ * 1. Bun 프로세스 API (직접 관찰):
+ *    - spawn() 호출 → 'spawning'
+ *    - exit 이벤트 + code 0 → 'terminated'
+ *    - exit 이벤트 + code ≠ 0 → 'crashed'
+ *
+ * 2. Orchestrator 내부 상태 (추적):
+ *    - shutdown IPC 전송 후 → 'draining'
+ *    - consecutiveCrashes >= 임계값 → 'crashLoopBackOff'
+ *
+ * 3. AgentProcess → Orchestrator IPC (선택적 보고):
+ *    - Turn 시작 → 'processing'
+ *    - Turn 완료/큐 비어 있음 → 'idle'
+ *
+ * 'idle'/'processing' 구분은 Orchestrator가 AgentProcess의 이벤트 큐
+ * 상태를 IPC로 보고받아 추적한다. 보고가 없으면 'spawning' 이후
+ * 프로세스가 살아있는 동안은 'idle'로 간주한다(SHOULD).
+ */
 ```
 
 ### 4.3 instanceKey 라우팅
@@ -245,6 +308,109 @@ ConnectorProcess ──[ConnectorEvent]──> Orchestrator
                                           ├── instanceKey로 AgentProcess 조회/스폰
                                           │
                                           └──[AgentEvent via IPC]──> AgentProcess
+```
+
+### 4.5 Reconciliation Loop (상태 조정 루프)
+
+Orchestrator는 주기적으로 **desired state**와 **actual state**를 비교하고 불일치를 교정한다.
+
+#### Desired State (설정에서 결정)
+
+- `Swarm.agents[]`에 선언된 Agent 목록
+- Bundle 내 Connection이 참조하는 Connector 목록
+- ConnectorProcess는 항상 실행 상태를 유지해야 한다 (외부 이벤트 수신 대기)
+- AgentProcess는 이벤트 수신 시 on-demand로 스폰된다
+
+#### Actual State (Orchestrator가 직접 관찰)
+
+| 소스 | 관찰 대상 | 설명 |
+|------|-----------|------|
+| `Bun.spawn()` 반환값 | pid 존재 여부 | 프로세스가 살아있는지 |
+| Bun `exit` 이벤트 | exit code | 0이면 정상, ≠0이면 크래시 |
+| Orchestrator 내부 맵 | `agents: Map<string, AgentProcessHandle>` | 스폰한 프로세스 목록과 상태 |
+| 시간 추적 | `consecutiveCrashes`, `nextSpawnAllowedAt` | crash loop 판정 |
+
+> Orchestrator는 외부 상태 저장소가 아니라 **자신의 프로세스 맵**이 actual state이다. 프로세스를 직접 스폰하고 exit 이벤트를 받으므로 항상 정확한 상태를 알고 있다.
+
+**규칙:**
+
+1. Orchestrator는 주기적으로(기본 5초 간격) reconciliation을 수행해야 한다(MUST).
+2. ConnectorProcess가 실행되지 않고 있으면 스폰해야 한다(MUST).
+3. 설정에서 제거된 Agent/Connector의 프로세스가 남아 있으면 graceful shutdown을 수행해야 한다(MUST).
+4. `crashed` 상태의 프로세스는 백오프 정책에 따라 재스폰해야 한다(MUST).
+
+```typescript
+interface ReconciliationResult {
+  /** 스폰이 필요한 프로세스 */
+  readonly toSpawn: Array<{ agentName: string; instanceKey: string }>;
+  /** 종료가 필요한 프로세스 */
+  readonly toTerminate: Array<{ agentName: string; reason: string }>;
+  /** 재스폰이 필요한 프로세스 (크래시 복구) */
+  readonly toRespawn: Array<{ agentName: string; instanceKey: string; backoffMs: number }>;
+}
+```
+
+#### Crash Loop 감지 및 백오프
+
+**규칙:**
+
+1. AgentProcess가 비정상 종료하면 `consecutiveCrashes`를 1 증가시켜야 한다(MUST).
+2. AgentProcess가 정상 Turn을 1회 이상 완료하면 `consecutiveCrashes`를 0으로 리셋해야 한다(MUST).
+3. `consecutiveCrashes`가 임계값(기본 5)을 초과하면 상태를 `crashLoopBackOff`로 전환해야 한다(MUST).
+4. 백오프 간격은 `min(initialBackoffMs * 2^(crashes - 1), maxBackoffMs)`로 계산해야 한다(MUST). 기본값: `initialBackoffMs=1000`, `maxBackoffMs=300000` (5분).
+5. `crashLoopBackOff` 상태인 프로세스는 `nextSpawnAllowedAt` 이전에 재스폰하지 않아야 한다(MUST).
+6. Orchestrator는 `crashLoopBackOff` 상태를 구조화된 로그로 출력해야 한다(MUST).
+
+```
+예시 시나리오:
+  crash 1: 즉시 재스폰
+  crash 2: 즉시 재스폰
+  crash 3: 즉시 재스폰
+  crash 4: 즉시 재스폰
+  crash 5: 즉시 재스폰
+  crash 6: crashLoopBackOff → 1초 대기 후 재스폰
+  crash 7: crashLoopBackOff → 2초 대기
+  crash 8: crashLoopBackOff → 4초 대기
+  ...
+  crash N: crashLoopBackOff → 최대 5분 대기
+```
+
+### 4.6 Graceful Shutdown Protocol
+
+Orchestrator가 AgentProcess를 종료할 때, 진행 중인 Turn의 데이터 손실을 방지하기 위한 프로토콜이다.
+
+**규칙:**
+
+1. Orchestrator는 프로세스 종료 시 먼저 `shutdown` IPC 메시지를 전송해야 한다(MUST).
+2. `shutdown` 메시지의 `payload`는 `gracePeriodMs`와 `reason`을 포함해야 한다(MUST).
+3. AgentProcess는 `shutdown` 수신 시 상태를 `draining`으로 전환해야 한다(MUST).
+4. `draining` 상태에서는 새 이벤트를 큐에서 꺼내지 않아야 한다(MUST).
+5. `draining` 상태에서 진행 중인 Turn이 있으면 완료까지 실행해야 한다(MUST).
+6. Turn 완료 후 `events → base` 폴딩을 수행한 뒤 `shutdown_ack` IPC 메시지를 보내고 프로세스를 종료해야 한다(MUST).
+7. 진행 중인 Turn이 없으면 즉시 `shutdown_ack`를 보내고 종료해야 한다(MUST).
+8. `gracePeriodMs` 내에 `shutdown_ack`가 도착하지 않으면 Orchestrator는 SIGKILL로 강제 종료해야 한다(MUST).
+9. 강제 종료된 경우 미폴딩 events는 다음 프로세스 기동 시 `BaseMessages + SUM(Events)` 재계산으로 복원된다.
+
+**Shutdown 흐름:**
+
+```
+Orchestrator                          AgentProcess
+    │                                      │
+    ├── shutdown IPC ──────────────────>    │
+    │   { type: 'shutdown',                │
+    │     payload: {                       ├── status → 'draining'
+    │       gracePeriodMs: 30000,          ├── 새 이벤트 수신 중단
+    │       reason: 'config_change'        ├── 현재 Turn 완료 대기 (restart | config_change | orchestrator_shutdown)
+    │     }}                               │
+    │                                      ├── Turn 완료
+    │                                      ├── events → base 폴딩
+    │   <────────── shutdown_ack ───────────┤
+    │   { type: 'shutdown_ack',            │
+    │     from: 'coder' }                  └── process.exit(0)
+    │
+    ├── 정상 종료 확인
+    │
+    ─── (gracePeriodMs 초과 시) ──>    SIGKILL
 ```
 
 ---
@@ -297,10 +463,16 @@ interface AgentProcess {
   processTurn(event: AgentEvent): Promise<TurnResult>;
 
   /** 프로세스 상태 */
-  readonly status: 'idle' | 'processing' | 'terminated';
+  readonly status: ProcessStatus;
 
   /** 대화 히스토리 */
   readonly conversationHistory: Message[];
+
+  /**
+   * Graceful shutdown 처리.
+   * draining 상태로 전환 → 현재 Turn 완료 → events 폴딩 → shutdown_ack 전송 → 종료.
+   */
+  drain(): Promise<void>;
 }
 ```
 
@@ -330,24 +502,27 @@ interface AgentEventQueue {
 }
 ```
 
-### 5.5 AgentEvent 타입
+### 5.5 AgentEvent 타입 (통합 이벤트 모델)
+
+delegate와 connector event를 통합한 **단일 이벤트 모델**이다. 받는 에이전트 입장에서 이벤트의 출처(다른 에이전트, Connector, CLI)는 `source` 메타데이터일 뿐이며, 응답 여부는 `replyTo` 유무로 결정된다.
 
 ```typescript
 /**
- * AgentEvent: AgentProcess로 전달되는 이벤트
+ * AgentEvent: AgentProcess로 전달되는 모든 입력의 단일 타입.
+ * 이전의 delegate, connector.event, user.input을 통합한다.
  */
 interface AgentEvent {
   /** 이벤트 ID */
   readonly id: string;
 
-  /** 이벤트 타입 */
-  readonly type: AgentEventType;
+  /** 이벤트 타입 (자유 문자열, 라우팅/필터링용) */
+  readonly type: string;
 
-  /** 입력 텍스트 (user input 등) */
+  /** 입력 텍스트 */
   readonly input?: string;
 
-  /** 호출 맥락 (Connector 정보 등) */
-  readonly origin?: TurnOrigin;
+  /** 이벤트 출처 */
+  readonly source: EventSource;
 
   /** 인증 컨텍스트 */
   readonly auth?: TurnAuth;
@@ -355,18 +530,49 @@ interface AgentEvent {
   /** 이벤트 메타데이터 */
   readonly metadata?: JsonObject;
 
+  /**
+   * 응답 채널. 존재하면 발신자가 응답을 기대한다.
+   * - 있으면: 에이전트 간 request (이전의 delegate)
+   * - 없으면: fire-and-forget (Connector 이벤트, 단방향 알림 등)
+   */
+  readonly replyTo?: ReplyChannel;
+
   /** 이벤트 생성 시각 */
   readonly createdAt: Date;
 }
 
-type AgentEventType =
-  | 'user.input'             // 사용자 입력
-  | 'connector.event'        // Connector에서 전달된 이벤트
-  | 'agent.delegate'         // 다른 에이전트로부터 위임
-  | 'agent.delegationResult' // 위임 결과 반환
-  | 'system.wakeup'          // 시스템 재개
-  | string;                  // 확장 이벤트 타입
+/**
+ * 이벤트 출처. 이전의 TurnOrigin을 대체한다.
+ */
+interface EventSource {
+  /** 출처 종류: agent(다른 에이전트) 또는 connector(외부 프로토콜) */
+  readonly kind: 'agent' | 'connector';
+  /** 출처 이름 (에이전트 이름, 커넥터 이름) */
+  readonly name: string;
+  /** 추가 출처 메타데이터 (채널 ID, 스레드 등) */
+  readonly [key: string]: JsonValue | undefined;
+}
+
+/**
+ * 응답 채널. 발신자가 응답을 기대할 때 설정된다.
+ */
+interface ReplyChannel {
+  /** 응답을 받을 에이전트 이름 */
+  readonly target: string;
+  /** 요청↔응답 매칭용 ID */
+  readonly correlationId: string;
+}
 ```
+
+**이전 모델과의 대응:**
+
+| 이전 (v2 초기) | 통합 모델 |
+|----------------|-----------|
+| `type: 'agent.delegate'` + IPC `delegate` | `source: { kind: 'agent' }` + `replyTo: { target, correlationId }` |
+| `type: 'agent.delegationResult'` + IPC `delegate_result` | 응답 이벤트: `source: { kind: 'agent' }` + `metadata.inReplyTo: correlationId` |
+| `type: 'connector.event'` + IPC `event` | `source: { kind: 'connector', name: 'telegram', ... }` + `replyTo` 없음 |
+| `type: 'user.input'` | `source: { kind: 'connector', name: 'cli' }` + `replyTo` 없음 |
+| `TurnOrigin` | `EventSource` (kind 필드 추가) |
 
 ---
 
@@ -376,55 +582,98 @@ type AgentEventType =
 
 ### 6.1 IPC 메시지 타입
 
+통합 이벤트 모델에 따라 IPC 메시지는 **3종**으로 단순화된다. 이전의 `delegate`/`delegate_result`는 `event` 타입의 `AgentEvent.replyTo`로 통합된다.
+
 ```typescript
 interface IpcMessage {
   /** 메시지 타입 */
-  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
+  type: 'event' | 'shutdown' | 'shutdown_ack';
 
-  /** 발신 Agent 이름 */
+  /** 발신자 (에이전트 이름 또는 'orchestrator') */
   from: string;
 
-  /** 수신 Agent 이름 */
+  /** 수신자 (에이전트 이름 또는 'orchestrator') */
   to: string;
 
   /** 메시지 페이로드 */
   payload: JsonValue;
-
-  /** 요청-응답 매칭용 상관 ID */
-  correlationId?: string;
 }
+
+// type: 'event'        → payload: AgentEvent
+// type: 'shutdown'     → payload: { gracePeriodMs: number, reason: ShutdownReason }
+// type: 'shutdown_ack' → payload: { status: 'drained' }
+
+type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
 ```
 
 **규칙:**
 
-1. IPC 메시지는 최소 `delegate`, `delegate_result`, `event`, `shutdown` 타입을 지원해야 한다(MUST).
-2. 모든 IPC 메시지는 `from`(발신 Agent), `to`(수신 Agent), `payload`를 포함해야 한다(MUST).
-3. `delegate`와 `delegate_result`는 `correlationId`를 포함하여 요청-응답을 매칭할 수 있어야 한다(MUST).
+1. IPC 메시지는 `event`, `shutdown`, `shutdown_ack` 3종을 지원해야 한다(MUST).
+2. 모든 IPC 메시지는 `from`, `to`, `payload`를 포함해야 한다(MUST).
+3. `event` 타입의 `payload`는 `AgentEvent` 구조를 따라야 한다(MUST).
+4. 에이전트 간 요청-응답은 `AgentEvent.replyTo.correlationId`로 매칭해야 한다(MUST).
+5. `shutdown` 메시지의 `payload`는 `gracePeriodMs`와 `reason`을 포함해야 한다(MUST).
+6. `shutdown_ack` 메시지는 AgentProcess가 drain 완료 후 Orchestrator에 전송해야 한다(MUST).
 
-### 6.2 위임(Delegate) 흐름
+### 6.2 통합 이벤트 흐름
 
-Handoff는 IPC를 통한 도구 호출 기반 비동기 패턴으로 제공한다.
+모든 에이전트 입력(Connector 이벤트, 에이전트 간 요청, CLI 입력)은 `AgentEvent`로 통합된다.
+
+#### Connector → Agent (fire-and-forget)
+
+```
+ConnectorProcess → Orchestrator:
+  { type: 'event', payload: {
+      id: 'evt-1', type: 'user_message', input: 'Hello',
+      source: { kind: 'connector', name: 'telegram', chat_id: '123' },
+      replyTo: undefined   ← 응답 불필요
+  }}
+
+Orchestrator → AgentProcess:
+  (Connection ingress 규칙에 따라 라우팅)
+```
+
+#### Agent → Agent (request + response)
 
 ```
 1. AgentA → Orchestrator:
-   { type: 'delegate', to: 'AgentB', payload: {...}, correlationId: '...' }
+   { type: 'event', payload: {
+       id: 'evt-2', type: 'request', input: 'Review this code',
+       source: { kind: 'agent', name: 'coder' },
+       replyTo: { target: 'coder', correlationId: 'corr-abc' }  ← 응답 기대
+   }}
 
-2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
+2. Orchestrator → AgentB로 라우팅 (필요시 스폰)
 
 3. AgentB 처리 후 → Orchestrator:
-   { type: 'delegate_result', to: 'AgentA', correlationId: '...', payload: {...} }
+   { type: 'event', payload: {
+       id: 'evt-3', type: 'response', input: 'LGTM',
+       source: { kind: 'agent', name: 'reviewer' },
+       metadata: { inReplyTo: 'corr-abc' }
+   }}
 
-4. Orchestrator → AgentA로 결과 전달
+4. Orchestrator → correlationId 'corr-abc'를 대기 중인 AgentA로 전달
+```
+
+#### Agent → Agent (fire-and-forget)
+
+```
+AgentA → Orchestrator:
+  { type: 'event', payload: {
+      id: 'evt-4', type: 'notification', input: 'Build completed',
+      source: { kind: 'agent', name: 'builder' },
+      replyTo: undefined   ← 응답 불필요
+  }}
 ```
 
 **규칙:**
 
-1. Handoff는 표준 Tool API를 통해 요청되어야 한다(MUST).
-2. 최소 입력으로 대상 Agent 식별자와 입력 프롬프트를 포함해야 한다(MUST).
-3. 추가 context 전달 필드를 지원할 수 있다(MAY).
-4. Handoff 요청 후 원래 Agent는 상태를 종료하지 않고 비동기 응답을 대기할 수 있어야 한다(SHOULD).
-5. Handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다(SHOULD).
-6. Orchestrator는 위임 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
+1. 에이전트 간 통신은 표준 Tool API(`agents__request`, `agents__send`)를 통해 요청되어야 한다(MUST).
+2. `replyTo`가 있는 이벤트를 수신한 AgentProcess는 Turn 완료 후 응답 이벤트를 전송해야 한다(MUST).
+3. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
+4. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+5. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
+6. 요청 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
 
 ### 6.3 IPC 전송 메커니즘
 
@@ -459,7 +708,7 @@ Turn과 Step은 기존과 동일한 개념이나, **단일 AgentProcess 내에�
 
 Turn은 하나의 입력 이벤트 처리 단위이다.
 
-- 입력: `AgentEvent` (사용자 메시지, delegate, ConnectorEvent 등)
+- 입력: `AgentEvent` (통합 이벤트: Connector 이벤트, 에이전트 간 요청, CLI 입력 등)
 - 출력: `TurnResult` (응답 메시지, 상태 변화)
 - 복수 Step을 포함
 
@@ -564,7 +813,7 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
   };
 
   // 입력 이벤트를 메시지로 변환하여 이벤트 발행
-  state.emitEvent({ type: 'append', message: createUserMessage(event.input) });
+  state.emitMessageEvent({ type: 'append', message: createUserMessage(event.input) });
 
   let stepIndex = 0;
   while (true) {
@@ -593,31 +842,16 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
 }
 ```
 
-### 7.4 Turn Origin/Auth 컨텍스트
+### 7.4 Turn Source/Auth 컨텍스트
 
 **규칙:**
 
 1. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
-2. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+2. Runtime이 에이전트 간 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+
+> `TurnOrigin`은 `EventSource`(§5.5)로 통합되었다. Turn의 호출 맥락은 `AgentEvent.source`에서 참조한다.
 
 ```typescript
-/**
- * TurnOrigin: Turn의 호출 맥락 정보
- */
-interface TurnOrigin {
-  /** Connector 이름 */
-  connector?: string;
-
-  /** 채널 식별자 */
-  channel?: string;
-
-  /** 스레드 식별자 */
-  threadTs?: string;
-
-  /** 추가 맥락 정보 */
-  [key: string]: JsonValue | undefined;
-}
-
 /**
  * TurnAuth: Turn의 인증 컨텍스트
  */
@@ -726,7 +960,7 @@ interface ConversationState {
   toLlmMessages(): CoreMessage[];
 
   /** MessageEvent 발행 */
-  emitEvent(event: MessageEvent): void;
+  emitMessageEvent(event: MessageEvent): void;
 
   /** Turn 종료 시 events → base 폴딩 */
   foldEventsToBase(): Promise<void>;
@@ -845,22 +1079,22 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 ```
 1. goondan.yaml (또는 개별 리소스 파일) 수정
 2. Orchestrator가 설정 변경을 감지하거나 명령을 수신
-3. Orchestrator가 해당 에이전트 프로세스 kill → 새 설정으로 re-spawn
+3. Orchestrator가 해당 에이전트 프로세스에 graceful shutdown → 새 설정으로 re-spawn
 ```
 
 **규칙:**
 
 1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
-3. 재시작 시 Orchestrator는 해당 AgentProcess를 kill한 뒤 새 설정으로 re-spawn해야 한다(MUST).
+3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST). Graceful shutdown 프로토콜은 §4.6을 따른다.
 
 ### 9.3 재시작 트리거
 
 | 트리거 | 설명 |
 |--------|------|
-| `--watch` 모드 | Orchestrator가 파일 변경을 감지하면 영향받는 AgentProcess를 자동 재시작(MUST) |
+| `--watch` 모드 | Orchestrator가 파일 변경을 감지하면 영향받는 AgentProcess를 graceful shutdown 후 자동 재시작(MUST) |
 | CLI 명령 | `gdn restart`를 통해 실행 중인 Orchestrator에 재시작 신호 전송(MUST) |
-| 크래시 감지 | Orchestrator가 AgentProcess 비정상 종료 시 자동 재스폰(SHOULD) |
+| 크래시 감지 | Orchestrator Reconciliation Loop(§4.5)가 비정상 종료를 감지하고 백오프 정책에 따라 재스폰(SHOULD) |
 
 ### 9.4 재시작 옵션
 
@@ -1080,7 +1314,7 @@ interface ToolCall {
   readonly name: string;
 
   /** 입력 인자 */
-  readonly input: JsonObject;
+  readonly args: JsonObject;
 }
 
 interface ToolResult {
@@ -1128,6 +1362,9 @@ interface ToolContext {
   /** 이 도구 호출을 트리거한 메시지 */
   readonly message: Message;
 
+  /** 인스턴스별 작업 디렉터리 */
+  readonly workdir: string;
+
   /** 로거 */
   readonly logger: Console;
 }
@@ -1152,9 +1389,13 @@ interface ToolContext {
 9. Orchestrator 종료 시 모든 자식 프로세스도 종료해야 한다.
 10. 인스턴스 관리 연산(`list`, `delete`)을 제공해야 한다.
 11. 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다.
-12. Handoff는 표준 Tool API를 통해 요청되어야 한다.
-13. IPC 메시지는 JSON 직렬화 가능해야 하며, 메시지 순서가 보장되어야 한다.
+12. 에이전트 간 통신은 통합 이벤트 모델(AgentEvent + replyTo)을 사용해야 한다.
+13. IPC 메시지는 `event`/`shutdown`/`shutdown_ack` 3종이며, JSON 직렬화 가능해야 하고 순서가 보장되어야 한다.
 14. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다.
+15. Orchestrator는 Reconciliation Loop(§4.5)로 desired/actual 상태 불일치를 주기적으로 교정해야 한다.
+16. 반복 크래시 시 지수 백오프(crashLoopBackOff)를 적용해야 한다.
+17. 프로세스 종료 시 Graceful Shutdown Protocol(§4.6)을 따라야 한다 — drain → 폴딩 → ack → 종료.
+18. 유예 기간 초과 시 SIGKILL로 강제 종료해야 한다.
 
 ### SHOULD 권장사항
 
@@ -1163,15 +1404,17 @@ interface ToolContext {
 3. Turn/Step/ToolCall 메트릭을 구조화된 로그로 출력한다.
 4. TTL/idle 기반 인스턴스 자동 정리 정책을 제공한다.
 5. IPC 구현은 Bun의 내장 IPC를 사용한다.
-6. Handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다.
+6. `replyTo` 있는 이벤트의 응답은 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다.
 7. `replace`/`remove` 대상 `targetId`가 존재하지 않으면 구조화된 경고 이벤트를 남겨야 한다.
+8. Orchestrator는 `crashLoopBackOff` 상태를 구조화된 로그와 CLI(`gdn instance list`) 출력에 포함해야 한다.
 
 ### MAY 선택사항
 
 1. `Swarm.policy.maxStepsPerTurn` 적용.
 2. Orchestrator가 자식 프로세스 stdout/stderr을 통합 수집.
 3. Health check 인터페이스 제공.
-4. Handoff 시 추가 context 전달 필드 지원.
+4. 에이전트 간 이벤트에 추가 context 전달 필드 지원.
+5. Reconciliation 주기를 `SwarmPolicy`로 조정 가능.
 
 ---
 
@@ -1181,8 +1424,8 @@ interface ToolContext {
 |------|-----------|-----------|
 | **런타임** | Node.js (`runtime: node`) | Bun only (필드 제거) |
 | **에이전트 실행** | 단일 프로세스 내 다중 AgentInstance | **Process-per-Agent** |
-| **에이전트 간 통신** | 인-메모리 호출 | IPC (Orchestrator 경유) |
-| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** |
+| **에이전트 간 통신** | 인-메모리 호출 | IPC (Orchestrator 경유), **통합 이벤트 모델** (delegate/event 통합) |
+| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** (Graceful Shutdown 포함) |
 | **메시지 타입** | 커스텀 `LlmMessage` | **Message** (AI SDK `CoreMessage` 래핑) |
 | **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseMessages + SUM(MessageEvents)` (이벤트 소싱 유지) |
 | **인스턴스 관리** | pause/resume/terminate/delete | **restart + delete** |

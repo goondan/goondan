@@ -95,9 +95,6 @@ spec:
     PORT:
       valueFrom:
         env: TELEGRAM_WEBHOOK_PORT
-    WEBHOOK_SECRET:
-      valueFrom:
-        env: TELEGRAM_WEBHOOK_SECRET
 
   # 선택: Ingress 라우팅 규칙
   ingress:
@@ -263,9 +260,6 @@ secrets:
       env: TELEGRAM_BOT_TOKEN
   PORT:
     value: "3000"
-  SIGNING_SECRET:
-    valueFrom:
-      env: TELEGRAM_WEBHOOK_SECRET
 ```
 
 ### 6.3 ValueSource 패턴
@@ -356,6 +350,7 @@ interface ConnectionVerify {
 1. `verify.webhook.signingSecret`은 ValueSource 패턴을 따른다(MUST).
 2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
 3. `verify`는 `secrets`와 독립적으로 설정할 수 있다(MAY). `verify.webhook.signingSecret` 값은 `ctx.secrets`에도 자동으로 포함되어 Connector가 접근할 수 있어야 한다(SHOULD).
+4. 동일 서명 시크릿을 `secrets`와 `verify.webhook.signingSecret`에 중복 선언하지 않아야 한다(SHOULD NOT).
 
 > **v2 변경**: `provider` 필드 없음. 서명 검증 알고리즘은 Connector가 자체적으로 구현한다.
 
@@ -453,9 +448,6 @@ spec:
         env: SLACK_BOT_TOKEN
     PORT:
       value: "3001"
-    SIGNING_SECRET:
-      valueFrom:
-        env: SLACK_SIGNING_SECRET
 
   ingress:
     rules:

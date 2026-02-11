@@ -5,6 +5,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 ## 파일 구조
 
 - `api.md` - Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, ConversationState 규칙)
+- `shared-types.md` - 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - `resources.md` - Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", Selector+Overrides, ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 경로 해석, 분할 파일 구성)
 - `bundle_package.md` - Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
@@ -42,11 +43,13 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
    - Tool 이름: `__` 더블 언더스코어 구분자 (`{리소스명}__{export명}`)
    - Runtime Process 상태: `ProcessStatus` 7종(`spawning`, `idle`, `processing`, `draining`, `terminated`, `crashed`, `crashLoopBackOff`)
    - IPC: `event`/`shutdown`/`shutdown_ack` 3종 + `AgentEvent.replyTo` 기반 통합 이벤트 모델
+   - 공통 타입 SSOT: `shared-types.md` 기준으로 문서 간 타입 드리프트 방지
    - Connector: 별도 Bun 프로세스, triggers 필드 제거, 자체 프로토콜 관리
    - Connection: `auth` 필드 제거 → `secrets` 필드로 대체, OAuth는 Extension 내부 구현
    - Changeset: 제거 → Edit & Restart 모델 (runtime.md 참조)
    - OAuth: OAuthApp Kind 제거 → Extension 내부 구현
    - Pipeline: Mutator 제거 → Middleware 통합 (turn/step/toolCall 3종)
+6. **공통 타입 단일 기준**: 문서 간 공유 타입은 `shared-types.md`를 먼저 갱신하고, 개별 스펙은 링크/참조 중심으로 유지합니다.
 
 ## 관련 문서
 

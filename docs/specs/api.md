@@ -2,6 +2,8 @@
 
 v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. v2에서는 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기반으로 API 표면을 대폭 단순화한다.
 
+> 공통 타입의 단일 기준(SSOT)은 `docs/specs/shared-types.md`이다. 이 문서의 타입 예시는 API 맥락 설명을 위한 축약본이며, 구조 변경 시 `shared-types.md`를 먼저 갱신해야 한다.
+
 ---
 
 ## 1. 공통 타입
@@ -22,11 +24,11 @@ type JsonValue = JsonPrimitive | JsonObject | JsonArray;
  * 리소스 참조 - 문자열 축약 또는 객체형
  *
  * 문자열 축약: "Kind/name" (예: "Tool/bash", "Agent/coder")
- * 객체형: { kind, name }
+ * 객체형: { kind, name, package?, apiVersion? }
  */
 type ObjectRefLike =
   | string
-  | { kind: string; name: string };
+  | { kind: string; name: string; package?: string; apiVersion?: string };
 
 // 사용 예시
 const toolRef1: ObjectRefLike = "Tool/bash";
@@ -655,15 +657,22 @@ interface ConnectionSpec {
   /** Connector 참조 */
   connectorRef: ObjectRefLike;
 
-  /** Swarm 참조 */
-  swarmRef: ObjectRefLike;
+  /** Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
+  swarmRef?: ObjectRefLike;
 
   /** Connector에 전달할 시크릿 */
   secrets?: Record<string, ValueSource>;
 
+  /** 서명 검증 시크릿 설정 */
+  verify?: {
+    webhook?: {
+      signingSecret: ValueSource;
+    };
+  };
+
   /** Ingress 라우팅 규칙 */
   ingress?: {
-    rules: IngressRule[];
+    rules?: IngressRule[];
   };
 }
 
@@ -680,8 +689,17 @@ interface IngressRule {
 }
 
 type ValueSource =
-  | { value: string }
-  | { valueFrom: { env: string } };
+  | { value: string; valueFrom?: never }
+  | { value?: never; valueFrom: ValueFrom };
+
+type ValueFrom =
+  | { env: string; secretRef?: never }
+  | { env?: never; secretRef: SecretRef };
+
+interface SecretRef {
+  ref: string; // "Secret/<name>"
+  key: string;
+}
 ```
 
 **규칙:**
@@ -1048,10 +1066,15 @@ interface EventSchema {
 // Connection Spec
 interface ConnectionSpec {
   connectorRef: ObjectRefLike;
-  swarmRef: ObjectRefLike;
+  swarmRef?: ObjectRefLike;
   secrets?: Record<string, ValueSource>;
+  verify?: {
+    webhook?: {
+      signingSecret: ValueSource;
+    };
+  };
   ingress?: {
-    rules: IngressRule[];
+    rules?: IngressRule[];
   };
 }
 

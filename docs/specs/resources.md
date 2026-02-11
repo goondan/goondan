@@ -27,7 +27,7 @@ Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 
 
 1. **단일 식별**: 모든 리소스는 `kind + metadata.name` 조합(동일 package 범위 내)으로 고유하게 식별된다.
 2. **Fail-Fast 검증**: 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행하며, 하나라도 오류가 있으면 부분 로드 없이 전체를 거부한다.
-3. **선언적 참조**: 리소스 간 관계는 ObjectRef 또는 Selector로 선언하며, 런타임이 참조를 해석한다.
+3. **선언적 참조**: 리소스 간 관계는 ObjectRef(`Kind/name` 또는 `ref`) 또는 Selector로 선언하며, 런타임이 참조를 해석한다.
 4. **Bun 네이티브**: Tool, Extension, Connector의 `runtime` 필드를 제거하고, 모든 실행 환경을 Bun으로 통일하여 복잡도를 낮춘다.
 
 ---
@@ -306,9 +306,16 @@ interface SelectorWithOverrides {
 }
 
 /**
- * ObjectRef 또는 Selector+Overrides의 유니온
+ * 명시적 ref 래퍼
  */
-type RefOrSelector = ObjectRefLike | SelectorWithOverrides;
+interface RefItem {
+  ref: ObjectRefLike;
+}
+
+/**
+ * ObjectRef/RefItem/Selector+Overrides의 유니온
+ */
+type RefOrSelector = ObjectRefLike | RefItem | SelectorWithOverrides;
 ```
 
 ### YAML 예시
@@ -645,6 +652,7 @@ interface ToolContext {
   readonly turnId: string;
   readonly toolCallId: string;
   readonly message: Message;
+  readonly workdir: string;
   readonly logger: Console;
 }
 ```
@@ -913,8 +921,8 @@ spec:
 | `prompts` | MUST | object | `systemPrompt` 또는 `systemRef` 중 하나 이상 |
 | `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
 | `prompts.systemRef` | MAY | string | 파일 경로 |
-| `tools` | MAY | array | ObjectRef 또는 Selector 배열 |
-| `extensions` | MAY | array | ObjectRef 또는 Selector 배열 |
+| `tools` | MAY | array | ObjectRef/RefItem/Selector 배열 |
+| `extensions` | MAY | array | ObjectRef/RefItem/Selector 배열 |
 
 **추가 검증 규칙:**
 - `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
@@ -1345,81 +1353,16 @@ spec:
 
 ---
 
-## 9. 공통 타입 정의
+## 9. 공통 타입 참조
 
-### JSON 기본 타입
+이 문서에서 사용되는 공통 타입은 `docs/specs/shared-types.md`를 단일 기준(SSOT)으로 사용한다.
 
-```typescript
-/** JSON 원시 타입 */
-type JsonPrimitive = string | number | boolean | null;
+- JSON 타입: `JsonPrimitive`, `JsonValue`, `JsonObject`, `JsonArray`
+- 참조 타입: `ObjectRefLike`, `ObjectRef`, `RefItem`, `Selector`, `SelectorWithOverrides`, `RefOrSelector`
+- 비밀값 타입: `ValueSource`, `ValueFrom`, `SecretRef`
+- 메시지/도구 타입: `Message`, `ToolContext`
 
-/** JSON 값 */
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-
-/** JSON 객체 */
-type JsonObject = { [key: string]: JsonValue };
-
-/** JSON 배열 */
-type JsonArray = JsonValue[];
-```
-
-### 유틸리티 타입
-
-```typescript
-/**
- * 리소스 타입 가드
- */
-function isResource(value: unknown): value is Resource {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'apiVersion' in value &&
-    'kind' in value &&
-    'metadata' in value &&
-    'spec' in value
-  );
-}
-
-/**
- * Kind별 리소스 타입 가드
- */
-function isResourceOfKind<K extends KnownKind>(
-  value: unknown,
-  kind: K
-): value is Resource {
-  return isResource(value) && value.kind === kind;
-}
-
-/**
- * ObjectRef 판별
- */
-function isObjectRef(value: unknown): value is ObjectRef {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'kind' in value &&
-    'name' in value
-  );
-}
-
-/**
- * ObjectRefLike 판별 (문자열 또는 객체)
- */
-function isObjectRefLike(value: unknown): value is ObjectRefLike {
-  return typeof value === 'string' || isObjectRef(value);
-}
-
-/**
- * Selector 판별
- */
-function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'selector' in value
-  );
-}
-```
+리소스 스키마 문서(`resources.md`)는 타입의 원형 정의를 중복 선언하기보다, 각 Kind의 필드 규칙과 검증 규칙에 집중해야 한다.
 
 ---
 

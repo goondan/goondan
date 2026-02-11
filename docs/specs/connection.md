@@ -1,5 +1,7 @@
 # Goondan Connection 스펙 v2.0
 
+> 공통 타입(`ObjectRefLike`, `ValueSource`, `Ingress*`)의 단일 기준은 `docs/specs/shared-types.md`이다.
+
 ## 1. 개요
 
 ### 1.1 배경 및 설계 철학
@@ -270,14 +272,22 @@ type ValueSource =
   | { value?: never; valueFrom: ValueFrom };
 
 type ValueFrom =
-  | { env: string };
+  | { env: string; secretRef?: never }
+  | { env?: never; secretRef: SecretRef };
+
+interface SecretRef {
+  ref: string; // "Secret/<name>"
+  key: string;
+}
 ```
 
 규칙:
 
 1. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
-2. `secrets`에 정의된 모든 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
-3. 환경변수가 존재하지 않으면 검증 단계에서 경고를 발생시키거나 빈 문자열로 처리한다(SHOULD).
+2. `valueFrom.env`와 `valueFrom.secretRef`는 동시에 존재할 수 없다(MUST).
+3. `secretRef.ref`는 `Secret/<name>` 형식을 따라야 한다(MUST).
+4. `secrets`에 정의된 모든 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
+5. 환경변수가 존재하지 않으면 검증 단계에서 경고를 발생시키거나 빈 문자열로 처리한다(SHOULD).
 
 ---
 

@@ -252,6 +252,8 @@ metadata:
 
 ## 4. ObjectRef 상세
 
+이 섹션은 번들 문맥의 사용 예시를 다룬다. ObjectRef 타입 원형/규칙의 단일 기준(SSOT)은 `docs/specs/shared-types.md`와 `docs/specs/resources.md` 5절이다.
+
 ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 
 ### 4.1 지원 형식
@@ -315,6 +317,8 @@ tools:
 ---
 
 ## 5. Selector + Overrides 상세
+
+이 섹션은 로딩 시점 동작 예시를 다룬다. `Selector`, `SelectorWithOverrides`, `RefOrSelector` 타입 원형은 `docs/specs/shared-types.md`와 `docs/specs/resources.md` 6절을 기준으로 한다.
 
 Selector는 라벨 기반으로 리소스를 선택하고, Overrides는 선택된 리소스의 설정을 덮어쓴다.
 
@@ -422,6 +426,8 @@ spec:
 ---
 
 ## 6. ValueSource 상세
+
+이 섹션은 번들 작성 관점의 예시를 다룬다. `ValueSource`/`SecretRef` 타입 원형은 `docs/specs/shared-types.md`와 `docs/specs/resources.md` 7절을 기준으로 한다.
 
 ValueSource는 설정 값을 다양한 소스에서 가져오는 패턴을 정의한다. Model의 apiKey, Connection의 secrets 등에서 사용된다.
 
@@ -627,6 +633,8 @@ my-swarm/
 ---
 
 ## 10. Validation 규칙 요약
+
+공통 검증 규칙(참조 무결성, ValueSource 상호배타, Kind별 스키마)은 `docs/specs/resources.md`를 단일 기준으로 한다. 본 섹션은 번들 로더 관점의 추가 제약만 요약한다.
 
 ### 10.1 로드 단계 검증
 

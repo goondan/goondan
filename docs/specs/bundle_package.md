@@ -586,7 +586,7 @@ packages:
 ### 13.1 개요
 
 Goondan CLI(`gdn`)는 Package를 관리하기 위한 `package` 하위 명령어를 제공한다.
-모든 `gdn package *` 명령어는 `goondan.yaml`의 Package 문서를 읽고 쓴다.
+지원되는 `gdn package` 명령어(`add`, `install`, `publish`)는 `goondan.yaml`의 Package 문서를 읽고 쓴다.
 
 ### 13.2 의존성 추가
 
@@ -640,14 +640,8 @@ gdn package publish --dry-run
 
 ### 13.5 패키지 비게시/폐기
 
-```bash
-# 비게시
-gdn package unpublish @goondan/base@1.0.0
-
-# 폐기
-gdn package deprecate @goondan/base@1.0.0 --message "Use v2.0.0 instead"
-gdn package deprecate @goondan/base@1.0.0 --message ""   # 폐기 해제
-```
+v2 CLI에서는 `unpublish`/`deprecate` 서브커맨드를 제공하지 않는다.
+비게시/폐기는 레지스트리 관리 UI 또는 레지스트리 API(`8.2.5`, `8.2.6`)로 수행한다.
 
 ### 13.6 명령어 요약
 
@@ -656,8 +650,8 @@ gdn package deprecate @goondan/base@1.0.0 --message ""   # 폐기 해제
 | `gdn package add <ref>` | 의존성 추가 |
 | `gdn package install` | 의존성 설치 |
 | `gdn package publish` | 패키지 발행 |
-| `gdn package unpublish <ref>` | 패키지 비게시 |
-| `gdn package deprecate <ref>` | 패키지 폐기 |
+| `gdn package unpublish <ref>` | 제거됨 (레지스트리 UI/API 사용) |
+| `gdn package deprecate <ref>` | 제거됨 (레지스트리 UI/API 사용) |
 
 자세한 CLI 스펙은 `docs/specs/cli.md`를 참조한다.
 

@@ -1,25 +1,30 @@
 # Goondan Workspace 및 Storage 모델 스펙 (v2.0)
 
-본 문서는 `docs/requirements/10_workspace-model.md`를 기반으로 Goondan v2 Runtime의 **파일시스템 레이아웃과 저장소 모델**을 정의한다.
+> 이 문서는 Goondan v2 Workspace 및 Storage 모델의 유일한 source of truth이다.
 
 ---
 
 ## 1. 개요
 
-Goondan v2 Runtime은 파일시스템을 **2개의 분리된 루트**로 관리한다.
+### 1.1 배경 및 설계 동기
+
+Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. v1에서는 SwarmBundleRoot, Instance State Root, System State Root의 3루트 구조를 사용했으나, Changeset/SwarmBundleRef 시스템의 제거와 Edit & Restart 모델 도입에 맞추어 **프로젝트 디렉터리(Project Root)**와 **시스템 상태 디렉터리(System Root, `~/.goondan/`)**로 단순화했다.
+
+이 분리는 다음 설계 철학에 기반한다:
+
+- **정의와 상태의 물리적 분리**: 프로젝트 정의(`goondan.yaml` + 코드)는 Git으로 버전 관리되고, 실행 상태(메시지 히스토리, Extension 상태)는 시스템 영역에 저장된다. 이를 통해 프로젝트 디렉터리가 깨끗하게 유지되며, 실행 상태가 Git 커밋에 혼입되는 것을 방지한다.
+- **인스턴스 독립성**: 각 인스턴스의 상태는 서로 격리되어 있어 한 인스턴스의 오류가 다른 인스턴스에 영향을 주지 않는다.
+- **전역 상태 보존**: 패키지 캐시, CLI 설정 등은 인스턴스 수명과 무관하게 유지된다.
+- **결정론적 매핑**: Project Root의 절대 경로에서 workspaceId를 결정론적으로 생성하여, 동일 프로젝트는 항상 동일한 상태 디렉터리를 참조한다.
+
+### 1.2 워크스페이스 구성 요약
 
 | 루트 | 역할 | 소유권 |
 |------|------|--------|
 | **Project Root** | 사용자 프로젝트 정의 (goondan.yaml + 코드) | 사용자/Git |
 | **System Root** | 전역 설정, 패키지, 인스턴스 상태 | Runtime |
 
-이 분리는 다음 원칙을 보장한다.
-
-1. **정의/상태 분리**: 프로젝트 정의는 Git으로 버전 관리되고, 실행 상태는 별도 영역에 저장된다.
-2. **인스턴스 독립성**: 각 인스턴스의 상태는 서로 격리된다.
-3. **전역 상태 보존**: 패키지 캐시, CLI 설정 등은 인스턴스 수명과 무관하게 유지된다.
-
-### 1.1 v1 대비 변경사항
+### 1.3 v1 대비 변경사항
 
 | 항목 | v1 | v2 |
 |------|------|------|
@@ -32,9 +37,58 @@ Goondan v2 Runtime은 파일시스템을 **2개의 분리된 루트**로 관리�
 
 ---
 
-## 2. 경로 결정 규칙
+## 2. 핵심 규칙
 
-### 2.1 goondanHome (System Root)
+이 섹션은 Workspace 구현자가 반드시 따라야 할 규범적 규칙들을 요약한다.
+
+### 2.1 루트 분리 규칙
+
+1. 워크스페이스는 **Project Root**와 **System Root** 두 개의 루트로 분리되어야 한다(MUST).
+2. 두 루트는 물리적으로 분리되어야 한다(MUST). Runtime은 Project Root 하위에 실행 상태 디렉터리를 생성해서는 안 된다(MUST NOT).
+3. Project Root는 프로젝트 정의(구성 + 코드)를 포함한다.
+4. System Root는 인스턴스 실행 상태와 시스템 전역 설정을 포함한다.
+
+### 2.2 Project Root 규칙
+
+1. `gdn init`은 Project Root를 생성해야 한다(MUST).
+2. `goondan.yaml`은 프로젝트의 모든 리소스를 정의해야 한다(MUST). 단일 파일 또는 복수 파일 분할을 모두 지원해야 한다(MUST).
+3. Tool/Extension/Connector의 entry 파일은 Project Root 하위에 위치해야 한다(MUST).
+
+### 2.3 System Root 규칙
+
+1. `~/.goondan/`을 System Root 기본 경로로 사용해야 한다(SHOULD). 환경 변수 또는 설정으로 변경 가능해야 한다(MAY).
+2. System Root는 `config.json`, `packages/`, `workspaces/`를 포함해야 한다(MUST).
+3. `workspaceId`는 프로젝트 디렉터리 경로로부터 결정론적으로 생성되어야 한다(MUST).
+4. 인스턴스 상태는 `workspaces/<workspaceId>/instances/<instanceKey>/` 하위에 저장되어야 한다(MUST).
+
+### 2.4 메시지 영속화 규칙
+
+1. 메시지 상태는 `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록되어야 한다(MUST).
+2. Turn 종료 시점에는 모든 Turn 미들웨어 종료 후 최종 계산된 `BaseMessages + SUM(Events)`를 새 base로 기록해야 한다(MUST).
+3. Turn 종료 시 기존 base에 delta append가 가능하면 전체 rewrite 대신 delta append를 우선 사용해야 한다(SHOULD). Mutation 발생 시에만 rewrite해야 한다(SHOULD).
+4. `events.jsonl`은 Turn 최종 base 반영이 성공한 뒤에만 비울 수 있다(MUST).
+5. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
+6. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다(MUST NOT).
+
+### 2.5 보안 규칙
+
+1. access token, refresh token, client secret 등 비밀값은 평문 저장이 금지된다(MUST). at-rest encryption을 적용해야 한다(MUST).
+2. 로그/메트릭/컨텍스트 블록에 비밀값을 마스킹 없이 기록해서는 안 된다(MUST).
+3. Tool/Extension은 System Root의 비밀값 저장소 파일을 직접 읽거나 수정해서는 안 된다(MUST).
+4. 감사 추적을 위해 인스턴스 라이프사이클 이벤트(delete 등)를 로그에 남겨야 한다(SHOULD).
+
+### 2.6 Extension 상태 규칙
+
+1. 각 Extension의 상태는 `extensions/<ext-name>.json` 파일에 JSON 형식으로 저장되어야 한다(MUST).
+2. Extension 상태의 읽기/쓰기는 `ExtensionApi.state.get()`/`ExtensionApi.state.set()`을 통해 수행되어야 한다(MUST).
+3. Extension 상태 파일은 인스턴스 `delete` 시 함께 제거되어야 한다(MUST).
+4. Extension state 파일은 JSON 형식이며, 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다(MUST NOT).
+
+---
+
+## 3. 경로 결정 규칙
+
+### 3.1 goondanHome (System Root)
 
 `goondanHome`은 Goondan의 전역 상태 루트이다.
 
@@ -63,7 +117,7 @@ function resolveGoondanHome(options: GoondanHomeOptions = {}): string {
 }
 ```
 
-### 2.2 workspaceId
+### 3.2 workspaceId
 
 `workspaceId`는 서로 다른 Project Root(프로젝트) 간 인스턴스 충돌을 방지하는 네임스페이스이다.
 
@@ -95,7 +149,7 @@ function generateWorkspaceId(projectRoot: string): string {
 
 ---
 
-## 3. 디렉터리 구조 다이어그램
+## 4. 디렉터리 구조 다이어그램
 
 ```
 ~/.goondan/                              # System Root (goondanHome)
@@ -125,11 +179,11 @@ function generateWorkspaceId(projectRoot: string): string {
 
 ---
 
-## 4. Project Root 레이아웃
+## 5. Project Root 레이아웃
 
 Project Root는 `gdn init`이 생성하는 프로젝트 디렉터리이며, Swarm 정의와 관련 코드를 포함한다.
 
-### 4.1 표준 레이아웃
+### 5.1 표준 레이아웃
 
 ```
 <projectRoot>/
@@ -150,7 +204,7 @@ Project Root는 `gdn init`이 생성하는 프로젝트 디렉터리이며, Swar
 └── .git/                     # SHOULD: Git 저장소
 ```
 
-### 4.2 규칙
+### 5.2 규칙
 
 1. Runtime은 Project Root 하위에 런타임 상태 디렉터리를 생성해서는 안 된다(MUST NOT).
    - 금지 예시: `.goondan/`, `state/`, `logs/`
@@ -160,7 +214,7 @@ Project Root는 `gdn init`이 생성하는 프로젝트 디렉터리이며, Swar
 5. Project Root에는 `.git/` 등 버전 관리 디렉터리를 포함할 수 있다(MAY).
 6. Project Root는 Git 저장소로 관리하는 것을 권장한다(SHOULD).
 
-### 4.3 goondan.yaml 예시
+### 5.3 goondan.yaml 예시
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -198,11 +252,11 @@ spec:
 
 ---
 
-## 5. System Root 레이아웃
+## 6. System Root 레이아웃
 
 System Root(`~/.goondan/`)는 CLI 설정, 패키지, 인스턴스 상태를 통합 관리한다.
 
-### 5.1 표준 레이아웃
+### 6.1 표준 레이아웃
 
 ```
 ~/.goondan/                              # System Root
@@ -225,14 +279,14 @@ System Root(`~/.goondan/`)는 CLI 설정, 패키지, 인스턴스 상태를 통�
                     └── <ext-name>.json  # Extension 상태
 ```
 
-### 5.2 규칙
+### 6.2 규칙
 
 1. `~/.goondan/`을 System Root 기본 경로로 사용해야 한다(SHOULD). 환경 변수 또는 설정으로 변경 가능해야 한다(MAY).
 2. System Root는 `config.json`, `packages/`, `workspaces/`를 포함해야 한다(MUST).
 3. `workspaceId`는 프로젝트 디렉터리 경로로부터 결정론적으로 생성되어야 한다(MUST).
 4. 인스턴스 상태는 `workspaces/<workspaceId>/instances/<instanceKey>/` 하위에 저장되어야 한다(MUST).
 
-### 5.3 config.json 스키마
+### 6.3 config.json 스키마
 
 ```typescript
 interface SystemConfig {
@@ -269,9 +323,9 @@ interface SystemConfig {
 
 ---
 
-## 6. Instance State 레이아웃
+## 7. Instance State 레이아웃
 
-### 6.1 경로 구조
+### 7.1 경로 구조
 
 ```
 ~/.goondan/workspaces/<workspaceId>/instances/<instanceKey>/
@@ -283,7 +337,7 @@ interface SystemConfig {
     └── <ext-name>.json          # MUST: Extension 상태
 ```
 
-### 6.2 metadata.json 스키마
+### 7.2 metadata.json 스키마
 
 Runtime은 인스턴스별로 `metadata.json` 파일을 관리해야 한다(MUST).
 
@@ -323,11 +377,11 @@ interface InstanceMetadata {
 }
 ```
 
-### 6.3 messages/ 디렉터리
+### 7.3 messages/ 디렉터리
 
 메시지 상태는 `base.jsonl`과 `events.jsonl`로 분리 저장된다.
 
-#### 6.3.1 Message Base Log (`base.jsonl`)
+#### 7.3.1 Message Base Log (`base.jsonl`)
 
 Runtime은 인스턴스별 확정 메시지 스냅샷을 `base.jsonl`에 기록해야 한다(MUST).
 
@@ -346,7 +400,7 @@ Runtime은 인스턴스별 확정 메시지 스냅샷을 `base.jsonl`에 기록�
 2. `base.jsonl`의 내용은 다음 Turn 시작 시 로드되는 현재 확정 메시지 목록이어야 한다(MUST).
 3. Turn 종료 시 기존 base에 delta append가 가능하면 전체 rewrite 대신 delta append를 우선 사용해야 한다(SHOULD). Mutation(replace/remove/truncate)이 발생한 경우에만 rewrite해야 한다(SHOULD).
 
-#### 6.3.2 Message Event Log (`events.jsonl`)
+#### 7.3.2 Message Event Log (`events.jsonl`)
 
 Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only로 기록해야 한다(MUST).
 
@@ -364,7 +418,7 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 3. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
 4. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다(MUST NOT).
 
-#### 6.3.3 Turn 종료 시 폴드-커밋
+#### 7.3.3 Turn 종료 시 폴드-커밋
 
 **규칙:**
 
@@ -372,7 +426,7 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 2. 폴딩 완료 후 `events.jsonl`을 클리어해야 한다(MUST).
 3. 폴딩 중 오류가 발생하면 복원을 위해 해당 Turn의 `events.jsonl`을 유지해야 한다(SHOULD).
 
-### 6.4 extensions/ 디렉터리
+### 7.4 extensions/ 디렉터리
 
 **규칙:**
 
@@ -397,7 +451,7 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 
 ---
 
-## 7. packages/ 디렉터리
+## 8. packages/ 디렉터리
 
 **규칙:**
 
@@ -421,9 +475,9 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 
 ---
 
-## 8. TypeScript 인터페이스
+## 9. TypeScript 인터페이스
 
-### 8.1 WorkspacePaths 클래스
+### 9.1 WorkspacePaths 클래스
 
 ```typescript
 import * as crypto from 'crypto';
@@ -522,7 +576,7 @@ export class WorkspacePaths {
 }
 ```
 
-### 8.2 사용 예시
+### 9.2 사용 예시
 
 ```typescript
 // 초기화
@@ -550,9 +604,9 @@ console.log(paths.packagePath('@goondan/base', '1.0.0'));
 
 ---
 
-## 9. 디렉터리 초기화
+## 10. 디렉터리 초기화
 
-### 9.1 System Root 초기화
+### 10.1 System Root 초기화
 
 ```typescript
 async function initializeSystemRoot(goondanHome: string): Promise<void> {
@@ -575,7 +629,7 @@ async function initializeSystemRoot(goondanHome: string): Promise<void> {
 }
 ```
 
-### 9.2 Instance State 초기화
+### 10.2 Instance State 초기화
 
 ```typescript
 async function initializeInstanceState(
@@ -610,7 +664,7 @@ async function initializeInstanceState(
 
 ---
 
-## 10. 보안 및 데이터 보존
+## 11. 보안 및 데이터 보존
 
 **규칙:**
 
@@ -621,7 +675,7 @@ async function initializeInstanceState(
 
 ---
 
-## 11. 프로세스별 로깅
+## 12. 프로세스별 로깅
 
 v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 각 프로세스의 stdout/stderr를 활용한다.
 
@@ -633,7 +687,9 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 
 ---
 
-## 12. 규칙 요약
+## 13. 규칙 요약
+
+> 상세 규범적 규칙은 [2. 핵심 규칙](#2-핵심-규칙) 섹션을 참조한다. 이하는 빠른 참조용 요약이다.
 
 ### MUST 요구사항
 
@@ -646,6 +702,9 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 7. 비밀값은 평문 저장이 금지되며, 로그/메트릭에 마스킹 없이 기록해서는 안 된다.
 8. `metadata.json`에는 최소 상태, Agent 이름, instanceKey, 생성/갱신 시각을 포함해야 한다.
 9. workspaceId는 Project Root 절대 경로의 SHA-256 해시로 결정론적으로 생성되어야 한다.
+10. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다.
+11. Extension state 파일은 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다.
+12. Tool/Extension은 System Root의 비밀값 저장소 파일을 직접 읽거나 수정해서는 안 된다.
 
 ### SHOULD 권장사항
 
@@ -654,11 +713,13 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 3. Turn 종료 시 delta append를 우선 사용하고, mutation 시에만 rewrite한다.
 4. 인스턴스 라이프사이클 이벤트를 로그에 남긴다.
 5. 각 프로세스는 stdout/stderr로 구조화된 로그를 출력한다.
+6. `setState()` 호출 시 Runtime은 변경 여부를 추적하고, 변경이 없으면 디스크 쓰기를 생략한다.
 
 ### MAY 선택사항
 
 1. Orchestrator가 자식 프로세스 stdout/stderr을 통합 수집한다.
 2. System Root 경로를 환경 변수로 변경 가능하게 한다.
+3. Project Root에 `.git/` 등 버전 관리 디렉터리를 포함할 수 있다.
 
 ---
 
@@ -675,11 +736,11 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 
 ## 부록 B. 관련 문서
 
-- `docs/requirements/10_workspace-model.md`: 워크스페이스 모델 요구사항
 - `docs/specs/runtime.md`: Runtime 실행 모델 스펙
 - `docs/specs/cli.md`: CLI 도구(gdn) 스펙
 - `docs/specs/bundle.md`: Bundle YAML 스펙
 - `docs/specs/bundle_package.md`: Package 스펙
+- `docs/specs/extension.md`: Extension 시스템 스펙
 
 ---
 

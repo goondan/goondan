@@ -1,16 +1,55 @@
 # Goondan Extension 시스템 스펙 (v2.0)
 
-본 문서는 `docs/requirements/13_extension-interface.md`를 기반으로 v2 Extension 시스템의 **구현 스펙**을 정의한다. v2에서는 ExtensionApi를 대폭 단순화하고, 모든 파이프라인 훅을 Middleware 형태로 통일하며, OAuth/SwarmBundle/LiveConfig 등은 Extension 내부 구현으로 이동한다.
-
 ---
 
 ## 1. 개요
 
-Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다.
+### 1.1 배경 및 설계 동기
 
-Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
-### 1.1 v1 대비 변경 요약
+v1에서 `ExtensionApi`는 `<TState, TConfig>` 제네릭 파라미터, `swarmBundle`(Changeset API), `liveConfig`(동적 Config 패치), `oauth`(OAuth API), `instance.shared`(공유 상태) 등 다양한 API를 제공했다. 이는 Extension 개발자에게 높은 학습 비용을 부과하고, 대부분의 Extension이 사용하지 않는 API까지 노출하는 문제가 있었다.
+
+v2에서는 ExtensionApi를 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 대폭 단순화한다. OAuth, Changeset, LiveConfig 등 특수 기능은 Extension이 필요 시 자체적으로 구현하는 방식으로 전환하여, 코어 API의 복잡성을 최소화한다. 모든 파이프라인 훅은 Middleware 형태로 통일되며(`docs/specs/pipeline.md` 참조), Extension은 `register(api)` 함수 하나로 모든 설정을 완료한다.
+
+## 2. 핵심 규칙
+
+Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
+
+### 2.1 엔트리포인트 규칙
+
+1. Extension 구현은 `register(api)` 함수를 내보내야 한다(MUST).
+2. AgentProcess는 초기화 시 Agent에 선언된 Extension 목록 순서대로 `register(api)`를 호출해야 한다(MUST).
+3. `register()` 중 발생한 예외는 AgentProcess 초기화 실패로 처리해야 한다(MUST).
+4. 이전 Extension의 `register()` 완료 후 다음 Extension의 `register()`를 호출해야 한다(MUST).
+5. 코어 API 부재로 Extension이 초기화 실패하는 상황이 없어야 한다(MUST).
+
+### 2.2 API 규칙
+
+1. 미들웨어 등록은 `api.pipeline.register(type, middlewareFn)` 형태를 사용해야 한다(MUST).
+2. 미들웨어 타입은 `'turn'`, `'step'`, `'toolCall'` 세 가지만 허용해야 한다(MUST).
+3. v1의 `mutate(point, fn)`, `wrap(point, fn)` API는 제거해야 한다(MUST NOT).
+4. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
+5. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
+6. `api.tools.register()`로 등록한 도구는 도구 이름 규칙(`{리소스명}__{하위도구명}`)을 따라야 한다(MUST).
+
+### 2.3 상태 관리 규칙
+
+1. Extension 상태는 인스턴스별로 격리되어야 한다(MUST).
+2. AgentProcess는 인스턴스 초기화 시 디스크에서 Extension 상태를 자동 복원해야 한다(MUST).
+3. AgentProcess는 Turn 종료 시점에 변경된 Extension 상태를 디스크에 기록해야 한다(MUST).
+4. Extension 상태 파일은 `extensions/<ext-name>.json` 경로에 저장해야 한다(MUST).
+
+### 2.4 에러/호환성 규칙
+
+1. Extension 초기화/실행 오류는 표준 오류 코드와 함께 보고되어야 한다(MUST).
+2. 에러에는 가능한 경우 `suggestion`, `helpUrl`을 포함하는 것을 권장한다(SHOULD).
+3. AgentProcess는 Extension 호환성 검증(`apiVersion: goondan.ai/v1`)을 로드 단계에서 수행해야 한다(SHOULD).
+4. Extension이 필요한 API가 없어 초기화 실패하는 경우 명확한 에러 메시지와 함께 AgentProcess 기동을 중단해야 한다(MUST).
+
+---
+
+### 2.5 v1 대비 변경 요약
 
 | v1 (기존) | v2 (신규) |
 |-----------|-----------|
@@ -26,9 +65,9 @@ Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess �
 
 ---
 
-## 2. Extension 리소스 스키마
+## 3. Extension 리소스 스키마
 
-### 2.1 기본 구조
+### 3.1 기본 구조
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -43,7 +82,7 @@ spec:
     <key>: <value>
 ```
 
-### 2.2 ExtensionSpec 타입 정의
+### 3.2 ExtensionSpec 타입 정의
 
 ```typescript
 interface ExtensionSpec<TConfig = JsonObject> {
@@ -67,7 +106,7 @@ interface ExtensionSpec<TConfig = JsonObject> {
 **제거된 필드:**
 - `runtime` -- 항상 Bun이므로 불필요
 
-### 2.3 예시
+### 3.3 예시
 
 ```yaml
 # Compaction Extension
@@ -108,9 +147,9 @@ spec:
 
 ---
 
-## 3. Extension 엔트리포인트
+## 4. Extension 엔트리포인트
 
-### 3.1 register 함수
+### 4.1 register 함수
 
 Extension 모듈은 `register(api)` 함수를 **반드시** export해야 한다(MUST).
 
@@ -132,7 +171,7 @@ export function register(api: ExtensionApi): void;
 4. 이전 Extension의 `register()` 완료 후 다음 Extension의 `register()`를 호출해야 한다(MUST).
 5. `register()` 중 발생한 예외는 AgentProcess 초기화 실패로 처리해야 한다(MUST).
 
-### 3.2 기본 구현 예시
+### 4.2 기본 구현 예시
 
 ```typescript
 // extensions/my-extension/index.ts
@@ -169,9 +208,9 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 4. ExtensionApi 인터페이스
+## 5. ExtensionApi 인터페이스
 
-### 4.1 전체 인터페이스
+### 5.1 전체 인터페이스
 
 AgentProcess는 Extension에 다음 API를 제공해야 한다(MUST).
 
@@ -213,7 +252,7 @@ interface ExtensionApi {
 | `instance.shared` (공유 상태) | 프로세스-per-에이전트 모델에서 불필요. 필요시 이벤트 버스 사용 |
 | `runtime` 필드 | 항상 Bun |
 
-### 4.2 PipelineRegistry
+### 5.2 PipelineRegistry
 
 미들웨어 등록 API. 상세 스펙은 `docs/specs/pipeline.md`를 참조한다.
 
@@ -242,7 +281,7 @@ interface MiddlewareOptions {
 4. 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있어야 한다(MUST).
 5. 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있어야 한다(MAY).
 
-### 4.3 Tool 등록 API
+### 5.3 Tool 등록 API
 
 Extension이 런타임에 동적으로 도구를 등록하는 API.
 
@@ -276,7 +315,7 @@ interface ToolHandler {
 2. 동적 등록된 도구는 `step` 미들웨어의 `ctx.toolCatalog`에 자동으로 포함되어야 한다(SHOULD).
 3. 동일 이름의 도구를 중복 등록하면 나중 등록이 이전 등록을 덮어써야 한다(MUST).
 
-### 4.4 State API
+### 5.4 State API
 
 Extension별 JSON 상태를 관리하는 API. 인스턴스별로 격리되며 AgentProcess가 영속화를 자동 관리한다.
 
@@ -326,7 +365,7 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 4.5 Events API
+### 5.5 Events API
 
 프로세스 내 이벤트 버스. Extension 간 느슨한 결합을 위한 pub/sub 패턴.
 
@@ -367,7 +406,7 @@ interface ExtensionEventsApi {
 | `tool.called` | Tool 호출 |
 | `tool.completed` | Tool 완료 |
 
-### 4.6 Logger
+### 5.6 Logger
 
 표준 `Console` 인터페이스를 따르는 로거.
 
@@ -381,9 +420,9 @@ api.logger.error('Failed to load state', error);
 
 ---
 
-## 5. Extension 로딩과 초기화
+## 6. Extension 로딩과 초기화
 
-### 5.1 로딩 순서
+### 6.1 로딩 순서
 
 AgentProcess는 초기화 시점에 다음 순서로 Extension을 로드한다.
 
@@ -402,7 +441,7 @@ spec:
     - ref: "Extension/logging"       # 3번째
 ```
 
-### 5.2 초기화 규칙
+### 6.2 초기화 규칙
 
 **MUST:**
 - AgentProcess는 `register(api)` 반환(또는 Promise resolve)을 대기해야 한다
@@ -414,7 +453,7 @@ spec:
 - Extension 로드 실패 시 상세 오류 메시지 로깅
 - `apiVersion: goondan.ai/v1` 호환성 검증을 로드 단계에서 수행
 
-### 5.3 정리(Cleanup)
+### 6.3 정리(Cleanup)
 
 Extension이 리소스 정리가 필요한 경우, 다음 패턴을 권장한다.
 
@@ -432,9 +471,9 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 6. 에러/호환성 정책
+## 7. 에러/호환성 정책
 
-### 6.1 표준 오류 코드
+### 7.1 표준 오류 코드
 
 Extension 초기화/실행 오류는 다음 표준 오류 코드와 함께 보고해야 한다(MUST):
 
@@ -445,7 +484,7 @@ Extension 초기화/실행 오류는 다음 표준 오류 코드와 함께 보�
 | `E_EXT_CONFIG` | Extension 구성(`spec.config`) 검증 실패 |
 | `E_EXT_COMPAT` | Extension 호환성 검증 실패 (`apiVersion` 불일치) |
 
-### 6.2 suggestion/helpUrl 포함
+### 7.2 suggestion/helpUrl 포함
 
 Extension 오류 보고 시 사용자 복구를 돕는 `suggestion`과 관련 문서 `helpUrl`을 포함하는 것을 권장한다(SHOULD).
 
@@ -460,15 +499,15 @@ interface ExtensionError extends Error {
 }
 ```
 
-### 6.3 호환성 검증
+### 7.3 호환성 검증
 
 AgentProcess는 Extension 로드 단계에서 `apiVersion: goondan.ai/v1` 호환성 검증을 수행해야 한다(SHOULD). Extension이 필요한 API가 없어 초기화 실패하는 경우 명확한 에러 메시지와 함께 AgentProcess 기동을 중단해야 한다(MUST).
 
 ---
 
-## 7. 활용 패턴
+## 8. 활용 패턴
 
-### 7.1 Skill 패턴
+### 8.1 Skill 패턴
 
 Skill은 `SKILL.md` 중심 번들을 런타임에 노출하는 Extension 패턴이다.
 
@@ -524,7 +563,7 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 7.2 Tool Search 패턴
+### 8.2 Tool Search 패턴
 
 ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕는 메타 도구다.
 
@@ -565,7 +604,7 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 7.3 Compaction 패턴
+### 8.3 Compaction 패턴
 
 컨텍스트 윈도우 관리는 `turn` 미들웨어에서 `emitMessageEvent()`로 MessageEvent를 발행하여 구현한다.
 
@@ -603,7 +642,7 @@ export function register(api: ExtensionApi): void {
 - 중요 메시지 pinning: `metadata`에 `pinned: true` 표시하여 compaction 대상에서 제외
 - Truncate: 전체 메시지 초기화(`truncate`) 후 요약 `append`
 
-### 7.4 Logging 패턴
+### 8.4 Logging 패턴
 
 Step/ToolCall 미들웨어를 활용한 관찰 패턴.
 
@@ -637,7 +676,7 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 7.5 MCP Extension 패턴
+### 8.5 MCP Extension 패턴
 
 MCP 연동은 Extension의 `tools.register`를 통해 동적으로 도구를 등록하는 방식으로 구현한다(MAY). MCP 서버와의 연결/통신은 Extension이 자체적으로 관리한다.
 
@@ -671,11 +710,11 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 8. 미들웨어 컨텍스트 요약
+## 9. 미들웨어 컨텍스트 요약
 
-각 미들웨어 타입은 전용 컨텍스트를 받으며, `next()` 호출 전후로 전처리/후처리를 수행한다. 상세 인터페이스는 `docs/specs/pipeline.md` 3절을 참조한다.
+각 미들웨어 타입은 전용 컨텍스트를 받으며, `next()` 호출 전후로 전처리/후처리를 수행한다. 상세 인터페이스는 `docs/specs/pipeline.md` 4절을 참조한다.
 
-### 8.1 TurnMiddlewareContext
+### 9.1 TurnMiddlewareContext
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
@@ -687,7 +726,7 @@ export function register(api: ExtensionApi): void {
 | `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
 | `next` | `() => Promise<TurnResult>` | 다음 미들웨어 또는 코어 로직 |
 
-### 8.2 StepMiddlewareContext
+### 9.2 StepMiddlewareContext
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
@@ -699,7 +738,7 @@ export function register(api: ExtensionApi): void {
 | `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
 | `next` | `() => Promise<StepResult>` | 다음 미들웨어 또는 코어 로직 |
 
-### 8.3 ToolCallMiddlewareContext
+### 9.3 ToolCallMiddlewareContext
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
@@ -709,7 +748,7 @@ export function register(api: ExtensionApi): void {
 | `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
 | `next` | `() => Promise<ToolCallResult>` | 다음 미들웨어 또는 코어 로직 |
 
-### 8.4 ConversationState
+### 9.4 ConversationState
 
 ```typescript
 interface ConversationState {
@@ -720,7 +759,7 @@ interface ConversationState {
 }
 ```
 
-### 8.5 MessageEvent
+### 9.5 MessageEvent
 
 ```typescript
 type MessageEvent =
@@ -732,11 +771,11 @@ type MessageEvent =
 
 ---
 
-## 9. 제거된 항목
+## 10. 제거된 항목
 
 v2에서 다음 항목은 제거된다:
 
-### 9.1 제거된 API
+### 10.1 제거된 API
 
 | 항목 | 사유 |
 |------|------|
@@ -750,7 +789,7 @@ v2에서 다음 항목은 제거된다:
 | `api.tools.unregister()` | 단순화 |
 | `api.tools.get()` / `api.tools.list()` | 단순화 |
 
-### 9.2 제거된 리소스
+### 10.2 제거된 리소스
 
 | 항목 | 사유 |
 |------|------|
@@ -758,7 +797,7 @@ v2에서 다음 항목은 제거된다:
 | `ResourceType` Kind | 커스텀 Kind 불필요 |
 | `ExtensionHandler` Kind | 제거 |
 
-### 9.3 제거된 패턴
+### 10.3 제거된 패턴
 
 | 항목 | 사유 |
 |------|------|
@@ -771,9 +810,7 @@ v2에서 다음 항목은 제거된다:
 
 ## 관련 문서
 
-- @docs/requirements/13_extension-interface.md - Extension 실행 인터페이스 요구사항 (v2)
-- @docs/requirements/05_core-concepts.md - 핵심 개념 (v2)
-- @docs/requirements/14_usage-patterns.md - 활용 예시 패턴 (v2)
 - @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
 - @docs/specs/api.md - Runtime/SDK API 스펙 (v2)
+- @docs/architecture.md - 아키텍처 개요 (핵심 개념, 설계 패턴)
 - @docs/new_spec.md - Goondan v2 간소화 스펙 원본

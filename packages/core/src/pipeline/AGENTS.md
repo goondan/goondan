@@ -103,5 +103,4 @@ Extension에 제공되는 PipelineApi 인터페이스를 생성합니다.
 
 ## 참조 문서
 
-- `/docs/specs/pipeline.md` - 라이프사이클 파이프라인 스펙
-- `/docs/requirements/11_lifecycle-pipelines.md` - 요구사항
+- `/docs/specs/pipeline.md` - 라이프사이클 파이프라인 스펙 (유일한 source of truth)

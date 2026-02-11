@@ -1,30 +1,60 @@
 # Goondan Connector 스펙 v2.0
 
-본 문서는 Connector 시스템의 구현 스펙을 정의한다. v2에서 Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러, WebSocket, 롱 폴링 등)을 **자체적으로** 관리한다.
-
-> 기반 요구사항: `docs/requirements/05_core-concepts.md` §5.4, `docs/requirements/07_config-resources.md` §7.6
-
----
-
 ## 1. 개요
 
-Connector는 외부 프로토콜 이벤트에 반응하여, **정규화된 ConnectorEvent**를 Orchestrator에 발행하는 **독립 프로세스**이다.
+### 1.1 배경 및 설계 철학
 
-### 1.1 핵심 책임
+Connector는 외부 채널 이벤트를 canonical **ConnectorEvent**로 정규화하는 **프로토콜 어댑터**다. Telegram, Slack, Discord, CLI, cron 등 다양한 외부 프로토콜을 통해 들어오는 이벤트를 단일 형식으로 변환하여 Orchestrator에 전달한다.
+
+v1에서는 Runtime이 프로토콜 수신(HTTP 서버, cron 스케줄러 등)을 대신 관리하고, Connector는 `triggers` 선언으로 프로토콜 타입만 지정했다. v2에서는 이 모델을 근본적으로 변경하여 **Connector가 프로토콜 수신을 직접 구현**하는 구조로 전환했다. 이로 인해:
+
+- **프로토콜 자유도 극대화**: Connector가 HTTP 서버, WebSocket, 롱 폴링, cron 등 어떤 프로토콜이든 자유롭게 구현할 수 있다.
+- **Process-per-Connector**: 각 Connector가 독립 Bun 프로세스로 실행되어 크래시 격리와 독립적 스케일링이 가능하다.
+- **단순화된 인터페이스**: `triggers`, `runtime`, `auth` 필드를 모두 제거하고, `entry` + `events`만으로 Connector를 정의한다.
+- **Connector/Connection 분리**: 프로토콜 구현(Connector)과 배포 바인딩(Connection)을 분리하여, 하나의 Connector를 여러 환경에서 재사용할 수 있게 한다.
+
+### 1.2 핵심 책임
 
 1. **프로토콜 수신 구현**: HTTP 서버, cron 스케줄러, WebSocket, 롱 폴링 등 프로토콜을 자체적으로 구현
 2. **이벤트 스키마 선언**: 커넥터가 발행할 수 있는 이벤트의 이름과 속성 타입을 선언
 3. **이벤트 정규화**: 외부 프로토콜별 페이로드를 ConnectorEvent로 변환
 4. **서명 검증**: Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 무결성 검증
 
-### 1.2 Connector가 하지 않는 것
+### 1.3 Connector가 하지 않는 것
 
 - **라우팅**: 어떤 Agent로 이벤트를 전달할지는 Connection의 ingress rules가 담당
 - **인증 정보 보유**: API 토큰 등 인증 자격 증명은 Connection의 `secrets`가 제공
 - **응답 전송**: 에이전트 응답은 Tool을 통해 전송
 - **인스턴스 관리**: Instance/Turn/Step 등 에이전트 실행 모델을 직접 제어하지 않음
 
-### 1.3 v2 설계 원칙
+---
+
+## 2. 핵심 규칙
+
+다음은 Connector 시스템 구현 시 반드시 준수해야 하는 규범적 규칙을 요약한 것이다. 세부 사항은 이후 각 섹션에서 설명한다.
+
+### 2.1 프로세스 및 실행 규칙
+
+1. Connector는 독립 Bun 프로세스로 실행되어야 한다(MUST). Orchestrator가 프로세스를 스폰하고 감시한다.
+2. Connector는 프로토콜 처리를 직접 구현해야 한다(MUST). Runtime이 프로토콜을 대신 관리하지 않는다.
+3. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다(항상 Bun).
+4. entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
+5. `triggers` 필드는 v2에서 제거되었으므로 존재해서는 안 된다(MUST NOT).
+
+### 2.2 이벤트 발행 규칙
+
+1. Connector는 정규화된 ConnectorEvent를 `ctx.emit()`으로 Orchestrator에 전달해야 한다(MUST).
+2. ConnectorEvent는 `instanceKey`를 포함하여 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있게 해야 한다(MUST).
+3. `events[].name`은 Connector 내에서 고유해야 한다(MUST).
+4. ConnectorEvent의 `message`는 최소 하나의 콘텐츠 타입을 포함해야 한다(MUST).
+
+### 2.3 서명 검증 규칙
+
+1. Connector는 Connection이 제공한 서명 시크릿(`ctx.secrets`에 포함)을 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
+2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않고 처리를 거부해야 한다(MUST).
+3. 서명 검증 실패 시 Connector는 실패 사유를 `ctx.logger`로 기록해야 한다(SHOULD).
+
+### 2.4 설계 원칙
 
 | 원칙 | 설명 |
 |------|------|
@@ -35,9 +65,9 @@ Connector는 외부 프로토콜 이벤트에 반응하여, **정규화된 Conne
 
 ---
 
-## 2. Connector 리소스 스키마
+## 3. Connector 리소스 스키마
 
-### 2.1 YAML 정의
+### 3.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -56,7 +86,7 @@ spec:
         command: { type: string }
 ```
 
-### 2.2 ConnectorSpec TypeScript 인터페이스
+### 3.2 ConnectorSpec TypeScript 인터페이스
 
 ```typescript
 interface ConnectorSpec {
@@ -82,7 +112,7 @@ interface EventPropertyType {
 
 > **v2 변경**: `runtime` 필드 제거(항상 Bun), `triggers` 필드 제거(Connector가 프로토콜을 자체적으로 관리).
 
-### 2.3 검증 규칙
+### 3.3 검증 규칙
 
 | 항목 | 규칙 | 수준 |
 |------|------|------|
@@ -94,9 +124,9 @@ interface EventPropertyType {
 
 ---
 
-## 3. Connector 프로세스 모델
+## 4. Connector 프로세스 모델
 
-### 3.1 프로세스 구조
+### 4.1 프로세스 구조
 
 Connector는 Orchestrator가 스폰하는 **별도 Bun 프로세스**로 실행된다.
 
@@ -108,14 +138,14 @@ Orchestrator (상주 프로세스)
       └── 자체 HTTP 서버 / cron 스케줄러 / WebSocket / 롱 폴링 등
 ```
 
-### 3.2 프로세스 특성
+### 4.2 프로세스 특성
 
 - **독립 메모리 공간**: 크래시 격리
 - **Orchestrator와 IPC**: `process.send`/`process.on("message")` 또는 Unix socket으로 ConnectorEvent 전달
 - **자체 프로토콜 관리**: HTTP 서버, WebSocket 커넥션, 롱 폴링 등을 직접 구현
 - **크래시 시 재스폰**: Orchestrator가 감지하고 자동 재스폰 가능
 
-### 3.3 실행 명령 예시
+### 4.3 실행 명령 예시
 
 ```bash
 bun run connector-runner.ts \
@@ -126,9 +156,9 @@ bun run connector-runner.ts \
 
 ---
 
-## 4. Entry Function 실행 모델
+## 5. Entry Function 실행 모델
 
-### 4.1 단일 Default Export
+### 5.1 단일 Default Export
 
 Connector의 entry 모듈은 **단일 default export 함수**를 제공해야 한다(MUST).
 
@@ -148,7 +178,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 3. Entry 함수가 반환(resolve)하면 Connector 프로세스가 종료될 수 있다(MAY).
 4. Entry 함수가 예기치 않게 reject되면 Orchestrator는 재시작 정책에 따라 재스폰할 수 있다(MAY).
 
-### 4.2 ConnectorContext
+### 5.2 ConnectorContext
 
 Entry 함수에 전달되는 컨텍스트이다.
 
@@ -171,7 +201,7 @@ interface ConnectorContext {
 2. `secrets`는 Connection의 `spec.secrets`에서 해석된 key-value 쌍이다(MUST).
 3. `logger`는 구조화된 로깅을 제공해야 한다(SHOULD).
 
-### 4.3 ConnectorEvent
+### 5.3 ConnectorEvent
 
 Entry 함수가 `ctx.emit()`으로 발행하는 정규화된 이벤트이다.
 
@@ -203,7 +233,7 @@ type ConnectorEventMessage =
 3. `properties`의 키는 `events[].properties`에 선언된 키와 일치해야 한다(SHOULD).
 4. `instanceKey`는 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있도록 포함해야 한다(MUST).
 
-### 4.4 서명 검증 규칙
+### 5.4 서명 검증 규칙
 
 Connection이 `verify` 블록을 설정한 경우, Connector는 다음 규칙을 따라야 한다.
 
@@ -213,7 +243,7 @@ Connection이 `verify` 블록을 설정한 경우, Connector는 다음 규칙을
 
 ---
 
-## 5. Connector Event Flow
+## 6. Connector Event Flow
 
 ```
 [Connector 프로세스: 자체 프로토콜 수신 (HTTP/WebSocket/Polling/Cron)]
@@ -243,9 +273,9 @@ Connection이 `verify` 블록을 설정한 경우, Connector는 다음 규칙을
 
 ---
 
-## 6. 예시: Telegram Connector (HTTP Webhook)
+## 7. 예시: Telegram Connector (HTTP Webhook)
 
-### 6.1 YAML 정의
+### 7.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -265,7 +295,7 @@ spec:
         command: { type: string }
 ```
 
-### 6.2 Entry Function 구현
+### 7.2 Entry Function 구현
 
 ```typescript
 // ./connectors/telegram/index.ts
@@ -320,9 +350,9 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 7. 예시: Slack Connector (HTTP Webhook)
+## 8. 예시: Slack Connector (HTTP Webhook)
 
-### 7.1 YAML 정의
+### 8.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -343,7 +373,7 @@ spec:
         ts: { type: string }
 ```
 
-### 7.2 Entry Function 구현
+### 8.2 Entry Function 구현
 
 ```typescript
 // ./connectors/slack/index.ts
@@ -405,9 +435,9 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 8. 예시: Cron 기반 Connector
+## 9. 예시: Cron 기반 Connector
 
-### 8.1 YAML 정의
+### 9.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -422,7 +452,7 @@ spec:
         scheduled_at: { type: string }
 ```
 
-### 8.2 Entry Function 구현
+### 9.2 Entry Function 구현
 
 ```typescript
 // ./connectors/daily-reporter/index.ts
@@ -457,9 +487,9 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 9. 예시: CLI Connector
+## 10. 예시: CLI Connector
 
-### 9.1 YAML 정의
+### 10.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -472,7 +502,7 @@ spec:
     - name: user_input
 ```
 
-### 9.2 Entry Function 구현
+### 10.2 Entry Function 구현
 
 ```typescript
 // ./connectors/cli/index.ts
@@ -513,7 +543,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 10. v1 → v2 변경 요약
+## 11. v1 → v2 변경 요약
 
 | 항목 | v1 | v2 |
 |------|----|----|
@@ -527,12 +557,12 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-## 11. 참고 문서
+## 12. 참고 문서
 
 - `docs/specs/connection.md` - Connection 리소스 스펙 (secrets, ingress rules, verify)
 - `docs/specs/runtime.md` - Runtime 실행 모델 스펙 (Orchestrator, AgentProcess)
-- `docs/requirements/05_core-concepts.md` §5.4 - Connector/Connection 핵심 개념
-- `docs/requirements/07_config-resources.md` §7.6 - Connector 리소스 정의
+- `docs/specs/resources.md` - Config Plane 리소스 정의 (Connector 리소스 스키마)
+- `docs/architecture.md` - 아키텍처 개요 (핵심 개념, 설계 패턴)
 
 ---
 

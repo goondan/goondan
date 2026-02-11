@@ -1,12 +1,14 @@
 # Goondan CLI (gdn) 스펙 (v2.0)
 
-본 문서는 Goondan v2 CLI 도구 `gdn`의 명령어, 옵션, 동작 규격을 정의한다.
+> 이 문서는 Goondan v2 CLI 도구 `gdn`의 유일한 source of truth이다.
 
 ---
 
 ## 1. 개요
 
 `gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. v2에서는 Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞게 명령어 체계를 대폭 단순화하였다.
+
+v1에서 존재했던 `pause/resume/terminate`, `logs`, `config` 등의 명령어를 제거하고, Orchestrator 상주 프로세스 관리(`run`, `restart`)와 인스턴스 관리(`instance list/delete`), 패키지 관리(`package`) 중심으로 재편하여 개발자가 알아야 할 명령어 수를 최소화했다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
 ### 1.1 설치
 

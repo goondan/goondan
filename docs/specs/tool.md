@@ -1,14 +1,90 @@
 # Goondan Tool 시스템 스펙 v2.0
 
-본 문서는 Goondan v2의 Tool 시스템을 정의한다. Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이며, AgentProcess 내에서 실행된다.
+## 1. 개요
 
-> 기반 요구사항: `docs/requirements/05_core-concepts.md` §5.2, `docs/requirements/07_config-resources.md` §7.2, `docs/requirements/12_tool-spec-runtime.md`
+### 1.1 배경 및 설계 철학
+
+Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통해 에이전트는 외부 API 호출, 파일 수정, 에이전트 간 위임(delegate) 같은 실제 작업을 수행한다. Tool 시스템은 다음 원칙에 따라 설계되었다:
+
+- **Registry와 Catalog의 분리**: 실행 가능한 전체 도구 집합(Registry)과 LLM에 노출되는 도구 목록(Catalog)을 분리하여, Extension이 Step 단위로 도구 가시성을 제어할 수 있게 한다.
+- **더블 언더스코어 네이밍**: `{리소스명}__{export명}` 형식으로 리소스 경계를 명확히 하며, AI SDK에서 별도 인코딩 없이 사용 가능한 문자열을 구분자로 채택했다.
+- **Bun-native**: v2에서 `runtime` 필드를 제거하고, 모든 Tool 핸들러를 Bun으로 실행한다. Node.js 호환 오버헤드를 제거하고 성능을 극대화한다.
+- **IPC 기반 Handoff**: v1의 인메모리 delegate를 Orchestrator 경유 IPC로 전환하여, Process-per-Agent 아키텍처에서도 안정적인 에이전트 간 제어 이전을 보장한다.
+- **오류 전파 차단**: Tool 실행 오류는 예외로 전파하지 않고, 구조화된 ToolResult로 LLM에 전달하여 에이전트가 스스로 복구 전략을 수립할 수 있게 한다.
+
+### 1.2 v2 주요 변경
+
+| 항목 | v1 | v2 |
+|------|----|----|
+| `spec.runtime` | `node` (필수) | 제거 (항상 Bun) |
+| `spec.auth` | OAuthApp 참조 | 제거 (Extension 내부 구현) |
+| 도구 이름 구분자 | `.` (점) | `__` (더블 언더스코어) |
+| ToolContext | `instance`, `swarm`, `agent`, `oauth`, `swarmBundle` 포함 | `agentName`, `instanceKey`, `turnId`, `toolCallId`, `message`, `workdir`, `logger` |
+| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
+| 파이프라인 | `toolCall.pre` / `toolCall.exec` / `toolCall.post` (Mutator + Middleware) | `toolCall` 미들웨어 단일 통합 |
+| Handoff | 인메모리 delegate | IPC (Orchestrator 경유) |
 
 ---
 
-## 1. 핵심 개념
+## 2. 핵심 규칙
 
-### 1.1 Tool Registry vs Tool Catalog
+다음은 Tool 시스템 구현 시 반드시 준수해야 하는 규범적 규칙을 요약한 것이다. 세부 사항은 이후 각 섹션에서 설명한다.
+
+### 2.1 Registry / Catalog 규칙
+
+1. AgentProcess는 Step마다 Tool Catalog를 구성해야 한다(MUST).
+2. Tool Catalog는 Agent 리소스의 `spec.tools` 선언을 기반으로 초기화해야 한다(MUST).
+3. Step 미들웨어는 `ctx.toolCatalog`를 조작하여 LLM에 노출되는 도구를 변경할 수 있다(MAY).
+4. Extension이 `api.tools.register()`로 동적 등록한 도구도 Tool Registry에 포함되어야 한다(MUST).
+
+### 2.2 도구 이름 규칙
+
+1. LLM에 노출되는 도구 이름은 `{Tool metadata.name}__{export name}` 형식이어야 한다(MUST).
+2. 더블 언더스코어(`__`)를 리소스 이름과 하위 도구 이름의 구분자로 사용해야 한다(MUST).
+3. Tool 리소스 이름과 하위 도구 이름 각각에는 `__`를 포함해서는 안 된다(MUST NOT).
+4. 단일 export만 가진 Tool 리소스도 `{리소스명}__{export명}` 형식을 따라야 한다(MUST).
+
+### 2.3 Tool Call 허용 범위 규칙
+
+1. Tool call의 기본 허용 범위는 현재 Step의 Tool Catalog여야 한다(MUST).
+2. Catalog에 없는 도구 호출은 명시적 정책이 없는 한 거부해야 한다(MUST).
+3. Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다(MAY).
+4. 거부 결과는 구조화된 ToolResult(`status="error"`, `code`)로 반환해야 한다(MUST).
+
+### 2.4 오류 처리 규칙
+
+1. AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
+2. `error.message` 길이는 `Tool.spec.errorMessageLimit`를 적용해야 한다(MUST).
+3. `errorMessageLimit` 미설정 시 기본값은 1000자여야 한다(MUST).
+4. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
+5. 문서 링크(`helpUrl`) 제공을 권장한다(SHOULD).
+
+### 2.5 ToolContext 규칙
+
+1. `workdir`은 해당 인스턴스의 워크스페이스 경로를 가리켜야 한다(MUST).
+2. bash, file-system 등 파일 시스템 접근 도구는 `ctx.workdir`을 기본 작업 디렉토리로 사용해야 한다(MUST).
+3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
+4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
+
+### 2.6 Handoff 규칙
+
+1. handoff 요청은 대상 agent 이름과 입력 payload를 포함해야 한다(MUST).
+2. handoff는 비동기 제출 모델을 지원해야 한다(SHOULD).
+3. 원래 Agent의 Turn/Trace 컨텍스트는 `correlationId`를 통해 추적 가능해야 한다(MUST).
+4. handoff 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
+5. 기본 handoff 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
+6. Orchestrator는 delegate 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+
+### 2.7 리소스 스키마 규칙
+
+1. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다.
+2. entry 모듈은 `handlers: Record<string, ToolHandler>` 형식으로 하위 도구 핸들러를 export해야 한다(MUST).
+3. `spec.exports`는 최소 1개 이상이어야 한다(MUST).
+4. `exports[].name`은 Tool 리소스 내에서 고유해야 한다(MUST).
+
+---
+
+## 3. Tool Registry vs Tool Catalog
 
 | 개념 | 설명 |
 |------|------|
@@ -37,7 +113,7 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 Tool Identity
+### 3.1 Tool Identity
 
 Tool의 identity는 `"{kind}/{name}"` 형식으로 표현된다.
 
@@ -48,18 +124,11 @@ type ToolIdentity = `Tool/${string}`;
 const identity: ToolIdentity = "Tool/bash";
 ```
 
-규칙:
-
-1. AgentProcess는 Step마다 Tool Catalog를 구성해야 한다(MUST).
-2. Tool Catalog는 Agent 리소스의 `spec.tools` 선언을 기반으로 초기화해야 한다(MUST).
-3. Step 미들웨어는 `ctx.toolCatalog`를 조작하여 LLM에 노출되는 도구를 변경할 수 있다(MAY).
-4. Extension이 `api.tools.register()`로 동적 등록한 도구도 Tool Registry에 포함되어야 한다(MUST).
-
 ---
 
-## 2. Tool 리소스 스키마
+## 4. Tool 리소스 스키마
 
-### 2.1 YAML 정의
+### 4.1 YAML 정의
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -90,7 +159,7 @@ spec:
         required: [path]
 ```
 
-### 2.2 ToolSpec TypeScript 인터페이스
+### 4.2 ToolSpec TypeScript 인터페이스
 
 ```typescript
 interface ToolSpec {
@@ -107,7 +176,7 @@ interface ToolSpec {
 
 > **v2 변경**: `runtime` 필드 제거(항상 Bun), `auth` 필드 제거(OAuth는 Extension 내부 구현으로 이동).
 
-### 2.3 검증 규칙
+### 4.3 검증 규칙
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
@@ -120,9 +189,9 @@ interface ToolSpec {
 
 ---
 
-## 3. 도구 이름 규칙
+## 5. 도구 이름 규칙
 
-### 3.1 네이밍 컨벤션
+### 5.1 네이밍 컨벤션
 
 LLM에 노출되는 도구 이름은 **`{Tool 리소스 metadata.name}__{export name}`** 형식이어야 한다(MUST). 구분자는 `__`(더블 언더스코어)를 사용한다.
 
@@ -137,14 +206,14 @@ Tool 리소스: http-fetch    → exports: get, post
 LLM 도구 이름: http-fetch__get, http-fetch__post
 ```
 
-### 3.2 규칙
+### 5.2 규칙
 
 1. 더블 언더스코어(`__`)를 리소스 이름과 하위 도구 이름의 구분자로 사용해야 한다(MUST).
 2. AI SDK에서 허용되는 문자이므로 별도 인코딩/디코딩 없이 그대로 사용해야 한다(MUST).
 3. Tool 리소스 이름과 하위 도구 이름 각각에는 `__`를 포함해서는 안 된다(MUST NOT).
 4. 단일 export만 가진 Tool 리소스도 `{리소스명}__{export명}` 형식을 따라야 한다(MUST).
 
-### 3.3 이름 파싱/조합
+### 5.3 이름 파싱/조합
 
 ```typescript
 /** Tool 이름을 리소스 이름과 export 이름으로 분해 */
@@ -165,9 +234,9 @@ function buildToolName(resourceName: string, exportName: string): string {
 
 ---
 
-## 4. Tool Export 스키마
+## 6. Tool Export 스키마
 
-### 4.1 ToolExportSpec 인터페이스
+### 6.1 ToolExportSpec 인터페이스
 
 ```typescript
 interface ToolExportSpec {
@@ -197,7 +266,7 @@ interface JsonSchemaProperty {
 }
 ```
 
-### 4.2 Export 이름 규칙
+### 6.2 Export 이름 규칙
 
 - **식별자 규칙**: 영문 소문자, 숫자, `_`, `-`만 허용. `__`는 금지.
 - **고유성**: 동일 Tool 리소스 내에서 중복될 수 없다(MUST).
@@ -205,9 +274,9 @@ interface JsonSchemaProperty {
 
 ---
 
-## 5. ToolHandler 인터페이스
+## 7. ToolHandler 인터페이스
 
-### 5.1 핸들러 시그니처
+### 7.1 핸들러 시그니처
 
 ```typescript
 /**
@@ -222,7 +291,7 @@ type ToolHandler = (
 ) => Promise<JsonValue> | JsonValue;
 ```
 
-### 5.2 핸들러 모듈 형식
+### 7.2 핸들러 모듈 형식
 
 핸들러 모듈은 `handlers` 객체를 export해야 한다(MUST). 키는 export name이다.
 
@@ -249,7 +318,7 @@ export const handlers: Record<string, ToolHandler> = {
 };
 ```
 
-### 5.3 ToolContext 구조
+### 7.3 ToolContext 구조
 
 ```typescript
 interface ToolContext {
@@ -276,18 +345,11 @@ interface ToolContext {
 }
 ```
 
-규칙:
-
-1. `workdir`은 해당 인스턴스의 워크스페이스 경로를 가리켜야 한다(MUST).
-2. bash, file-system 등 파일 시스템 접근 도구는 `ctx.workdir`을 기본 작업 디렉토리로 사용해야 한다(MUST).
-3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
-4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
-
 ---
 
-## 6. Tool 실행 흐름
+## 8. Tool 실행 흐름
 
-### 6.1 Middleware 기반 파이프라인
+### 8.1 Middleware 기반 파이프라인
 
 v2에서는 모든 파이프라인 훅이 Middleware 형태로 통일된다. Tool 실행은 `toolCall` 미들웨어를 통과한다.
 
@@ -306,7 +368,7 @@ LLM 응답에 tool_calls 포함
     ToolResult → MessageEvent(append) 발행
 ```
 
-### 6.2 ToolCall 구조
+### 8.2 ToolCall 구조
 
 ```typescript
 interface ToolCall {
@@ -321,7 +383,7 @@ interface ToolCall {
 }
 ```
 
-### 6.3 ToolCallMiddlewareContext
+### 8.3 ToolCallMiddlewareContext
 
 ```typescript
 interface ToolCallMiddlewareContext {
@@ -342,7 +404,7 @@ interface ToolCallMiddlewareContext {
 }
 ```
 
-### 6.4 Extension에서의 toolCall 미들웨어 등록
+### 8.4 Extension에서의 toolCall 미들웨어 등록
 
 ```typescript
 // extension entry point
@@ -365,9 +427,9 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 7. Tool Call 허용 범위
+## 9. Tool Call 허용 범위
 
-### 7.1 허용 범위 규칙
+### 9.1 허용 범위 규칙
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
@@ -376,7 +438,7 @@ export function register(api: ExtensionApi): void {
 | Registry 직접 호출 | MAY | Tool Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다 |
 | 거부 결과 반환 | MUST | 거부 시 구조화된 ToolResult를 반환해야 한다 |
 
-### 7.2 거부 시 반환 형식
+### 9.2 거부 시 반환 형식
 
 ```json
 {
@@ -392,9 +454,9 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 8. Tool 결과 처리
+## 10. Tool 결과 처리
 
-### 8.1 ToolResult 구조
+### 10.1 ToolResult 구조
 
 ```typescript
 interface ToolResult {
@@ -429,12 +491,12 @@ interface ToolError {
 }
 ```
 
-### 8.2 동기/비동기 결과
+### 10.2 동기/비동기 결과
 
 - **동기 완료**: 핸들러가 값을 반환하면 `output` 포함
 - **비동기 제출**: `handle` 포함(완료 이벤트 또는 polling)
 
-### 8.3 오류 결과 및 메시지 제한
+### 10.3 오류 결과 및 메시지 제한
 
 AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
 
@@ -451,14 +513,7 @@ AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 
 }
 ```
 
-규칙:
-
-1. `error.message` 길이는 `Tool.spec.errorMessageLimit`를 적용해야 한다(MUST).
-2. 미설정 시 기본값은 1000자여야 한다(MUST).
-3. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
-4. 문서 링크(`helpUrl`) 제공을 권장한다(SHOULD).
-
-### 8.4 오류 메시지 제한 구현
+### 10.4 오류 메시지 제한 구현
 
 ```typescript
 function truncateErrorMessage(message: string, limit: number): string {
@@ -473,11 +528,11 @@ function truncateErrorMessage(message: string, limit: number): string {
 
 ---
 
-## 9. Handoff 도구 패턴
+## 11. Handoff 도구 패턴
 
 Agent 간 제어 이전(Handoff)을 Tool call로 구현하며, Orchestrator를 경유하는 IPC로 통신한다.
 
-### 9.1 Handoff 흐름
+### 11.1 Handoff 흐름
 
 ```
 1. Agent A가 handoff 도구를 호출
@@ -487,7 +542,7 @@ Agent 간 제어 이전(Handoff)을 Tool call로 구현하며, Orchestrator를 �
 5. Orchestrator → AgentProcess A에 결과 전달
 ```
 
-### 9.2 IPC 메시지 형식
+### 11.2 IPC 메시지 형식
 
 ```typescript
 interface IpcMessage {
@@ -499,7 +554,7 @@ interface IpcMessage {
 }
 ```
 
-### 9.3 Handoff 규칙
+### 11.3 Handoff 규칙
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
@@ -512,9 +567,9 @@ interface IpcMessage {
 
 ---
 
-## 10. 동적 Tool 등록
+## 12. 동적 Tool 등록
 
-### 10.1 api.tools.register
+### 12.1 api.tools.register
 
 Extension에서 런타임에 Tool을 동적으로 등록할 수 있다.
 
@@ -527,7 +582,7 @@ interface ExtensionApi {
 }
 ```
 
-### 10.2 동적 등록 예시
+### 12.2 동적 등록 예시
 
 ```typescript
 // extensions/weather/index.ts
@@ -561,15 +616,15 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 10.3 동적 Tool의 Catalog 노출
+### 12.3 동적 Tool의 Catalog 노출
 
 동적으로 등록된 Tool은 다음 Step의 Tool Catalog에 자동으로 포함된다. Step 미들웨어에서 `ctx.toolCatalog`를 통해 확인/변경할 수 있다.
 
 ---
 
-## 11. ToolCatalogItem 구조
+## 13. ToolCatalogItem 구조
 
-### 11.1 인터페이스 정의
+### 13.1 인터페이스 정의
 
 ```typescript
 interface ToolCatalogItem {
@@ -601,7 +656,7 @@ interface ToolSource {
 }
 ```
 
-### 11.2 Catalog 구성 예시
+### 13.2 Catalog 구성 예시
 
 ```typescript
 const toolCatalog: ToolCatalogItem[] = [
@@ -650,9 +705,9 @@ const toolCatalog: ToolCatalogItem[] = [
 
 ---
 
-## 12. 실전 Tool 구현 예시
+## 14. 실전 Tool 구현 예시
 
-### 12.1 파일 시스템 Tool
+### 14.1 파일 시스템 Tool
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -738,7 +793,7 @@ export const handlers: Record<string, ToolHandler> = {
 };
 ```
 
-### 12.2 HTTP Fetch Tool
+### 14.2 HTTP Fetch Tool
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -771,7 +826,7 @@ spec:
 
 ---
 
-## 13. 검증 체크리스트
+## 15. 검증 체크리스트
 
 | 항목 | 검증 내용 |
 |------|----------|
@@ -816,27 +871,12 @@ interface ToolResult {
 
 ---
 
-## 부록 B. v1 → v2 변경 요약
+## 부록 B. 참고 문서
 
-| 항목 | v1 | v2 |
-|------|----|----|
-| `spec.runtime` | `node` (필수) | 제거 (항상 Bun) |
-| `spec.auth` | OAuthApp 참조 | 제거 (Extension 내부 구현) |
-| 도구 이름 구분자 | `.` (점) | `__` (더블 언더스코어) |
-| ToolContext | `instance`, `swarm`, `agent`, `oauth`, `swarmBundle` 포함 | `agentName`, `instanceKey`, `turnId`, `toolCallId`, `message`, `workdir`, `logger` |
-| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
-| 파이프라인 | `toolCall.pre` / `toolCall.exec` / `toolCall.post` (Mutator + Middleware) | `toolCall` 미들웨어 단일 통합 |
-| Handoff | 인메모리 delegate | IPC (Orchestrator 경유) |
-
----
-
-## 부록 C. 참고 문서
-
-- `docs/requirements/05_core-concepts.md` §5.2: Tool 핵심 개념 정의
-- `docs/requirements/07_config-resources.md` §7.2: Tool 리소스 스키마
-- `docs/requirements/12_tool-spec-runtime.md`: Tool Registry, Catalog, 실행 모델
+- `docs/architecture.md`: 아키텍처 개요 (핵심 개념, 설계 패턴)
 - `docs/specs/extension.md`: Extension 시스템 (동적 도구 등록, 미들웨어)
 - `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess)
+- `docs/specs/resources.md`: Config Plane 리소스 정의 (Tool 리소스 스키마)
 
 ---
 

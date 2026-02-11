@@ -10,7 +10,8 @@
 
 1. 문서 소유권(어떤 개념을 어떤 스펙이 소유하는지)
 2. 공통 계약(ObjectRef/ValueSource, 환경변수 해석, 레지스트리 설정)
-3. CLI 도움말 기준(`gdn package` 지원/제거 명령어)
+3. Load/Validate 계약(로딩 단계, fail-fast, 구조화 오류)
+4. CLI 도움말 기준(`gdn package` 명령어)
 
 개별 스펙은 이 문서의 계약을 재정의하지 않고 참조를 우선해야 한다(SHOULD).
 
@@ -21,8 +22,14 @@
 | 주제 | 단일 기준(Owner) | 다른 문서의 역할 |
 |------|-------------------|------------------|
 | 공통 타입(`ProcessStatus`, `IpcMessage`, `TurnResult`, `ToolContext` 등) | `docs/specs/shared-types.md` | 타입 재정의 대신 링크/요약 |
+| 실행 컨텍스트/이벤트 엔벨로프(ExecutionContext, EventEnvelope) | `docs/specs/shared-types.md` | 런타임/파이프라인 문맥 확장 |
 | 리소스 Kind 스키마(8종) | `docs/specs/resources.md` | 문맥별 사용 규칙/예시 |
+| Config 참조 모델(ObjectRef/Selector/ValueSource) | `docs/specs/resources.md` | 번들/커넥션은 문맥 예시만 제공 |
+| 로딩/검증/Fail-Fast 계약 | `docs/specs/resources.md` | 번들/패키지/CLI는 진입점별 제약만 추가 |
 | Runtime 실행 모델/프로세스/IPC 흐름 | `docs/specs/runtime.md` | API/확장은 외부 시그니처 중심 설명 |
+| Runtime 표준 이벤트 이름/페이로드 API 표면 | `docs/specs/api.md` | Runtime은 발행 시점/실행 규칙 소유 |
+| 메시지 상태 실행 규칙(`NextMessages = Base + SUM(Events)`) | `docs/specs/runtime.md` | 파이프라인/워크스페이스는 해당 문맥만 기술 |
+| 메시지/상태 저장 레이아웃(`base.jsonl`, `events.jsonl`) | `docs/specs/workspace.md` | 런타임/파이프라인은 저장 규칙 재정의 금지 |
 | 미들웨어 파이프라인 계약 | `docs/specs/pipeline.md` | 확장/툴 문서는 패턴 중심 설명 |
 | Extension API/로딩/상태 모델 | `docs/specs/extension.md` | API/툴 문서는 참조 중심 설명 |
 | Tool 시스템 계약 | `docs/specs/tool.md` | API/런타임은 참조 중심 |
@@ -30,6 +37,7 @@
 | Connection 계약(`ConnectionSpec`, `Ingress*`) | `docs/specs/connection.md` | API 문서는 참조 중심 설명 |
 | Package 라이프사이클/레지스트리 API | `docs/specs/bundle_package.md` | CLI는 UX/명령 인터페이스 중심 |
 | CLI 명령 인터페이스 | `docs/specs/cli.md` | 도메인 스펙은 의미론/제약 중심 |
+| OAuth 범위 문서 | `docs/specs/oauth.md` | 소유 문서(extension/connection) 참조 |
 
 ---
 
@@ -48,6 +56,19 @@
 1. 필수 필드: 환경변수가 없으면 구성 로드 단계에서 오류로 처리한다(MUST).
 2. 선택 필드: 환경변수가 없으면 해당 필드를 미설정 상태로 둔다(SHOULD).
 3. 경고만 출력하고 빈 문자열로 강제 대체하는 동작은 기본 정책이 되어서는 안 된다(SHOULD NOT).
+
+### 3.3 Load & Validate 계약
+
+1. 구성 검증은 Runtime 시작 전 로딩 단계에서 수행해야 한다(MUST).
+2. 오류가 하나라도 있으면 부분 로드 없이 전체 구성을 거부해야 한다(MUST).
+3. 오류는 코드/경로/메시지를 포함한 구조화 형식으로 반환해야 한다(MUST).
+4. `apiVersion`은 모든 리소스에서 `goondan.ai/v1`로 명시되어야 한다(MUST).
+
+### 3.4 메시지 상태 책임 분리
+
+1. 실행 규칙(이벤트 적용 순서, 폴딩 시점, 복원 규칙)은 `docs/specs/runtime.md`를 단일 기준으로 따른다(MUST).
+2. 저장 규칙(파일 경로, JSONL 레이아웃, 디렉터리 구조)은 `docs/specs/workspace.md`를 단일 기준으로 따른다(MUST).
+3. `docs/specs/pipeline.md`는 미들웨어 관점의 사용 계약만 기술하고 저장 레이어 세부를 재정의하지 않는다(SHOULD).
 
 ---
 
@@ -88,26 +109,13 @@
 
 ## 5. CLI 도움말 기준 (`gdn package`)
 
-### 5.1 지원 명령어
+### 5.1 명령어
 
 | 명령어 | 설명 |
 |--------|------|
 | `gdn package add <ref>` | 의존성 추가 |
 | `gdn package install` | 의존성 설치 |
 | `gdn package publish` | 패키지 발행 |
-
-### 5.2 제거된 명령어
-
-| 제거된 명령어 | 대체 방법 |
-|---------------|-----------|
-| `gdn package remove <ref>` | `goondan.yaml` 직접 수정 후 `gdn package install` |
-| `gdn package update [ref]` | `gdn package add <ref>@<version>` |
-| `gdn package list` | `goondan.yaml`의 `Package.dependencies` 확인 |
-| `gdn package unpublish <ref>` | 레지스트리 UI/API 사용 |
-| `gdn package deprecate <ref>` | 레지스트리 UI/API 사용 |
-| `gdn package login/logout` | `~/.goondan/config.json`의 `registries` 편집 |
-| `gdn package pack` | 제거 |
-| `gdn package info <ref>` | 레지스트리 웹 UI/API 사용 |
 
 ---
 
@@ -117,9 +125,54 @@
 
 1. 공통 타입 변경이면 `shared-types.md`를 먼저 수정했는가.
 2. 동일 규칙을 여러 문서에 재정의하지 않고 참조로 유지했는가.
-3. `gdn package` 도움말 표는 `cli.md`와 `bundle_package.md`에서 동일한가.
+3. `gdn package` 명령어 매트릭스를 `help.md` 외 문서에서 중복 정의하지 않았는가.
 4. 레지스트리 기본 URL과 설정 소스(`~/.goondan/config.json`)가 일치하는가.
 5. 환경변수 해석 정책이 문서 간 일치하는가.
+6. 링크 점검 자동 체크(`7. 링크 자동 점검 체크리스트`)를 실행했는가.
+
+---
+
+## 7. 링크 자동 점검 체크리스트
+
+아래 명령은 문서 PR/머지 전에 자동 실행 가능한 최소 점검 세트다.
+
+### 7.1 로컬 문서 경로 존재 검사
+
+```bash
+rg --no-filename -o "docs/[A-Za-z0-9_./-]+\\.md" docs/specs/*.md GUIDE.md \
+  | sort -u \
+  | while IFS= read -r p; do
+  [ -f "$p" ] || echo "MISSING: $p"
+done
+```
+
+출력이 비어 있어야 한다(MUST).
+
+### 7.2 금지 링크 패턴 검사 (`@docs/`)
+
+```bash
+rg -n "@docs/" docs/specs/*.md GUIDE.md | grep -v '^docs/specs/help.md:' || true
+```
+
+출력이 비어 있어야 한다(MUST). 문서 경로는 `docs/...` 또는 `/docs/...` 표기를 사용한다.
+
+### 7.3 `관련 문서` 섹션 존재 검사
+
+```bash
+for f in docs/specs/*.md; do
+  rg -q "^## .*관련 문서$" "$f" || echo "MISSING 관련 문서: $f"
+done
+```
+
+소유권 참조가 필요한 스펙 문서는 `## 관련 문서` 섹션을 포함해야 한다(SHOULD).
+
+### 7.4 섹션 번호 참조 드리프트 검사 (`§n`)
+
+```bash
+rg -n "§[0-9]" docs/specs/*.md GUIDE.md || true
+```
+
+출력이 비어 있어야 한다(SHOULD). 섹션 번호 대신 섹션명/앵커 참조를 사용한다.
 
 ---
 

@@ -9,15 +9,13 @@
 
 ### 1.1 배경 및 설계 동기
 
-Goondan v2 Runtime은 **Process-per-Agent** 아키텍처를 채택한다. v1의 단일 프로세스 내 다중 AgentInstance 모델은 하나의 에이전트 크래시가 전체 Swarm에 영향을 주는 문제가 있었고, 에이전트별 독립적인 메모리 공간과 스케일링이 불가능했다.
-
-v2에서는 Orchestrator가 **상주 프로세스**로 전체 Swarm의 생명주기를 관리하고, 각 AgentInstance와 Connector는 **독립 Bun 프로세스**로 실행된다. 이를 통해:
+Goondan Runtime은 **Process-per-Agent** 아키텍처를 사용한다. Orchestrator는 **상주 프로세스**로 전체 Swarm의 생명주기를 관리하고, 각 AgentInstance와 Connector는 **독립 Bun 프로세스**로 실행된다. 이를 통해:
 
 - **크래시 격리**: 개별 에이전트의 비정상 종료가 다른 에이전트에 영향을 주지 않는다.
 - **독립 스케일링**: 각 에이전트 프로세스가 독립적으로 자원을 사용하고 관리된다.
 - **단순한 재시작**: 설정 변경 시 영향받는 프로세스만 선택적으로 재시작할 수 있다.
 
-또한 v1의 Changeset/SwarmBundleRef 기반 자기 수정 패턴을 제거하고, **Edit & Restart** 모델로 단순화했다. `goondan.yaml`을 직접 수정하고 Orchestrator가 프로세스를 재시작하는 방식으로, 개발자 경험을 크게 개선한다.
+설정 변경은 **Edit & Restart** 모델을 따른다. `goondan.yaml`을 직접 수정하고 Orchestrator가 프로세스를 재시작하여 변경을 반영한다.
 
 메시지 상태 관리는 **이벤트 소싱**을 유지한다. `NextMessages = BaseMessages + SUM(Events)` 규칙으로 메시지 상태를 결정론적으로 계산하며, 이는 복구, 관찰, Extension 기반 메시지 조작, Compaction을 가능하게 한다.
 
@@ -39,7 +37,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 |------|------|
 | **Bun-native** | 스크립트 런타임은 Bun만 지원. Node.js 호환 레이어 불필요 |
 | **Process-per-Agent** | 각 AgentInstance는 독립 Bun 프로세스로 실행. 크래시 격리, 독립 스케일링 |
-| **Edit & Restart** | Changeset/SwarmBundleRef 제거. `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
+| **Edit & Restart** | `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
 | **Message** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 메시지 식별/조작 |
 | **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
 
@@ -275,7 +273,7 @@ Orchestrator는 주기적으로 **desired state**와 **actual state**를 비교�
 
 1. Orchestrator는 주기적으로(기본 5초 간격) reconciliation을 수행해야 한다(MUST).
 2. ConnectorProcess가 실행되지 않고 있으면 스폰해야 한다(MUST).
-3. 설정에서 제거된 Agent/Connector의 프로세스가 남아 있으면 graceful shutdown을 수행해야 한다(MUST).
+3. 설정에 존재하지 않는 Agent/Connector의 프로세스가 남아 있으면 graceful shutdown을 수행해야 한다(MUST).
 4. `crashed` 상태의 프로세스는 백오프 정책에 따라 재스폰해야 한다(MUST).
 
 ```typescript
@@ -447,15 +445,15 @@ delegate와 connector event를 통합한 **단일 이벤트 모델**이다. 받�
 
 `AgentEvent`/`EventSource`/`ReplyChannel` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
-**이전 모델과의 대응:**
+**이벤트 패턴별 통합 모델 표현:**
 
-| 이전 (v2 초기) | 통합 모델 |
-|----------------|-----------|
-| `type: 'agent.delegate'` + IPC `delegate` | `source: { kind: 'agent' }` + `replyTo: { target, correlationId }` |
-| `type: 'agent.delegationResult'` + IPC `delegate_result` | 응답 이벤트: `source: { kind: 'agent' }` + `metadata.inReplyTo: correlationId` |
-| `type: 'connector.event'` + IPC `event` | `source: { kind: 'connector', name: 'telegram', ... }` + `replyTo` 없음 |
-| `type: 'user.input'` | `source: { kind: 'connector', name: 'cli' }` + `replyTo` 없음 |
-| `TurnOrigin` | `EventSource` (kind 필드 추가) |
+| 이벤트 패턴 | 통합 모델 표현 |
+|-------------|----------------|
+| 에이전트 요청 이벤트 | `source: { kind: 'agent' }` + `replyTo: { target, correlationId }` |
+| 에이전트 응답 이벤트 | `source: { kind: 'agent' }` + `metadata.inReplyTo: correlationId` |
+| 커넥터 입력 이벤트 | `source: { kind: 'connector', name: 'telegram', ... }` + `replyTo` 없음 |
+| CLI 입력 이벤트 | `source: { kind: 'connector', name: 'cli' }` + `replyTo` 없음 |
+| 이벤트 출처 모델 | `EventSource` (`kind` 필수) |
 
 ---
 
@@ -465,7 +463,7 @@ delegate와 connector event를 통합한 **단일 이벤트 모델**이다. 받�
 
 ### 6.1 IPC 메시지 타입
 
-통합 이벤트 모델에 따라 IPC 메시지는 **3종**으로 단순화된다. 이전의 `delegate`/`delegate_result`는 `event` 타입의 `AgentEvent.replyTo`로 통합된다.
+통합 이벤트 모델에 따라 IPC 메시지는 **3종**(`event`, `shutdown`, `shutdown_ack`)으로 구성하며, 에이전트 요청/응답은 `event` 타입의 `AgentEvent.replyTo`로 처리한다.
 
 `IpcMessage`/`ShutdownReason` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
@@ -536,11 +534,11 @@ AgentA → Orchestrator:
 3. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
 4. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
 5. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
-6. 요청 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
+6. 요청 실패는 구조화된 ToolCallResult(`status="error"`)로 반환해야 한다(MUST).
 
 ### 6.3 IPC 전송 메커니즘
 
-v2에서는 Bun의 내장 IPC를 기본으로 사용한다.
+IPC 전송 메커니즘은 Bun의 내장 IPC를 기본으로 사용한다.
 
 ```typescript
 // Orchestrator → AgentProcess (자식 프로세스 스폰 시)
@@ -565,7 +563,7 @@ proc.send({ type: 'event', from: 'orchestrator', to: 'coder', payload: {...} });
 
 ## 7. Turn / Step
 
-Turn과 Step은 기존과 동일한 개념이나, **단일 AgentProcess 내에서** 실행된다.
+Turn과 Step은 **단일 AgentProcess 내에서** 실행되는 표준 실행 단위다.
 
 ### 7.1 Turn
 
@@ -639,7 +637,7 @@ interface Step {
   readonly toolCalls: ToolCall[];
 
   /** Tool 실행 결과 목록 */
-  readonly toolResults: ToolResult[];
+  readonly toolResults: ToolCallResult[];
 
   /** Step 상태 */
   status: 'llm_call' | 'tool_exec' | 'completed';
@@ -708,6 +706,9 @@ import type { TurnAuth } from './shared-types';
 ---
 
 ## 8. Message
+
+메시지 처리의 **실행 규칙**(이벤트 적용 순서, 폴딩 시점, 복원)은 이 문서가 소유한다.
+파일 경로/디렉터리 레이아웃 같은 **저장 규칙**은 `docs/specs/workspace.md`를 단일 기준으로 따른다.
 
 ### 8.1 핵심 타입
 
@@ -783,21 +784,12 @@ interface RuntimeConversationState extends ConversationState {
 
 ### 8.7 영속화
 
-- `messages/base.jsonl` — Turn 종료 시 확정된 Message 목록
-- `messages/events.jsonl` — Turn 진행 중 누적된 MessageEvent 로그
-- Turn 종료 후: events → base로 폴딩, events 클리어
+`messages/base.jsonl`/`messages/events.jsonl` 경로 및 파일 레이아웃의 단일 기준은 `docs/specs/workspace.md` 7.3절이다.
+Runtime은 해당 저장소 위에서 다음 실행 규칙만 보장한다(MUST).
 
-```jsonl
-# base.jsonl 예시
-{"id":"m1","data":{"role":"user","content":"Hello"},"metadata":{},"createdAt":"2026-02-01T12:00:00Z","source":{"type":"user"}}
-{"id":"m2","data":{"role":"assistant","content":"Hi!"},"metadata":{},"createdAt":"2026-02-01T12:00:01Z","source":{"type":"assistant","stepId":"s1"}}
-```
-
-```jsonl
-# events.jsonl 예시
-{"type":"append","message":{"id":"m3","data":{"role":"user","content":"Fix the bug"},"metadata":{},"createdAt":"2026-02-01T12:01:00Z","source":{"type":"user"}}}
-{"type":"append","message":{"id":"m4","data":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"2026-02-01T12:01:01Z","source":{"type":"assistant","stepId":"s2"}}}
-```
+1. Turn 종료 시 `events -> base` 폴딩을 수행한다.
+2. 폴딩 성공 후 `events`를 비운다.
+3. 재시작 시 미처리 `events`가 남아 있으면 `Base + SUM(Events)`로 복원한다.
 
 ### 8.8 Middleware에서의 활용
 
@@ -838,21 +830,9 @@ api.pipeline.register('turn', async (ctx) => {
 
 ## 9. Edit & Restart (설정 변경 모델)
 
-v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart** 모델을 채택한다.
+Runtime은 **Edit & Restart** 모델을 채택한다.
 
-### 9.1 제거된 항목
-
-다음 항목은 v2에서 **완전 제거**된다:
-
-- `SwarmBundleRef` (불변 스냅샷 식별자)
-- `ChangesetPolicy` (허용 파일, 권한)
-- Safe Point (`turn.start`, `step.config`)
-- 충돌 감지, 원자적 커밋
-- 자기 수정(self-evolving) 에이전트 패턴
-- GC (garbage collection of instances — 이제 프로세스 수준)
-- In-memory 라우팅 (단일 프로세스 모델)
-
-### 9.2 Edit & Restart 동작 방식
+### 9.1 Edit & Restart 동작 방식
 
 ```
 1. goondan.yaml (또는 개별 리소스 파일) 수정
@@ -866,7 +846,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
 3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST). Graceful shutdown 프로토콜은 `4.6 Graceful Shutdown Protocol`을 따른다.
 
-### 9.3 재시작 트리거
+### 9.2 재시작 트리거
 
 | 트리거 | 설명 |
 |--------|------|
@@ -874,7 +854,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 | CLI 명령 | `gdn restart`를 통해 실행 중인 Orchestrator에 재시작 신호 전송(MUST) |
 | 크래시 감지 | Orchestrator Reconciliation Loop(`4.5 Reconciliation Loop`)가 비정상 종료를 감지하고 백오프 정책에 따라 재스폰(SHOULD) |
 
-### 9.4 재시작 옵션
+### 9.3 재시작 옵션
 
 ```typescript
 interface RestartOptions {
@@ -892,7 +872,7 @@ interface RestartOptions {
 2. `--fresh` 옵션으로 대화 히스토리를 초기화하고 재시작할 수 있어야 한다(MUST).
 3. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
 
-### 9.5 Watch 모드
+### 9.4 Watch 모드
 
 ```bash
 gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트 자동 restart
@@ -910,7 +890,7 @@ gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트
 
 ### 10.1 인스턴스 운영
 
-v2에서는 pause/resume/terminate를 제거하고 restart로 통합한다.
+인스턴스 운영은 `restart`와 `delete` 중심으로 수행한다.
 
 **규칙:**
 
@@ -1015,7 +995,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ### 12.2 프로세스별 로깅 모델
 
-v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 각 프로세스의 stdout/stderr를 활용한다.
+프로세스별 로그는 stdout/stderr 기반으로 기록한다.
 
 **규칙:**
 
@@ -1043,7 +1023,6 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 ### 13.2 ToolCall / ToolCallResult
 
 `ToolCall`/`ToolCallResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
-하위 호환 별칭 `ToolResult = ToolCallResult`를 유지한다.
 
 ### 13.3 ToolHandler / ToolContext
 
@@ -1053,67 +1032,18 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 
 ## 14. 규칙 요약
 
-> 상세 규범적 규칙은 [2. 핵심 규칙](#2-핵심-규칙) 섹션을 참조한다. 이하는 빠른 참조용 요약이다.
+상세 규범 규칙은 중복 요약 없이 본문 섹션을 단일 기준으로 참조한다.
 
-### MUST 요구사항
-
-1. Orchestrator는 `goondan.yaml`을 파싱하고 AgentProcess/ConnectorProcess를 스폰/감시해야 한다.
-2. 각 AgentInstance는 독립 Bun 프로세스로 실행되어야 한다.
-3. AgentProcess의 이벤트 큐는 FIFO 직렬 처리여야 한다.
-4. 에이전트 간 통신은 Orchestrator를 경유하는 IPC 메시지 패싱이어야 한다.
-5. `Message`는 AI SDK `CoreMessage`를 `data` 필드에 래핑해야 한다.
-6. 메시지 상태는 `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산되어야 한다.
-7. Turn 종료 시 events → base 폴딩 후 events를 클리어해야 한다.
-8. 설정 변경은 Edit & Restart 모델을 따라야 한다.
-9. Orchestrator 종료 시 모든 자식 프로세스도 종료해야 한다.
-10. 인스턴스 관리 연산(`list`, `delete`)을 제공해야 한다.
-11. 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다.
-12. 에이전트 간 통신은 통합 이벤트 모델(AgentEvent + replyTo)을 사용해야 한다.
-13. IPC 메시지는 `event`/`shutdown`/`shutdown_ack` 3종이며, JSON 직렬화 가능해야 하고 순서가 보장되어야 한다.
-14. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다.
-15. Orchestrator는 Reconciliation Loop(`4.5 Reconciliation Loop`)로 desired/actual 상태 불일치를 주기적으로 교정해야 한다.
-16. 반복 크래시 시 지수 백오프(crashLoopBackOff)를 적용해야 한다.
-17. 프로세스 종료 시 Graceful Shutdown Protocol(`4.6 Graceful Shutdown Protocol`)을 따라야 한다 — drain → 폴딩 → ack → 종료.
-18. 유예 기간 초과 시 SIGKILL로 강제 종료해야 한다.
-
-### SHOULD 권장사항
-
-1. AgentProcess 크래시 시 Orchestrator가 자동 재스폰한다.
-2. Watch 모드에서 영향받는 AgentProcess만 선택적 재시작한다.
-3. Turn/Step/ToolCall 메트릭을 구조화된 로그로 출력한다.
-4. TTL/idle 기반 인스턴스 자동 정리 정책을 제공한다.
-5. IPC 구현은 Bun의 내장 IPC를 사용한다.
-6. `replyTo` 있는 이벤트의 응답은 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다.
-7. `replace`/`remove` 대상 `targetId`가 존재하지 않으면 구조화된 경고 이벤트를 남겨야 한다.
-8. Orchestrator는 `crashLoopBackOff` 상태를 구조화된 로그와 CLI(`gdn instance list`) 출력에 포함해야 한다.
-
-### MAY 선택사항
-
-1. `Swarm.policy.maxStepsPerTurn` 적용.
-2. Orchestrator가 자식 프로세스 stdout/stderr을 통합 수집.
-3. Health check 인터페이스 제공.
-4. 에이전트 간 이벤트에 추가 context 전달 필드 지원.
-5. Reconciliation 주기를 `SwarmPolicy`로 조정 가능.
+- 프로세스/라우팅/복구: `2.1`, `4.5`, `4.6`
+- IPC 계약: `2.3`, `6.1`, `6.2`
+- Turn/Step 실행 규칙: `2.4`, `7`
+- 메시지 상태 실행 규칙: `2.5`, `8.2`, `8.5`
+- 편집/재시작 모델: `2.7`, `9`
+- 관찰성/보안: `2.6`, `12`
 
 ---
 
-## 부록 A. 기존 대비 변경 요약
-
-| 영역 | v1 (이전) | v2 (현재) |
-|------|-----------|-----------|
-| **런타임** | Node.js (`runtime: node`) | Bun only (필드 제거) |
-| **에이전트 실행** | 단일 프로세스 내 다중 AgentInstance | **Process-per-Agent** |
-| **에이전트 간 통신** | 인-메모리 호출 | IPC (Orchestrator 경유), **통합 이벤트 모델** (delegate/event 통합) |
-| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** (Graceful Shutdown 포함) |
-| **메시지 타입** | 커스텀 `LlmMessage` | **Message** (AI SDK `CoreMessage` 래핑) |
-| **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseMessages + SUM(MessageEvents)` (이벤트 소싱 유지) |
-| **인스턴스 관리** | pause/resume/terminate/delete | **restart + delete** |
-| **로깅** | 파일 기반 이벤트/메트릭 로그 | **프로세스 stdout/stderr** |
-| **GC** | 인스턴스 GC 정책 | **프로세스 수준 관리** |
-
----
-
-## 부록 B. 관련 문서
+## 부록 A. 관련 문서
 
 - `docs/specs/workspace.md`: Workspace 및 Storage 모델 스펙
 - `docs/specs/cli.md`: CLI 도구(gdn) 스펙

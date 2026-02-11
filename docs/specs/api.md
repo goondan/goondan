@@ -1,6 +1,6 @@
 # Goondan Runtime/SDK API 스펙 (v2.0)
 
-v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. v2에서는 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기반으로 API 표면을 대폭 단순화한다.
+런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. API 표면은 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기준으로 구성한다.
 
 > 공통 타입의 단일 기준(SSOT)은 `docs/specs/shared-types.md`이다. 이 문서의 타입 예시는 API 맥락 설명을 위한 축약본이며, 구조 변경 시 `shared-types.md`를 먼저 갱신해야 한다.
 
@@ -20,15 +20,15 @@ v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를
 
 - JSON 계열: `JsonPrimitive`, `JsonObject`, `JsonArray`, `JsonValue`
 - 참조/값 주입: `ObjectRefLike`, `ObjectRef`, `ValueSource`, `SecretRef`
-- 메시지/이벤트: `Message`, `MessageEvent`, `ConversationState`, `AgentEvent`, `EventSource`, `ReplyChannel`, `TurnAuth`
-- 런타임/도구: `ProcessStatus`, `IpcMessage`, `ToolCall`, `ToolCallResult`, `ToolContext`, `TurnResult`
+- 메시지/이벤트: `Message`, `MessageEvent`, `ConversationState`, `EventEnvelope`, `AgentEvent`, `EventSource`, `ReplyChannel`, `TurnAuth`
+- 런타임/도구: `ExecutionContext`, `ProcessStatus`, `IpcMessage`, `ToolCall`, `ToolCallResult`, `ToolContext`, `TurnResult`
 
 `Resource<T>`, `ResourceMetadata` 및 Kind별 스키마는 `docs/specs/resources.md`를 따른다.
 
 ### 1.2 API 문맥 규칙
 
 1. 메시지 상태는 `NextMessages = BaseMessages + SUM(Events)` 계약을 따라야 한다(MUST).
-2. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고 `conversationState` + `emitMessageEvent`를 사용해야 한다(MUST).
+2. 메시지 컨텍스트는 `conversationState` + `emitMessageEvent`를 사용해야 한다(MUST).
 3. IPC 타입은 `event`/`shutdown`/`shutdown_ack` 3종만 허용해야 한다(MUST).
 4. 도구 이름은 `{리소스명}__{export명}` 규칙을 따라야 한다(MUST).
 5. 공통 타입 변경 시 `shared-types.md`를 먼저 갱신하고 이 문서는 참조를 유지해야 한다(MUST).
@@ -139,20 +139,7 @@ export const handlers: Record<string, ToolHandler> = {
 ### 3.2 ToolContext
 
 `ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
-
-**제거된 필드:**
-
-| 필드 | 사유 |
-|------|------|
-| `instance` (SwarmInstanceRef) | 프로세스-per-에이전트 모델에서 `agentName` + `instanceKey`로 대체 |
-| `swarm` / `agent` (Resource) | ToolHandler는 리소스 정의에 접근 불필요 |
-| `turn` / `step` (상세 객체) | `turnId` + `toolCallId`로 최소화 |
-| `toolCatalog` | ToolHandler는 카탈로그에 접근 불필요 |
-| `swarmBundle` (Changeset API) | Changeset 시스템 제거 |
-| `liveConfig` (Config 패치) | Edit & Restart 모델로 대체 |
-| `oauth` (OAuth API) | OAuthApp Kind 제거 |
-| `events` (EventBus) | ToolHandler는 이벤트 발행 불필요 |
-| `agents` (ToolAgentsApi) | 통합 이벤트 모델로 대체 (`AgentEvent` + `replyTo`, IPC Orchestrator 경유) |
+`ToolContext`의 필드 제약과 사용 규칙은 `docs/specs/tool.md`의 `ToolContext 규칙`을 따른다.
 
 ### 3.3 ToolCatalogItem
 
@@ -211,8 +198,6 @@ spec:
         required: [path]
 ```
 
-`runtime` 필드 제거 -- 항상 Bun.
-
 ---
 
 ## 4. ConnectorContext API
@@ -254,16 +239,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 ### 4.2 ConnectorContext 인터페이스
 
 `ConnectorContext` 원형은 `docs/specs/connector.md` 5.2절을 따른다.
-
-**제거된 필드:**
-
-| 필드 | 사유 |
-|------|------|
-| `event` (ConnectorTriggerEvent) | Connector가 프로토콜을 자체 관리하므로 트리거 이벤트 불필요 |
-| `connection` (Resource) | 리소스 정의 접근 불필요. 필요한 정보는 `secrets`로 제공 |
-| `connector` (Resource) | 리소스 정의 접근 불필요 |
-| `oauth` | OAuthApp Kind 제거 |
-| `verify` | Connector가 자체적으로 서명 검증 수행 (시크릿은 `secrets`로 제공) |
+서명 검증/시크릿 처리 규칙은 `docs/specs/connector.md` 5.4절과 `docs/specs/connection.md` 8절을 따른다.
 
 ### 4.3 ConnectorEvent
 
@@ -285,9 +261,6 @@ spec:
       properties:
         chat_id: { type: string }
 ```
-
-`triggers` 필드 제거 -- Connector가 프로토콜 처리를 직접 구현.
-`runtime` 필드 제거 -- 항상 Bun.
 
 ### 4.5 Connector 사용 예시: Telegram
 
@@ -460,21 +433,15 @@ bun run agent-runner.ts \
 1. AgentA → Orchestrator: `{ type: 'event', payload: AgentEvent(replyTo 없음) }`
 2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
 
-**규칙:**
-
-1. IPC 메시지는 `event`, `shutdown`, `shutdown_ack` 3종을 지원해야 한다(MUST).
-2. 모든 IPC 메시지는 `from`, `to`, `payload`를 포함해야 한다(MUST).
-3. `event` 타입의 `payload`는 `AgentEvent` 구조를 따라야 한다(MUST).
-4. 에이전트 간 요청-응답은 `AgentEvent.replyTo.correlationId`로 매칭해야 한다(MUST).
-5. 대상 프로세스가 없으면 Orchestrator가 자동 스폰해야 한다(MUST).
-6. `shutdown` 메시지의 `payload`는 `gracePeriodMs`와 `reason`을 포함해야 한다(MUST).
-7. `shutdown_ack` 메시지는 AgentProcess가 drain 완료 후 Orchestrator에 전송해야 한다(MUST).
+IPC 상세 규범(메시지 타입, 필드, 라우팅, drain/ack)은 `docs/specs/runtime.md` 6절을 단일 기준으로 따른다(MUST).
 
 ---
 
 ## 9. Runtime Events
 
 Runtime이 발행하는 표준 이벤트 목록. Extension은 `api.events.on()`으로 구독할 수 있다.
+표준 이벤트 이름과 최소 payload 키의 API 표면 정의는 이 문서를 단일 기준(Owner)으로 사용한다.
+이벤트 발행 타이밍/순서/관찰성 규범은 `docs/specs/runtime.md`를 따른다.
 
 ### 9.1 표준 이벤트 타입
 
@@ -557,31 +524,20 @@ interface ToolCompletedEvent {
 
 ---
 
-## 10. 제거된 API
+## 10. API 표면 요약
 
-v2에서 다음 API는 **제거**된다.
+Runtime/SDK API는 다음 표면으로 구성한다.
 
-| 제거된 API | 사유 |
-|------------|------|
-| **OAuthApi** (`getAccessToken`) | OAuthApp Kind 제거. Extension 내부 구현 |
-| **SwarmBundleApi** (`openChangeset`, `commitChangeset`, `getActiveRef`) | Changeset 시스템 제거. Edit & Restart 모델로 대체 |
-| **LiveConfigApi** (`proposePatch`, `getEffectiveConfig`) | 동적 Config 변경은 Edit & Restart로 대체 |
-| **ChangesetPolicy** 검증 | Changeset 시스템 제거 |
-| **ToolAgentsApi** (`delegate`, `listInstances`, `spawnInstance`, `delegateToInstance`, `destroyInstance`) | 통합 이벤트 모델로 대체 (`AgentEvent` + `replyTo`, IPC Orchestrator 경유) |
-| **EffectiveConfig** 구조 | Edit & Restart에서 불필요 |
-| **Reconcile** 알고리즘 | Edit & Restart에서 불필요 |
-| 복잡한 **Lifecycle** API (`pause`, `resume`, `terminate`) | `restart`로 통합 |
-| **ConnectorTriggerEvent** / **TriggerPayload** | Connector가 프로토콜 자체 관리 |
-| **HookSpec** / **HookAction** | Agent Hooks 제거, Extension 미들웨어로 대체 |
-| **LlmMessage** (커스텀) | **Message** (AI SDK `CoreMessage` 래핑)로 대체 |
-| **ExtensionHandler** Kind | 제거 |
-| `runtime` 필드 (Tool/Extension/Connector) | 항상 Bun |
+- Extension: `pipeline`, `tools`, `state`, `events`, `logger`
+- Tool: `handlers` 맵 기반 export 실행
+- Connector: `default export` entry + `ConnectorContext.emit()`
+- Runtime IPC: `event` / `shutdown` / `shutdown_ack`
 
 ---
 
 ## 부록: Spec 타입 요약 (v2)
 
-중복 타입 재정의를 피하기 위해 부록의 전체 인터페이스 목록은 제거한다.
+중복 타입 재정의를 피하기 위해 부록에는 전체 인터페이스 목록을 두지 않는다.
 
 빠른 참조:
 
@@ -593,24 +549,9 @@ v2에서 다음 API는 **제거**된다.
 
 ---
 
-## 변경 이력
+## 관련 문서
 
-- v2.0 (2026-02-12): Goondan v2 전면 재설계
-  - 프로세스-per-에이전트 모델 (Orchestrator + AgentProcess + IPC)
-  - Bun-native 런타임 (`runtime` 필드 제거)
-  - Middleware Only 파이프라인 (Mutator 제거, 13 포인트 -> 3 미들웨어)
-  - Message 래퍼 (AI SDK `CoreMessage` 기반)
-  - 이벤트 소싱 유지 (`NextMessages = BaseMessages + SUM(Events)`)
-  - ExtensionApi 단순화 (OAuth/SwarmBundle/LiveConfig/Hooks 제거)
-  - Connector 자체 프로토콜 관리 (triggers 제거)
-  - Edit & Restart 모델 (Changeset/Reconcile 제거)
-  - `apiVersion: goondan.ai/v1`
-
----
-
-## 참조
-
-- @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
-- @docs/specs/extension.md - Extension 시스템 스펙 (v2)
-- @docs/architecture.md - 아키텍처 개요 (핵심 개념, 설계 패턴)
-- @docs/new_spec.md - Goondan v2 간소화 스펙 원본
+- `docs/specs/runtime.md` - Runtime 실행 모델 스펙
+- `docs/specs/pipeline.md` - 라이프사이클 파이프라인 스펙
+- `docs/specs/extension.md` - Extension 시스템 스펙
+- `docs/specs/shared-types.md` - 공통 타입 SSOT

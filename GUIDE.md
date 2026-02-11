@@ -26,13 +26,12 @@ v2는 “설정은 파일에서, 실행은 Orchestrator가”라는 원칙으로
 
 - Runtime: Process-per-Agent
 - 상주 프로세스: `gdn run`이 Orchestrator를 띄우고 Agent/Connector를 개별 Bun 프로세스로 관리
-- 재구성 방식: Changeset 제거, **Edit & Restart** 채택
-- 파이프라인: Mutator 제거, Middleware(`turn`/`step`/`toolCall`) 3종 통합
+- 재구성 방식: **Edit & Restart** 채택
+- 파이프라인: Middleware(`turn`/`step`/`toolCall`) 3종 사용
 - 메시지 상태: 이벤트 소싱 유지
   - `NextMessages = BaseMessages + SUM(Events)`
 - 구성 모델: `apiVersion: goondan.ai/v1`, 지원 Kind 8종
   - `Model`, `Agent`, `Swarm`, `Tool`, `Extension`, `Connector`, `Connection`, `Package`
-- 제거된 Kind: `OAuthApp`, `ResourceType`, `ExtensionHandler`
 
 ---
 
@@ -72,7 +71,7 @@ OPENAI_API_KEY=sk-...
 2. `.env.local`
 3. `.env`
 
-이미 시스템에 설정된 환경 변수는 덮어쓰지 않는다.
+이미 시스템에 설정된 환경 변수는 그대로 유지한다.
 
 ### 2.4 실행
 
@@ -126,6 +125,8 @@ metadata:
 spec:
   ...
 ```
+
+`apiVersion` 생략은 허용되지 않으며, 모든 리소스에서 `goondan.ai/v1`를 명시해야 한다.
 
 ### 3.1 최소 구성 예시 (Package + CLI Connection)
 
@@ -288,6 +289,10 @@ NextMessages = BaseMessages + SUM(Events)
 - `events.jsonl`: Turn 중 누적 이벤트(`append`/`replace`/`remove`/`truncate`)
 
 Turn 종료 시 최종 메시지를 base로 반영하고 events를 비운다.
+
+문서 소유권:
+- 실행 규칙(이벤트 적용/폴딩/복원): `docs/specs/runtime.md`
+- 저장 레이아웃(base/events 파일 구조): `docs/specs/workspace.md`
 
 ---
 
@@ -480,7 +485,7 @@ gdn package publish
 - lockfile: `goondan.lock.yaml`
 - 캐시: `~/.goondan/packages/`
 
-제거된 `gdn package` 명령(`remove`, `update`, `list`, `unpublish`, `deprecate`, `login/logout` 등)은 `docs/specs/help.md`를 따른다.
+`gdn package` 명령 매트릭스는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
 ---
 
@@ -612,4 +617,3 @@ Goondan 문서를 수정할 때는 아래 우선순위를 따른다.
 4. `gdn validate`
 5. `gdn run --watch`
 6. 필요 시 Tool/Extension/Connector를 점진 확장
-

@@ -1,6 +1,6 @@
 # Goondan Extension 시스템 스펙 (v2.0)
 
-> 공통 타입(`TurnResult`, `ConversationState`, `MessageEvent`, `ToolCallResult`)은 `docs/specs/shared-types.md`를 기준으로 한다.
+> 공통 타입(`ExecutionContext`, `TurnResult`, `ConversationState`, `MessageEvent`, `ToolCallResult`)은 `docs/specs/shared-types.md`를 기준으로 한다.
 
 ---
 
@@ -10,9 +10,7 @@
 
 Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
-v1에서 `ExtensionApi`는 `<TState, TConfig>` 제네릭 파라미터, `swarmBundle`(Changeset API), `liveConfig`(동적 Config 패치), `oauth`(OAuth API), `instance.shared`(공유 상태) 등 다양한 API를 제공했다. 이는 Extension 개발자에게 높은 학습 비용을 부과하고, 대부분의 Extension이 사용하지 않는 API까지 노출하는 문제가 있었다.
-
-v2에서는 ExtensionApi를 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 대폭 단순화한다. OAuth, Changeset, LiveConfig 등 특수 기능은 Extension이 필요 시 자체적으로 구현하는 방식으로 전환하여, 코어 API의 복잡성을 최소화한다. 모든 파이프라인 훅은 Middleware 형태로 통일되며(`docs/specs/pipeline.md` 참조), Extension은 `register(api)` 함수 하나로 모든 설정을 완료한다.
+`ExtensionApi` 표면은 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 구성된다. OAuth/설정 갱신 같은 도메인 기능은 Extension 내부에서 구현하며, 파이프라인 훅은 Middleware 형태(`docs/specs/pipeline.md`)를 따른다.
 
 ## 2. 핵심 규칙
 
@@ -30,7 +28,7 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 
 1. 미들웨어 등록은 `api.pipeline.register(type, middlewareFn)` 형태를 사용해야 한다(MUST).
 2. 미들웨어 타입은 `'turn'`, `'step'`, `'toolCall'` 세 가지만 허용해야 한다(MUST).
-3. v1의 `mutate(point, fn)`, `wrap(point, fn)` API는 제거해야 한다(MUST NOT).
+3. `mutate(point, fn)`, `wrap(point, fn)` API는 지원하지 않아야 한다(MUST NOT).
 4. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
 5. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
 6. `api.tools.register()`로 등록한 도구는 도구 이름 규칙(`{리소스명}__{하위도구명}`)을 따라야 한다(MUST).
@@ -48,22 +46,6 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 2. 에러에는 가능한 경우 `suggestion`, `helpUrl`을 포함하는 것을 권장한다(SHOULD).
 3. AgentProcess는 Extension 호환성 검증(`apiVersion: goondan.ai/v1`)을 로드 단계에서 수행해야 한다(SHOULD).
 4. Extension이 필요한 API가 없어 초기화 실패하는 경우 명확한 에러 메시지와 함께 AgentProcess 기동을 중단해야 한다(MUST).
-
----
-
-### 2.5 v1 대비 변경 요약
-
-| v1 (기존) | v2 (신규) |
-|-----------|-----------|
-| `ExtensionApi<TState, TConfig>` (제네릭) | **`ExtensionApi`** (단순 인터페이스) |
-| `pipelines.mutate()` / `pipelines.wrap()` | **`pipeline.register(type, fn)`** |
-| `extension` (Resource 접근) | 제거 |
-| `swarmBundle` (Changeset API) | 제거 |
-| `liveConfig` (Config 패치) | 제거 |
-| `oauth` (OAuth API) | 제거 (Extension 내부 구현) |
-| `getState()` / `setState()` (동기) | **`state.get()` / `state.set()`** (비동기, JSON) |
-| `instance.shared` (공유 상태) | 제거 |
-| `runtime: 'node'` 필드 | 제거 (항상 Bun) |
 
 ---
 
@@ -105,7 +87,7 @@ interface ExtensionSpec<TConfig = JsonObject> {
 }
 ```
 
-**제거된 필드:**
+**비노출 필드:**
 - `runtime` -- 항상 Bun이므로 불필요
 
 ### 3.3 예시
@@ -243,16 +225,15 @@ interface ExtensionApi {
 }
 ```
 
-**제거된 필드:**
+**ExtensionApi 구성 요소:**
 
-| 제거된 필드 | 사유 |
-|-------------|------|
-| `extension` (Resource 접근) | Extension이 자신의 리소스 정의에 접근할 필요 없음. config는 `spec.config`를 런타임이 주입 |
-| `swarmBundle` (Changeset API) | Changeset 시스템 제거. Edit & Restart 모델로 대체 |
-| `liveConfig` (Config 패치) | 동적 Config 변경은 Edit & Restart로 대체 |
-| `oauth` (OAuth API) | OAuthApp Kind 제거. Extension이 필요시 자체 구현 |
-| `instance.shared` (공유 상태) | 프로세스-per-에이전트 모델에서 불필요. 필요시 이벤트 버스 사용 |
-| `runtime` 필드 | 항상 Bun |
+| 영역 | 설명 |
+|------|------|
+| `pipeline` | `turn`/`step`/`toolCall` 미들웨어 등록 |
+| `tools` | 동적 도구 등록 |
+| `state` | Extension별 JSON 상태 읽기/쓰기 |
+| `events` | 프로세스 내 이벤트 버스 |
+| `logger` | Extension 로깅 인터페이스 |
 
 ### 5.2 PipelineRegistry
 
@@ -263,7 +244,7 @@ interface ExtensionApi {
 **규칙:**
 
 1. 미들웨어 타입은 `'turn'`, `'step'`, `'toolCall'` 세 가지만 허용해야 한다(MUST).
-2. v1의 `mutate(point, fn)`, `wrap(point, fn)` API는 제거한다(MUST NOT).
+2. 미들웨어 등록은 `pipeline.register(type, handler)`로 수행해야 한다(MUST).
 3. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
 4. 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있어야 한다(MUST).
 5. 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있어야 한다(MAY).
@@ -369,18 +350,7 @@ interface ExtensionEventsApi {
 1. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
 2. 이벤트는 프로세스 내(동일 AgentProcess) 범위에서만 전파되어야 한다(MUST).
 3. 이벤트 핸들러에서 발생한 예외는 다른 핸들러의 실행을 방해하지 않아야 한다(SHOULD).
-
-**표준 이벤트:**
-
-| 이벤트 | 설명 |
-|--------|------|
-| `turn.started` | Turn 시작 |
-| `turn.completed` | Turn 완료 |
-| `turn.failed` | Turn 실패 |
-| `step.started` | Step 시작 |
-| `step.completed` | Step 완료 |
-| `tool.called` | Tool 호출 |
-| `tool.completed` | Tool 완료 |
+4. 표준 Runtime 이벤트 이름과 payload 구조는 `docs/specs/api.md` 9절을 단일 기준으로 따른다(MUST).
 
 ### 5.6 Logger
 
@@ -700,46 +670,16 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-## 10. 제거된 항목
+## 10. API 경계
 
-v2에서 다음 항목은 제거된다:
-
-### 10.1 제거된 API
-
-| 항목 | 사유 |
-|------|------|
-| `api.extension` (Resource 접근) | Extension이 자신의 리소스 전체에 접근할 필요 없음 |
-| `api.swarmBundle` (Changeset API) | Changeset 시스템 제거 |
-| `api.liveConfig` (Config 패치) | Edit & Restart 모델로 대체 |
-| `api.oauth` (OAuth API) | OAuthApp Kind 제거, Extension 내부 구현 |
-| `api.instance.shared` (공유 상태) | 프로세스-per-에이전트 모델에서 불필요 |
-| `api.pipelines.mutate()` | Mutator 타입 제거 |
-| `api.pipelines.wrap()` | `api.pipeline.register()`로 통합 |
-| `api.tools.unregister()` | 단순화 |
-| `api.tools.get()` / `api.tools.list()` | 단순화 |
-
-### 10.2 제거된 리소스
-
-| 항목 | 사유 |
-|------|------|
-| `OAuthApp` Kind | Extension 내부 구현으로 이동 |
-| `ResourceType` Kind | 커스텀 Kind 불필요 |
-| `ExtensionHandler` Kind | 제거 |
-
-### 10.3 제거된 패턴
-
-| 항목 | 사유 |
-|------|------|
-| `runtime: 'node'` 필드 | 항상 Bun |
-| Reconcile Identity 규칙 | Edit & Restart 모델로 대체 |
-| Stateful MCP 연결 유지 규칙 | Extension 자체 관리 |
-| ContextBlock 시스템 | `emitMessageEvent()`로 대체 |
+Extension 구현은 `pipeline`, `tools`, `state`, `events`, `logger` 표면만 사용해야 한다(MUST).
+리소스 전체 접근, 런타임 설정 패치, 별도 파이프라인 등록 API 등 비표준 표면에 의존해서는 안 된다(MUST NOT).
 
 ---
 
 ## 관련 문서
 
-- @docs/specs/pipeline.md - 라이프사이클 파이프라인 스펙 (v2)
-- @docs/specs/api.md - Runtime/SDK API 스펙 (v2)
-- @docs/architecture.md - 아키텍처 개요 (핵심 개념, 설계 패턴)
-- @docs/new_spec.md - Goondan v2 간소화 스펙 원본
+- `docs/specs/pipeline.md` - 라이프사이클 파이프라인 스펙
+- `docs/specs/api.md` - Runtime/SDK API 스펙
+- `docs/specs/shared-types.md` - 공통 타입 SSOT
+- `docs/specs/runtime.md` - Runtime 실행 모델 스펙

@@ -1,12 +1,12 @@
 # Goondan Config Plane 리소스 정의 스펙 (v2.0)
 
 > **v2.0 주요 변경사항:**
-> - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
-> - Kind 축소: 11종 -> **8종** (OAuthApp, ResourceType, ExtensionHandler 제거)
-> - `runtime` 필드 제거: Tool, Extension, Connector 모두 항상 Bun으로 실행
+> - `apiVersion`: `goondan.ai/v1`
+> - 지원 Kind: **8종** (Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package)
+> - Tool/Extension/Connector 실행 환경: Bun
 > - Tool: `exports` 배열 기반 하위 도구 선언, 도구 이름 `{ToolName}__{subName}` 형식
-> - Connector: `triggers` 필드 제거, 프로토콜 자체 관리
-> - Agent: hooks/changesets 제거, 미들웨어 기반 라이프사이클
+> - Connector: `entry` + `events` 기반, 프로토콜 자체 관리
+> - Agent: 미들웨어 기반 라이프사이클
 > - Model: `apiKey` 필드 추가 (ValueSource)
 > - ObjectRef: `"Kind/name"` 문자열 축약형
 
@@ -21,14 +21,14 @@ Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 
 - **일관성**: 8종의 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package) 모두 동일한 구조를 따르므로, 도구와 검증기를 범용으로 구현할 수 있다.
 - **참조 무결성**: ObjectRef와 Selector 문법으로 리소스 간 관계를 명확히 선언하고, 로드 단계에서 모든 참조의 유효성을 검증한다.
 - **보안 분리**: 민감값(API 키, 토큰)은 ValueSource/SecretRef 패턴으로 외부 소스에서 주입하여, 구성 파일에 비밀값이 직접 노출되지 않도록 한다.
-- **확장 가능한 버전 관리**: `apiVersion` 필드를 통해 비호환 변경을 명시적으로 관리하고, 하위 호환을 유지한다.
+- **확장 가능한 버전 관리**: `apiVersion` 필드를 통해 비호환 변경을 명시적으로 구분하고 관리한다.
 
 ### 1.2 설계 원칙
 
 1. **단일 식별**: 모든 리소스는 `kind + metadata.name` 조합(동일 package 범위 내)으로 고유하게 식별된다.
 2. **Fail-Fast 검증**: 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행하며, 하나라도 오류가 있으면 부분 로드 없이 전체를 거부한다.
 3. **선언적 참조**: 리소스 간 관계는 ObjectRef(`Kind/name` 또는 `ref`) 또는 Selector로 선언하며, 런타임이 참조를 해석한다.
-4. **Bun 네이티브**: Tool, Extension, Connector의 `runtime` 필드를 제거하고, 모든 실행 환경을 Bun으로 통일하여 복잡도를 낮춘다.
+4. **Bun 네이티브**: Tool, Extension, Connector 실행 환경은 Bun으로 통일한다.
 
 ---
 
@@ -45,9 +45,8 @@ Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 
 
 ### 2.2 버전 정책
 
-1. 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현해야 한다 (MUST).
+1. 비호환 변경은 버전 상승으로 표현해야 한다 (MUST).
 2. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
-3. Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다 (SHOULD).
 
 ### 2.3 참조 문법
 
@@ -110,7 +109,7 @@ interface Resource<T = unknown> {
 }
 
 /**
- * v2에서 지원하는 8종의 Kind
+ * 지원하는 8종의 Kind
  */
 type KnownKind =
   | 'Model'
@@ -125,7 +124,7 @@ type KnownKind =
 
 ### 지원 Kind
 
-v2에서 지원하는 Kind는 8종이다:
+지원하는 Kind는 8종이다:
 
 | Kind | 역할 |
 |------|------|
@@ -144,9 +143,8 @@ v2에서 지원하는 Kind는 8종이다:
 2. `kind`는 MUST 8종의 알려진 Kind 중 하나여야 한다: `Model`, `Agent`, `Swarm`, `Tool`, `Extension`, `Connector`, `Connection`, `Package`.
 3. `metadata.name`은 MUST 동일 Kind 내에서 고유해야 한다.
 4. 단일 YAML 파일에 여러 문서를 `---`로 구분하여 포함할 수 있다 (MAY).
-5. 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현해야 한다 (MUST).
+5. 비호환 변경은 버전 상승으로 표현해야 한다 (MUST).
 6. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
-7. Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다 (SHOULD).
 
 ---
 
@@ -248,10 +246,9 @@ toolRef:
 
 1. 문자열 축약 형식은 MUST `Kind/name` 패턴을 따라야 한다.
 2. 객체형 참조는 MUST `kind`와 `name` 필드를 포함해야 한다.
-3. `apiVersion`은 MAY 생략할 수 있으며, 생략 시 `goondan.ai/v1`을 사용한다.
-4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
-5. `package`는 MAY Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다.
-6. `/`가 없거나 2개 이상이면 검증 오류로 처리해야 한다 (MUST).
+3. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
+4. `package`는 MAY Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다.
+5. `/`가 없거나 2개 이상이면 검증 오류로 처리해야 한다 (MUST).
 
 ---
 
@@ -569,7 +566,7 @@ LLM 도구 이름:  file-system__read,  file-system__write
 - `runtime` 필드는 존재하지 않는다. 항상 Bun으로 실행한다.
 - `exports[].name`은 Tool 리소스 내에서 고유해야 한다 (MUST).
 - Tool 리소스 이름과 export name에는 `__`가 포함되어서는 안 된다 (MUST NOT).
-- `auth` 필드는 v2에서 제거되었다. OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
+- `auth` 필드는 지원하지 않는다. OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
 
 ---
 
@@ -681,7 +678,7 @@ export function register(api: ExtensionApi): void {
 - Extension은 `api.pipeline.register()`를 통해 `turn`, `step`, `toolCall` 미들웨어를 등록할 수 있다 (MAY).
 - Extension은 `api.tools.register()`를 통해 동적으로 도구를 등록할 수 있다 (MAY).
 - Extension은 `api.state.get()`/`api.state.set()`을 통해 JSON 기반 상태를 영속화할 수 있다 (MAY).
-- OAuth 인증이 필요한 경우 Extension이 직접 관리한다 (OAuthApp Kind 제거).
+- OAuth 인증이 필요한 경우 Extension이 직접 관리한다.
 
 ---
 
@@ -810,7 +807,6 @@ spec:
 **추가 검증 규칙:**
 - `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
 - Agent 리소스에는 `hooks` 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다 (MUST).
-- Agent 리소스에는 `changesets` 필드가 존재하지 않는다. 설정 변경은 Edit & Restart 모델을 사용한다.
 
 ---
 
@@ -902,7 +898,7 @@ spec:
 - `entryAgent`는 `agents` 배열에 포함된 Agent를 참조해야 한다 (MUST).
 - `policy.maxStepsPerTurn` 값에 도달하면 Turn을 강제 종료해야 한다 (MUST).
 - `policy.lifecycle`가 설정되면 Runtime은 인스턴스 TTL 및 GC 정책에 반영해야 한다 (SHOULD).
-- v2에서 `changesets`, `liveConfig`, `queueMode` 정책은 제거되었다. 설정 변경은 Edit & Restart 모델을 사용한다.
+- `policy`는 `maxStepsPerTurn`, `lifecycle`, `shutdown` 하위 필드만 사용한다(MUST).
 
 ---
 
@@ -1063,7 +1059,7 @@ spec:
 - 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다 (MUST).
 - 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다 (MUST).
 - `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다 (MUST).
-- OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT). `auth` 필드는 v2에서 제거되었다.
+- OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT). `auth` 필드는 지원하지 않는다.
 
 ---
 

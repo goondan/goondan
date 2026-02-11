@@ -1,12 +1,12 @@
 # Goondan Bundle YAML 스펙 (v2.0)
 
-> **v2.0 주요 변경사항:**
-> - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
-> - Kind 축소: 11종 -> **8종** (OAuthApp, ResourceType, ExtensionHandler 제거)
-> - `runtime` 필드 제거: Tool, Extension, Connector 모두 항상 Bun으로 실행
-> - Connector: `triggers` 필드 제거
-> - Tool: `auth` 필드 제거, `exports` 배열 기반 도구 이름 규칙 (`__`)
-> - Agent: `hooks`/`changesets` 필드 제거
+> **현재 규범 요약:**
+> - `apiVersion`: `goondan.ai/v1`
+> - 지원 Kind: **8종**
+> - 실행 환경: Bun
+> - Connector 스키마: `entry` + `events`
+> - Tool 스키마: `exports` 배열 기반 도구 이름 규칙 (`__`)
+> - Agent: 라이프사이클 개입은 Extension 미들웨어 사용
 
 ---
 
@@ -81,23 +81,22 @@ spec:
 ### 3.2 apiVersion 형식 규칙
 
 - **형식**: `goondan.ai/v1`
-- `apiVersion`이 생략된 경우, 런타임은 `goondan.ai/v1`을 기본값으로 사용한다(SHOULD).
+- `apiVersion`은 모든 리소스에서 명시되어야 한다(MUST).
 - 비호환 변경은 `version` 상승(예: `v1` -> `v2`)으로 표현한다(MUST).
 - Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다(MUST).
-- Deprecated 리소스/필드는 최소 1개 이상의 하위 버전에서 경고를 제공해야 한다(SHOULD).
 
 ```yaml
-# 권장: apiVersion 명시
+# 올바른 예시
 apiVersion: goondan.ai/v1
 kind: Model
 
-# apiVersion 생략 시 기본값 적용 (권장하지 않음)
+# 잘못된 예시 (검증 오류)
 kind: Model
 ```
 
 ### 3.3 kind 목록
 
-v2에서 지원하는 Kind는 **8종**이다.
+지원하는 Kind는 **8종**이다.
 
 | Kind | 설명 |
 |------|------|
@@ -110,8 +109,6 @@ v2에서 지원하는 Kind는 **8종**이다.
 | `Connection` | Connector - Swarm 바인딩 |
 | `Package` | 프로젝트 매니페스트/배포 단위 |
 
-**제거된 Kind:** `OAuthApp`, `ResourceType`, `ExtensionHandler`는 v2에서 지원하지 않는다. 이들 Kind를 포함하는 리소스는 로드 단계에서 거부해야 한다(MUST).
-
 ### 3.4 metadata.name 유일성 규칙
 
 - `metadata.name`은 **동일 kind 내에서 고유**해야 한다(MUST).
@@ -123,12 +120,21 @@ v2에서 지원하는 Kind는 **8종**이다.
 # 올바른 예시
 metadata:
   name: telegram-bot
+
+# 다른 올바른 예시
+metadata:
   name: mcp-github-v2
+
+# 또 다른 올바른 예시
+metadata:
   name: planner-agent
 
 # 잘못된 예시 (검증 오류)
 metadata:
   name: Slack_Bot      # 대문자, 언더스코어 사용
+
+# 잘못된 예시 (검증 오류)
+metadata:
   name: -invalid       # 하이픈으로 시작
 ```
 
@@ -149,8 +155,6 @@ metadata:
 | `resources` | 여러 종류를 담는 범용 파일 |
 
 확장자는 `.yaml` 또는 `.yml` 모두 허용. 하위 디렉토리 포함 재귀 검색.
-
-> **v2 변경:** `oauth` 파일명은 더 이상 인식하지 않는다 (OAuthApp Kind 제거).
 
 ### 3.6 다중 YAML 문서 (---) 처리
 
@@ -250,160 +254,42 @@ metadata:
 
 ---
 
-## 4. ObjectRef 상세
+## 4. ObjectRef 사용 요약
 
-이 섹션은 번들 문맥의 사용 예시를 다룬다. ObjectRef 타입 원형/규칙의 단일 기준(SSOT)은 `docs/specs/shared-types.md`와 `docs/specs/resources.md`의 `ObjectRef 참조 문법` 섹션이다.
+ObjectRef 타입 원형과 해석/검증 규칙의 단일 기준(SSOT)은 `docs/specs/resources.md`의 `ObjectRef 참조 문법`과 `docs/specs/shared-types.md` 2절이다.
+이 문서는 번들 작성 문맥의 사용 위치와 예시만 제공한다.
 
-ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
-
-### 4.1 지원 형식
-
-```yaml
-# 1. 문자열 축약 형식 (권장)
-"Kind/name"
-
-# 2. 객체형 형식
-{ kind: Kind, name: name }
-
-# 3. 패키지 참조 형식 (Package 간 참조)
-{ kind: Kind, name: name, package: "@goondan/base" }
-```
-
-### 4.2 문자열 축약 형식 해석 규칙
-
-문자열 축약 형식 `"Kind/name"`은 다음 규칙에 따라 해석된다(MUST).
-
-1. `/` 를 구분자로 분리한다.
-2. 첫 번째 부분을 `kind`로, 두 번째 부분을 `name`으로 해석한다.
-3. `apiVersion`은 `goondan.ai/v1`을 기본값으로 사용한다.
-4. `/`가 없거나 2개 이상이면 검증 오류로 처리한다(MUST).
+### 4.1 번들에서의 사용 예시
 
 ```yaml
-# 문자열 축약 형식 예시
-tools:
-  - ref: "Tool/bash"
-  - ref: "Tool/file-system"
-modelRef: "Model/claude"
-agentRef: "Agent/coder"
-connectorRef: "Connector/telegram"
-
-# 잘못된 형식 (검증 오류)
-tools:
-  - ref: "bash"                  # kind 누락
-  - ref: "Tool/slack/post"      # /가 2개 이상
-  - ref: "Tool/"                # name 누락
+spec:
+  modelConfig:
+    modelRef: "Model/claude"
+  tools:
+    - ref: "Tool/bash"
+  connectorRef:
+    kind: Connector
+    name: telegram
 ```
 
-### 4.3 객체형 형식 해석 규칙
+### 4.2 번들 문맥 규칙
 
-```yaml
-# 기본 형식 (권장)
-{ kind: Tool, name: bash }
-
-# 패키지 참조
-{ kind: Tool, name: bash, package: "@goondan/base" }
-```
-
-1. `kind`와 `name`은 필수이다(MUST).
-2. `apiVersion` 생략 시 `goondan.ai/v1`을 기본값으로 사용한다(SHOULD).
-3. `package`는 Package 간 참조 시 참조 범위를 명시하는 데 사용할 수 있다(SHOULD).
-
-### 4.4 참조 무결성
-
-- ObjectRef가 참조하는 대상 리소스는 존재해야 한다(MUST).
-- 존재하지 않는 리소스를 참조하면 검증 오류로 처리한다(MUST).
-- 순환 참조는 허용되지 않으며, 검증 단계에서 탐지해야 한다(SHOULD).
+1. 번들 로더는 ObjectRef 파싱/검증 시 `docs/specs/resources.md` 규칙을 그대로 적용해야 한다(MUST).
+2. 번들 문서는 ObjectRef 파싱 알고리즘을 별도로 재정의하지 않아야 한다(MUST NOT).
 
 ---
 
-## 5. Selector + Overrides 상세
+## 5. Selector + Overrides 사용 요약
 
-이 섹션은 로딩 시점 동작 예시를 다룬다. `Selector`, `SelectorWithOverrides`, `RefOrSelector` 타입 원형은 `docs/specs/shared-types.md`와 `docs/specs/resources.md`의 `Selector + Overrides 조립 문법` 섹션을 기준으로 한다.
+`Selector`/`SelectorWithOverrides`/`RefOrSelector`의 단일 기준은 `docs/specs/resources.md`의 `Selector + Overrides 조립 문법`이다.
+이 문서는 Agent 구성에서의 대표 사용 패턴만 다룬다.
 
-Selector는 라벨 기반으로 리소스를 선택하고, Overrides는 선택된 리소스의 설정을 덮어쓴다.
-
-### 5.1 Selector 형식
-
-```yaml
-# 1. 단일 리소스 선택 (name 지정)
-selector:
-  kind: Tool
-  name: bash
-
-# 2. 라벨 기반 선택
-selector:
-  kind: Tool
-  matchLabels:
-    tier: base
-    category: shell
-
-# 3. kind만 지정 (해당 kind의 모든 리소스)
-selector:
-  kind: Tool
-```
-
-### 5.2 selector 해석 알고리즘
-
-Selector 해석은 다음 단계를 따른다(MUST).
-
-1. **kind 필터링**: `kind`가 지정되면 해당 kind의 리소스만 대상으로 한다.
-2. **name 매칭**: `name`이 지정되면 정확히 일치하는 리소스 1개를 선택한다.
-3. **matchLabels 매칭**: `matchLabels`가 지정되면 모든 라벨 조건을 만족하는 리소스를 선택한다 (AND 조건).
-4. **결과 집합**: 위 조건을 모두 만족하는 리소스 목록을 반환한다.
-
-### 5.3 matchLabels 매칭 규칙
-
-- 모든 지정된 라벨이 일치해야 선택된다(AND 조건)(MUST).
-- 라벨 값은 정확히 일치해야 한다(MUST).
-- 대상 리소스에 추가 라벨이 있어도 무방하다.
-- 라벨 키/값은 대소문자를 구분한다(MUST).
-
-### 5.4 overrides 병합 알고리즘
-
-overrides는 선택된 리소스의 `spec`을 부분적으로 덮어쓴다.
-
-**병합 규칙(MUST)**:
-
-1. **객체(Object)**: 재귀적으로 병합한다. 양쪽에 동일 키가 있으면 overrides 값이 우선한다.
-2. **스칼라(Scalar)**: overrides 값으로 완전히 덮어쓴다.
-3. **배열(Array)**: overrides 배열로 완전히 교체한다(병합하지 않음).
-4. **null 값**: 명시적 null은 해당 필드를 제거한다(SHOULD).
-
-```yaml
-# 원본 Tool 리소스
-kind: Tool
-metadata:
-  name: bash
-spec:
-  entry: "./tools/bash/index.ts"
-  errorMessageLimit: 1000
-
-# Selector + Overrides 적용
-- selector:
-    kind: Tool
-    name: bash
-  overrides:
-    spec:
-      errorMessageLimit: 2000              # 스칼라: 덮어쓰기
-
-# 결과
-spec:
-  entry: "./tools/bash/index.ts"           # 유지
-  errorMessageLimit: 2000                   # 덮어쓰기됨
-```
-
-### 5.5 Selector + Overrides 사용 위치
-
-Selector + Overrides는 Agent의 `tools`/`extensions`에서 사용할 수 있다.
+### 5.1 번들에서의 사용 예시
 
 ```yaml
 kind: Agent
 spec:
   tools:
-    # 직접 참조
-    - ref: "Tool/bash"
-
-    # Selector + Overrides
     - selector:
         kind: Tool
         matchLabels:
@@ -411,83 +297,39 @@ spec:
       overrides:
         spec:
           errorMessageLimit: 2000
-
-  extensions:
-    - selector:
-        kind: Extension
-        matchLabels:
-          category: context
-      overrides:
-        spec:
-          config:
-            maxTokens: 16000
 ```
+
+### 5.2 번들 문맥 규칙
+
+1. Selector 매칭 및 overrides 병합 알고리즘은 `docs/specs/resources.md`를 단일 기준으로 따른다(MUST).
+2. 번들 문서는 알고리즘 상세를 중복 정의하지 않고 사용 위치/예시 중심으로 유지해야 한다(SHOULD).
 
 ---
 
-## 6. ValueSource 상세
+## 6. ValueSource 사용 요약
 
-이 섹션은 번들 작성 관점의 예시를 다룬다. `ValueSource`/`SecretRef` 타입 원형은 `docs/specs/shared-types.md`와 `docs/specs/resources.md`의 `ValueSource / SecretRef 타입` 섹션을 기준으로 한다.
+`ValueSource`/`ValueFrom`/`SecretRef`의 단일 기준은 `docs/specs/resources.md` 7절과 `docs/specs/shared-types.md` 3절이다.
+환경변수 해석 정책은 `docs/specs/help.md` 3.2절을 따른다.
 
-ValueSource는 설정 값을 다양한 소스에서 가져오는 패턴을 정의한다. Model의 apiKey, Connection의 secrets 등에서 사용된다.
-
-### 6.1 지원 형식
-
-```yaml
-# 1. 직접 값 지정
-value: "plain-text-value"
-
-# 2. 환경변수에서 가져오기 (권장)
-valueFrom:
-  env: "ANTHROPIC_API_KEY"
-
-# 3. 비밀 저장소에서 가져오기
-valueFrom:
-  secretRef:
-    ref: "Secret/api-keys"
-    key: "anthropic"
-```
-
-### 6.2 상호 배타 규칙
-
-1. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
-2. `valueFrom` 내에서 `env`와 `secretRef`는 동시에 존재할 수 없다(MUST).
-3. 둘 다 없으면 검증 오류로 처리한다(MUST).
-
-### 6.3 valueFrom.env 환경변수 해석
+### 6.1 번들에서의 사용 예시
 
 ```yaml
-valueFrom:
-  env: "ANTHROPIC_API_KEY"
+apiKey:
+  valueFrom:
+    env: ANTHROPIC_API_KEY
+
+secrets:
+  webhookSecret:
+    valueFrom:
+      secretRef:
+        ref: "Secret/webhooks"
+        key: "telegram"
 ```
 
-**해석 규칙(MUST)**:
+### 6.2 번들 문맥 규칙
 
-1. 런타임은 시작 시점에 해당 환경변수를 조회한다.
-2. 환경변수가 존재하면 그 값을 사용한다.
-3. 환경변수가 존재하지 않으면:
-   - 필수 필드인 경우: 구성 로드 단계에서 오류로 처리한다(MUST).
-   - 선택 필드인 경우: 해당 필드를 미설정 상태로 둔다(SHOULD).
-
-### 6.4 valueFrom.secretRef 비밀 저장소 해석
-
-```yaml
-valueFrom:
-  secretRef:
-    ref: "Secret/api-keys"
-    key: "anthropic"
-```
-
-**secretRef.ref 형식 규칙(MUST)**:
-
-1. 형식: `"Secret/<name>"`
-2. `Secret`은 런타임이 제공하는 비밀 저장소 엔트리를 가리키는 예약된 kind이다.
-3. `<name>`은 비밀 저장소 내 엔트리 이름이다.
-
-**보안 요구사항(MUST)**:
-
-1. 비밀값은 로그, 이벤트 payload, LLM 컨텍스트에 평문으로 노출되어서는 안 된다.
-2. 비밀값(토큰, 시크릿)을 `value`로 직접 지정하지 않는다(SHOULD NOT).
+1. `value`/`valueFrom` 상호 배타 및 `valueFrom` 하위 규칙은 `docs/specs/resources.md`를 따른다(MUST).
+2. 번들 문서는 ValueSource 해석 정책을 재정의하지 않아야 한다(MUST NOT).
 
 ---
 
@@ -683,19 +525,9 @@ my-swarm/
 | Connection | `connectorRef` |
 | Package | `metadata.name`, 첫 번째 YAML 문서에만 위치 |
 
-### 10.4 제거된 필드 검증
+### 10.4 스키마 엄격 검증
 
-다음 필드가 존재하면 경고 또는 오류를 발생시켜야 한다(SHOULD).
-
-| 필드 | 이전 위치 | v2 상태 |
-|------|-----------|---------|
-| `runtime` | Tool/Extension/Connector spec | 제거 (항상 Bun) |
-| `triggers` | Connector spec | 제거 (자체 프로토콜 관리) |
-| `auth` | Tool spec | 제거 (Extension에서 관리) |
-| `hooks` | Agent spec | 제거 (Extension 미들웨어) |
-| `changesets` | Agent/Swarm spec | 제거 (Edit & Restart) |
-| `liveConfig` | Swarm policy | 제거 |
-| `queueMode` | Swarm policy | 제거 |
+스키마에 정의된 필드 집합만 허용하며, 정의되지 않은 필드는 검증 오류를 반환해야 한다(MUST).
 
 ---
 

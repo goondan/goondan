@@ -1,19 +1,26 @@
-# OAuth 스펙 v2.0
+# OAuth 스펙 (v2.0)
 
-> v2에서 OAuthApp Kind가 제거되었습니다.
+이 문서는 OAuth 적용 범위를 정의한다.
+OAuth는 독립 리소스가 아니라 Extension/Connection 조합으로 구현한다.
 
-OAuth 기능은 Extension 내부 구현으로 이동했습니다. 필요한 Extension이 자체적으로 OAuth 플로우를 관리합니다.
+---
 
-## 제거된 개념
+## 1. 상태
 
-- OAuthApp Kind (1급 리소스)
-- OAuthStore (시스템 레벨 토큰 관리)
-- PKCE 플로우 내장 지원
-- Token 자동 갱신
+- 단일 기준: `docs/specs/extension.md` (Extension 내부 구현 패턴)
 
-## v2 접근 방식
+---
 
-Extension이 필요한 OAuth 처리를 직접 구현:
-- Token 저장: `api.state.get()`/`api.state.set()` 활용
-- OAuth 라이브러리: Extension 코드에서 직접 사용
-- Secrets: Connection의 `secrets` 필드를 통해 client_id/secret 전달
+## 2. 구현 원칙
+
+1. OAuth 플로우는 Extension 내부에서 직접 구현한다(MUST).
+2. 토큰 상태 저장은 `api.state.get()`/`api.state.set()`를 사용한다(MUST).
+3. 클라이언트 시크릿 등 민감값은 Connection의 `secrets` 경로로 주입한다(SHOULD).
+
+---
+
+## 관련 문서
+
+- `docs/specs/extension.md` - Extension 시스템 스펙
+- `docs/specs/connection.md` - Connection 시크릿/라우팅 스펙
+- `docs/specs/help.md` - 공통 계약/문서 소유권

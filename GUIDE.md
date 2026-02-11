@@ -14,6 +14,7 @@
 - 리소스 스키마 SSOT: `docs/specs/resources.md`
 - 런타임/프로세스 모델 SSOT: `docs/specs/runtime.md`
 - CLI 명령어 SSOT: `docs/specs/cli.md`
+- 구성 계층 역할 개요(`core/runtime`, `core/types`, `base`, `cli`, `registry`): `docs/specs/layers.md`
 - 공통 타입 SSOT: `docs/specs/shared-types.md`
 
 ---

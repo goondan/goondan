@@ -1,10 +1,10 @@
 # Edit & Restart 스펙 v2.0
 
-> 상세 내용: `docs/specs/runtime.md` §Edit & Restart
+> 상세 내용: `docs/specs/runtime.md`의 `Edit & Restart (설정 변경 모델)` 섹션
 
 v2에서는 Changeset/SwarmBundleRef 시스템이 **Edit & Restart** 모델로 대체되었습니다.
 
-상세 스펙은 `runtime.md` §8 (Edit & Restart 섹션)을 참조하세요.
+상세 스펙은 `docs/specs/runtime.md`의 `Edit & Restart (설정 변경 모델)` 섹션을 참조하세요.
 
 ## 제거된 개념
 

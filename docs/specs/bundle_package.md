@@ -6,6 +6,7 @@
 > - Package spec: `version`, `description`, `dependencies` (name+version 객체 배열), `registry`
 > - 8종 Kind만 지원 (OAuthApp, ResourceType, ExtensionHandler 제거)
 > - Tool/Extension/Connector에서 `runtime` 필드 제거 (항상 Bun)
+> - 레지스트리 설정 소스/우선순위 및 `gdn package` 도움말 매트릭스는 `docs/specs/help.md` 기준으로 통합
 
 ---
 
@@ -93,7 +94,7 @@ values 병합 우선순위는 다음 순서를 따라야 한다 (MUST). 후순�
 ### 2.7 레지스트리 인증
 
 1. 레지스트리는 Bearer Token 기반 인증을 지원해야 한다 (MUST).
-2. 인증 토큰은 프로젝트 설정 파일(`.goondanrc`) 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다 (MUST).
+2. 인증 토큰은 `~/.goondan/config.json` 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다 (MUST).
 3. scope별 레지스트리 분리 구성을 지원해야 한다 (SHOULD).
 4. 인증 토큰은 설정 파일에 평문 저장하지 않는 것을 권장한다 (SHOULD).
 
@@ -351,7 +352,8 @@ Goondan 패키지 레지스트리는 Package의 메타데이터와 tarball을 �
 https://registry.goondan.ai
 ```
 
-사용자는 `.goondanrc` 또는 환경 변수로 커스텀 레지스트리를 지정할 수 있다(MAY).
+사용자는 `~/.goondan/config.json` 또는 환경 변수로 커스텀 레지스트리를 지정할 수 있다(MAY).
+설정 소스와 우선순위는 `docs/specs/help.md` 4절을 따른다.
 
 ### 8.2 레지스트리 API
 
@@ -450,17 +452,21 @@ Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
-인증 토큰은 프로젝트 설정 파일(`.goondanrc`) 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다(MUST).
+인증 토큰은 `~/.goondan/config.json` 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다(MUST).
+인증 소스의 단일 기준은 `docs/specs/help.md` 4절이다.
 
 **보안 권장사항**:
 - 인증 토큰은 설정 파일에 평문으로 직접 저장하지 않는 것을 권장한다(SHOULD).
 - 환경 변수 참조 패턴(`${GOONDAN_REGISTRY_TOKEN}`)을 사용하는 것을 권장한다(SHOULD).
 
-```yaml
-# .goondanrc - 권장: 환경 변수 참조
-registries:
-  "https://registry.goondan.ai":
-    token: "${GOONDAN_REGISTRY_TOKEN}"
+```json
+{
+  "registries": {
+    "https://registry.goondan.ai": {
+      "token": "${GOONDAN_REGISTRY_TOKEN}"
+    }
+  }
+}
 ```
 
 ---
@@ -645,6 +651,8 @@ v2 CLI에서는 `unpublish`/`deprecate` 서브커맨드를 제공하지 않는�
 
 ### 13.6 명령어 요약
 
+이 표는 `docs/specs/help.md` 5절과 동일하게 유지되어야 한다(MUST).
+
 | 명령어 | 설명 |
 |--------|------|
 | `gdn package add <ref>` | 의존성 추가 |
@@ -818,10 +826,12 @@ spec:
 
 ## 15. 레지스트리 설정
 
-### 15.1 .goondanrc
+### 15.1 ~/.goondan/config.json
 
-```yaml
-registry: "https://registry.goondan.ai"
+```json
+{
+  "registry": "https://registry.goondan.ai"
+}
 ```
 
 ### 15.2 환경 변수
@@ -833,11 +843,13 @@ GOONDAN_REGISTRY_TOKEN=your-auth-token
 
 ### 15.3 스코프별 레지스트리
 
-```yaml
-# .goondanrc
-registry: "https://registry.goondan.ai"
-scopedRegistries:
-  "@myorg": "https://my-org-registry.example.com"
+```json
+{
+  "registry": "https://registry.goondan.ai",
+  "scopedRegistries": {
+    "@myorg": "https://my-org-registry.example.com"
+  }
+}
 ```
 
 **동작 규칙:**

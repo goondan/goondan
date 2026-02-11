@@ -5,6 +5,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 ## 파일 구조
 
 - `api.md` - Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, ConversationState 규칙)
+- `help.md` - 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, `gdn package` 도움말 기준)
 - `shared-types.md` - 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - `resources.md` - Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", Selector+Overrides, ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 경로 해석, 분할 파일 구성)
@@ -50,10 +51,14 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
    - OAuth: OAuthApp Kind 제거 → Extension 내부 구현
    - Pipeline: Mutator 제거 → Middleware 통합 (turn/step/toolCall 3종)
 6. **공통 타입 단일 기준**: 문서 간 공유 타입은 `shared-types.md`를 먼저 갱신하고, 개별 스펙은 링크/참조 중심으로 유지합니다.
+7. **도움말 단일 기준**: 공통 운영 규칙(레지스트리 설정, `gdn package` 지원/제거 매트릭스, env 해석 정책)은 `help.md`를 기준으로 유지합니다.
+8. **소유권 기반 작성**: 타입/계약의 소유 문서는 `help.md` 2절 매트릭스를 따르며, 비소유 문서에서의 중복 재정의는 피하고 참조를 우선합니다.
+9. **참조 안정성**: 문서 간 참조는 섹션 번호(`§n`)보다 섹션명/앵커 기반 표현을 우선하여 재구성 시 깨짐을 줄입니다.
 
 ## 관련 문서
 
 - `/docs/architecture.md` - 아키텍처 개요 (핵심 개념, 다이어그램, 설계 패턴)
 - `/docs/new_spec.md` - v2 통합 스펙 원본
+- `/docs/specs/help.md` - 스펙 운영 도움말 SSOT
 - `/GUIDE.md` - 개발자 가이드
 - `/CLAUDE.md` - 프로젝트 개요 및 작업 규칙

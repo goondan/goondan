@@ -1,6 +1,7 @@
 # Goondan Connection 스펙 v2.0
 
 > 공통 타입(`ObjectRefLike`, `ValueSource`, `Ingress*`)의 단일 기준은 `docs/specs/shared-types.md`이다.
+> 값 해석 정책(`valueFrom.env`, 레지스트리/시크릿 규칙)은 `docs/specs/help.md`의 공통 계약을 따른다.
 
 ## 1. 개요
 
@@ -50,7 +51,8 @@ v1에서는 Connection이 `auth` 필드로 OAuthApp을 참조하고, `verify.web
 
 1. `spec.secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다(MUST).
 2. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
-3. 환경변수가 존재하지 않으면 검증 단계에서 경고를 발생시키거나 빈 문자열로 처리한다(SHOULD).
+3. `valueFrom.env`가 필수 필드에서 미해결되면 구성 로드 단계에서 오류여야 한다(MUST).
+4. `valueFrom.env`가 선택 필드에서 미해결되면 해당 필드를 미설정 상태로 둔다(SHOULD).
 
 ### 2.3 라우팅 규칙
 
@@ -266,28 +268,15 @@ secrets:
 
 ### 6.3 ValueSource 패턴
 
-```typescript
-type ValueSource =
-  | { value: string; valueFrom?: never }
-  | { value?: never; valueFrom: ValueFrom };
+`ValueSource`, `ValueFrom`, `SecretRef` 타입 원형은 `docs/specs/shared-types.md`를 따른다.
 
-type ValueFrom =
-  | { env: string; secretRef?: never }
-  | { env?: never; secretRef: SecretRef };
-
-interface SecretRef {
-  ref: string; // "Secret/<name>"
-  key: string;
-}
-```
-
-규칙:
+Connection 문맥에서 추가 적용되는 규칙:
 
 1. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
 2. `valueFrom.env`와 `valueFrom.secretRef`는 동시에 존재할 수 없다(MUST).
 3. `secretRef.ref`는 `Secret/<name>` 형식을 따라야 한다(MUST).
-4. `secrets`에 정의된 모든 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
-5. 환경변수가 존재하지 않으면 검증 단계에서 경고를 발생시키거나 빈 문자열로 처리한다(SHOULD).
+4. `secrets`에 정의된 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
+5. `valueFrom.env` 해석은 `docs/specs/help.md` 3.2 정책을 따른다(MUST).
 
 ---
 
@@ -347,12 +336,7 @@ verify:
 ```
 
 ```typescript
-interface ConnectionVerify {
-  webhook?: {
-    /** 서명 시크릿 (ValueSource 패턴) */
-    signingSecret: ValueSource;
-  };
-}
+// ConnectionVerify 원형은 3.2 ConnectionSpec 인터페이스를 따른다.
 ```
 
 규칙:

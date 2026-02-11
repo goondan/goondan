@@ -70,7 +70,7 @@ Tool은 LLM이 tool call로 호출하는 **1급 실행 단위**다. Tool을 통�
 
 ### 2.6 에이전트 간 통신 규칙
 
-1. 에이전트 간 통신은 통합 이벤트 모델(`AgentEvent` + `replyTo`)을 사용해야 한다(MUST). (`runtime.md` §5.5 참조)
+1. 에이전트 간 통신은 통합 이벤트 모델(`AgentEvent` + `replyTo`)을 사용해야 한다(MUST). (`docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션 참조)
 2. `request`(응답 대기) 패턴은 `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭해야 한다(MUST).
 3. `send`(fire-and-forget) 패턴은 `AgentEvent.replyTo`를 생략해야 한다(MUST).
 4. 원래 Agent의 Turn/Trace 컨텍스트는 `replyTo.correlationId`를 통해 추적 가능해야 한다(MUST).
@@ -323,30 +323,7 @@ export const handlers: Record<string, ToolHandler> = {
 
 ### 7.3 ToolContext 구조
 
-```typescript
-interface ToolContext {
-  /** 현재 에이전트 이름 */
-  readonly agentName: string;
-
-  /** 현재 인스턴스 키 */
-  readonly instanceKey: string;
-
-  /** 현재 Turn ID */
-  readonly turnId: string;
-
-  /** 이 도구 호출의 고유 ID */
-  readonly toolCallId: string;
-
-  /** 이 도구 호출을 트리거한 Message */
-  readonly message: Message;
-
-  /** 인스턴스 작업 디렉토리 경로 */
-  readonly workdir: string;
-
-  /** 로거 */
-  readonly logger: Console;
-}
-```
+`ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ---
 
@@ -373,39 +350,11 @@ LLM 응답에 tool_calls 포함
 
 ### 8.2 ToolCall 구조
 
-```typescript
-interface ToolCall {
-  /** tool call ID (LLM이 생성) */
-  id: string;
-
-  /** 호출할 tool 이름 (예: "bash__exec") */
-  name: string;
-
-  /** LLM이 전달한 인자 (JSON) */
-  args: JsonObject;
-}
-```
+`ToolCall` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ### 8.3 ToolCallMiddlewareContext
 
-```typescript
-interface ToolCallMiddlewareContext {
-  /** 호출 대상 도구 이름 */
-  readonly toolName: string;
-
-  /** tool call ID */
-  readonly toolCallId: string;
-
-  /** LLM이 전달한 인자 (변경 가능) */
-  args: JsonObject;
-
-  /** 미들웨어 메타데이터 */
-  metadata: Record<string, JsonValue>;
-
-  /** 다음 미들웨어 또는 핵심 핸들러 실행 */
-  next(): Promise<ToolCallResult>;
-}
-```
+`ToolCallMiddlewareContext` 원형은 `docs/specs/pipeline.md` 4.3절을 따른다.
 
 ### 8.4 Extension에서의 toolCall 미들웨어 등록
 
@@ -462,26 +411,6 @@ export function register(api: ExtensionApi): void {
 ### 10.1 ToolCallResult(ToolResult) 구조
 
 ```typescript
-interface ToolCallResult {
-  /** 해당 tool call ID */
-  toolCallId: string;
-
-  /** 도구 이름 */
-  toolName: string;
-
-  /** 결과 상태 */
-  status: 'ok' | 'error';
-
-  /** 실행 결과 */
-  output?: JsonValue;
-
-  /** 오류 정보 (status='error' 시) */
-  error?: ToolError;
-}
-
-/** 하위 호환 별칭 */
-type ToolResult = ToolCallResult;
-
 interface ToolError {
   /** 오류 메시지 (errorMessageLimit 적용됨) */
   message: string;
@@ -499,6 +428,8 @@ interface ToolError {
   helpUrl?: string;
 }
 ```
+
+`ToolCallResult`/`ToolResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ### 10.2 동기/비동기 결과
 
@@ -542,7 +473,7 @@ function truncateErrorMessage(message: string, limit: number): string {
 
 Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 지원한다.
 
-> 통합 이벤트 모델 상세는 `runtime.md` §5.5, IPC 규격은 `runtime.md` §6.1을 참조한다.
+> 통합 이벤트 모델 상세는 `docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션, IPC 규격은 `docs/specs/runtime.md`의 `IPC 메시지 타입` 섹션을 참조한다.
 
 ### 11.1 통신 패턴
 
@@ -569,17 +500,7 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 
 통합 이벤트 모델에서 IPC는 3종(`event`, `shutdown`, `shutdown_ack`)이다. 에이전트 간 통신은 모두 `event` 타입을 사용한다.
 
-```typescript
-interface IpcMessage {
-  type: 'event' | 'shutdown' | 'shutdown_ack';
-  from: string;   // agentName 또는 'orchestrator'
-  to: string;     // agentName 또는 'orchestrator'
-  payload: JsonValue;
-}
-
-// type: 'event' → payload는 AgentEvent 구조
-// AgentEvent.replyTo가 있으면 request, 없으면 send/fire-and-forget
-```
+`IpcMessage` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 ### 11.3 에이전트 간 통신 규칙
 
@@ -600,14 +521,8 @@ interface IpcMessage {
 
 Extension에서 런타임에 Tool을 동적으로 등록할 수 있다.
 
-```typescript
-interface ExtensionApi {
-  tools: {
-    register(item: ToolCatalogItem, handler: ToolHandler): void;
-  };
-  // ... 기타 필드
-}
-```
+`ExtensionApi` 원형은 `docs/specs/extension.md` 5절을 따른다.
+`api.tools.register(item, handler)`의 `item`/`handler` 타입은 `ToolCatalogItem`/`ToolHandler` 계약을 따른다.
 
 ### 12.2 동적 등록 예시
 
@@ -876,7 +791,7 @@ spec:
 
 - `docs/architecture.md`: 아키텍처 개요 (핵심 개념, 설계 패턴)
 - `docs/specs/extension.md`: Extension 시스템 (동적 도구 등록, 미들웨어)
-- `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess, 통합 이벤트 모델 §5.5, IPC §6)
+- `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess, 통합 이벤트 모델, IPC)
 - `docs/specs/resources.md`: Config Plane 리소스 정의 (Tool 리소스 스키마)
 
 ---

@@ -25,6 +25,7 @@
 ### 구현 스펙 문서 (docs/specs/)
 - docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
 - docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델)
+- docs/specs/help.md : 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, package 도움말 기준)
 - docs/specs/shared-types.md : 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
 - docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안, 분할 파일 구성)
@@ -70,6 +71,8 @@
 - Runtime 상태: ProcessStatus 7종(`spawning`, `idle`, `processing`, `draining`, `terminated`, `crashed`, `crashLoopBackOff`)
 - IPC: 3종 메시지(`event`, `shutdown`, `shutdown_ack`) + 통합 이벤트 모델(`AgentEvent`, `replyTo`)
 - Specs: 공통 타입 SSOT 분리 (`docs/specs/shared-types.md`, 문서 간 타입 드리프트 방지)
+- Specs 운영: 소유권 매트릭스 기반 참조 우선 (`docs/specs/help.md`, 비소유 문서의 중복 타입 재정의 최소화)
+- Specs 참조 안정성: 섹션 번호(`§n`) 대신 섹션명/앵커 중심 참조 권장 (문서 재구성 시 링크 드리프트 최소화)
 - Pipeline: Mutator 제거, Middleware 3종(turn/step/toolCall) 통합
 - Message: AI SDK CoreMessage 래퍼 (`Message.data`), MessageEvent 이벤트 소싱
 - Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), runtime 필드 제거

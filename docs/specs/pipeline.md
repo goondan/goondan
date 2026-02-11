@@ -238,22 +238,7 @@ interface ToolCallMiddlewareContext {
 ### 4.4 ConversationState
 
 메시지 상태는 이벤트 소싱 모델(`NextMessages = BaseMessages + SUM(Events)`)로 관리된다.
-
-```typescript
-interface ConversationState {
-  /** Turn 시작 시점의 확정된 메시지들 */
-  readonly baseMessages: Message[];
-
-  /** Turn 진행 중 누적된 이벤트 */
-  readonly events: MessageEvent[];
-
-  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
-  readonly nextMessages: Message[];
-
-  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
-  toLlmMessages(): CoreMessage[];
-}
-```
+`ConversationState` 원형은 `docs/specs/shared-types.md` 4절을 따른다.
 
 **규칙:**
 
@@ -271,20 +256,6 @@ interface ConversationState {
 ### 4.6 결과 타입
 
 ```typescript
-interface TurnResult {
-  /** Turn ID */
-  readonly turnId: string;
-  /** 최종 응답 메시지 */
-  readonly responseMessage?: Message;
-  /** Turn 종료 사유 */
-  readonly finishReason: 'text_response' | 'max_steps' | 'error';
-  /** 오류 정보 (실패 시) */
-  readonly error?: {
-    message: string;
-    code?: string;
-  };
-}
-
 interface StepResult {
   /** Step 상태 */
   status: 'completed' | 'failed';
@@ -297,26 +268,9 @@ interface StepResult {
   /** Step 메타데이터 */
   metadata: Record<string, JsonValue>;
 }
-
-interface ToolCallResult {
-  /** Tool 호출 ID */
-  toolCallId: string;
-  /** 도구 이름 */
-  toolName: string;
-  /** 실행 결과 */
-  output?: JsonValue;
-  /** 실행 상태 */
-  status: 'ok' | 'error';
-  /** 오류 정보 (status가 error인 경우) */
-  error?: {
-    name: string;
-    message: string;
-    code?: string;
-    suggestion?: string;
-    helpUrl?: string;
-  };
-}
 ```
+
+`TurnResult`와 `ToolCallResult` 원형은 `docs/specs/shared-types.md`를 따른다.
 
 ---
 

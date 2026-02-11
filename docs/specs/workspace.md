@@ -308,10 +308,10 @@ interface SystemConfig {
 
 ```json
 {
-  "registry": "https://registry.goondan.io",
+  "registry": "https://registry.goondan.ai",
   "logLevel": "info",
   "registries": {
-    "https://registry.goondan.io": {
+    "https://registry.goondan.ai": {
       "token": "xxx..."
     }
   },
@@ -728,7 +728,7 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
 | `GOONDAN_STATE_ROOT` | System Root 경로 | `~/.goondan` |
-| `GOONDAN_REGISTRY` | Package 레지스트리 URL | `https://registry.goondan.io` |
+| `GOONDAN_REGISTRY` | Package 레지스트리 URL | `https://registry.goondan.ai` |
 | `GOONDAN_REGISTRY_TOKEN` | 레지스트리 인증 토큰 | - |
 | `GOONDAN_LOG_LEVEL` | 로그 레벨 (`debug`, `info`, `warn`, `error`) | `info` |
 

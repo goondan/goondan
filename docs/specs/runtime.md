@@ -115,7 +115,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 
 1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
-3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown(§4.6)을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST).
+3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown(`4.6 Graceful Shutdown Protocol`)을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST).
 4. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
 
 ---
@@ -124,45 +124,13 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 
 ### 3.1 공통 타입
 
-런타임 설명에 필요한 핵심 타입만 요약한다. 공통 타입 원형은 `docs/specs/shared-types.md`를 참조한다.
+런타임은 다음 SSOT를 참조한다.
 
-```typescript
-/**
- * JSON 호환 기본 타입
- */
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonObject = { [key: string]: JsonValue };
-type JsonArray = JsonValue[];
+- 공통 타입 원형: `docs/specs/shared-types.md`
+- 리소스 공통/Kind 스키마: `docs/specs/resources.md`
+- 공통 운영 계약: `docs/specs/help.md`
 
-/**
- * 리소스 참조 타입
- * - 문자열 축약: "Kind/name"
- * - 객체형: { apiVersion?, kind, name }
- */
-type ObjectRefLike =
-  | string
-  | { apiVersion?: string; kind: string; name: string };
-
-/**
- * Config Plane 리소스 공통 형태
- */
-interface Resource<TSpec> {
-  apiVersion: string;
-  kind: string;
-  metadata: {
-    name: string;
-    labels?: Record<string, string>;
-    annotations?: Record<string, string>;
-  };
-  spec: TSpec;
-}
-
-/**
- * 고유 식별자 생성 함수 시그니처
- */
-type IdGenerator = () => string;
-```
+이 문서에서는 런타임 동작 규칙(프로세스/IPC/Turn 루프)을 중심으로 설명한다.
 
 ---
 
@@ -240,54 +208,22 @@ interface AgentProcessHandle {
   /** 프로세스 강제 종료 (SIGKILL) */
   kill(): void;
 }
-
-/**
- * 프로세스 상태
- */
-type ProcessStatus =
-  | 'spawning'         // 프로세스 스폰 중
-  | 'idle'             // 대기 중 (이벤트 없음)
-  | 'processing'       // Turn 처리 중
-  | 'draining'         // Graceful shutdown: 현재 Turn 마무리 중, 새 이벤트 수신 중단
-  | 'terminated'       // 정상 종료됨
-  | 'crashed'          // 비정상 종료 (재스폰 대기)
-  | 'crashLoopBackOff'; // 반복 크래시로 백오프 중
-
-/**
- * Graceful Shutdown 옵션
- */
 interface ShutdownOptions {
   /** 유예 기간 (밀리초). 기본값: SwarmPolicy.shutdown.gracePeriodSeconds * 1000 */
   gracePeriodMs?: number;
   /** 종료 사유 */
   reason?: ShutdownReason;
 }
-
-type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
-
-/**
- * ProcessStatus 감지 메커니즘.
- *
- * Orchestrator는 두 가지 소스로 프로세스 상태를 파악한다:
- *
- * 1. Bun 프로세스 API (직접 관찰):
- *    - spawn() 호출 → 'spawning'
- *    - exit 이벤트 + code 0 → 'terminated'
- *    - exit 이벤트 + code ≠ 0 → 'crashed'
- *
- * 2. Orchestrator 내부 상태 (추적):
- *    - shutdown IPC 전송 후 → 'draining'
- *    - consecutiveCrashes >= 임계값 → 'crashLoopBackOff'
- *
- * 3. AgentProcess → Orchestrator IPC (선택적 보고):
- *    - Turn 시작 → 'processing'
- *    - Turn 완료/큐 비어 있음 → 'idle'
- *
- * 'idle'/'processing' 구분은 Orchestrator가 AgentProcess의 이벤트 큐
- * 상태를 IPC로 보고받아 추적한다. 보고가 없으면 'spawning' 이후
- * 프로세스가 살아있는 동안은 'idle'로 간주한다(SHOULD).
- */
 ```
+
+`ProcessStatus`/`ShutdownReason` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
+
+**ProcessStatus 감지 메커니즘**
+
+- Bun 프로세스 API(직접 관찰): `spawn` → `spawning`, `exit code 0` → `terminated`, `exit code != 0` → `crashed`
+- Orchestrator 내부 추적: `shutdown` 전송 후 `draining`, 연속 크래시 임계치 도달 시 `crashLoopBackOff`
+- AgentProcess 보고(선택): Turn 시작 `processing`, Turn 완료/큐 비어 있음 `idle`
+- `idle`/`processing`을 IPC 보고로 구분할 수 없으면 `spawning` 이후 생존 프로세스를 `idle`로 간주한다(SHOULD).
 
 ### 4.3 instanceKey 라우팅
 
@@ -509,63 +445,7 @@ interface AgentEventQueue {
 
 delegate와 connector event를 통합한 **단일 이벤트 모델**이다. 받는 에이전트 입장에서 이벤트의 출처(다른 에이전트, Connector, CLI)는 `source` 메타데이터일 뿐이며, 응답 여부는 `replyTo` 유무로 결정된다.
 
-```typescript
-/**
- * AgentEvent: AgentProcess로 전달되는 모든 입력의 단일 타입.
- * 이전의 delegate, connector.event, user.input을 통합한다.
- */
-interface AgentEvent {
-  /** 이벤트 ID */
-  readonly id: string;
-
-  /** 이벤트 타입 (자유 문자열, 라우팅/필터링용) */
-  readonly type: string;
-
-  /** 입력 텍스트 */
-  readonly input?: string;
-
-  /** 이벤트 출처 */
-  readonly source: EventSource;
-
-  /** 인증 컨텍스트 */
-  readonly auth?: TurnAuth;
-
-  /** 이벤트 메타데이터 */
-  readonly metadata?: JsonObject;
-
-  /**
-   * 응답 채널. 존재하면 발신자가 응답을 기대한다.
-   * - 있으면: 에이전트 간 request (이전의 delegate)
-   * - 없으면: fire-and-forget (Connector 이벤트, 단방향 알림 등)
-   */
-  readonly replyTo?: ReplyChannel;
-
-  /** 이벤트 생성 시각 */
-  readonly createdAt: Date;
-}
-
-/**
- * 이벤트 출처. 이전의 TurnOrigin을 대체한다.
- */
-interface EventSource {
-  /** 출처 종류: agent(다른 에이전트) 또는 connector(외부 프로토콜) */
-  readonly kind: 'agent' | 'connector';
-  /** 출처 이름 (에이전트 이름, 커넥터 이름) */
-  readonly name: string;
-  /** 추가 출처 메타데이터 (채널 ID, 스레드 등) */
-  readonly [key: string]: JsonValue | undefined;
-}
-
-/**
- * 응답 채널. 발신자가 응답을 기대할 때 설정된다.
- */
-interface ReplyChannel {
-  /** 응답을 받을 에이전트 이름 */
-  readonly target: string;
-  /** 요청↔응답 매칭용 ID */
-  readonly correlationId: string;
-}
-```
+`AgentEvent`/`EventSource`/`ReplyChannel` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 **이전 모델과의 대응:**
 
@@ -587,27 +467,7 @@ interface ReplyChannel {
 
 통합 이벤트 모델에 따라 IPC 메시지는 **3종**으로 단순화된다. 이전의 `delegate`/`delegate_result`는 `event` 타입의 `AgentEvent.replyTo`로 통합된다.
 
-```typescript
-interface IpcMessage {
-  /** 메시지 타입 */
-  type: 'event' | 'shutdown' | 'shutdown_ack';
-
-  /** 발신자 (에이전트 이름 또는 'orchestrator') */
-  from: string;
-
-  /** 수신자 (에이전트 이름 또는 'orchestrator') */
-  to: string;
-
-  /** 메시지 페이로드 */
-  payload: JsonValue;
-}
-
-// type: 'event'        → payload: AgentEvent
-// type: 'shutdown'     → payload: { gracePeriodMs: number, reason: ShutdownReason }
-// type: 'shutdown_ack' → payload: { status: 'drained' }
-
-type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
-```
+`IpcMessage`/`ShutdownReason` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 **규칙:**
 
@@ -745,24 +605,9 @@ interface Turn {
   /** Turn 메타데이터 (확장용) */
   metadata: Record<string, JsonValue>;
 }
-
-interface TurnResult {
-  /** Turn ID */
-  readonly turnId: string;
-
-  /** 최종 응답 메시지 */
-  readonly responseMessage?: Message;
-
-  /** Turn 종료 사유 */
-  readonly finishReason: 'text_response' | 'max_steps' | 'error';
-
-  /** 오류 정보 (실패 시) */
-  readonly error?: {
-    message: string;
-    code?: string;
-  };
-}
 ```
+
+`TurnResult` 원형은 `docs/specs/shared-types.md` 7절을 따른다.
 
 ### 7.2 Step
 
@@ -852,30 +697,13 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
 1. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
 2. Runtime이 에이전트 간 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
 
-> `TurnOrigin`은 `EventSource`(§5.5)로 통합되었다. Turn의 호출 맥락은 `AgentEvent.source`에서 참조한다.
+> `TurnOrigin`은 `EventSource`(`5.5 AgentEvent 타입`)로 통합되었다. Turn의 호출 맥락은 `AgentEvent.source`에서 참조한다.
 
 ```typescript
-/**
- * TurnAuth: Turn의 인증 컨텍스트
- */
-interface TurnAuth {
-  /** 행위자 정보 */
-  actor?: {
-    type: 'user' | 'system' | 'agent';
-    id: string;
-    display?: string;
-  };
-
-  /** OAuth subject 조회용 키 */
-  subjects?: {
-    global?: string;
-    user?: string;
-  };
-
-  /** 추가 인증 메타데이터 */
-  [key: string]: JsonValue | undefined;
-}
+import type { TurnAuth } from './shared-types';
 ```
+
+`TurnAuth` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 ---
 
@@ -885,40 +713,7 @@ interface TurnAuth {
 
 모든 LLM 메시지는 AI SDK의 메시지 형식(`CoreMessage`)을 사용하되, `Message`로 감싸서 관리한다.
 
-```typescript
-import type { CoreMessage } from 'ai';  // ai-sdk
-
-/**
- * AI SDK 메시지를 감싸는 관리 래퍼.
- * Extension 미들웨어에서 메시지 식별/조작에 사용.
- */
-interface Message {
-  /** 고유 ID */
-  readonly id: string;
-
-  /** AI SDK CoreMessage (system | user | assistant | tool) */
-  readonly data: CoreMessage;
-
-  /**
-   * Extension/미들웨어가 읽고 쓸 수 있는 메타데이터.
-   * 메시지 식별, 필터링, 조작 판단에 활용.
-   */
-  metadata: Record<string, JsonValue>;
-
-  /** 메시지 생성 시각 */
-  readonly createdAt: Date;
-
-  /** 이 메시지를 생성한 주체 */
-  readonly source: MessageSource;
-}
-
-type MessageSource =
-  | { type: 'user' }
-  | { type: 'assistant'; stepId: string }
-  | { type: 'tool'; toolCallId: string; toolName: string }
-  | { type: 'system' }
-  | { type: 'extension'; extensionName: string };
-```
+`Message`/`MessageSource` 원형은 `docs/specs/shared-types.md` 4절을 따른다.
 
 **규칙:**
 
@@ -939,29 +734,7 @@ NextMessages = BaseMessages + SUM(Events)
 - `Events`: Turn 동안 누적되는 `MessageEvent` 집합(`messages/events.jsonl`)
 
 ```typescript
-/**
- * Message에 대한 이벤트 소싱 이벤트.
- * Extension 미들웨어에서 메시지 추가/교체/삭제를 이벤트로 기록.
- */
-type MessageEvent =
-  | { type: 'append';   message: Message }
-  | { type: 'replace';  targetId: string; message: Message }
-  | { type: 'remove';   targetId: string }
-  | { type: 'truncate' };
-
-interface ConversationState {
-  /** Turn 시작 시점의 확정된 메시지들 */
-  readonly baseMessages: Message[];
-
-  /** Turn 진행 중 누적된 이벤트 */
-  readonly events: MessageEvent[];
-
-  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
-  readonly nextMessages: Message[];
-
-  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
-  toLlmMessages(): CoreMessage[];
-
+interface RuntimeConversationState extends ConversationState {
   /** MessageEvent 발행 */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -969,6 +742,8 @@ interface ConversationState {
   foldEventsToBase(): Promise<void>;
 }
 ```
+
+`MessageEvent`/`ConversationState` 원형은 `docs/specs/shared-types.md` 4절을 따른다.
 
 ### 8.3 MessageEvent 타입
 
@@ -1089,7 +864,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 
 1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
-3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST). Graceful shutdown 프로토콜은 §4.6을 따른다.
+3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST). Graceful shutdown 프로토콜은 `4.6 Graceful Shutdown Protocol`을 따른다.
 
 ### 9.3 재시작 트리거
 
@@ -1097,7 +872,7 @@ v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart*
 |--------|------|
 | `--watch` 모드 | Orchestrator가 파일 변경을 감지하면 영향받는 AgentProcess를 graceful shutdown 후 자동 재시작(MUST) |
 | CLI 명령 | `gdn restart`를 통해 실행 중인 Orchestrator에 재시작 신호 전송(MUST) |
-| 크래시 감지 | Orchestrator Reconciliation Loop(§4.5)가 비정상 종료를 감지하고 백오프 정책에 따라 재스폰(SHOULD) |
+| 크래시 감지 | Orchestrator Reconciliation Loop(`4.5 Reconciliation Loop`)가 비정상 종료를 감지하고 백오프 정책에 따라 재스폰(SHOULD) |
 
 ### 9.4 재시작 옵션
 
@@ -1187,35 +962,8 @@ interface InstanceInfo {
 
 Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러, WebSocket 등)을 **자체적으로** 관리한다.
 
-```typescript
-/**
- * ConnectorContext: Connector 핸들러에 제공되는 컨텍스트
- */
-interface ConnectorContext {
-  /** ConnectorEvent를 Orchestrator로 전달 */
-  emit(event: ConnectorEventPayload): Promise<void>;
-
-  /** Connection이 제공한 시크릿 */
-  secrets: Record<string, string>;
-
-  /** 로거 */
-  logger: Console;
-}
-
-interface ConnectorEventPayload {
-  /** 이벤트 이름 (events 스키마에 정의된 이름) */
-  name: string;
-
-  /** 메시지 (텍스트, 이미지, 파일 등) */
-  message: { type: string; text?: string; url?: string };
-
-  /** 이벤트 속성 (Connection ingress 매칭에 사용) */
-  properties: Record<string, string>;
-
-  /** 인스턴스 라우팅 키 */
-  instanceKey: string;
-}
-```
+`ConnectorContext`/`ConnectorEvent` 원형은 `docs/specs/connector.md` 5.2~5.3절을 따른다.
+Runtime 관점의 핵심 제약은 `instanceKey` 기반 라우팅 가능성이다.
 
 **규칙:**
 
@@ -1290,93 +1038,16 @@ v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 
 
 ### 13.1 ToolCatalogItem
 
-```typescript
-interface ToolCatalogItem {
-  /** 도구 이름 (LLM 노출 형식: {Tool 리소스 이름}__{하위 도구 이름}) */
-  readonly name: string;
-
-  /** 도구 설명 */
-  readonly description?: string;
-
-  /** 파라미터 스키마 (JSON Schema) */
-  readonly parameters?: JsonObject;
-
-  /** 비활성 여부 */
-  disabled?: boolean;
-}
-```
+`ToolCatalogItem` 원형은 `docs/specs/tool.md` 13절을 따른다.
 
 ### 13.2 ToolCall / ToolCallResult
 
-```typescript
-interface ToolCall {
-  /** Tool call 고유 ID */
-  readonly id: string;
-
-  /** 도구 이름 */
-  readonly name: string;
-
-  /** 입력 인자 */
-  readonly args: JsonObject;
-}
-
-interface ToolCallResult {
-  /** 해당 tool call ID */
-  readonly toolCallId: string;
-
-  /** 도구 이름 */
-  readonly toolName: string;
-
-  /** 실행 결과 */
-  readonly output?: JsonValue;
-
-  /** 실행 상태 */
-  readonly status: 'ok' | 'error';
-
-  /** 오류 정보 */
-  readonly error?: {
-    message: string;
-    name?: string;
-    code?: string;
-    suggestion?: string;
-    helpUrl?: string;
-  };
-}
-
-/** 하위 호환 별칭 */
-type ToolResult = ToolCallResult;
-```
+`ToolCall`/`ToolCallResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
+하위 호환 별칭 `ToolResult = ToolCallResult`를 유지한다.
 
 ### 13.3 ToolHandler / ToolContext
 
-```typescript
-interface ToolHandler {
-  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
-}
-
-interface ToolContext {
-  /** Agent 이름 */
-  readonly agentName: string;
-
-  /** 인스턴스 키 */
-  readonly instanceKey: string;
-
-  /** Turn ID */
-  readonly turnId: string;
-
-  /** Tool call ID */
-  readonly toolCallId: string;
-
-  /** 이 도구 호출을 트리거한 메시지 */
-  readonly message: Message;
-
-  /** 인스턴스별 작업 디렉터리 */
-  readonly workdir: string;
-
-  /** 로거 */
-  readonly logger: Console;
-}
-```
+`ToolHandler`/`ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ---
 
@@ -1400,9 +1071,9 @@ interface ToolContext {
 12. 에이전트 간 통신은 통합 이벤트 모델(AgentEvent + replyTo)을 사용해야 한다.
 13. IPC 메시지는 `event`/`shutdown`/`shutdown_ack` 3종이며, JSON 직렬화 가능해야 하고 순서가 보장되어야 한다.
 14. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다.
-15. Orchestrator는 Reconciliation Loop(§4.5)로 desired/actual 상태 불일치를 주기적으로 교정해야 한다.
+15. Orchestrator는 Reconciliation Loop(`4.5 Reconciliation Loop`)로 desired/actual 상태 불일치를 주기적으로 교정해야 한다.
 16. 반복 크래시 시 지수 백오프(crashLoopBackOff)를 적용해야 한다.
-17. 프로세스 종료 시 Graceful Shutdown Protocol(§4.6)을 따라야 한다 — drain → 폴딩 → ack → 종료.
+17. 프로세스 종료 시 Graceful Shutdown Protocol(`4.6 Graceful Shutdown Protocol`)을 따라야 한다 — drain → 폴딩 → ack → 종료.
 18. 유예 기간 초과 시 SIGKILL로 강제 종료해야 한다.
 
 ### SHOULD 권장사항

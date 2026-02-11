@@ -258,22 +258,7 @@ interface ExtensionApi {
 
 미들웨어 등록 API. 상세 스펙은 `docs/specs/pipeline.md`를 참조한다.
 
-```typescript
-interface PipelineRegistry {
-  register(type: 'turn', fn: TurnMiddleware, options?: MiddlewareOptions): void;
-  register(type: 'step', fn: StepMiddleware, options?: MiddlewareOptions): void;
-  register(type: 'toolCall', fn: ToolCallMiddleware, options?: MiddlewareOptions): void;
-}
-
-type TurnMiddleware = (ctx: TurnMiddlewareContext) => Promise<TurnResult>;
-type StepMiddleware = (ctx: StepMiddlewareContext) => Promise<StepResult>;
-type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallResult>;
-
-interface MiddlewareOptions {
-  /** 실행 우선순위 (낮을수록 바깥 레이어, 기본: 0) */
-  priority?: number;
-}
-```
+`PipelineRegistry`, `TurnMiddleware`, `StepMiddleware`, `ToolCallMiddleware`, `MiddlewareOptions` 원형은 `docs/specs/pipeline.md` 5절을 따른다.
 
 **규칙:**
 
@@ -296,20 +281,9 @@ interface ExtensionToolsApi {
    */
   register(item: ToolCatalogItem, handler: ToolHandler): void;
 }
-
-interface ToolCatalogItem {
-  /** 도구 이름 ({리소스명}__{하위도구명} 형식) */
-  name: string;
-  /** 도구 설명 */
-  description: string;
-  /** 입력 파라미터 JSON Schema */
-  parameters?: JsonObject;
-}
-
-interface ToolHandler {
-  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
-}
 ```
+
+`ToolCatalogItem` 원형은 `docs/specs/tool.md` 13절을, `ToolHandler` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 **규칙:**
 
@@ -714,49 +688,15 @@ export function register(api: ExtensionApi): void {
 
 ## 9. 미들웨어 컨텍스트 요약
 
-각 미들웨어 타입은 전용 컨텍스트를 받으며, `next()` 호출 전후로 전처리/후처리를 수행한다. 상세 인터페이스는 `docs/specs/pipeline.md` 4절을 참조한다.
+각 미들웨어 타입은 전용 컨텍스트를 받으며 `next()` 호출 전후로 전처리/후처리를 수행한다.
+컨텍스트 원형과 상세 필드는 `docs/specs/pipeline.md` 4절을 단일 기준으로 따른다.
 
-### 9.1 TurnMiddlewareContext
+핵심 포인트:
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `agentName` | `string` (readonly) | 현재 에이전트 이름 |
-| `instanceKey` | `string` (readonly) | 현재 인스턴스 키 |
-| `inputEvent` | `AgentEvent` (readonly) | Turn을 트리거한 입력 이벤트 |
-| `conversationState` | `ConversationState` (readonly) | 대화 상태 (base + events) |
-| `emitMessageEvent` | `(event: MessageEvent) => void` | 메시지 이벤트 발행 |
-| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
-| `next` | `() => Promise<TurnResult>` | 다음 미들웨어 또는 코어 로직 |
-
-### 9.2 StepMiddlewareContext
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `turn` | `Turn` (readonly) | 현재 Turn 정보 |
-| `stepIndex` | `number` (readonly) | 현재 Step 인덱스 |
-| `conversationState` | `ConversationState` (readonly) | 대화 상태 |
-| `emitMessageEvent` | `(event: MessageEvent) => void` | 메시지 이벤트 발행 |
-| `toolCatalog` | `ToolCatalogItem[]` (mutable) | 도구 카탈로그 (조작 가능) |
-| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
-| `next` | `() => Promise<StepResult>` | 다음 미들웨어 또는 코어 로직 |
-
-### 9.3 ToolCallMiddlewareContext
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `toolName` | `string` (readonly) | 도구 이름 |
-| `toolCallId` | `string` (readonly) | 호출 고유 ID |
-| `args` | `JsonObject` (mutable) | 호출 인자 (조작 가능) |
-| `metadata` | `Record<string, JsonValue>` | 공유 메타데이터 |
-| `next` | `() => Promise<ToolCallResult>` | 다음 미들웨어 또는 코어 로직 |
-
-### 9.4 ConversationState
-
-`ConversationState` 원형은 `docs/specs/shared-types.md`를 참조한다.
-
-### 9.5 MessageEvent
-
-`MessageEvent` 원형은 `docs/specs/shared-types.md`를 참조한다.
+1. `turn`/`step` 컨텍스트는 `conversationState`와 `emitMessageEvent`를 제공한다.
+2. `step` 컨텍스트는 `toolCatalog` 조작을 허용한다.
+3. `toolCall` 컨텍스트는 `args` 조작을 허용한다.
+4. 공통 타입(`ConversationState`, `MessageEvent`, `ToolCallResult`) 원형은 `docs/specs/shared-types.md`를 따른다.
 
 ---
 

@@ -201,25 +201,7 @@ ObjectRef는 다른 리소스를 참조하는 방법을 정의한다.
 ### TypeScript 인터페이스
 
 ```typescript
-/**
- * 객체 참조의 유니온 타입.
- * 문자열 축약형 "Kind/name" 또는 객체형.
- */
-type ObjectRefLike = string | ObjectRef;
-
-/**
- * 객체형 참조
- */
-interface ObjectRef {
-  /** 리소스 종류 */
-  kind: string;
-  /** 리소스 이름 */
-  name: string;
-  /** 패키지 이름 (선택, Package 간 참조 시 사용) */
-  package?: string;
-  /** API 버전 (선택) */
-  apiVersion?: string;
-}
+import type { ObjectRefLike, ObjectRef } from './shared-types';
 
 /**
  * ObjectRef를 정규화하는 함수
@@ -280,43 +262,15 @@ Selector는 라벨 기반으로 리소스를 선택하고, Overrides로 선택�
 ### TypeScript 인터페이스
 
 ```typescript
-/**
- * 리소스 선택자
- */
-interface Selector {
-  /** 선택할 리소스 종류 (선택) */
-  kind?: string;
-  /** 특정 리소스 이름으로 선택 */
-  name?: string;
-  /** 라벨 기반 선택 */
-  matchLabels?: Record<string, string>;
-}
-
-/**
- * Selector + Overrides 블록
- */
-interface SelectorWithOverrides {
-  /** 리소스 선택자 */
-  selector: Selector;
-  /** 선택된 리소스에 적용할 덮어쓰기 */
-  overrides?: {
-    spec?: Record<string, unknown>;
-    metadata?: Partial<ResourceMetadata>;
-  };
-}
-
-/**
- * 명시적 ref 래퍼
- */
-interface RefItem {
-  ref: ObjectRefLike;
-}
-
-/**
- * ObjectRef/RefItem/Selector+Overrides의 유니온
- */
-type RefOrSelector = ObjectRefLike | RefItem | SelectorWithOverrides;
+import type {
+  Selector,
+  SelectorWithOverrides,
+  RefItem,
+  RefOrSelector,
+} from './shared-types';
 ```
+
+`Selector`/`SelectorWithOverrides`/`RefItem`/`RefOrSelector` 원형은 `docs/specs/shared-types.md` 2절을 따른다.
 
 ### YAML 예시
 
@@ -369,30 +323,10 @@ tools:
 ### TypeScript 인터페이스
 
 ```typescript
-/**
- * 값 소스 - 직접 값 또는 외부 소스에서 주입
- */
-type ValueSource =
-  | { value: string; valueFrom?: never }
-  | { value?: never; valueFrom: ValueFrom };
-
-/**
- * 외부 소스에서 값 주입
- */
-type ValueFrom =
-  | { env: string; secretRef?: never }
-  | { env?: never; secretRef: SecretRef };
-
-/**
- * 비밀 저장소 참조
- */
-interface SecretRef {
-  /** Secret 참조 (예: "Secret/slack-oauth") */
-  ref: string;
-  /** Secret 내의 키 */
-  key: string;
-}
+import type { ValueSource, ValueFrom, SecretRef } from './shared-types';
 ```
+
+`ValueSource`/`ValueFrom`/`SecretRef` 원형은 `docs/specs/shared-types.md` 3절을 따른다.
 
 ### YAML 예시
 
@@ -526,47 +460,7 @@ Tool은 LLM이 호출할 수 있는 함수를 정의한다. 모든 Tool은 Bun�
 
 #### TypeScript 인터페이스
 
-```typescript
-/**
- * Tool 리소스 스펙
- */
-interface ToolSpec {
-  /** 엔트리 파일 경로 (Bundle Root 기준, Bun으로 실행) */
-  entry: string;
-  /** 에러 메시지 최대 길이 (기본값: 1000) */
-  errorMessageLimit?: number;
-  /** 내보내는 함수 목록 */
-  exports: ToolExport[];
-}
-
-/**
- * Tool이 내보내는 함수 정의
- */
-interface ToolExport {
-  /** 함수 이름 (예: "exec"). LLM에는 "{ToolName}__{name}"로 노출 */
-  name: string;
-  /** 함수 설명 (LLM에 제공) */
-  description: string;
-  /** JSON Schema 형식의 파라미터 정의 */
-  parameters: JsonSchema;
-}
-
-/**
- * JSON Schema 타입 (간략화)
- */
-interface JsonSchema {
-  type: 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null';
-  properties?: Record<string, JsonSchema>;
-  items?: JsonSchema;
-  required?: string[];
-  description?: string;
-  additionalProperties?: boolean | JsonSchema;
-  enum?: unknown[];
-  default?: unknown;
-}
-
-type ToolResource = Resource<ToolSpec>;
-```
+`ToolSpec`/`ToolExportSpec`/Tool 핸들러 계약 원형은 `docs/specs/tool.md` 4~7절을 따른다.
 
 #### YAML 예시
 
@@ -642,19 +536,8 @@ export const handlers: Record<string, ToolHandler> = {
   },
 };
 
-interface ToolHandler {
-  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
-}
-
-interface ToolContext {
-  readonly agentName: string;
-  readonly instanceKey: string;
-  readonly turnId: string;
-  readonly toolCallId: string;
-  readonly message: Message;
-  readonly workdir: string;
-  readonly logger: Console;
-}
+// ToolContext 원형은 docs/specs/shared-types.md 6절을 따른다.
+// ToolHandler 실행 계약의 상세는 docs/specs/tool.md 7절을 따른다.
 ```
 
 #### 도구 이름 규칙
@@ -1029,34 +912,7 @@ Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 Connecto
 
 #### TypeScript 인터페이스
 
-```typescript
-/**
- * Connector 리소스 스펙
- */
-interface ConnectorSpec {
-  /** 엔트리 파일 경로 (단일 default export, Bun으로 실행) */
-  entry: string;
-  /** Connector가 emit할 수 있는 이벤트 스키마 */
-  events: EventSchema[];
-}
-
-/**
- * 이벤트 스키마 선언
- */
-interface EventSchema {
-  /** 이벤트 이름 */
-  name: string;
-  /** 이벤트 속성 타입 선언 */
-  properties?: Record<string, EventPropertyType>;
-}
-
-interface EventPropertyType {
-  type: 'string' | 'number' | 'boolean';
-  optional?: boolean;
-}
-
-type ConnectorResource = Resource<ConnectorSpec>;
-```
+`ConnectorSpec`, `EventSchema`, `EventPropertyType`, `ConnectorContext`, `ConnectorEvent` 원형은 `docs/specs/connector.md` 3.2절과 5.2~5.3절을 따른다.
 
 #### YAML 예시
 
@@ -1140,72 +996,7 @@ Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이�
 
 #### TypeScript 인터페이스
 
-```typescript
-/**
- * Connection 리소스 스펙
- */
-interface ConnectionSpec {
-  /** 참조할 Connector */
-  connectorRef: ObjectRefLike;
-  /** 바인딩할 Swarm 참조 */
-  swarmRef?: ObjectRefLike;
-  /** Connector 프로세스에 전달할 시크릿 */
-  secrets?: Record<string, ValueSource>;
-  /** 인바운드 라우팅 규칙 */
-  ingress?: IngressConfig;
-  /** 서명 검증 설정 */
-  verify?: ConnectionVerify;
-}
-
-/**
- * Ingress 설정
- */
-interface IngressConfig {
-  /** 라우팅 규칙 */
-  rules?: IngressRule[];
-}
-
-/**
- * Ingress 라우팅 규칙
- */
-interface IngressRule {
-  /** 매칭 조건 */
-  match?: IngressMatch;
-  /** 라우팅 설정 */
-  route: IngressRoute;
-}
-
-/**
- * 이벤트 매칭 조건
- */
-interface IngressMatch {
-  /** ConnectorEvent.name과 매칭할 이벤트 이름 */
-  event?: string;
-  /** ConnectorEvent.properties 값과 매칭할 키-값 쌍 */
-  properties?: Record<string, string | number | boolean>;
-}
-
-/**
- * 라우팅 설정
- */
-interface IngressRoute {
-  /** 대상 Agent (선택, 생략 시 Swarm entryAgent로 라우팅) */
-  agentRef?: ObjectRefLike;
-}
-
-/**
- * Connection 서명 검증 설정
- */
-interface ConnectionVerify {
-  /** Webhook 서명 검증 */
-  webhook?: {
-    /** 서명 시크릿 (ValueSource 패턴) */
-    signingSecret: ValueSource;
-  };
-}
-
-type ConnectionResource = Resource<ConnectionSpec>;
-```
+`ConnectionSpec`, `IngressConfig`, `IngressRule`, `IngressMatch`, `IngressRoute`, `ConnectionVerify` 원형은 `docs/specs/connection.md` 3.2절을 따른다.
 
 #### YAML 예시
 
@@ -1282,37 +1073,7 @@ Package는 프로젝트의 최상위 매니페스트 리소스이다. 의존성,
 
 #### TypeScript 인터페이스
 
-```typescript
-/**
- * Package 리소스 스펙
- */
-interface PackageSpec {
-  /** 패키지 버전 (semver) */
-  version?: string;
-  /** 패키지 설명 */
-  description?: string;
-  /** 접근 수준 */
-  access?: 'public' | 'restricted';
-  /** 의존하는 Package 목록 */
-  dependencies?: PackageDependency[];
-  /** 레지스트리 설정 */
-  registry?: PackageRegistry;
-}
-
-interface PackageDependency {
-  /** 패키지 이름 (예: "@goondan/base") */
-  name: string;
-  /** 버전 범위 (semver range, 예: "^1.0.0") */
-  version: string;
-}
-
-interface PackageRegistry {
-  /** 레지스트리 URL */
-  url: string;
-}
-
-type PackageResource = Resource<PackageSpec>;
-```
+`PackageSpec`/`PackageDependency`/`PackageRegistry` 원형은 `docs/specs/bundle_package.md` 5.1절을 따른다.
 
 #### YAML 예시
 

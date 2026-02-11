@@ -10,6 +10,8 @@
 
 v1에서 존재했던 `pause/resume/terminate`, `logs`, `config` 등의 명령어를 제거하고, Orchestrator 상주 프로세스 관리(`run`, `restart`)와 인스턴스 관리(`instance list/delete`), 패키지 관리(`package`) 중심으로 재편하여 개발자가 알아야 할 명령어 수를 최소화했다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
+`gdn package` 지원/제거 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
+
 ### 1.1 설치
 
 ```bash
@@ -475,6 +477,7 @@ Package를 관리한다.
 | `gdn package publish` | 패키지 발행 |
 
 `unpublish`/`deprecate`/`remove`/`update`/`list`는 v2에서 제거되었으며, 상세 대체 경로는 `12. 제거된 명령어`를 따른다.
+표준 매트릭스는 `docs/specs/help.md` 5절을 따른다.
 
 ### 8.2 gdn package add
 
@@ -688,10 +691,10 @@ Summary
 
 ```json
 {
-  "registry": "https://registry.goondan.io",
+  "registry": "https://registry.goondan.ai",
   "logLevel": "info",
   "registries": {
-    "https://registry.goondan.io": {
+    "https://registry.goondan.ai": {
       "token": "xxx..."
     }
   },
@@ -702,6 +705,7 @@ Summary
 ```
 
 설정을 변경하려면 이 파일을 직접 편집한다.
+레지스트리 설정 소스/우선순위의 규범 기준은 `docs/specs/help.md` 4절을 따른다.
 
 ### 11.2 환경 변수 우선순위
 
@@ -717,6 +721,7 @@ Summary
 ## 12. 제거된 명령어
 
 다음 명령어는 v2에서 제거되었다:
+제거/대체 표준 매트릭스는 `docs/specs/help.md` 5.2를 기준으로 유지한다.
 
 | 제거된 명령어 | 대체 방법 |
 |---------------|-----------|

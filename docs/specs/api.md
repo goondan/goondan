@@ -8,195 +8,44 @@ v2 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를
 
 ## 1. 공통 타입
 
-### 1.1 JSON 기본 타입
+이 문서는 API 표면의 사용 맥락을 설명하며, 공통 타입의 원형은 다음 SSOT를 따른다.
+
+- `docs/specs/shared-types.md`
+- `docs/specs/resources.md`
+- `docs/specs/help.md`
+
+### 1.1 타입 소유권
+
+아래 타입은 `docs/specs/shared-types.md`를 단일 기준으로 사용한다.
+
+- JSON 계열: `JsonPrimitive`, `JsonObject`, `JsonArray`, `JsonValue`
+- 참조/값 주입: `ObjectRefLike`, `ObjectRef`, `ValueSource`, `SecretRef`
+- 메시지/이벤트: `Message`, `MessageEvent`, `ConversationState`, `AgentEvent`, `EventSource`, `ReplyChannel`, `TurnAuth`
+- 런타임/도구: `ProcessStatus`, `IpcMessage`, `ToolCall`, `ToolCallResult`, `ToolContext`, `TurnResult`
+
+`Resource<T>`, `ResourceMetadata` 및 Kind별 스키마는 `docs/specs/resources.md`를 따른다.
+
+### 1.2 API 문맥 규칙
+
+1. 메시지 상태는 `NextMessages = BaseMessages + SUM(Events)` 계약을 따라야 한다(MUST).
+2. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고 `conversationState` + `emitMessageEvent`를 사용해야 한다(MUST).
+3. IPC 타입은 `event`/`shutdown`/`shutdown_ack` 3종만 허용해야 한다(MUST).
+4. 도구 이름은 `{리소스명}__{export명}` 규칙을 따라야 한다(MUST).
+5. 공통 타입 변경 시 `shared-types.md`를 먼저 갱신하고 이 문서는 참조를 유지해야 한다(MUST).
+
+### 1.3 최소 예시
 
 ```typescript
-type JsonPrimitive = string | number | boolean | null;
-type JsonArray = JsonValue[];
-type JsonObject = { [key: string]: JsonValue };
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-```
-
-### 1.2 리소스 참조 타입
-
-```typescript
-/**
- * 리소스 참조 - 문자열 축약 또는 객체형
- *
- * 문자열 축약: "Kind/name" (예: "Tool/bash", "Agent/coder")
- * 객체형: { kind, name, package?, apiVersion? }
- */
-type ObjectRefLike =
-  | string
-  | { kind: string; name: string; package?: string; apiVersion?: string };
-
-// 사용 예시
-const toolRef1: ObjectRefLike = "Tool/bash";
-const toolRef2: ObjectRefLike = { kind: "Tool", name: "bash" };
-```
-
-### 1.3 Resource 제네릭 구조
-
-```typescript
-interface Resource<TSpec = JsonObject> {
-  apiVersion: string;          // "goondan.ai/v1"
-  kind: string;
-  metadata: ResourceMetadata;
-  spec: TSpec;
-}
-
-interface ResourceMetadata {
-  name: string;
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-}
-```
-
-### 1.4 Message 타입
-
-v2에서는 AI SDK의 `CoreMessage`를 `Message`로 감싸서 관리한다.
-
-```typescript
-import type { CoreMessage } from 'ai';  // ai-sdk
-
-/**
- * AI SDK 메시지를 감싸는 관리 래퍼.
- * Extension 미들웨어에서 메시지 식별/조작에 사용.
- */
-interface Message {
-  /** 고유 ID */
-  readonly id: string;
-
-  /** AI SDK CoreMessage (system | user | assistant | tool) */
-  readonly data: CoreMessage;
-
-  /** Extension/미들웨어가 읽고 쓸 수 있는 메타데이터 */
-  metadata: Record<string, JsonValue>;
-
-  /** 메시지 생성 시각 */
-  readonly createdAt: Date;
-
-  /** 이 메시지를 생성한 주체 */
-  readonly source: MessageSource;
-}
-
-type MessageSource =
-  | { type: 'user' }
-  | { type: 'assistant'; stepId: string }
-  | { type: 'tool'; toolCallId: string; toolName: string }
-  | { type: 'system' }
-  | { type: 'extension'; extensionName: string };
-```
-
-### 1.5 MessageEvent 타입
-
-메시지 상태는 이벤트 소싱 모델로 관리한다.
-
-```typescript
-/**
- * NextMessages = BaseMessages + SUM(Events)
- */
-type MessageEvent =
-  | { type: 'append';   message: Message }
-  | { type: 'replace';  targetId: string; message: Message }
-  | { type: 'remove';   targetId: string }
-  | { type: 'truncate' };
-```
-
-### 1.6 ConversationState
-
-```typescript
-interface ConversationState {
-  /** Turn 시작 시점의 확정된 메시지들 */
-  readonly baseMessages: Message[];
-
-  /** Turn 진행 중 누적된 이벤트 */
-  readonly events: MessageEvent[];
-
-  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
-  readonly nextMessages: Message[];
-
-  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
-  toLlmMessages(): CoreMessage[];
-}
-```
-
-**규칙:**
-
-1. `conversationState.baseMessages`는 Turn 시작 기준 메시지 스냅샷이어야 한다(MUST).
-2. `conversationState.events`는 현재 Turn에서 누적된 메시지 이벤트의 순서 보장 뷰여야 한다(MUST).
-3. `conversationState.nextMessages`는 `baseMessages + SUM(events)`와 동일하게 유지해야 한다(MUST).
-4. v1의 `ctx.turn.messages.base/events/next/emit` 구조는 제거하고, `conversationState` + `emitMessageEvent`로 대체해야 한다(MUST).
-
-상세 메시지 상태 계약은 `docs/specs/pipeline.md` 7절을 참조한다.
-
-### 1.7 Turn / Step 타입
-
-```typescript
-interface Turn {
-  readonly id: string;
-  readonly agentName: string;
-  readonly inputEvent: AgentEvent;
-  readonly messages: Message[];
-  readonly steps: Step[];
-  status: 'running' | 'completed' | 'failed';
-  metadata: Record<string, JsonValue>;
-}
-
-interface Step {
-  readonly id: string;
-  readonly index: number;
-  readonly toolCatalog: ToolCatalogItem[];
-  readonly toolCalls: ToolCall[];
-  readonly toolResults: ToolCallResult[];
-  status: 'llm_call' | 'tool_exec' | 'completed';
-}
-
-/**
- * AgentEvent: AgentProcess로 전달되는 모든 입력의 단일 타입.
- * delegate, connector.event, user.input을 통합한다. (runtime.md §5.5 참조)
- */
-interface AgentEvent {
-  /** 이벤트 ID */
-  readonly id: string;
-  /** 이벤트 타입 (자유 문자열, 라우팅/필터링용) */
-  readonly type: string;
-  /** 입력 텍스트 */
-  readonly input?: string;
-  /** 이벤트 출처 */
-  readonly source: EventSource;
-  /** 인증 컨텍스트 */
-  readonly auth?: TurnAuth;
-  /** 이벤트 메타데이터 */
-  readonly metadata?: JsonObject;
-  /**
-   * 응답 채널. 존재하면 발신자가 응답을 기대한다.
-   * - 있으면: 에이전트 간 request (이전의 delegate)
-   * - 없으면: fire-and-forget (Connector 이벤트, 단방향 알림 등)
-   */
-  readonly replyTo?: ReplyChannel;
-  /** 이벤트 생성 시각 */
-  readonly createdAt: Date;
-}
-
-/** 이벤트 출처. 이전의 TurnOrigin을 대체한다. */
-interface EventSource {
-  readonly kind: 'agent' | 'connector';
-  readonly name: string;
-  readonly [key: string]: JsonValue | undefined;
-}
-
-/** 응답 채널. 발신자가 응답을 기대할 때 설정된다. */
-interface ReplyChannel {
-  readonly target: string;
-  readonly correlationId: string;
-}
-
-interface ToolCall {
-  id: string;
-  name: string;
-  args: JsonObject;
-}
+import type {
+  ConversationState,
+  AgentEvent,
+  ToolCall,
+  ToolCallResult,
+  ToolContext,
+  TurnResult,
+  ProcessStatus,
+  IpcMessage,
+} from './shared-types';
 ```
 
 ---
@@ -217,52 +66,13 @@ export function register(api: ExtensionApi): void;
 
 ### 2.2 ExtensionApi 인터페이스
 
-```typescript
-interface ExtensionApi {
-  /** 미들웨어 등록 */
-  pipeline: PipelineRegistry;
-
-  /** 동적 도구 등록 */
-  tools: {
-    register(item: ToolCatalogItem, handler: ToolHandler): void;
-  };
-
-  /** Extension별 상태 (JSON, 영속화) */
-  state: {
-    get(): Promise<JsonValue>;
-    set(value: JsonValue): Promise<void>;
-  };
-
-  /** 이벤트 버스 (프로세스 내) */
-  events: {
-    on(event: string, handler: (...args: unknown[]) => void): () => void;
-    emit(event: string, ...args: unknown[]): void;
-  };
-
-  /** 로거 */
-  logger: Console;
-}
-```
+`ExtensionApi` 원형은 `docs/specs/extension.md` 5.1절을 따른다.
 
 ### 2.3 PipelineRegistry
 
-```typescript
-interface PipelineRegistry {
-  register(type: 'turn', fn: TurnMiddleware, options?: MiddlewareOptions): void;
-  register(type: 'step', fn: StepMiddleware, options?: MiddlewareOptions): void;
-  register(type: 'toolCall', fn: ToolCallMiddleware, options?: MiddlewareOptions): void;
-}
+`PipelineRegistry`, `TurnMiddleware`, `StepMiddleware`, `ToolCallMiddleware`, `MiddlewareOptions` 원형은 `docs/specs/pipeline.md` 5절을 따른다.
 
-type TurnMiddleware = (ctx: TurnMiddlewareContext) => Promise<TurnResult>;
-type StepMiddleware = (ctx: StepMiddlewareContext) => Promise<StepResult>;
-type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallResult>;
-
-interface MiddlewareOptions {
-  priority?: number;
-}
-```
-
-상세 미들웨어 컨텍스트는 `docs/specs/pipeline.md` 3절을 참조한다.
+상세 미들웨어 컨텍스트는 `docs/specs/pipeline.md` 4절을 참조한다.
 
 ### 2.4 사용 예시
 
@@ -308,17 +118,10 @@ Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이다.
 
 Tool 모듈은 `handlers` 맵으로 핸들러를 제공한다.
 
-```typescript
-/**
- * Tool 핸들러 시그니처
- */
-interface ToolHandler {
-  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
-}
+`ToolHandler` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
-/**
- * Tool 모듈 export 형식
- */
+```typescript
+/** Tool 모듈 export 형식 */
 export const handlers: Record<string, ToolHandler> = {
   exec: async (ctx, input) => {
     const proc = Bun.spawn(['sh', '-c', input.command as string]);
@@ -335,30 +138,7 @@ export const handlers: Record<string, ToolHandler> = {
 
 ### 3.2 ToolContext
 
-```typescript
-interface ToolContext {
-  /** 현재 에이전트 이름 */
-  readonly agentName: string;
-
-  /** 현재 인스턴스 키 */
-  readonly instanceKey: string;
-
-  /** 현재 Turn ID */
-  readonly turnId: string;
-
-  /** 도구 호출 고유 ID */
-  readonly toolCallId: string;
-
-  /** 이 도구 호출을 트리거한 메시지 */
-  readonly message: Message;
-
-  /** 인스턴스별 작업 디렉터리 */
-  readonly workdir: string;
-
-  /** 로거 */
-  readonly logger: Console;
-}
-```
+`ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 **제거된 필드:**
 
@@ -376,39 +156,11 @@ interface ToolContext {
 
 ### 3.3 ToolCatalogItem
 
-```typescript
-interface ToolCatalogItem {
-  /** 도구 이름 ({리소스명}__{하위도구명} 형식) */
-  name: string;
-  /** 도구 설명 */
-  description: string;
-  /** 입력 파라미터 JSON Schema */
-  parameters?: JsonObject;
-}
-```
+`ToolCatalogItem` 원형은 `docs/specs/tool.md` 13절을 따른다.
 
 ### 3.4 ToolCallResult
 
-```typescript
-interface ToolCallResult {
-  /** Tool 호출 ID */
-  toolCallId: string;
-  /** 도구 이름 */
-  toolName: string;
-  /** 실행 결과 */
-  output: JsonValue;
-  /** 실행 상태 */
-  status: 'ok' | 'error';
-  /** 오류 정보 (status가 error인 경우) */
-  error?: {
-    name: string;
-    message: string;
-    code?: string;
-    suggestion?: string;
-    helpUrl?: string;
-  };
-}
-```
+`ToolCallResult` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
 ### 3.5 도구 이름 규칙
 
@@ -501,18 +253,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ### 4.2 ConnectorContext 인터페이스
 
-```typescript
-interface ConnectorContext {
-  /** ConnectorEvent 발행 (Orchestrator로 전달) */
-  emit(event: ConnectorEvent): Promise<void>;
-
-  /** Connection이 제공한 시크릿 (API 토큰, 포트 등) */
-  secrets: Record<string, string>;
-
-  /** 로거 */
-  logger: Console;
-}
-```
+`ConnectorContext` 원형은 `docs/specs/connector.md` 5.2절을 따른다.
 
 **제거된 필드:**
 
@@ -528,31 +269,7 @@ interface ConnectorContext {
 
 Connector가 `ctx.emit()`으로 Orchestrator에 전달하는 정규화된 이벤트.
 
-```typescript
-interface ConnectorEvent {
-  /** 이벤트 이름 (connector의 events[]에 선언된 이름) */
-  name: string;
-
-  /** 멀티모달 입력 메시지 */
-  message: ConnectorEventMessage;
-
-  /** 이벤트 속성 (events[].properties에 선언된 키-값) */
-  properties?: JsonObject;
-
-  /** 인스턴스 키 (Orchestrator가 AgentProcess로 라우팅) */
-  instanceKey: string;
-
-  /** 인증 컨텍스트 (선택) */
-  auth?: {
-    actor: { id: string; name?: string };
-  };
-}
-
-type ConnectorEventMessage =
-  | { type: 'text'; text: string }
-  | { type: 'image'; image: string }
-  | { type: 'file'; data: string; mediaType: string };
-```
+`ConnectorEvent`/`ConnectorEventMessage` 원형은 `docs/specs/connector.md` 5.3절을 따른다.
 
 ### 4.4 Connector 리소스 스키마
 
@@ -652,55 +369,8 @@ spec:
 
 ### 5.2 ConnectionSpec
 
-```typescript
-interface ConnectionSpec {
-  /** Connector 참조 */
-  connectorRef: ObjectRefLike;
-
-  /** Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
-  swarmRef?: ObjectRefLike;
-
-  /** Connector에 전달할 시크릿 */
-  secrets?: Record<string, ValueSource>;
-
-  /** 서명 검증 시크릿 설정 */
-  verify?: {
-    webhook?: {
-      signingSecret: ValueSource;
-    };
-  };
-
-  /** Ingress 라우팅 규칙 */
-  ingress?: {
-    rules?: IngressRule[];
-  };
-}
-
-interface IngressRule {
-  /** 이벤트 매칭 조건 */
-  match?: {
-    event?: string;
-    properties?: Record<string, string | number | boolean>;
-  };
-  /** 라우팅 대상 */
-  route: {
-    agentRef?: ObjectRefLike;
-  };
-}
-
-type ValueSource =
-  | { value: string; valueFrom?: never }
-  | { value?: never; valueFrom: ValueFrom };
-
-type ValueFrom =
-  | { env: string; secretRef?: never }
-  | { env?: never; secretRef: SecretRef };
-
-interface SecretRef {
-  ref: string; // "Secret/<name>"
-  key: string;
-}
-```
+`ConnectionSpec`/`IngressRule` 원형은 `docs/specs/connection.md` 3.2절을 따른다.
+`ValueSource`/`SecretRef` 원형은 `docs/specs/shared-types.md` 3절을 따른다.
 
 **규칙:**
 
@@ -716,44 +386,9 @@ Orchestrator는 `gdn run`으로 기동되는 **상주 프로세스**로, Swarm�
 
 ### 6.1 Orchestrator 인터페이스
 
-```typescript
-interface Orchestrator {
-  readonly swarmName: string;
-  readonly bundleDir: string;
-  readonly agents: Map<string, AgentProcessHandle>;
+`Orchestrator`/`AgentProcessHandle` 원형은 `docs/specs/runtime.md` 4.2절을 따른다.
 
-  /** 에이전트 프로세스 스폰 */
-  spawn(agentName: string, instanceKey: string): AgentProcessHandle;
-
-  /** 특정 에이전트 프로세스 kill -> 새 설정으로 re-spawn */
-  restart(agentName: string): void;
-
-  /** goondan.yaml 재로딩 후 모든 에이전트 프로세스 재시작 */
-  reloadAndRestartAll(): void;
-
-  /** 오케스트레이터 종료 (모든 자식 프로세스도 종료) */
-  shutdown(): void;
-
-  /** IPC 메시지 라우팅 */
-  route(message: IpcMessage): void;
-}
-
-interface AgentProcessHandle {
-  readonly agentName: string;
-  readonly instanceKey: string;
-  readonly pid: number;
-  readonly status: ProcessStatus;
-}
-
-type ProcessStatus =
-  | 'spawning'
-  | 'idle'
-  | 'processing'
-  | 'draining'
-  | 'terminated'
-  | 'crashed'
-  | 'crashLoopBackOff';
-```
+`ProcessStatus` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 ### 6.2 책임
 
@@ -766,14 +401,7 @@ type ProcessStatus =
 
 ### 6.3 재시작 옵션
 
-```typescript
-interface RestartOptions {
-  /** 특정 에이전트만 재시작. 생략 시 전체 */
-  agent?: string;
-  /** 대화 히스토리 초기화 */
-  fresh?: boolean;
-}
-```
+`RestartOptions` 원형은 `docs/specs/runtime.md` 9.4절을 따른다.
 
 ---
 
@@ -783,22 +411,7 @@ interface RestartOptions {
 
 ### 7.1 AgentProcess 인터페이스
 
-```typescript
-interface AgentProcess {
-  readonly agentName: string;
-  readonly instanceKey: string;
-  readonly pid: number;
-
-  /** Turn 실행 */
-  processTurn(event: AgentEvent): Promise<TurnResult>;
-
-  /** 상태 */
-  readonly status: ProcessStatus;
-
-  /** 대화 히스토리 */
-  readonly conversationHistory: Message[];
-}
-```
+`AgentProcess` 원형은 `docs/specs/runtime.md` 5.3절을 따른다.
 
 ### 7.2 프로세스 기동
 
@@ -819,21 +432,7 @@ bun run agent-runner.ts \
 
 ### 7.4 TurnResult
 
-```typescript
-interface TurnResult {
-  /** Turn ID */
-  readonly turnId: string;
-  /** 최종 응답 메시지 */
-  readonly responseMessage?: Message;
-  /** Turn 종료 사유 */
-  readonly finishReason: 'text_response' | 'max_steps' | 'error';
-  /** 오류 정보 (실패 시) */
-  readonly error?: {
-    message: string;
-    code?: string;
-  };
-}
-```
+`TurnResult` 원형은 `docs/specs/shared-types.md` 7절을 따른다.
 
 ---
 
@@ -843,28 +442,11 @@ interface TurnResult {
 
 ### 8.1 IpcMessage 타입
 
-```typescript
-interface IpcMessage {
-  /** 메시지 타입 */
-  type: 'event' | 'shutdown' | 'shutdown_ack';
-  /** 발신자 (에이전트 이름 또는 'orchestrator') */
-  from: string;
-  /** 수신자 (에이전트 이름 또는 'orchestrator') */
-  to: string;
-  /** 메시지 페이로드 */
-  payload: JsonValue;
-}
-
-// type: 'event'        → payload: AgentEvent
-// type: 'shutdown'     → payload: { gracePeriodMs: number, reason: ShutdownReason }
-// type: 'shutdown_ack' → payload: { status: 'drained' }
-
-type ShutdownReason = 'restart' | 'config_change' | 'orchestrator_shutdown';
-```
+`IpcMessage`/`ShutdownReason` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
 
 ### 8.2 통합 이벤트 흐름
 
-모든 에이전트 입력(Connector 이벤트, 에이전트 간 요청, CLI 입력)은 `AgentEvent`로 통합된다. (상세는 `runtime.md` §6.2 참조)
+모든 에이전트 입력(Connector 이벤트, 에이전트 간 요청, CLI 입력)은 `AgentEvent`로 통합된다. (상세는 `docs/specs/runtime.md`의 `통합 이벤트 흐름` 섹션 참조)
 
 #### request (응답 대기)
 
@@ -999,93 +581,15 @@ v2에서 다음 API는 **제거**된다.
 
 ## 부록: Spec 타입 요약 (v2)
 
-```typescript
-// Model Spec
-interface ModelSpec {
-  provider: 'openai' | 'anthropic' | 'google' | string;
-  model: string;
-  apiKey?: ValueSource;
-  options?: JsonObject;
-}
+중복 타입 재정의를 피하기 위해 부록의 전체 인터페이스 목록은 제거한다.
 
-// Tool Spec
-interface ToolSpec {
-  entry: string;
-  exports: ToolExportSpec[];
-  errorMessageLimit?: number;
-}
+빠른 참조:
 
-interface ToolExportSpec {
-  name: string;
-  description: string;
-  parameters?: JsonObject;
-}
-
-// Extension Spec
-interface ExtensionSpec<Config = JsonObject> {
-  entry: string;
-  config?: Config;
-}
-
-// Agent Spec
-interface AgentSpec {
-  modelRef: ObjectRefLike;
-  systemPrompt?: string;
-  tools?: ObjectRefLike[];
-  extensions?: ObjectRefLike[];
-}
-
-// Swarm Spec
-interface SwarmSpec {
-  agents: ObjectRefLike[];
-  entryAgent: ObjectRefLike;
-  policy?: {
-    maxStepsPerTurn?: number;
-    retry?: {
-      maxRetries?: number;
-      backoffMs?: number;
-    };
-    timeout?: {
-      stepTimeoutMs?: number;
-      turnTimeoutMs?: number;
-    };
-  };
-}
-
-// Connector Spec
-interface ConnectorSpec {
-  entry: string;
-  events?: EventSchema[];
-}
-
-interface EventSchema {
-  name: string;
-  properties?: Record<string, { type: 'string' | 'number' | 'boolean' }>;
-}
-
-// Connection Spec
-interface ConnectionSpec {
-  connectorRef: ObjectRefLike;
-  swarmRef?: ObjectRefLike;
-  secrets?: Record<string, ValueSource>;
-  verify?: {
-    webhook?: {
-      signingSecret: ValueSource;
-    };
-  };
-  ingress?: {
-    rules?: IngressRule[];
-  };
-}
-
-// Package Spec
-interface PackageSpec {
-  name: string;
-  version: string;
-  description?: string;
-  dependencies?: Record<string, string>;
-}
-```
+- 공통 타입: `docs/specs/shared-types.md`
+- 리소스 Kind 스키마(8종): `docs/specs/resources.md` 8절
+- Tool 계약: `docs/specs/tool.md`
+- 파이프라인 계약: `docs/specs/pipeline.md`
+- 운영 도움말(레지스트리/CLI 매트릭스): `docs/specs/help.md`
 
 ---
 

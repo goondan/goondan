@@ -456,6 +456,8 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 
 | 문서 | 범위 |
 |------|------|
+| `specs/help.md` | 스펙 운영 도움말 - 문서 소유권 매트릭스, 공통 계약(ObjectRef/ValueSource/env 해석), 레지스트리 설정 우선순위, `gdn package` 도움말 기준 |
+| `specs/shared-types.md` | 공통 타입 SSOT - Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/ProcessStatus/IpcMessage/TurnResult/ToolCallResult |
 | `specs/resources.md` | Config Plane 리소스 정의 - 8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package), ObjectRef, Selector+Overrides, ValueSource |
 | `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
 | `specs/pipeline.md` | 라이프사이클 파이프라인 - Middleware 3종(turn/step/toolCall), Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry |

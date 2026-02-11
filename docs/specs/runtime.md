@@ -1,33 +1,34 @@
-# Goondan Runtime 실행 모델 스펙 (v0.10)
+# Goondan Runtime 실행 모델 스펙 (v2.0)
 
-본 문서는 `docs/requirements/index.md`(특히 05/09/11 섹션)를 기반으로 Runtime 실행 모델의 상세 구현 스펙을 정의한다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
+본 문서는 `docs/requirements/09_runtime-model.md`, `docs/requirements/05_core-concepts.md`, `docs/new_spec.md`를 기반으로 Goondan v2 Runtime 실행 모델의 상세 구현 스펙을 정의한다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
 
 ---
 
 ## 1. 개요
 
-Goondan Runtime은 다음 계층으로 구성된다.
+Goondan v2 Runtime은 **Process-per-Agent** 아키텍처를 채택한다. Orchestrator가 상주 프로세스로 Swarm 전체의 생명주기를 관리하고, 각 AgentInstance와 Connector는 독립 Bun 프로세스로 실행된다.
+
+### 1.1 계층 구조
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Runtime                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                   SwarmInstance                           │  │
-│  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │              AgentInstance (entrypoint)             │  │  │
-│  │  │  ┌──────────────────────────────────────────────┐  │  │  │
-│  │  │  │        Turn (입력 이벤트 처리 단위)            │  │  │  │
-│  │  │  │  ┌────────────────────────────────────────┐  │  │  │  │
-│  │  │  │  │      Step (LLM 호출 1회 단위)           │  │  │  │  │
-│  │  │  │  └────────────────────────────────────────┘  │  │  │  │
-│  │  │  └──────────────────────────────────────────────┘  │  │  │
-│  │  └────────────────────────────────────────────────────┘  │  │
-│  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │           AgentInstance (delegate target)           │  │  │
-│  │  └────────────────────────────────────────────────────┘  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+Orchestrator (상주 프로세스, gdn run으로 기동)
+  ├── AgentProcess-A  (별도 Bun 프로세스)
+  │   └── Turn → Step → Step → ...
+  ├── AgentProcess-B  (별도 Bun 프로세스)
+  │   └── Turn → Step → ...
+  └── ConnectorProcess-telegram (별도 Bun 프로세스)
+      └── 자체 HTTP 서버/cron 스케줄러 등 프로토콜 직접 관리
 ```
+
+### 1.2 설계 원칙
+
+| 원칙 | 설명 |
+|------|------|
+| **Bun-native** | 스크립트 런타임은 Bun만 지원. Node.js 호환 레이어 불필요 |
+| **Process-per-Agent** | 각 AgentInstance는 독립 Bun 프로세스로 실행. 크래시 격리, 독립 스케일링 |
+| **Edit & Restart** | Changeset/SwarmBundleRef 제거. `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
+| **Message** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 메시지 식별/조작 |
+| **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
 
 ---
 
@@ -73,111 +74,167 @@ interface Resource<TSpec> {
 type IdGenerator = () => string;
 ```
 
-### 2.2 SwarmInstance 타입
+---
+
+## 3. Orchestrator (오케스트레이터 상주 프로세스)
+
+Orchestrator는 `gdn run` 시 기동되는 **상주 프로세스**로, Swarm의 전체 생명주기를 관리한다.
+
+### 3.1 핵심 책임
+
+**규칙:**
+
+1. Orchestrator는 `goondan.yaml` 및 관련 리소스 파일을 파싱하여 Config Plane을 구성해야 한다(MUST).
+2. Orchestrator는 각 Agent 정의에 대해 AgentProcess를 스폰하고 감시해야 한다(MUST).
+3. Orchestrator는 각 Connector 정의에 대해 ConnectorProcess를 스폰하고 감시해야 한다(MUST).
+4. Orchestrator는 `instanceKey`를 기준으로 이벤트를 적절한 AgentProcess로 라우팅해야 한다(MUST).
+5. Orchestrator는 에이전트 간 IPC 메시지 브로커 역할을 수행해야 한다(MUST).
+6. Orchestrator는 설정 변경 감지 또는 외부 명령 수신 시 에이전트 프로세스를 재시작할 수 있어야 한다(MUST).
+7. Orchestrator는 모든 AgentProcess가 종료되어도 상주해야 하며, 새로운 이벤트(Connector 수신, CLI 입력 등) 발생 시 필요한 AgentProcess를 다시 스폰해야 한다(MUST).
+8. Orchestrator가 종료될 때 모든 자식 프로세스(AgentProcess, ConnectorProcess)도 종료해야 한다(MUST).
+
+### 3.2 TypeScript 인터페이스
 
 ```typescript
-/**
- * SwarmInstance: Swarm 정의를 바탕으로 만들어지는 long-running 실행체
- *
- * 규칙:
- * - MUST: SwarmInstance는 하나 이상의 AgentInstance를 포함한다
- * - MUST: instanceKey로 고유하게 식별된다
- * - MUST: swarmRef로 Swarm 정의를 참조한다
- */
-interface SwarmInstance {
-  /** 인스턴스 고유 ID (내부 식별용, UUID 권장) */
-  readonly id: string;
+interface Orchestrator {
+  /** Swarm 이름 */
+  readonly swarmName: string;
 
-  /** 라우팅 키 (동일 맥락을 같은 인스턴스로 연결) */
-  readonly instanceKey: string;
+  /** 번들 디렉터리 경로 */
+  readonly bundleDir: string;
 
-  /** 참조하는 Swarm 정의 */
-  readonly swarmRef: ObjectRefLike;
+  /** 관리 중인 AgentProcess 핸들 맵 (agentName:instanceKey → handle) */
+  readonly agents: Map<string, AgentProcessHandle>;
 
-  /** 현재 활성화된 SwarmBundleRef (불변 스냅샷 식별자) */
-  activeSwarmBundleRef: SwarmBundleRef;
+  /** 에이전트 프로세스 스폰 */
+  spawn(agentName: string, instanceKey: string): AgentProcessHandle;
 
-  /** 포함된 AgentInstance 맵 (agentName -> AgentInstance) */
-  readonly agents: Map<string, AgentInstance>;
+  /** 특정 에이전트 프로세스 kill → 새 설정으로 re-spawn */
+  restart(agentName: string): void;
 
-  /** 인스턴스 생성 시각 */
-  readonly createdAt: Date;
+  /** goondan.yaml 재로딩 후 모든 에이전트 프로세스 재시작 */
+  reloadAndRestartAll(): void;
 
-  /** 마지막 활동 시각 */
-  lastActivityAt: Date;
+  /** 오케스트레이터 종료 (모든 자식 프로세스도 종료) */
+  shutdown(): void;
 
-  /** 인스턴스 상태 */
-  status: SwarmInstanceStatus;
-
-  /** 인스턴스 메타데이터 (확장용) */
-  metadata: JsonObject;
+  /** IPC 메시지 라우팅 */
+  route(message: IpcMessage): void;
 }
 
-type SwarmInstanceStatus = 'active' | 'idle' | 'paused' | 'terminated';
+interface AgentProcessHandle {
+  /** 프로세스 ID */
+  readonly pid: number;
 
-/**
- * SwarmBundleRef: 특정 SwarmBundle 스냅샷을 식별하는 불변 식별자
- *
- * 규칙:
- * - MUST: 동일 SwarmBundleRef는 동일한 Bundle 콘텐츠를 재현 가능해야 한다
- * - SHOULD: Git 기반 구현에서는 commit SHA를 사용한다
- */
-type SwarmBundleRef = string; // opaque string (예: "git:abc123...")
-```
-
-### 2.3 AgentInstance 타입
-
-```typescript
-/**
- * AgentInstance: Agent 정의를 바탕으로 만들어지는 long-running 실행체
- *
- * 규칙:
- * - MUST: 이벤트 큐를 보유하고 FIFO 순서로 처리한다
- * - MUST: agentName으로 SwarmInstance 내에서 고유하게 식별된다
- */
-interface AgentInstance {
-  /** 인스턴스 고유 ID */
-  readonly id: string;
-
-  /** Agent 이름 (SwarmInstance 내 고유) */
+  /** Agent 이름 */
   readonly agentName: string;
 
-  /** 소속된 SwarmInstance 참조 */
-  readonly swarmInstance: SwarmInstance;
+  /** 인스턴스 키 */
+  readonly instanceKey: string;
 
-  /** 참조하는 Agent 정의 */
-  readonly agentRef: ObjectRefLike;
+  /** 프로세스 상태 */
+  readonly status: 'starting' | 'idle' | 'processing' | 'terminated';
 
-  /** 이벤트 큐 */
-  readonly eventQueue: AgentEventQueue;
+  /** IPC 메시지 전송 */
+  send(message: IpcMessage): void;
 
-  /** 현재 진행 중인 Turn (없으면 null) */
-  currentTurn: Turn | null;
-
-  /** 완료된 Turn 수 */
-  completedTurnCount: number;
-
-  /** Extension별 상태 저장소 */
-  readonly extensionStates: Map<string, JsonObject>;
-
-  /** 인스턴스 공유 상태 (모든 Extension이 접근 가능) */
-  readonly sharedState: JsonObject;
-
-  /** 인스턴스 생성 시각 */
-  readonly createdAt: Date;
-
-  /** 마지막 활동 시각 */
-  lastActivityAt: Date;
-
-  /** 인스턴스 상태 */
-  status: AgentInstanceStatus;
+  /** 프로세스 종료 */
+  kill(): void;
 }
+```
 
-type AgentInstanceStatus = 'idle' | 'processing' | 'terminated';
+### 3.3 instanceKey 라우팅
 
-/**
- * AgentEventQueue: AgentInstance의 이벤트 큐
- */
+**규칙:**
+
+1. Orchestrator는 `instanceKey`를 사용해 동일 맥락 이벤트를 동일 AgentProcess로 라우팅해야 한다(MUST).
+2. 라우팅 대상 AgentProcess가 아직 존재하지 않으면 Orchestrator가 새로 스폰해야 한다(MUST).
+3. ConnectorEvent의 `instanceKey`와 Connection의 `ingress.rules`를 조합하여 대상 Agent와 인스턴스를 결정해야 한다(MUST).
+
+### 3.4 Canonical Event Flow
+
+1. ConnectorProcess가 외부 프로토콜 이벤트를 수신하여 `ConnectorEvent`를 Orchestrator로 전달한다.
+2. Orchestrator는 Connection의 `ingress.rules`에 따라 대상 Agent를 결정한다.
+3. `instanceKey` 규칙으로 기존 AgentProcess를 조회하거나 새로 스폰한다.
+4. 이벤트를 `AgentEvent`로 변환하여 대상 AgentProcess로 IPC 전달한다.
+
+```
+ConnectorProcess ──[ConnectorEvent]──> Orchestrator
+                                          │
+                                          ├── Connection ingress.rules 매칭
+                                          ├── instanceKey로 AgentProcess 조회/스폰
+                                          │
+                                          └──[AgentEvent via IPC]──> AgentProcess
+```
+
+---
+
+## 4. AgentProcess (에이전트 프로세스)
+
+각 AgentInstance는 **독립 Bun 프로세스**로 실행된다.
+
+### 4.1 프로세스 기동
+
+```bash
+bun run agent-runner.ts \
+  --bundle-dir ./my-swarm \
+  --agent-name coder \
+  --instance-key "user:123"
+```
+
+AgentProcess는 최소 다음 정보로 기동되어야 한다(MUST):
+
+| 파라미터 | 설명 |
+|----------|------|
+| `--bundle-dir` | 프로젝트 디렉터리 경로 |
+| `--agent-name` | Agent 리소스 이름 |
+| `--instance-key` | 인스턴스 식별 키 |
+
+### 4.2 프로세스 특성
+
+**규칙:**
+
+1. 각 AgentProcess는 독립된 메모리 공간에서 실행되어야 한다(MUST). 이를 통해 크래시 격리를 보장한다.
+2. AgentProcess는 Orchestrator와 IPC(Bun의 `process.send`/`process.on("message")` 또는 Unix socket)를 통해 통신해야 한다(MUST).
+3. AgentProcess는 독립적인 Turn/Step 루프를 실행해야 한다(MUST).
+4. AgentProcess는 자신에게 할당된 Extension/Tool 코드를 자체 프로세스에서 로딩해야 한다(MUST).
+5. AgentProcess가 비정상 종료(크래시)되면 Orchestrator가 이를 감지하고 자동 재스폰할 수 있어야 한다(SHOULD).
+
+### 4.3 TypeScript 인터페이스
+
+```typescript
+interface AgentProcess {
+  /** Agent 이름 */
+  readonly agentName: string;
+
+  /** 인스턴스 키 */
+  readonly instanceKey: string;
+
+  /** 프로세스 ID */
+  readonly pid: number;
+
+  /** Turn 실행 */
+  processTurn(event: AgentEvent): Promise<TurnResult>;
+
+  /** 프로세스 상태 */
+  readonly status: 'idle' | 'processing' | 'terminated';
+
+  /** 대화 히스토리 */
+  readonly conversationHistory: Message[];
+}
+```
+
+### 4.4 이벤트 큐와 직렬 처리
+
+**규칙:**
+
+1. AgentProcess는 이벤트 큐를 가져야 한다(MUST).
+2. AgentProcess의 이벤트 큐는 FIFO 순서로 직렬 처리되어야 한다(MUST).
+3. 같은 AgentProcess에 대해 Turn을 동시에 실행해서는 안 된다(MUST NOT).
+4. 서로 다른 AgentProcess는 독립 프로세스이므로 자연스럽게 병렬 실행된다.
+5. `Swarm.policy.maxStepsPerTurn`을 적용할 수 있어야 한다(MAY).
+
+```typescript
 interface AgentEventQueue {
   /** 이벤트 추가 (FIFO) */
   enqueue(event: AgentEvent): void;
@@ -191,9 +248,13 @@ interface AgentEventQueue {
   /** 대기 중인 이벤트 목록 (읽기 전용) */
   peek(): readonly AgentEvent[];
 }
+```
 
+### 4.5 AgentEvent 타입
+
+```typescript
 /**
- * AgentEvent: AgentInstance로 전달되는 이벤트
+ * AgentEvent: AgentProcess로 전달되는 이벤트
  */
 interface AgentEvent {
   /** 이벤트 ID */
@@ -219,103 +280,258 @@ interface AgentEvent {
 }
 
 type AgentEventType =
-  | 'user.input'           // 사용자 입력
-  | 'agent.delegate'       // 다른 에이전트로부터 위임
+  | 'user.input'             // 사용자 입력
+  | 'connector.event'        // Connector에서 전달된 이벤트
+  | 'agent.delegate'         // 다른 에이전트로부터 위임
   | 'agent.delegationResult' // 위임 결과 반환
-  | 'auth.granted'         // OAuth 승인 완료
-  | 'system.wakeup'        // 시스템 재개
-  | string;                // 확장 이벤트 타입
+  | 'system.wakeup'          // 시스템 재개
+  | string;                  // 확장 이벤트 타입
 ```
 
-### 2.4 Turn 타입
+---
+
+## 5. IPC (Inter-Process Communication)
+
+에이전트 간 통신은 Orchestrator를 경유하는 메시지 패싱 방식을 사용한다.
+
+### 5.1 IPC 메시지 타입
 
 ```typescript
-/**
- * Turn: AgentInstance가 "하나의 입력 이벤트"를 처리하는 단위
- *
- * 규칙:
- * - MUST: 작업이 소진될 때까지 Step 반복 후 제어 반납
- * - MUST: NextMessages = BaseMessages + SUM(Events) 규칙으로 LLM 입력 메시지를 계산
- * - MUST: origin과 auth는 Turn 생애주기 동안 불변
- */
+interface IpcMessage {
+  /** 메시지 타입 */
+  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
+
+  /** 발신 Agent 이름 */
+  from: string;
+
+  /** 수신 Agent 이름 */
+  to: string;
+
+  /** 메시지 페이로드 */
+  payload: JsonValue;
+
+  /** 요청-응답 매칭용 상관 ID */
+  correlationId?: string;
+}
+```
+
+**규칙:**
+
+1. IPC 메시지는 최소 `delegate`, `delegate_result`, `event`, `shutdown` 타입을 지원해야 한다(MUST).
+2. 모든 IPC 메시지는 `from`(발신 Agent), `to`(수신 Agent), `payload`를 포함해야 한다(MUST).
+3. `delegate`와 `delegate_result`는 `correlationId`를 포함하여 요청-응답을 매칭할 수 있어야 한다(MUST).
+
+### 5.2 위임(Delegate) 흐름
+
+Handoff는 IPC를 통한 도구 호출 기반 비동기 패턴으로 제공한다.
+
+```
+1. AgentA → Orchestrator:
+   { type: 'delegate', to: 'AgentB', payload: {...}, correlationId: '...' }
+
+2. Orchestrator → AgentB 프로세스로 라우팅 (필요시 스폰)
+
+3. AgentB 처리 후 → Orchestrator:
+   { type: 'delegate_result', to: 'AgentA', correlationId: '...', payload: {...} }
+
+4. Orchestrator → AgentA로 결과 전달
+```
+
+**규칙:**
+
+1. Handoff는 표준 Tool API를 통해 요청되어야 한다(MUST).
+2. 최소 입력으로 대상 Agent 식별자와 입력 프롬프트를 포함해야 한다(MUST).
+3. 추가 context 전달 필드를 지원할 수 있다(MAY).
+4. Handoff 요청 후 원래 Agent는 상태를 종료하지 않고 비동기 응답을 대기할 수 있어야 한다(SHOULD).
+5. Handoff 결과는 동일 Turn 또는 후속 Turn에서 구조화된 메시지로 합류되어야 한다(SHOULD).
+6. Orchestrator는 위임 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
+
+### 5.3 IPC 전송 메커니즘
+
+v2에서는 Bun의 내장 IPC를 기본으로 사용한다.
+
+```typescript
+// Orchestrator → AgentProcess (자식 프로세스 스폰 시)
+const proc = Bun.spawn(['bun', 'run', 'agent-runner.ts', ...args], {
+  ipc(message) {
+    // AgentProcess → Orchestrator 메시지 수신
+    orchestrator.route(message);
+  },
+});
+
+// Orchestrator → AgentProcess 메시지 전송
+proc.send({ type: 'event', from: 'orchestrator', to: 'coder', payload: {...} });
+```
+
+**규칙:**
+
+1. IPC 구현은 Bun의 `process.send`/`process.on("message")` 또는 Unix socket을 사용해야 한다(SHOULD).
+2. IPC 메시지는 JSON 직렬화 가능해야 한다(MUST).
+3. 메시지 순서가 보장되어야 한다(MUST).
+
+---
+
+## 6. Turn / Step
+
+Turn과 Step은 기존과 동일한 개념이나, **단일 AgentProcess 내에서** 실행된다.
+
+### 6.1 Turn
+
+Turn은 하나의 입력 이벤트 처리 단위이다.
+
+- 입력: `AgentEvent` (사용자 메시지, delegate, ConnectorEvent 등)
+- 출력: `TurnResult` (응답 메시지, 상태 변화)
+- 복수 Step을 포함
+
+**규칙:**
+
+1. Turn은 하나의 `AgentEvent`를 입력으로 받아야 한다(MUST).
+2. Turn은 하나 이상의 Step을 포함해야 한다(MUST).
+3. Turn은 `TurnResult`를 출력으로 생성해야 한다(MUST).
+4. Turn은 `running`, `completed`, `failed` 상태를 가져야 한다(MUST).
+
+```typescript
 interface Turn {
   /** Turn 고유 ID */
   readonly id: string;
 
-  /** 추적 ID (MUST: Turn마다 생성/보존, Step/ToolCall/Event 로그로 전파) */
-  readonly traceId: string;
-
-  /** 소속된 AgentInstance 참조 */
-  readonly agentInstance: AgentInstance;
+  /** Agent 이름 */
+  readonly agentName: string;
 
   /** 입력 이벤트 */
   readonly inputEvent: AgentEvent;
 
-  /** 호출 맥락 (불변) */
-  readonly origin: TurnOrigin;
-
-  /** 인증 컨텍스트 (불변) */
-  readonly auth: TurnAuth;
-
-  /** Turn 메시지 상태 (base + events + 계산 결과) */
-  readonly messageState: TurnMessageState;
+  /** 이 Turn의 메시지들 */
+  readonly messages: Message[];
 
   /** 실행된 Step 목록 */
   readonly steps: Step[];
 
-  /** 현재 Step 인덱스 */
-  currentStepIndex: number;
-
   /** Turn 상태 */
-  status: TurnStatus;
-
-  /** Turn 시작 시각 */
-  readonly startedAt: Date;
-
-  /** Turn 종료 시각 (완료 시 설정) */
-  completedAt?: Date;
+  status: 'running' | 'completed' | 'failed';
 
   /** Turn 메타데이터 (확장용) */
-  metadata: JsonObject;
+  metadata: Record<string, JsonValue>;
 }
 
-/**
- * Turn 메시지 상태
- *
- * 규칙:
- * - MUST: nextMessages = fold(baseMessages, events)
- * - MUST: events는 append order를 보존
- */
-interface TurnMessageState {
-  /** Turn 시작 시 로드한 기준 메시지 */
-  baseMessages: LlmMessage[];
-  /** Turn 중 누적된 메시지 이벤트 */
-  events: MessageEvent[];
-  /** 현재 Step에서 사용할 계산 결과 */
-  nextMessages: LlmMessage[];
+interface TurnResult {
+  /** Turn ID */
+  readonly turnId: string;
+
+  /** 최종 응답 메시지 */
+  readonly responseMessage?: Message;
+
+  /** Turn 종료 사유 */
+  readonly finishReason: 'text_response' | 'max_steps' | 'error';
+
+  /** 오류 정보 (실패 시) */
+  readonly error?: {
+    message: string;
+    code?: string;
+  };
 }
+```
 
-type TurnStatus =
-  | 'pending'      // 대기 중
-  | 'running'      // 실행 중
-  | 'completed'    // 정상 완료
-  | 'failed'       // 실패
-  | 'interrupted'; // 중단됨
+### 6.2 Step
 
+Step은 단일 LLM 호출 단위이다.
+
+- 도구 호출이 있으면 다음 Step 실행
+- 텍스트 응답만 있으면 Turn 종료
+
+**규칙:**
+
+1. Step은 LLM에 메시지를 전달하고 응답을 받는 단위여야 한다(MUST).
+2. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
+3. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
+4. Step은 Tool Catalog를 구성하여 LLM에 사용 가능한 도구 목록을 전달해야 한다(MUST).
+5. Step은 `llm_call`, `tool_exec`, `completed` 상태를 가져야 한다(MUST).
+
+```typescript
+interface Step {
+  /** Step 고유 ID */
+  readonly id: string;
+
+  /** Step 인덱스 (Turn 내에서 0부터 시작) */
+  readonly index: number;
+
+  /** LLM에 노출된 Tool Catalog */
+  readonly toolCatalog: ToolCatalogItem[];
+
+  /** LLM이 요청한 Tool 호출 목록 */
+  readonly toolCalls: ToolCall[];
+
+  /** Tool 실행 결과 목록 */
+  readonly toolResults: ToolResult[];
+
+  /** Step 상태 */
+  status: 'llm_call' | 'tool_exec' | 'completed';
+}
+```
+
+### 6.3 Turn/Step 실행 루프 (의사 코드)
+
+```typescript
+async function runTurn(event: AgentEvent, state: ConversationState): Promise<TurnResult> {
+  const turn: Turn = {
+    id: generateId(),
+    agentName: process.agentName,
+    inputEvent: event,
+    messages: [],
+    steps: [],
+    status: 'running',
+    metadata: {},
+  };
+
+  // 입력 이벤트를 메시지로 변환하여 이벤트 발행
+  state.emitEvent({ type: 'append', message: createUserMessage(event.input) });
+
+  let stepIndex = 0;
+  while (true) {
+    // Step 미들웨어 실행 (tool catalog 조작 등)
+    const step = await runStep(stepIndex, state);
+    turn.steps.push(step);
+
+    // LLM 응답이 텍스트만이면 Turn 종료
+    if (step.toolCalls.length === 0) {
+      turn.status = 'completed';
+      break;
+    }
+
+    // maxStepsPerTurn 검사
+    stepIndex++;
+    if (stepIndex >= maxStepsPerTurn) {
+      turn.status = 'completed';
+      break;
+    }
+  }
+
+  // Turn 종료: events → base 폴딩
+  await state.foldEventsToBase();
+
+  return { turnId: turn.id, responseMessage: getLastAssistantMessage(turn), finishReason: 'text_response' };
+}
+```
+
+### 6.4 Turn Origin/Auth 컨텍스트
+
+**규칙:**
+
+1. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
+2. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+
+```typescript
 /**
  * TurnOrigin: Turn의 호출 맥락 정보
- *
- * 규칙:
- * - SHOULD: Connector가 ingress 이벤트 변환 시 채운다
  */
 interface TurnOrigin {
   /** Connector 이름 */
   connector?: string;
 
-  /** 채널 식별자 (예: Slack channel ID) */
+  /** 채널 식별자 */
   channel?: string;
 
-  /** 스레드 식별자 (예: Slack thread_ts) */
+  /** 스레드 식별자 */
   threadTs?: string;
 
   /** 추가 맥락 정보 */
@@ -324,10 +540,6 @@ interface TurnOrigin {
 
 /**
  * TurnAuth: Turn의 인증 컨텍스트
- *
- * 규칙:
- * - MUST: 에이전트 간 handoff 시 변경 없이 전달되어야 한다
- * - MUST: subjectMode=user인 OAuthApp 사용 시 auth가 필수이다
  */
 interface TurnAuth {
   /** 행위자 정보 */
@@ -339,9 +551,7 @@ interface TurnAuth {
 
   /** OAuth subject 조회용 키 */
   subjects?: {
-    /** 전역 토큰용 (예: "slack:team:T111") */
     global?: string;
-    /** 사용자 토큰용 (예: "slack:user:T111:U234567") */
     user?: string;
   };
 
@@ -350,216 +560,422 @@ interface TurnAuth {
 }
 ```
 
-### 2.5 Step 타입
+---
+
+## 7. Message
+
+### 7.1 핵심 타입
+
+모든 LLM 메시지는 AI SDK의 메시지 형식(`CoreMessage`)을 사용하되, `Message`로 감싸서 관리한다.
 
 ```typescript
+import type { CoreMessage } from 'ai';  // ai-sdk
+
 /**
- * Step: "LLM 호출 1회"를 중심으로 한 단위
- *
- * 규칙:
- * - MUST: Step이 시작되면 종료까지 Effective Config와 SwarmBundleRef가 고정
- * - MUST: LLM 응답의 tool call을 모두 처리한 시점에 종료
+ * AI SDK 메시지를 감싸는 관리 래퍼.
+ * Extension 미들웨어에서 메시지 식별/조작에 사용.
  */
-interface Step {
-  /** Step 고유 ID */
+interface Message {
+  /** 고유 ID */
   readonly id: string;
 
-  /** 소속된 Turn 참조 */
-  readonly turn: Turn;
+  /** AI SDK CoreMessage (system | user | assistant | tool) */
+  readonly data: CoreMessage;
 
-  /** Step 인덱스 (Turn 내에서 0부터 시작) */
-  readonly index: number;
+  /**
+   * Extension/미들웨어가 읽고 쓸 수 있는 메타데이터.
+   * 메시지 식별, 필터링, 조작 판단에 활용.
+   */
+  metadata: Record<string, JsonValue>;
 
-  /** 이 Step에 고정된 SwarmBundleRef */
-  readonly activeSwarmBundleRef: SwarmBundleRef;
+  /** 메시지 생성 시각 */
+  readonly createdAt: Date;
 
-  /** 이 Step의 Effective Config */
-  readonly effectiveConfig: EffectiveConfig;
-
-  /** LLM에 노출된 Tool Catalog */
-  readonly toolCatalog: ToolCatalogItem[];
-
-  /** 컨텍스트 블록 */
-  readonly blocks: ContextBlock[];
-
-  /** LLM 호출 결과 */
-  llmResult?: LlmResult;
-
-  /** Tool 호출 목록 */
-  readonly toolCalls: ToolCall[];
-
-  /** Tool 결과 목록 */
-  readonly toolResults: ToolResult[];
-
-  /** Step 상태 */
-  status: StepStatus;
-
-  /** Step 시작 시각 */
-  readonly startedAt: Date;
-
-  /** Step 종료 시각 */
-  completedAt?: Date;
-
-  /** Step 메타데이터 */
-  metadata: JsonObject;
+  /** 이 메시지를 생성한 주체 */
+  readonly source: MessageSource;
 }
 
-type StepStatus =
-  | 'pending'
-  | 'config'        // step.config 단계
-  | 'tools'         // step.tools 단계
-  | 'blocks'        // step.blocks 단계
-  | 'llmCall'       // step.llmCall 단계
-  | 'toolExec'      // tool call 처리 중
-  | 'post'          // step.post 단계
-  | 'completed'
-  | 'failed';
-
-/**
- * EffectiveConfig: Step에서 사용할 최종 구성
- *
- * 규칙:
- * - MUST: Step 시작 시 activeSwarmBundleRef 기준으로 로드/조립
- * - MUST: Step 실행 중 변경 불가
- * - SHOULD: tools/extensions 배열은 identity key 기반으로 정규화
- */
-interface EffectiveConfig {
-  /** Swarm 구성 */
-  readonly swarm: Resource<SwarmSpec>;
-
-  /** Agent 구성 */
-  readonly agent: Resource<AgentSpec>;
-
-  /** 사용 가능한 Tool 목록 */
-  readonly tools: readonly Resource<ToolSpec>[];
-
-  /** 활성화된 Extension 목록 */
-  readonly extensions: readonly Resource<ExtensionSpec>[];
-
-  /** Model 구성 */
-  readonly model: Resource<ModelSpec>;
-
-  /** 시스템 프롬프트 */
-  readonly systemPrompt: string;
-
-  /** Effective Config 버전 (변경 감지용) */
-  readonly revision: number;
-}
+type MessageSource =
+  | { type: 'user' }
+  | { type: 'assistant'; stepId: string }
+  | { type: 'tool'; toolCallId: string; toolName: string }
+  | { type: 'system' }
+  | { type: 'extension'; extensionName: string };
 ```
 
-### 2.6 LLM 메시지 타입
+**규칙:**
+
+1. `Message`는 고유 `id`, AI SDK `CoreMessage`를 담는 `data`, 메타데이터 `metadata`, 생성 시각 `createdAt`, 생성 주체 `source`를 포함해야 한다(MUST).
+2. `source`는 `user`, `assistant`, `tool`, `system`, `extension` 타입 중 하나여야 한다(MUST).
+3. `metadata`는 Extension/미들웨어가 읽고 쓸 수 있는 자유 형식 키-값 저장소여야 한다(MUST).
+4. `id`는 Turn 범위에서 고유해야 하며, `replace`/`remove` 이벤트의 참조 키로 사용되어야 한다(MUST).
+
+### 7.2 메시지 상태 모델 (이벤트 소싱)
+
+Turn의 LLM 입력 메시지는 다음 규칙으로 계산되어야 한다(MUST).
+
+```
+NextMessages = BaseMessages + SUM(Events)
+```
+
+- `BaseMessages`: Turn 시작 시점에 로드된 확정 메시지 집합(`messages/base.jsonl`)
+- `Events`: Turn 동안 누적되는 `MessageEvent` 집합(`messages/events.jsonl`)
 
 ```typescript
 /**
- * LlmMessage: LLM과의 대화 메시지 단위
- *
- * 규칙:
- * - MUST: 각 메시지는 id를 가져야 한다
- * - MUST: MessageEvent(replace/remove)의 참조 대상으로 사용 가능해야 한다
- */
-type LlmMessage =
-  | LlmSystemMessage
-  | LlmUserMessage
-  | LlmAssistantMessage
-  | LlmToolMessage;
-
-interface LlmSystemMessage {
-  readonly id: string;
-  readonly role: 'system';
-  readonly content: string;
-}
-
-interface LlmUserMessage {
-  readonly id: string;
-  readonly role: 'user';
-  readonly content: string;
-}
-
-interface LlmAssistantMessage {
-  readonly id: string;
-  readonly role: 'assistant';
-  readonly content?: string;
-  readonly toolCalls?: ToolCall[];
-}
-
-interface LlmToolMessage {
-  readonly id: string;
-  readonly role: 'tool';
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly output: JsonValue;
-}
-
-/**
- * Turn 메시지 조작 이벤트
+ * Message에 대한 이벤트 소싱 이벤트.
+ * Extension 미들웨어에서 메시지 추가/교체/삭제를 이벤트로 기록.
  */
 type MessageEvent =
-  | SystemMessageEvent
-  | LlmMessageEvent
-  | ReplaceMessageEvent
-  | RemoveMessageEvent
-  | TruncateMessageEvent;
+  | { type: 'append';   message: Message }
+  | { type: 'replace';  targetId: string; message: Message }
+  | { type: 'remove';   targetId: string }
+  | { type: 'truncate' };
 
-interface BaseMessageEvent {
-  readonly seq: number;
-  readonly recordedAt: string;
-}
+interface ConversationState {
+  /** Turn 시작 시점의 확정된 메시지들 */
+  readonly baseMessages: Message[];
 
-interface SystemMessageEvent extends BaseMessageEvent {
-  readonly type: 'system_message';
-  readonly message: LlmSystemMessage;
-}
+  /** Turn 진행 중 누적된 이벤트 */
+  readonly events: MessageEvent[];
 
-interface LlmMessageEvent extends BaseMessageEvent {
-  readonly type: 'llm_message';
-  readonly message: LlmUserMessage | LlmAssistantMessage | LlmToolMessage;
-}
+  /** 계산된 현재 메시지 상태: base + events 적용 결과 */
+  readonly nextMessages: Message[];
 
-interface ReplaceMessageEvent extends BaseMessageEvent {
-  readonly type: 'replace';
-  readonly targetId: string;
-  readonly message: LlmMessage;
-}
+  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
+  toLlmMessages(): CoreMessage[];
 
-interface RemoveMessageEvent extends BaseMessageEvent {
-  readonly type: 'remove';
-  readonly targetId: string;
-}
+  /** MessageEvent 발행 */
+  emitEvent(event: MessageEvent): void;
 
-interface TruncateMessageEvent extends BaseMessageEvent {
-  readonly type: 'truncate';
-}
-
-/**
- * LlmResult: LLM 호출 결과
- */
-interface LlmResult {
-  /** 응답 메시지 */
-  readonly message: LlmAssistantMessage;
-
-  /** 사용량 정보 */
-  readonly usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-
-  /** 완료 이유 */
-  readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter';
-
-  /** 응답 메타데이터 */
-  readonly meta?: JsonObject;
+  /** Turn 종료 시 events → base 폴딩 */
+  foldEventsToBase(): Promise<void>;
 }
 ```
 
-### 2.7 Tool 관련 타입
+### 7.3 MessageEvent 타입
+
+**규칙:**
+
+1. `append`: 새로운 `Message`를 메시지 목록 끝에 추가한다(MUST).
+2. `replace`: `targetId`로 지정된 기존 메시지를 새 `Message`로 교체한다(MUST).
+3. `remove`: `targetId`로 지정된 메시지를 제거한다(MUST).
+4. `truncate`: 모든 메시지를 제거한다(MUST).
+
+### 7.4 Turn 메시지 라이프사이클
+
+**규칙:**
+
+1. Turn 시작 시 Runtime은 `BaseMessages`를 로드하고 이를 초기 LLM 입력으로 사용해야 한다(MUST).
+2. Turn 진행 중 발생하는 메시지 변경은 직접 배열 수정이 아니라 `MessageEvent` 발행으로 기록해야 한다(MUST).
+3. LLM 출력 메시지는 `append` 이벤트로 기록되어야 한다(MUST).
+4. 메시지 편집/삭제/요약은 `replace`/`remove`/`truncate` 이벤트로 기록되어야 한다(MUST).
+5. Turn 종료 시 미들웨어(`turn` 미들웨어의 `next()` 이후)에서 추가 MessageEvent를 발행할 수 있어야 한다(MUST).
+6. 모든 Turn 미들웨어 종료 후 Runtime은 `BaseMessages + SUM(Events)`를 새 base로 저장해야 한다(MUST).
+7. 새 base 저장이 완료되면 적용된 `Events`를 비워야 한다(MUST).
+
+### 7.5 적용/복원 규칙
+
+**규칙:**
+
+1. `SUM(Events)`는 기록 순서(append order)대로 결정론적으로 적용되어야 한다(MUST).
+2. `replace`/`remove` 대상 `targetId`가 존재하지 않는 경우 Runtime은 Turn 전체를 즉시 실패시키지 않고 구조화된 경고 이벤트를 남겨야 한다(SHOULD).
+3. Runtime 재시작 시 미처리 `Events`가 남아 있으면 `BaseMessages + SUM(Events)`를 재계산해 Turn 상태를 복원해야 한다(MUST).
+
+### 7.6 이벤트 소싱의 이점
+
+- **복구**: `base + events` 재생으로 정확한 상태 복원
+- **관찰**: 모든 메시지 변경이 이벤트로 추적됨
+- **Extension 조작**: 미들웨어에서 이벤트를 발행하여 메시지 조작 (직접 배열 변경 대신)
+- **Compaction**: 주기적으로 `events → base` 폴딩으로 정리
+
+### 7.7 영속화
+
+- `messages/base.jsonl` — Turn 종료 시 확정된 Message 목록
+- `messages/events.jsonl` — Turn 진행 중 누적된 MessageEvent 로그
+- Turn 종료 후: events → base로 폴딩, events 클리어
+
+```jsonl
+# base.jsonl 예시
+{"id":"m1","data":{"role":"user","content":"Hello"},"metadata":{},"createdAt":"2026-02-01T12:00:00Z","source":{"type":"user"}}
+{"id":"m2","data":{"role":"assistant","content":"Hi!"},"metadata":{},"createdAt":"2026-02-01T12:00:01Z","source":{"type":"assistant","stepId":"s1"}}
+```
+
+```jsonl
+# events.jsonl 예시
+{"type":"append","message":{"id":"m3","data":{"role":"user","content":"Fix the bug"},"metadata":{},"createdAt":"2026-02-01T12:01:00Z","source":{"type":"user"}}}
+{"type":"append","message":{"id":"m4","data":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"2026-02-01T12:01:01Z","source":{"type":"assistant","stepId":"s2"}}}
+```
+
+### 7.8 Middleware에서의 활용
+
+Extension은 미들웨어에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작한다.
+
+```typescript
+// 예: compaction extension이 turn 시작 전 오래된 메시지를 요약으로 대체
+api.pipeline.register('turn', async (ctx) => {
+  const { nextMessages } = ctx.conversationState;
+
+  // metadata로 "요약 가능" 메시지 식별
+  const compactable = nextMessages.filter(
+    m => m.metadata['compaction.eligible'] === true
+  );
+
+  if (compactable.length > 20) {
+    const summary = await summarize(compactable);
+
+    // 이벤트 발행으로 메시지 조작 (next() 호출 전 = turn.pre)
+    for (const m of compactable) {
+      ctx.emitMessageEvent({ type: 'remove', targetId: m.id });
+    }
+    ctx.emitMessageEvent({
+      type: 'append',
+      message: createSystemMessage(summary, { 'compaction.summary': true }),
+    });
+  }
+
+  // Turn 실행
+  const result = await ctx.next();
+
+  // next() 호출 후 = turn.post: 결과 후처리
+  return result;
+});
+```
+
+---
+
+## 8. Edit & Restart (설정 변경 모델)
+
+v2에서는 Changeset/SwarmBundleRef 시스템을 제거하고 **Edit & Restart** 모델을 채택한다.
+
+### 8.1 제거된 항목
+
+다음 항목은 v2에서 **완전 제거**된다:
+
+- `SwarmBundleRef` (불변 스냅샷 식별자)
+- `ChangesetPolicy` (허용 파일, 권한)
+- Safe Point (`turn.start`, `step.config`)
+- 충돌 감지, 원자적 커밋
+- 자기 수정(self-evolving) 에이전트 패턴
+- GC (garbage collection of instances — 이제 프로세스 수준)
+- In-memory 라우팅 (단일 프로세스 모델)
+
+### 8.2 Edit & Restart 동작 방식
+
+```
+1. goondan.yaml (또는 개별 리소스 파일) 수정
+2. Orchestrator가 설정 변경을 감지하거나 명령을 수신
+3. Orchestrator가 해당 에이전트 프로세스 kill → 새 설정으로 re-spawn
+```
+
+**규칙:**
+
+1. 설정 변경은 `goondan.yaml` 또는 개별 리소스 파일을 직접 수정하는 방식으로 수행해야 한다(MUST).
+2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
+3. 재시작 시 Orchestrator는 해당 AgentProcess를 kill한 뒤 새 설정으로 re-spawn해야 한다(MUST).
+
+### 8.3 재시작 트리거
+
+| 트리거 | 설명 |
+|--------|------|
+| `--watch` 모드 | Orchestrator가 파일 변경을 감지하면 영향받는 AgentProcess를 자동 재시작(MUST) |
+| CLI 명령 | `gdn restart`를 통해 실행 중인 Orchestrator에 재시작 신호 전송(MUST) |
+| 크래시 감지 | Orchestrator가 AgentProcess 비정상 종료 시 자동 재스폰(SHOULD) |
+
+### 8.4 재시작 옵션
+
+```typescript
+interface RestartOptions {
+  /** 특정 에이전트만 재시작. 생략 시 전체 */
+  agent?: string;
+
+  /** 대화 히스토리 초기화 */
+  fresh?: boolean;
+}
+```
+
+**규칙:**
+
+1. `--agent <name>` 옵션으로 특정 Agent의 프로세스만 재시작할 수 있어야 한다(MUST). 생략 시 전체 AgentProcess를 재시작한다.
+2. `--fresh` 옵션으로 대화 히스토리를 초기화하고 재시작할 수 있어야 한다(MUST).
+3. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
+
+### 8.5 Watch 모드
+
+```bash
+gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트 자동 restart
+```
+
+**규칙:**
+
+1. Orchestrator가 `--watch` 플래그로 기동되면 `goondan.yaml` 및 관련 리소스 파일의 변경을 감시해야 한다(MUST).
+2. Orchestrator는 어떤 리소스가 변경되었는지 파악하여 영향받는 AgentProcess만 선택적으로 재시작하는 것을 권장한다(SHOULD).
+3. Tool/Extension/Connector entry 파일 변경 시에도 해당 프로세스를 재시작해야 한다(SHOULD).
+
+---
+
+## 9. 인스턴스 관리
+
+### 9.1 인스턴스 운영
+
+v2에서는 pause/resume/terminate를 제거하고 restart로 통합한다.
+
+**규칙:**
+
+1. 구현은 인스턴스 운영 연산(`list`, `delete`)을 제공해야 한다(MUST).
+2. `delete`는 인스턴스 상태(메시지 히스토리, Extension 상태)를 제거해야 한다(MUST).
+3. TTL/idle 기반 자동 정리는 정책으로 제공하는 것을 권장한다(SHOULD).
+4. CLI를 제공하는 구현은 위 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+
+### 9.2 TypeScript 인터페이스
+
+```typescript
+interface InstanceManager {
+  /**
+   * 인스턴스 목록 조회
+   */
+  list(): Promise<InstanceInfo[]>;
+
+  /**
+   * 인스턴스 삭제
+   * - MUST: 인스턴스 상태(메시지 히스토리, Extension 상태)를 제거
+   * - MUST: 시스템 전역 상태는 보존
+   */
+  delete(instanceKey: string): Promise<void>;
+}
+
+interface InstanceInfo {
+  /** 인스턴스 키 */
+  readonly instanceKey: string;
+
+  /** Agent 이름 */
+  readonly agentName: string;
+
+  /** 인스턴스 상태 */
+  readonly status: 'idle' | 'processing';
+
+  /** 생성 시각 */
+  readonly createdAt: string;
+
+  /** 마지막 갱신 시각 */
+  readonly updatedAt: string;
+}
+```
+
+---
+
+## 10. Connector / Connection 연동
+
+### 10.1 ConnectorProcess
+
+Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러, WebSocket 등)을 **자체적으로** 관리한다.
 
 ```typescript
 /**
- * ToolCatalogItem: Step에서 LLM에 노출되는 도구 항목
+ * ConnectorContext: Connector 핸들러에 제공되는 컨텍스트
  */
+interface ConnectorContext {
+  /** ConnectorEvent를 Orchestrator로 전달 */
+  emit(event: ConnectorEventPayload): Promise<void>;
+
+  /** Connection이 제공한 시크릿 */
+  secrets: Record<string, string>;
+
+  /** 로거 */
+  logger: Console;
+}
+
+interface ConnectorEventPayload {
+  /** 이벤트 이름 (events 스키마에 정의된 이름) */
+  name: string;
+
+  /** 메시지 (텍스트, 이미지, 파일 등) */
+  message: { type: string; text?: string; url?: string };
+
+  /** 이벤트 속성 (Connection ingress 매칭에 사용) */
+  properties: Record<string, string>;
+
+  /** 인스턴스 라우팅 키 */
+  instanceKey: string;
+}
+```
+
+**규칙:**
+
+1. ConnectorProcess는 Orchestrator가 스폰하고 감시한다(MUST).
+2. ConnectorProcess는 프로토콜 처리를 직접 구현해야 한다(MUST). Runtime이 프로토콜을 대신 관리하지 않는다.
+3. ConnectorProcess는 정규화된 `ConnectorEvent`를 `ctx.emit()`으로 Orchestrator에 전달해야 한다(MUST).
+4. ConnectorEvent는 `instanceKey`를 포함하여 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있게 해야 한다(MUST).
+
+### 10.2 Connector 핸들러 예시
+
+```typescript
+// connectors/telegram/index.ts
+export default async function (ctx: ConnectorContext): Promise<void> {
+  const { emit, secrets, logger } = ctx;
+
+  Bun.serve({
+    port: Number(secrets.PORT) || 3000,
+    async fetch(req) {
+      const body = await req.json();
+
+      await emit({
+        name: 'user_message',
+        message: { type: 'text', text: body.message.text },
+        properties: { chat_id: String(body.message.chat.id) },
+        instanceKey: `telegram:${body.message.chat.id}`,
+      });
+
+      return new Response('OK');
+    },
+  });
+
+  logger.info('Telegram connector listening on port', Number(secrets.PORT) || 3000);
+};
+```
+
+---
+
+## 11. Observability
+
+### 11.1 로깅
+
+**규칙:**
+
+1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
+2. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`(prompt/completion/total)를 기록해야 한다(SHOULD).
+3. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
+4. 각 프로세스(Orchestrator, AgentProcess, ConnectorProcess)는 stdout/stderr로 구조화된 로그를 출력해야 한다(SHOULD).
+5. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
+
+### 11.2 프로세스별 로깅 모델
+
+v2에서는 별도의 이벤트 로그/메트릭 로그 파일을 제거하고, 각 프로세스의 stdout/stderr를 활용한다.
+
+**규칙:**
+
+1. Orchestrator, AgentProcess, ConnectorProcess는 각각 stdout/stderr로 구조화된 로그를 출력해야 한다(SHOULD).
+2. Orchestrator는 자식 프로세스의 stdout/stderr을 수집하여 통합 로그 출력을 제공할 수 있어야 한다(MAY).
+3. 로그에는 프로세스 식별 정보(agentName, instanceKey 등)와 `traceId`를 포함해야 한다(SHOULD).
+
+### 11.3 구조화된 로그 형식 예시
+
+```json
+{"level":"info","timestamp":"2026-02-05T10:30:00Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.started","turnId":"turn-001"}
+{"level":"info","timestamp":"2026-02-05T10:30:01Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"step.started","turnId":"turn-001","stepIndex":0}
+{"level":"info","timestamp":"2026-02-05T10:30:02Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"toolCall","turnId":"turn-001","toolName":"bash__exec","latencyMs":150}
+{"level":"info","timestamp":"2026-02-05T10:30:03Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.completed","turnId":"turn-001","latencyMs":3000,"tokenUsage":{"prompt":150,"completion":30,"total":180}}
+```
+
+---
+
+## 12. Tool 관련 타입
+
+### 12.1 ToolCatalogItem
+
+```typescript
 interface ToolCatalogItem {
-  /** 도구 이름 */
+  /** 도구 이름 (LLM 노출 형식: {Tool 리소스 이름}__{하위 도구 이름}) */
   readonly name: string;
 
   /** 도구 설명 */
@@ -568,19 +984,14 @@ interface ToolCatalogItem {
   /** 파라미터 스키마 (JSON Schema) */
   readonly parameters?: JsonObject;
 
-  /** 원본 Tool 리소스 참조 */
-  readonly tool?: Resource<ToolSpec> | null;
-
-  /** Tool export 정보 */
-  readonly export?: ToolExportSpec | null;
-
-  /** 도구 소스 정보 (MCP, Extension 등) */
-  readonly source?: JsonObject;
+  /** 비활성 여부 */
+  disabled?: boolean;
 }
+```
 
-/**
- * ToolCall: LLM이 요청한 도구 호출
- */
+### 12.2 ToolCall / ToolResult
+
+```typescript
 interface ToolCall {
   /** Tool call 고유 ID */
   readonly id: string;
@@ -592,14 +1003,6 @@ interface ToolCall {
   readonly input: JsonObject;
 }
 
-/**
- * ToolResult: 도구 실행 결과
- *
- * 규칙:
- * - MUST: 동기 완료 시 output 포함
- * - MAY: 비동기 제출 시 handle 포함
- * - MUST: 오류 시 error 정보를 output에 포함 (예외 전파 금지)
- */
 interface ToolResult {
   /** 해당 tool call ID */
   readonly toolCallId: string;
@@ -607,13 +1010,10 @@ interface ToolResult {
   /** 도구 이름 */
   readonly toolName: string;
 
-  /** 실행 결과 (동기 완료) */
+  /** 실행 결과 */
   readonly output?: JsonValue;
 
-  /** 비동기 핸들 */
-  readonly handle?: string;
-
-  /** 오류 정보 (output에 포함될 때의 형태) */
+  /** 오류 정보 */
   readonly error?: {
     status: 'error';
     error: {
@@ -623,2837 +1023,99 @@ interface ToolResult {
     };
   };
 }
-
-/**
- * ContextBlock: Step 컨텍스트에 주입되는 블록
- */
-interface ContextBlock {
-  /** 블록 타입 */
-  readonly type: string;
-
-  /** 블록 데이터 */
-  readonly data?: JsonValue;
-
-  /** 블록 아이템 목록 */
-  readonly items?: JsonValue[];
-}
 ```
 
----
-
-## 3. 인스턴스 생명주기
-
-### 3.1 SwarmInstance 생성 규칙
+### 12.3 ToolHandler / ToolContext
 
 ```typescript
-/**
- * SwarmInstance 생성 알고리즘
- *
- * 규칙:
- * - MUST: instanceKey를 사용하여 동일 맥락을 같은 인스턴스로 라우팅
- * - MUST: 존재하지 않으면 새로 생성, 존재하면 기존 인스턴스 반환
- */
-interface SwarmInstanceManager {
-  /**
-   * SwarmInstance 조회 또는 생성
-   *
-   * @param swarmRef - Swarm 정의 참조
-   * @param instanceKey - 인스턴스 라우팅 키
-   * @returns SwarmInstance
-   */
-  getOrCreate(
-    swarmRef: ObjectRefLike,
-    instanceKey: string
-  ): Promise<SwarmInstance>;
-
-  /**
-   * SwarmInstance 조회
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   * @returns SwarmInstance 또는 undefined
-   */
-  get(instanceKey: string): SwarmInstance | undefined;
-
-  /**
-   * SwarmInstance 종료
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   */
-  terminate(instanceKey: string): Promise<void>;
-
-  /**
-   * SwarmInstance 상태 조회
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   * @returns 인스턴스 상태 정보
-   */
-  inspect(instanceKey: string): Promise<SwarmInstanceInfo | undefined>;
-
-  /**
-   * SwarmInstance 일시정지
-   * - MUST: paused 상태에서는 새 Turn을 실행해서는 안 된다
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   */
-  pause(instanceKey: string): Promise<void>;
-
-  /**
-   * SwarmInstance 처리 재개
-   * - MUST: 큐 적재 이벤트를 순서대로 재개해야 한다
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   */
-  resume(instanceKey: string): Promise<void>;
-
-  /**
-   * SwarmInstance 상태 삭제
-   * - MUST: 인스턴스 상태를 제거하되 시스템 전역 상태(OAuth grant 등)는 보존한다
-   *
-   * @param instanceKey - 인스턴스 라우팅 키
-   */
-  delete(instanceKey: string): Promise<void>;
-
-  /**
-   * 전체 SwarmInstance 목록 조회
-   *
-   * @returns 인스턴스 정보 목록
-   */
-  list(): Promise<SwarmInstanceInfo[]>;
+interface ToolHandler {
+  (ctx: ToolContext, input: JsonObject): Promise<JsonValue>;
 }
 
-/**
- * SwarmInstance 상태 정보 (inspect/list 용)
- */
-interface SwarmInstanceInfo {
-  /** 인스턴스 고유 ID */
-  readonly id: string;
+interface ToolContext {
+  /** Agent 이름 */
+  readonly agentName: string;
 
-  /** 라우팅 키 */
+  /** 인스턴스 키 */
   readonly instanceKey: string;
 
-  /** Swarm 참조 */
-  readonly swarmRef: ObjectRefLike;
+  /** Turn ID */
+  readonly turnId: string;
 
-  /** 현재 활성 SwarmBundleRef */
-  readonly activeSwarmBundleRef: SwarmBundleRef;
+  /** Tool call ID */
+  readonly toolCallId: string;
 
-  /** 인스턴스 상태 */
-  readonly status: SwarmInstanceStatus;
+  /** 이 도구 호출을 트리거한 메시지 */
+  readonly message: Message;
 
-  /** 포함된 Agent 이름 목록 */
-  readonly agentNames: string[];
-
-  /** 생성 시각 */
-  readonly createdAt: Date;
-
-  /** 마지막 활동 시각 */
-  readonly lastActivityAt: Date;
-
-  /** 메타데이터 */
-  readonly metadata: JsonObject;
-}
-
-/**
- * SwarmInstance 생성 의사 코드
- */
-async function getOrCreateSwarmInstance(
-  swarmRef: ObjectRefLike,
-  instanceKey: string,
-  workspaceId: string
-): Promise<SwarmInstance> {
-  // 1. 기존 인스턴스 조회
-  const existing = instanceStore.get(instanceKey);
-  if (existing) {
-    existing.lastActivityAt = new Date();
-    return existing;
-  }
-
-  // 2. Swarm 정의 로드
-  const swarmConfig = await configLoader.loadSwarm(swarmRef);
-
-  // 3. 현재 활성 SwarmBundleRef 결정
-  const activeSwarmBundleRef = await swarmBundleManager.getActiveRef();
-
-  // 4. SwarmInstance 생성
-  const instance: SwarmInstance = {
-    id: generateId(),
-    instanceKey,
-    swarmRef,
-    activeSwarmBundleRef,
-    agents: new Map(),
-    createdAt: new Date(),
-    lastActivityAt: new Date(),
-    status: 'active',
-    metadata: {},
-  };
-
-  // 5. 진입점 AgentInstance 생성
-  const entrypointAgent = await createAgentInstance(
-    instance,
-    swarmConfig.spec.entrypoint
-  );
-  instance.agents.set(entrypointAgent.agentName, entrypointAgent);
-
-  // 6. 인스턴스 저장
-  instanceStore.set(instanceKey, instance);
-
-  // 7. 상태 디렉토리 초기화
-  await initializeInstanceStateDir(workspaceId, instance.id);
-
-  // 8. Swarm 이벤트 로그 기록
-  await logSwarmEvent(instance, {
-    kind: 'swarm.created',
-    data: { swarmRef, instanceKey },
-  });
-
-  return instance;
-}
-```
-
-### 3.2 AgentInstance 생성 규칙
-
-```typescript
-/**
- * AgentInstance 생성 알고리즘
- */
-async function createAgentInstance(
-  swarmInstance: SwarmInstance,
-  agentRef: ObjectRefLike
-): Promise<AgentInstance> {
-  // 1. Agent 정의 로드
-  const agentConfig = await configLoader.loadAgent(agentRef);
-  const agentName = resolveRefName(agentRef);
-
-  // 2. AgentInstance 생성
-  const instance: AgentInstance = {
-    id: generateId(),
-    agentName,
-    swarmInstance,
-    agentRef,
-    eventQueue: createEventQueue(),
-    currentTurn: null,
-    completedTurnCount: 0,
-    extensionStates: new Map(),
-    sharedState: {},
-    createdAt: new Date(),
-    lastActivityAt: new Date(),
-    status: 'idle',
-  };
-
-  // 3. Extension 초기화 (register 호출)
-  const extensions = await loadExtensions(agentConfig.spec.extensions);
-  for (const ext of extensions) {
-    const api = createExtensionApi(instance, ext);
-    await ext.register(api);
-  }
-
-  // 4. 상태 디렉토리 초기화
-  await initializeAgentStateDir(swarmInstance.id, agentName);
-
-  // 5. Agent 이벤트 로그 기록
-  await logAgentEvent(instance, {
-    kind: 'agent.created',
-    data: { agentRef },
-  });
-
-  return instance;
-}
-```
-
-### 3.3 인스턴스 상태 저장 경로
-
-```
-<stateRootDir>/instances/<workspaceId>/<instanceId>/
-  swarm/
-    events/
-      events.jsonl          # SwarmInstance 이벤트 로그 (append-only)
-  agents/
-    <agentName>/
-      messages/
-        base.jsonl          # 기준 메시지 스냅샷 로그 (append-only)
-        events.jsonl        # Turn 메시지 이벤트 로그 (turn 단위)
-      events/
-        events.jsonl        # AgentInstance 이벤트 로그 (append-only)
-```
-
----
-
-## 4. instanceKey 기반 라우팅
-
-> **v1.0**: instanceKey는 ConnectorEvent.properties에서 런타임이 결정한다. Connection의 IngressRoute에는 agentRef만 존재하며, 구 패턴의 instanceKeyFrom/inputFrom은 삭제되었다. `swarmRef`는 Connection 최상위 필드(`spec.swarmRef`)로 복원되어 Connection이 바인딩할 Swarm을 명시한다. 자세한 내용은 [`connector.md`](./connector.md) §5.4, [`connection.md`](./connection.md) §3.5를 참조한다.
-
-### 4.1 라우팅 알고리즘
-
-```typescript
-/**
- * instanceKey 계산 규칙 (v1.0)
- *
- * 규칙:
- * - MUST: 동일 맥락의 이벤트는 동일 instanceKey를 생성해야 한다
- * - MUST: ConnectorEvent.properties에서 instanceKey를 추출한다
- * - MUST: properties에 적합한 키가 없으면 Connection 이름 기반 기본값을 사용한다
- */
-interface InstanceKeyResolver {
-  /**
-   * ConnectorEvent에서 instanceKey 추출
-   *
-   * @param event - ConnectorEvent (connector.md §5.4 참조)
-   * @param connection - Connection 리소스 (connection.md 참조)
-   * @returns instanceKey 문자열
-   */
-  resolve(event: ConnectorEvent, connection: Resource<ConnectionSpec>): string;
-}
-
-/**
- * instanceKey 추출 의사 코드
- *
- * 프로토콜별 식별 키 우선순위:
- *   1. properties.instanceKey (명시적 지정)
- *   2. properties.chatId (Telegram 등)
- *   3. properties.thread_ts (Slack 등)
- *   4. properties.channel_id (채널 기반 프로토콜)
- *   5. Connection 이름 기반 기본값
- */
-function resolveInstanceKey(
-  event: ConnectorEvent,
-  connection: Resource<ConnectionSpec>
-): string {
-  // 명시적 instanceKey (CLI의 CliTriggerPayload.payload.instanceKey 등)
-  if (event.properties?.instanceKey) {
-    return String(event.properties.instanceKey);
-  }
-
-  // 프로토콜별 식별 키 (chatId, thread_ts 등)
-  if (event.properties?.chatId) {
-    return String(event.properties.chatId);
-  }
-  if (event.properties?.thread_ts) {
-    return String(event.properties.thread_ts);
-  }
-  if (event.properties?.channel_id) {
-    return String(event.properties.channel_id);
-  }
-
-  // 기본값: Connection 이름 기반
-  return `${connection.metadata.name}:default`;
-}
-
-/**
- * ConnectorEvent 라우팅 흐름 의사 코드 (v1.0)
- *
- * ConnectorEvent + Connection ingress rules 기반으로 라우팅한다.
- * - instanceKey: ConnectorEvent.properties에서 추출
- * - input: ConnectorEvent.message.text에서 추출
- * - agentRef: 매칭된 IngressRule에서 결정 (없으면 entrypoint)
- */
-async function routeConnectorEvent(
-  event: ConnectorEvent,
-  connection: Resource<ConnectionSpec>,
-  swarmRef: ObjectRefLike
-): Promise<void> {
-  // 1. Connection의 ingress.rules에서 매칭 규칙 찾기
-  const matchedRule = findMatchingIngressRule(connection, event);
-  if (!matchedRule) {
-    throw new RoutingError('No matching ingress rule');
-  }
-
-  // 2. instanceKey 결정
-  const instanceKey = resolveInstanceKey(event, connection);
-
-  // 3. SwarmInstance 조회/생성
-  const swarmInstance = await getOrCreateSwarmInstance(swarmRef, instanceKey);
-
-  // 4. 대상 Agent 결정 (agentRef 없으면 entrypoint)
-  const agentRef = matchedRule.route?.agentRef;
-  const agentName = agentRef
-    ? resolveRefName(agentRef)
-    : resolveRefName(swarmInstance.swarmConfig.spec.entrypoint);
-
-  // 5. 입력 텍스트 추출 (ConnectorEvent.message에서)
-  const input = event.message.type === 'text' ? event.message.text : '';
-
-  // 6. Auth 컨텍스트 구성 (ConnectorEvent.auth에서)
-  const auth: TurnAuth | undefined = event.auth ? {
-    actor: {
-      type: 'user',
-      id: event.auth.actor.id,
-      display: event.auth.actor.name,
-    },
-    subjects: {
-      global: event.auth.subjects.global,
-      user: event.auth.subjects.user,
-    },
-  } : undefined;
-
-  // 7. AgentEvent 생성 및 enqueue
-  const agentEvent: AgentEvent = {
-    id: generateId(),
-    type: 'user.input',
-    input,
-    auth,
-    metadata: { connectorEvent: event.properties },
-    createdAt: new Date(),
-  };
-
-  // 8. 대상 AgentInstance에 이벤트 추가
-  let agentInstance = swarmInstance.agents.get(agentName);
-  if (!agentInstance) {
-    agentInstance = await createAgentInstance(
-      swarmInstance,
-      { kind: 'Agent', name: agentName }
-    );
-    swarmInstance.agents.set(agentName, agentInstance);
-  }
-  agentInstance.eventQueue.enqueue(agentEvent);
-
-  // 9. Turn 처리 트리거 (비동기)
-  scheduleAgentProcessing(agentInstance);
-}
-
-/**
- * Connection ingress rule 매칭 (v1.0)
- *
- * ConnectorEvent의 name과 properties를 기반으로 매칭한다.
- * connection.md §5.1 참조.
- */
-function findMatchingIngressRule(
-  connection: Resource<ConnectionSpec>,
-  event: ConnectorEvent
-): IngressRule | undefined {
-  const rules = connection.spec.ingress?.rules;
-  if (!rules || rules.length === 0) {
-    // 규칙이 없으면 기본 규칙 (entrypoint로 라우팅)
-    return { route: {} };
-  }
-
-  return rules.find((rule) => {
-    if (!rule.match) return true; // match 생략 → 모든 이벤트 매칭
-    if (rule.match.event && rule.match.event !== event.name) return false;
-    if (rule.match.properties) {
-      for (const [key, value] of Object.entries(rule.match.properties)) {
-        if (event.properties?.[key] !== value) return false;
-      }
-    }
-    return true;
-  });
-}
-```
-
-### 4.2 라우팅 에러 처리
-
-```typescript
-/**
- * 라우팅 에러 타입
- */
-class RoutingError extends Error {
-  readonly code: string;
-
-  constructor(message: string, code: string = 'ROUTING_ERROR') {
-    super(message);
-    this.name = 'RoutingError';
-    this.code = code;
-  }
-}
-
-/**
- * 라우팅 에러 처리 규칙
- *
- * - MUST: 라우팅 실패 시 에러 로그를 기록한다
- * - SHOULD: ConnectorEvent의 출처를 로그에 포함한다
- * - MAY: 외부 채널에 에러 응답 전송 (Tool을 통해)
- */
-async function handleRoutingError(
-  connection: Resource<ConnectionSpec>,
-  event: ConnectorEvent,
-  error: RoutingError
-): Promise<void> {
-  // 1. 에러 로그 기록
-  logger.error('Routing failed', {
-    connection: connection.metadata.name,
-    eventName: event.name,
-    error: error.message,
-    code: error.code,
-  });
+  /** 로거 */
+  readonly logger: Console;
 }
 ```
 
 ---
 
-## 5. Turn 실행 흐름
+## 13. 규칙 요약
 
-### 5.1 Turn 실행 알고리즘
+### MUST 요구사항
 
-```typescript
-/**
- * Turn 실행 메인 루프
- *
- * 규칙:
- * - MUST: 작업이 소진될 때까지 Step 반복
- * - MUST: maxStepsPerTurn 정책 적용
- * - MUST: turn.pre/post 파이프라인 포인트 실행
- */
-async function runTurn(
-  agentInstance: AgentInstance,
-  event: AgentEvent
-): Promise<Turn> {
-  // 1. Turn 생성 (MUST: traceId를 생성하여 추적 가능성 보장)
-  const turn: Turn = {
-    id: generateId(),
-    traceId: generateTraceId(), // MUST: Turn마다 traceId 생성
-    agentInstance,
-    inputEvent: event,
-    origin: event.origin ?? {},
-    auth: event.auth ?? {},
-    messageState: {
-      baseMessages: await loadMessageBase(agentInstance),
-      events: [],
-      nextMessages: [],
-    },
-    steps: [],
-    currentStepIndex: 0,
-    status: 'pending',
-    startedAt: new Date(),
-    metadata: {},
-  };
-  turn.messageState.nextMessages = foldMessageEvents(
-    turn.messageState.baseMessages,
-    turn.messageState.events
-  );
+1. Orchestrator는 `goondan.yaml`을 파싱하고 AgentProcess/ConnectorProcess를 스폰/감시해야 한다.
+2. 각 AgentInstance는 독립 Bun 프로세스로 실행되어야 한다.
+3. AgentProcess의 이벤트 큐는 FIFO 직렬 처리여야 한다.
+4. 에이전트 간 통신은 Orchestrator를 경유하는 IPC 메시지 패싱이어야 한다.
+5. `Message`는 AI SDK `CoreMessage`를 `data` 필드에 래핑해야 한다.
+6. 메시지 상태는 `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산되어야 한다.
+7. Turn 종료 시 events → base 폴딩 후 events를 클리어해야 한다.
+8. 설정 변경은 Edit & Restart 모델을 따라야 한다.
+9. Orchestrator 종료 시 모든 자식 프로세스도 종료해야 한다.
+10. 인스턴스 관리 연산(`list`, `delete`)을 제공해야 한다.
+11. 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다.
 
-  agentInstance.currentTurn = turn;
-  agentInstance.status = 'processing';
+### SHOULD 권장사항
 
-  try {
-    // 2. turn.pre 파이프라인 실행
-    const turnContext = await runPipeline('turn.pre', { turn });
+1. AgentProcess 크래시 시 Orchestrator가 자동 재스폰한다.
+2. Watch 모드에서 영향받는 AgentProcess만 선택적 재시작한다.
+3. Turn/Step/ToolCall 메트릭을 구조화된 로그로 출력한다.
+4. TTL/idle 기반 인스턴스 자동 정리 정책을 제공한다.
+5. IPC 구현은 Bun의 내장 IPC를 사용한다.
 
-    // 3. 초기 사용자 메시지 이벤트 추가
-    if (event.input) {
-      await appendMessageEvent(turn, {
-        type: 'llm_message',
-        seq: nextMessageEventSeq(turn),
-        recordedAt: new Date().toISOString(),
-        message: {
-          id: generateMessageId(),
-          role: 'user',
-          content: event.input,
-        },
-      });
-    }
+### MAY 선택사항
 
-    // 4. Step 루프
-    const maxSteps = getMaxStepsPerTurn(agentInstance);
-    turn.status = 'running';
-
-    while (turn.currentStepIndex < maxSteps) {
-      // 4.1 Step 실행
-      const step = await runStep(turn);
-      turn.steps.push(step);
-
-      // 4.2 Step 결과 평가
-      if (shouldContinueStepLoop(step)) {
-        turn.currentStepIndex++;
-        continue;
-      }
-
-      // 4.3 루프 종료 조건 충족
-      break;
-    }
-
-    // 5. turn.post 파이프라인 실행 (base, events 전달)
-    await runPipeline('turn.post', {
-      turn,
-      baseMessages: turn.messageState.baseMessages,
-      messageEvents: turn.messageState.events,
-    });
-
-    // 6. Turn 메시지 상태 finalize
-    const finalizedBase = foldMessageEvents(
-      turn.messageState.baseMessages,
-      turn.messageState.events
-    );
-    await persistMessageBase(turn, finalizedBase);
-    await clearMessageEvents(turn);
-    turn.messageState.baseMessages = finalizedBase;
-    turn.messageState.events = [];
-    turn.messageState.nextMessages = finalizedBase;
-
-    // 7. Turn 완료
-    turn.status = 'completed';
-    turn.completedAt = new Date();
-
-  } catch (error) {
-    // 8. 에러 처리
-    turn.status = 'failed';
-    turn.completedAt = new Date();
-    turn.metadata.error = serializeError(error);
-
-    // 에러 로그 기록
-    await logAgentEvent(agentInstance, {
-      kind: 'turn.failed',
-      turnId: turn.id,
-      data: { error: turn.metadata.error },
-    });
-  } finally {
-    // 9. 정리
-    agentInstance.currentTurn = null;
-    agentInstance.completedTurnCount++;
-    agentInstance.lastActivityAt = new Date();
-    agentInstance.status = 'idle';
-  }
-
-  return turn;
-}
-
-/**
- * Step 계속 여부 판단
- */
-function shouldContinueStepLoop(step: Step): boolean {
-  // 1. Step 실패 시 중단
-  if (step.status === 'failed') {
-    return false;
-  }
-
-  // 2. LLM이 tool call 없이 응답 완료
-  if (
-    step.llmResult?.finishReason === 'stop' &&
-    (!step.toolCalls || step.toolCalls.length === 0)
-  ) {
-    return false;
-  }
-
-  // 3. Tool call이 있으면 계속
-  if (step.toolCalls && step.toolCalls.length > 0) {
-    return true;
-  }
-
-  // 4. 기본: 중단
-  return false;
-}
-
-/**
- * maxStepsPerTurn 조회
- */
-function getMaxStepsPerTurn(agentInstance: AgentInstance): number {
-  const policy = agentInstance.swarmInstance.swarmConfig?.spec?.policy;
-  return policy?.maxStepsPerTurn ?? 32; // 기본값 32
-}
-```
-
-### 5.2 Turn 상태 전이 다이어그램
-
-```
-         ┌─────────┐
-         │ pending │
-         └────┬────┘
-              │ runTurn() 호출
-              ▼
-         ┌─────────┐
-    ┌────│ running │────┐
-    │    └────┬────┘    │
-    │         │         │
-    │    Step 루프      │ 예외 발생
-    │         │         │
-    │         ▼         │
-    │    ┌─────────┐    │
-    └───▶│completed│    │
-         └─────────┘    │
-                        ▼
-                   ┌────────┐
-                   │ failed │
-                   └────────┘
-```
+1. `Swarm.policy.maxStepsPerTurn` 적용.
+2. Orchestrator가 자식 프로세스 stdout/stderr을 통합 수집.
+3. Health check 인터페이스 제공.
 
 ---
 
-## 6. Step 실행 순서
-
-### 6.1 Step 실행 상세 알고리즘
-
-```typescript
-/**
- * Step 실행 알고리즘
- *
- * 규칙:
- * - MUST: step.config -> step.tools -> step.blocks -> step.llmInput -> step.llmCall -> tool call -> step.post 순서
- * - MUST: Step 시작 시 SwarmBundleRef와 Effective Config 고정
- * - MUST: 각 파이프라인 포인트 실행
- */
-async function runStep(turn: Turn): Promise<Step> {
-  const agentInstance = turn.agentInstance;
-  const swarmInstance = agentInstance.swarmInstance;
-
-  // 1. Step 객체 생성
-  const step: Step = {
-    id: generateId(),
-    turn,
-    index: turn.currentStepIndex,
-    activeSwarmBundleRef: '', // step.config에서 설정
-    effectiveConfig: null as unknown as EffectiveConfig,
-    toolCatalog: [],
-    blocks: [],
-    toolCalls: [],
-    toolResults: [],
-    status: 'pending',
-    startedAt: new Date(),
-    metadata: {},
-  };
-
-  try {
-    // ========================================
-    // 2. step.pre 파이프라인
-    // ========================================
-    step.status = 'config';
-    await runPipeline('step.pre', { turn, step });
-
-    // ========================================
-    // 3. step.config 파이프라인 (Safe Point)
-    // ========================================
-    // 3.1 현재 활성 SwarmBundleRef 결정
-    const activeRef = await swarmBundleManager.getActiveRef();
-    (step as { activeSwarmBundleRef: string }).activeSwarmBundleRef = activeRef;
-
-    // 3.2 Effective Config 로드
-    const effectiveConfig = await loadEffectiveConfig(
-      activeRef,
-      agentInstance.agentRef
-    );
-    (step as { effectiveConfig: EffectiveConfig }).effectiveConfig = effectiveConfig;
-
-    // 3.3 step.config mutator 실행
-    await runPipeline('step.config', { turn, step, effectiveConfig });
-
-    // ========================================
-    // 4. step.tools 파이프라인
-    // ========================================
-    step.status = 'tools';
-
-    // 4.1 기본 Tool Catalog 생성
-    const baseCatalog = buildToolCatalog(effectiveConfig.tools);
-
-    // 4.2 step.tools mutator 실행 (Extension이 Catalog 변경 가능)
-    const toolsContext = await runPipeline('step.tools', {
-      turn,
-      step,
-      effectiveConfig,
-      toolCatalog: baseCatalog,
-    });
-    (step as { toolCatalog: ToolCatalogItem[] }).toolCatalog =
-      toolsContext.toolCatalog;
-
-    // ========================================
-    // 5. step.blocks 파이프라인
-    // ========================================
-    step.status = 'blocks';
-
-    // 5.1 기본 블록 생성 (messageState.nextMessages, toolResults 등)
-    const baseBlocks = buildContextBlocks(turn, step);
-
-    // 5.2 step.blocks mutator 실행
-    const blocksContext = await runPipeline('step.blocks', {
-      turn,
-      step,
-      effectiveConfig,
-      toolCatalog: step.toolCatalog,
-      blocks: baseBlocks,
-    });
-    (step as { blocks: ContextBlock[] }).blocks = blocksContext.blocks;
-
-    // ========================================
-    // 6. step.llmCall 파이프라인 (Middleware)
-    // ========================================
-    step.status = 'llmCall';
-
-    // 6.1 LLM 요청 구성
-    const llmInput = turn.messageState.nextMessages;
-    const llmRequest = buildLlmRequest(step, llmInput);
-
-    // 6.2 step.llmCall middleware 실행 (onion wrapping)
-    const llmContext = {
-      turn,
-      step,
-      effectiveConfig,
-      toolCatalog: step.toolCatalog,
-      blocks: step.blocks,
-      request: llmRequest,
-    };
-
-    let llmResult: LlmResult;
-    try {
-      llmResult = await runMiddlewarePipeline('step.llmCall', llmContext, async (ctx) => {
-        // Core LLM 호출
-        return await callLlm(ctx.request, effectiveConfig.model);
-      });
-    } catch (llmError) {
-      // 6.3 step.llmError 처리
-      const errorContext = await runPipeline('step.llmError', {
-        turn,
-        step,
-        error: llmError,
-      });
-
-      // 재시도 여부 판단 (MAY)
-      if (errorContext.shouldRetry) {
-        llmResult = await retryLlmCall(llmRequest, effectiveConfig.model);
-      } else {
-        throw llmError;
-      }
-    }
-
-    step.llmResult = llmResult;
-
-    // 6.4 LLM 응답(system 제외)을 메시지 이벤트로 기록
-    await appendMessageEvent(turn, {
-      type: 'llm_message',
-      seq: nextMessageEventSeq(turn),
-      recordedAt: new Date().toISOString(),
-      message: llmResult.message,
-    });
-
-    // ========================================
-    // 7. Tool Call 처리
-    // ========================================
-    if (llmResult.message.toolCalls && llmResult.message.toolCalls.length > 0) {
-      step.status = 'toolExec';
-      (step as { toolCalls: ToolCall[] }).toolCalls = llmResult.message.toolCalls;
-
-      for (const toolCall of step.toolCalls) {
-        // 7.1 toolCall.pre 파이프라인
-        const preContext = await runPipeline('toolCall.pre', {
-          turn,
-          step,
-          toolCall,
-        });
-
-        // 7.2 toolCall.exec middleware (실제 실행)
-        let toolResult: ToolResult;
-        try {
-          const execContext = {
-            turn,
-            step,
-            toolCall: preContext.toolCall,
-          };
-
-          toolResult = await runMiddlewarePipeline(
-            'toolCall.exec',
-            execContext,
-            async (ctx) => {
-              return await executeToolCall(ctx.toolCall, step);
-            }
-          );
-        } catch (toolError) {
-          // Tool 오류를 ToolResult로 변환 (예외 전파 금지)
-          toolResult = {
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            output: {
-              status: 'error',
-              error: {
-                message: truncateErrorMessage(
-                  toolError.message,
-                  getErrorMessageLimit(toolCall.name)
-                ),
-                name: toolError.name,
-                code: toolError.code ?? 'E_TOOL',
-              },
-            },
-          };
-        }
-
-        step.toolResults.push(toolResult);
-
-        // 7.3 toolCall.post 파이프라인
-        await runPipeline('toolCall.post', {
-          turn,
-          step,
-          toolCall,
-          toolResult,
-        });
-
-        // 7.4 Tool 결과를 메시지 이벤트로 기록
-        await appendMessageEvent(turn, {
-          type: 'llm_message',
-          seq: nextMessageEventSeq(turn),
-          recordedAt: new Date().toISOString(),
-          message: {
-            id: generateMessageId(),
-            role: 'tool',
-            toolCallId: toolResult.toolCallId,
-            toolName: toolResult.toolName,
-            output: toolResult.output,
-          },
-        });
-      }
-    }
-
-    // ========================================
-    // 8. step.post 파이프라인
-    // ========================================
-    step.status = 'post';
-    await runPipeline('step.post', {
-      turn,
-      step,
-      effectiveConfig,
-      toolCatalog: step.toolCatalog,
-      blocks: step.blocks,
-      llmResult: step.llmResult,
-      toolResults: step.toolResults,
-    });
-
-    // 9. Step 완료
-    step.status = 'completed';
-    step.completedAt = new Date();
-
-  } catch (error) {
-    step.status = 'failed';
-    step.completedAt = new Date();
-    step.metadata.error = serializeError(error);
-    throw error;
-  }
-
-  return step;
-}
-```
-
-### 6.2 Step 실행 순서 다이어그램
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Step Execution Flow                         │
-└─────────────────────────────────────────────────────────────────┘
-
- step.pre (Mutator)
-     │
-     ▼
- step.config (Mutator) ◄── Safe Point: SwarmBundleRef 활성화
-     │                     Effective Config 로드/고정
-     ▼
- step.tools (Mutator)  ◄── Tool Catalog 구성
-     │                     Extension이 Catalog 변경 가능
-     ▼
- step.blocks (Mutator) ◄── Context Blocks 구성
-     │                     이전 messages, skills, auth.pending 등
-     ▼
- step.llmCall (Middleware) ◄── LLM 호출 (onion wrapping)
-     │                         EXT.before → CORE → EXT.after
-     │
-     ├── step.llmError (Mutator) ◄── LLM 오류 시 (MAY 재시도)
-     │
-     ▼
- [Tool Calls 있음?]
-     │
-     ├─ Yes ──▶ for each toolCall:
-     │              │
-     │              ├─ toolCall.pre (Mutator)
-     │              │
-     │              ├─ toolCall.exec (Middleware)
-     │              │      EXT.before → CORE exec → EXT.after
-     │              │
-     │              └─ toolCall.post (Mutator)
-     │
-     └─ No ───▶ (skip)
-     │
-     ▼
- step.post (Mutator)
-     │
-     ▼
- Step 완료
-```
-
----
-
-## 7. Turn 메시지 상태 모델 (Base + Events)
-
-### 7.1 계산 규칙
-
-```typescript
-/**
- * Turn 메시지 계산 공식
- *
- * MUST:
- * - NextMessages = BaseMessages + SUM(Events)
- * - SUM(Events)는 append order 기준 결정론적 fold
- */
-interface MessageStateManager {
-  loadBase(turn: Turn): Promise<LlmMessage[]>;
-  appendEvent(turn: Turn, event: MessageEvent): Promise<void>;
-  buildNextMessages(turn: Turn): LlmMessage[];
-  finalizeTurn(turn: Turn): Promise<LlmMessage[]>;
-  recover(turn: Turn): Promise<LlmMessage[]>;
-}
-
-function foldMessageEvents(
-  baseMessages: readonly LlmMessage[],
-  events: readonly MessageEvent[]
-): LlmMessage[] {
-  let next = [...baseMessages];
-
-  for (const event of events) {
-    switch (event.type) {
-      case 'system_message': {
-        const withoutSystem = next.filter((m) => m.role !== 'system');
-        next = [event.message, ...withoutSystem];
-        break;
-      }
-      case 'llm_message': {
-        next = [...next, event.message];
-        break;
-      }
-      case 'replace': {
-        next = next.map((m) => (m.id === event.targetId ? event.message : m));
-        break;
-      }
-      case 'remove': {
-        next = next.filter((m) => m.id !== event.targetId);
-        break;
-      }
-      case 'truncate': {
-        next = next.filter((m) => m.role === 'system');
-        break;
-      }
-    }
-  }
-
-  return next;
-}
-```
-
-### 7.2 Turn 경계 처리 규칙
-
-```typescript
-/**
- * Turn 종료 처리
- *
- * 순서:
- * 1) turn.post 훅 실행 (입력: baseMessages, messageEvents)
- * 2) 훅이 추가 발행한 이벤트까지 포함하여 fold
- * 3) base.jsonl에 최종 스냅샷 append
- * 4) events.jsonl 비우기
- */
-async function finalizeTurnMessages(turn: Turn): Promise<void> {
-  await runPipeline('turn.post', {
-    turn,
-    baseMessages: turn.messageState.baseMessages,
-    messageEvents: turn.messageState.events,
-  });
-
-  const finalMessages = foldMessageEvents(
-    turn.messageState.baseMessages,
-    turn.messageState.events
-  );
-  await persistMessageBase(turn, finalMessages);
-  await clearMessageEvents(turn);
-
-  turn.messageState.baseMessages = finalMessages;
-  turn.messageState.events = [];
-  turn.messageState.nextMessages = finalMessages;
-}
-
-/**
- * 장애 복원
- *
- * MUST: events.jsonl이 남아 있으면 base + events를 재계산해 복원
- */
-async function recoverMessageState(turn: Turn): Promise<void> {
-  const base = await loadMessageBase(turn.agentInstance);
-  const events = await loadMessageEvents(turn.agentInstance, turn.id);
-  turn.messageState.baseMessages = base;
-  turn.messageState.events = events;
-  turn.messageState.nextMessages = foldMessageEvents(base, events);
-}
-```
-
-### 7.3 메시지 저장 포맷
-
-```typescript
-/**
- * 메시지 base 스냅샷 로그
- *
- * 저장 경로:
- * <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/messages/base.jsonl
- */
-interface MessageBaseLogRecord {
-  type: 'message.base';
-  recordedAt: string;
-  traceId: string;
-  instanceId: string;
-  instanceKey: string;
-  agentName: string;
-  turnId: string;
-  messages: LlmMessage[];
-  sourceEventCount?: number;
-}
-
-/**
- * 메시지 이벤트 로그
- *
- * 저장 경로:
- * <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/messages/events.jsonl
- */
-interface MessageEventLogRecord {
-  type: 'message.event';
-  recordedAt: string;
-  traceId: string;
-  instanceId: string;
-  instanceKey: string;
-  agentName: string;
-  turnId: string;
-  seq: number;
-  eventType: MessageEvent['type'];
-  payload: JsonObject;
-  stepId?: string;
-}
-```
-
-### 7.4 이벤트 기록 헬퍼
-
-```typescript
-async function appendMessageEvent(turn: Turn, event: MessageEvent): Promise<void> {
-  const agentInstance = turn.agentInstance;
-  const logPath = path.join(
-    getInstanceStatePath(agentInstance),
-    'messages',
-    'events.jsonl'
-  );
-
-  await appendJsonl(logPath, {
-    type: 'message.event',
-    recordedAt: event.recordedAt,
-    traceId: turn.traceId,
-    instanceId: agentInstance.swarmInstance.id,
-    instanceKey: agentInstance.swarmInstance.instanceKey,
-    agentName: agentInstance.agentName,
-    turnId: turn.id,
-    seq: event.seq,
-    eventType: event.type,
-    payload: serializeMessageEvent(event),
-  } satisfies MessageEventLogRecord);
-
-  turn.messageState.events.push(event);
-  turn.messageState.nextMessages = foldMessageEvents(
-    turn.messageState.baseMessages,
-    turn.messageState.events
-  );
-}
-```
-
----
-
-## 8. maxStepsPerTurn 정책
-
-### 8.1 정책 적용 알고리즘
-
-```typescript
-/**
- * maxStepsPerTurn 정책
- *
- * 규칙:
- * - MAY: Swarm.policy.maxStepsPerTurn으로 제한 설정
- * - SHOULD: 기본값 32
- * - MUST: 제한 초과 시 Turn 종료
- */
-interface StepLimitPolicy {
-  /**
-   * 최대 Step 수 조회
-   */
-  getMaxSteps(swarmInstance: SwarmInstance): number;
-
-  /**
-   * 제한 초과 여부 확인
-   */
-  isLimitExceeded(turn: Turn, swarmInstance: SwarmInstance): boolean;
-}
-
-/**
- * Step 제한 정책 구현
- */
-const stepLimitPolicy: StepLimitPolicy = {
-  getMaxSteps(swarmInstance: SwarmInstance): number {
-    const policy = swarmInstance.swarmConfig?.spec?.policy;
-    return policy?.maxStepsPerTurn ?? 32;
-  },
-
-  isLimitExceeded(turn: Turn, swarmInstance: SwarmInstance): boolean {
-    const maxSteps = this.getMaxSteps(swarmInstance);
-    return turn.currentStepIndex >= maxSteps;
-  },
-};
-
-/**
- * Step 루프에서 정책 적용
- */
-async function runStepLoop(turn: Turn): Promise<void> {
-  const swarmInstance = turn.agentInstance.swarmInstance;
-  const maxSteps = stepLimitPolicy.getMaxSteps(swarmInstance);
-
-  while (turn.currentStepIndex < maxSteps) {
-    const step = await runStep(turn);
-    turn.steps.push(step);
-
-    if (!shouldContinueStepLoop(step)) {
-      break;
-    }
-
-    turn.currentStepIndex++;
-  }
-
-  // 제한 초과 로그
-  if (turn.currentStepIndex >= maxSteps) {
-    await logAgentEvent(turn.agentInstance, {
-      kind: 'turn.stepLimitReached',
-      turnId: turn.id,
-      data: {
-        maxSteps,
-        actualSteps: turn.steps.length,
-      },
-    });
-
-    // Turn 메타데이터에 기록
-    turn.metadata.stepLimitReached = true;
-  }
-}
-```
-
-### 8.2 정책 설정 예시
-
-```yaml
-# Swarm 정의
-kind: Swarm
-metadata:
-  name: default
-spec:
-  entrypoint: { kind: Agent, name: planner }
-  agents:
-    - { kind: Agent, name: planner }
-  policy:
-    maxStepsPerTurn: 32    # 기본값
-    # 또는
-    # maxStepsPerTurn: 64  # 복잡한 작업용
-    # maxStepsPerTurn: 8   # 단순 응답용
-```
-
----
-
-## 9. Effective Config 고정 규칙
-
-### 9.1 고정 메커니즘
-
-```typescript
-/**
- * Effective Config 고정 규칙
- *
- * 규칙:
- * - MUST: Step 시작 시 activeSwarmBundleRef 결정 (step.config)
- * - MUST: Step 실행 중 SwarmBundleRef와 Effective Config 변경 금지
- * - MUST: Changeset 커밋으로 생성된 새 Ref는 다음 Step부터 반영
- */
-interface EffectiveConfigManager {
-  /**
-   * Step의 Effective Config 로드 (고정)
-   */
-  loadForStep(
-    swarmBundleRef: SwarmBundleRef,
-    agentRef: ObjectRefLike
-  ): Promise<EffectiveConfig>;
-
-  /**
-   * 현재 활성 Ref 조회
-   */
-  getActiveRef(): Promise<SwarmBundleRef>;
-
-  /**
-   * Changeset 커밋 후 활성 Ref 업데이트
-   * (다음 Step에서만 반영)
-   */
-  updateActiveRef(newRef: SwarmBundleRef): Promise<void>;
-}
-
-/**
- * Effective Config 로드 알고리즘
- */
-async function loadEffectiveConfig(
-  swarmBundleRef: SwarmBundleRef,
-  agentRef: ObjectRefLike
-): Promise<EffectiveConfig> {
-  // 1. SwarmBundle에서 모든 리소스 로드
-  const bundle = await loadSwarmBundle(swarmBundleRef);
-
-  // 2. Agent 정의 조회
-  const agent = bundle.getResource<AgentSpec>('Agent', resolveRefName(agentRef));
-
-  // 3. Swarm 정의 조회 (Agent가 속한 Swarm)
-  const swarm = bundle.getSwarmForAgent(agent);
-
-  // 4. Model 조회
-  const model = bundle.getResource<ModelSpec>(
-    'Model',
-    resolveRefName(agent.spec.modelConfig.modelRef)
-  );
-
-  // 5. Tools 목록 조회 및 정규화
-  const tools = normalizeByIdentity(
-    await resolveToolRefs(bundle, agent.spec.tools)
-  );
-
-  // 6. Extensions 목록 조회 및 정규화
-  const extensions = normalizeByIdentity(
-    await resolveExtensionRefs(bundle, agent.spec.extensions)
-  );
-
-  // 7. 시스템 프롬프트 로드
-  const systemPrompt = await loadSystemPrompt(bundle, agent.spec.prompts);
-
-  // 8. Effective Config 조립
-  return {
-    swarm,
-    agent,
-    model,
-    tools,
-    extensions,
-    systemPrompt,
-    revision: computeRevision(swarmBundleRef),
-  };
-}
-
-/**
- * Identity 기반 배열 정규화
- *
- * 대상 필드: `/spec/tools`, `/spec/extensions` (SHOULD)
- *
- * 규칙:
- * - SHOULD: identity key 중복 시 last-wins
- * - SHOULD: 순서 변경으로 인한 상태 재생성 방지
- */
-function normalizeByIdentity<T extends Resource<unknown>>(
-  items: T[]
-): readonly T[] {
-  const map = new Map<string, T>();
-
-  for (const item of items) {
-    const key = `${item.kind}/${item.metadata.name}`;
-    map.set(key, item); // last-wins
-  }
-
-  return Array.from(map.values());
-}
-```
-
-### 9.2 Changeset 반영 시점
-
-```typescript
-/**
- * Changeset 반영 시점 규칙
- *
- * 규칙:
- * - MUST: Step N 중 커밋된 changeset은 Step N+1의 step.config에서 활성화
- * - MUST: Step 실행 중에는 SwarmBundleRef 변경 불가
- */
-async function handleChangesetCommit(
-  changesetId: string,
-  options: { message?: string }
-): Promise<ChangesetCommitResult> {
-  // 1. Git commit 생성
-  const commitResult = await gitCommit(changesetId, options.message);
-
-  // 2. SwarmBundleRoot의 활성 Ref 업데이트
-  const newRef = `git:${commitResult.sha}`;
-  await swarmBundleManager.setActiveRef(newRef);
-
-  // 3. 결과 반환 (tool 결과로 관측 가능)
-  return {
-    status: 'ok',
-    changesetId,
-    baseRef: commitResult.baseRef,
-    newRef,
-    summary: commitResult.summary,
-  };
-
-  // 주의: 새 Ref는 현재 Step에서는 적용되지 않음
-  // 다음 Step의 step.config에서 activeSwarmBundleRef로 활성화됨
-}
-
-/**
- * step.config에서 활성 Ref 결정
- */
-async function determineActiveRefAtStepConfig(
-  swarmInstance: SwarmInstance
-): Promise<SwarmBundleRef> {
-  // 현재 설정된 활성 Ref 조회
-  const currentActiveRef = await swarmBundleManager.getActiveRef();
-
-  // 이전 Step에서 커밋된 changeset이 있으면
-  // 여기서 새 Ref가 반영됨
-  return currentActiveRef;
-}
-```
-
-### 9.3 코드 변경 반영 의미론
-
-Changeset으로 소스코드(Tool/Extension/Connector entry 모듈)가 변경된 경우, 변경된 코드는 Safe Point(`step.config`)에서 새 SwarmBundleRef 활성화와 함께 반영된다.
-
-```typescript
-/**
- * 코드 변경 반영 규칙
- *
- * 규칙:
- * - MUST: Runtime은 Step 시작 시 활성화된 SwarmBundleRef 기준으로 entry 모듈을 resolve해야 한다
- * - MUST NOT: Step 실행 중에는 entry 모듈을 동적으로 교체(hot-reload)해서는 안 된다
- * - MUST: 코드 변경의 반영 단위는 Config 변경과 동일하게 Step 경계여야 한다
- */
-
-/**
- * Step 시작 시 entry 모듈 resolve (step.config 내부)
- */
-async function resolveEntryModules(
-  swarmBundleRef: SwarmBundleRef,
-  effectiveConfig: EffectiveConfig
-): Promise<void> {
-  // 1. Tool entry 모듈 resolve
-  for (const tool of effectiveConfig.tools) {
-    if (tool.spec.entry) {
-      await resolveModulePath(swarmBundleRef, tool.spec.entry);
-    }
-  }
-
-  // 2. Extension entry 모듈 resolve
-  for (const ext of effectiveConfig.extensions) {
-    if (ext.spec.entry) {
-      await resolveModulePath(swarmBundleRef, ext.spec.entry);
-    }
-  }
-
-  // 이후 Step 종료까지 resolve된 모듈은 교체되지 않는다 (MUST NOT hot-reload)
-}
-```
-
-### 9.4 인스턴스 GC 정책
-
-TTL/idle 기반 자동 정리(GC)는 정책으로 제공하는 것을 권장한다(SHOULD).
-
-```typescript
-/**
- * 인스턴스 GC 정책
- *
- * 규칙:
- * - SHOULD: TTL/idle 기반 자동 정리(GC)를 정책으로 제공한다
- * - SHOULD: GC 대상 인스턴스는 terminate 후 상태를 정리한다
- */
-interface InstanceGcPolicy {
-  /** 인스턴스 최대 생존 시간(ms) (0이면 비활성화) */
-  ttlMs?: number;
-
-  /** 유휴 상태 최대 시간(ms) (0이면 비활성화) */
-  idleTimeoutMs?: number;
-
-  /** GC 검사 간격(ms) */
-  checkIntervalMs?: number;
-}
-```
-
-정책 설정 위치:
-
-```yaml
-kind: Swarm
-metadata:
-  name: default
-spec:
-  policy:
-    gc:
-      ttlMs: 3600000          # 1시간
-      idleTimeoutMs: 1800000  # 30분 유휴 시 정리
-      checkIntervalMs: 60000  # 1분마다 검사
-```
-
-### 9.5 운영 인터페이스 요구사항
-
-구현은 인스턴스 라이프사이클 연산(`list/inspect/pause/resume/terminate/delete`)을 운영 인터페이스로 제공해야 한다(MUST). CLI를 제공하는 구현은 위 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD). 실제 CLI 명령어 매핑은 `docs/specs/cli.md`를 참조한다.
-
----
-
-## 10. Turn Origin/Auth 컨텍스트
-
-### 10.1 Origin 컨텍스트 구조
-
-```typescript
-/**
- * TurnOrigin 생성 규칙
- *
- * 규칙:
- * - SHOULD: Connector가 ingress 이벤트 변환 시 채운다
- * - SHOULD: 외부 채널 식별 정보 포함
- */
-interface TurnOriginBuilder {
-  /**
-   * Connector 이벤트에서 Origin 생성
-   */
-  build(connector: ConnectorConfig, event: JsonObject): TurnOrigin;
-}
-
-/**
- * Slack Connector Origin 예시
- */
-function buildSlackTurnOrigin(
-  connector: ConnectorConfig,
-  event: JsonObject
-): TurnOrigin {
-  return {
-    connector: connector.metadata.name,
-    channel: event.event?.channel,
-    threadTs: event.event?.thread_ts ?? event.event?.ts,
-    userId: event.event?.user,
-    teamId: event.team_id,
-    // 추가 Slack 특화 정보
-    eventType: event.event?.type,
-    botId: event.bot_id,
-  };
-}
-
-/**
- * CLI Connector Origin 예시
- */
-function buildCliTurnOrigin(
-  connector: ConnectorConfig,
-  event: JsonObject
-): TurnOrigin {
-  return {
-    connector: connector.metadata.name,
-    sessionId: event.sessionId ?? 'default',
-    // CLI 특화 정보
-    cwd: event.cwd,
-    user: event.user ?? process.env.USER,
-  };
-}
-```
-
-### 10.2 Auth 컨텍스트 구조
-
-```typescript
-/**
- * TurnAuth 생성 규칙
- *
- * 규칙:
- * - SHOULD: Connector가 인증 정보를 기반으로 채운다
- * - MUST: subjectMode=user인 OAuthApp 사용 시 subjects.user 필수
- * - MUST: subjectMode=global인 OAuthApp 사용 시 subjects.global 필수
- */
-interface TurnAuthBuilder {
-  /**
-   * Connector 이벤트에서 Auth 생성
-   */
-  build(connector: ConnectorConfig, event: JsonObject): TurnAuth;
-}
-
-/**
- * Slack Connector Auth 예시
- *
- * 권장 형식:
- * - subjects.global: "slack:team:<team_id>"
- * - subjects.user: "slack:user:<team_id>:<user_id>"
- */
-function buildSlackTurnAuth(
-  connector: ConnectorConfig,
-  event: JsonObject
-): TurnAuth {
-  const teamId = event.team_id;
-  const userId = event.event?.user;
-
-  return {
-    actor: {
-      type: 'user',
-      id: `slack:${userId}`,
-      display: event.event?.user_profile?.display_name,
-    },
-    subjects: {
-      global: `slack:team:${teamId}`,
-      user: `slack:user:${teamId}:${userId}`,
-    },
-  };
-}
-
-/**
- * Auth 검증 규칙
- */
-function validateTurnAuthForOAuth(
-  auth: TurnAuth | undefined,
-  oauthApp: OAuthAppConfig
-): void {
-  if (!auth) {
-    throw new AuthError('Turn.auth is required for OAuth operations');
-  }
-
-  if (oauthApp.spec.subjectMode === 'global') {
-    if (!auth.subjects?.global) {
-      throw new AuthError(
-        'turn.auth.subjects.global is required for subjectMode=global'
-      );
-    }
-  }
-
-  if (oauthApp.spec.subjectMode === 'user') {
-    if (!auth.subjects?.user) {
-      throw new AuthError(
-        'turn.auth.subjects.user is required for subjectMode=user'
-      );
-    }
-  }
-}
-```
-
----
-
-## 11. Connector Event Flow (v1.0)
-
-> **v1.0 주요 변경**: CanonicalEvent → ConnectorEvent로 대체, ConnectorTriggerContext → ConnectorContext로 대체. Connector는 ConnectorEvent만 발행하고, 라우팅(instanceKey 결정, Agent 선택)은 Runtime이 Connection의 ingress rules를 기반으로 수행한다. 자세한 타입 정의는 [`connector.md`](./connector.md) §5를 참조한다.
-
-### 11.1 이벤트 흐름 상세
-
-```typescript
-/**
- * Connector Event Flow (v1.0)
- *
- * 규칙:
- * - MUST: Connector는 ConnectorEvent 생성 책임만 가진다 (connector.md §5.4 참조)
- * - MUST: Runtime이 ConnectorEvent를 Connection ingress rules로 라우팅하고 Turn으로 변환
- * - MUST: Connector는 Instance/Turn/Step 실행 모델을 직접 제어하지 않는다
- * - MUST: instanceKey는 런타임이 ConnectorEvent.properties에서 추출한다 (§4.1 참조)
- */
-
-/**
- * ConnectorEvent (connector.md §5.4에서 정의)
- *
- * Connector의 entry 함수가 ctx.emit()으로 발행하는 정규화된 이벤트.
- * 참조용으로 인터페이스를 기재한다.
- */
-// interface ConnectorEvent {
-//   type: "connector.event";
-//   name: string;
-//   message: ConnectorEventMessage;
-//   properties?: JsonObject;
-//   auth?: {
-//     actor: { id: string; name?: string };
-//     subjects: { global?: string; user?: string };
-//   };
-// }
-
-/**
- * ConnectorContext (connector.md §5.2에서 정의)
- *
- * Connector entry 함수에 주입되는 실행 컨텍스트.
- * Connection마다 한 번씩 호출된다.
- * 참조용으로 인터페이스를 기재한다.
- */
-// interface ConnectorContext {
-//   event: ConnectorTriggerEvent;
-//   connection: Resource<ConnectionSpec>;
-//   connector: Resource<ConnectorSpec>;
-//   emit: (event: ConnectorEvent) => Promise<void>;
-//   logger: Console;
-//   oauth?: { getAccessToken: (req: OAuthTokenRequest) => Promise<OAuthTokenResult> };
-//   verify?: { webhook?: { signingSecret: string } };
-// }
-
-/**
- * ConnectorEvent 처리 흐름 (v1.0)
- *
- * Runtime이 Connector의 ctx.emit() 호출을 수신하여 실행한다.
- * Connection의 ingress.rules에서 매칭 규칙을 찾고,
- * ConnectorEvent.properties에서 instanceKey를 추출하여 라우팅한다.
- */
-async function handleConnectorEvent(
-  event: ConnectorEvent,
-  connection: Resource<ConnectionSpec>,
-  swarmRef: ObjectRefLike
-): Promise<void> {
-  // 1. Connection ingress rules에서 매칭 규칙 찾기
-  const matchedRule = findMatchingIngressRule(connection, event);
-  if (!matchedRule) {
-    throw new RoutingError('No matching ingress rule');
-  }
-
-  // 2. instanceKey 결정 (ConnectorEvent.properties에서 추출, §4.1 참조)
-  const instanceKey = resolveInstanceKey(event, connection);
-
-  // 3. SwarmInstance 조회/생성
-  const swarmInstance = await getOrCreateSwarmInstance(swarmRef, instanceKey);
-
-  // 4. 대상 AgentInstance 결정 (agentRef 없으면 entrypoint)
-  const agentRef = matchedRule.route?.agentRef;
-  const agentName = agentRef
-    ? resolveRefName(agentRef)
-    : resolveRefName(swarmInstance.swarmConfig.spec.entrypoint);
-  let agentInstance = swarmInstance.agents.get(agentName);
-
-  if (!agentInstance) {
-    // 새 AgentInstance 생성 (동적 생성 허용 시)
-    agentInstance = await createAgentInstance(
-      swarmInstance,
-      { kind: 'Agent', name: agentName }
-    );
-    swarmInstance.agents.set(agentName, agentInstance);
-  }
-
-  // 5. 입력 추출 (ConnectorEvent.message에서)
-  const input = event.message.type === 'text' ? event.message.text : '';
-
-  // 6. Auth 컨텍스트 변환 (ConnectorEvent.auth → TurnAuth)
-  const auth: TurnAuth | undefined = event.auth ? {
-    actor: {
-      type: 'user',
-      id: event.auth.actor.id,
-      display: event.auth.actor.name,
-    },
-    subjects: {
-      global: event.auth.subjects.global,
-      user: event.auth.subjects.user,
-    },
-  } : undefined;
-
-  // 7. AgentEvent 생성
-  const agentEvent: AgentEvent = {
-    id: generateId(),
-    type: 'user.input',
-    input,
-    auth,
-    metadata: { connectorEvent: event.properties },
-    createdAt: new Date(),
-  };
-
-  // 8. AgentInstance 이벤트 큐에 enqueue
-  agentInstance.eventQueue.enqueue(agentEvent);
-
-  // 9. Agent 이벤트 로그 기록
-  await logAgentEvent(agentInstance, {
-    kind: 'event.enqueued',
-    data: {
-      eventId: agentEvent.id,
-      eventType: agentEvent.type,
-    },
-  });
-
-  // 10. Turn 처리 스케줄링 (비동기)
-  scheduleAgentProcessing(agentInstance);
-}
-
-/**
- * Connector entry function 예시 (Slack) — ConnectorEntryFunction 패턴 (v1.0)
- *
- * connector.md §5.1의 단일 default export 패턴을 따른다.
- * Connector는 ConnectorEvent만 발행하며, 라우팅은 Runtime이 수행한다.
- */
-export default async function (ctx: ConnectorContext): Promise<void> {
-  // 1. 트리거 이벤트가 HTTP인지 확인
-  if (ctx.event.trigger.type !== 'http') return;
-
-  const body = ctx.event.trigger.payload.request.body;
-
-  // 2. 서명 검증 (Connection의 verify 블록이 있는 경우)
-  if (ctx.verify?.webhook?.signingSecret) {
-    const isValid = verifySlackSignature(
-      ctx.event.trigger.payload.request.headers,
-      ctx.event.trigger.payload.request.rawBody ?? '',
-      ctx.verify.webhook.signingSecret
-    );
-    if (!isValid) {
-      ctx.logger.error('Slack signature verification failed');
-      return;
-    }
-  }
-
-  // 3. Slack 이벤트 필터링
-  const slackEvent = body.event;
-  if (!slackEvent || slackEvent.bot_id) return;
-
-  // 4. ConnectorEvent 발행 (라우팅은 Runtime이 수행)
-  await ctx.emit({
-    type: 'connector.event',
-    name: 'app_mention',
-    message: {
-      type: 'text',
-      text: slackEvent.text,
-    },
-    properties: {
-      channel_id: slackEvent.channel,
-      ts: slackEvent.ts,
-      thread_ts: slackEvent.thread_ts,
-    },
-    auth: {
-      actor: {
-        id: `slack:${slackEvent.user}`,
-        name: slackEvent.user_profile?.display_name,
-      },
-      subjects: {
-        global: `slack:team:${body.team_id}`,
-        user: `slack:user:${body.team_id}:${slackEvent.user}`,
-      },
-    },
-  });
-}
-```
-
-### 11.2 이벤트 흐름 다이어그램
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Connector Event Flow (v1.0)                      │
-└─────────────────────────────────────────────────────────────────┘
-
- [External Event]
-      │
-      │  Webhook / Cron / CLI
-      ▼
- ┌────────────────┐
- │    Runtime:    │
- │  trigger 수신  │
- └───────┬────────┘
-         │
-         │  Connection 목록 조회 (connectorRef가 이 Connector를 참조하는 Connection들)
-         ▼
- ┌────────────────────┐
- │  Connection마다    │
- │  Entry Function    │
- │  호출              │
- │  ctx.event:        │
- │   Trigger 정보     │
- │  ctx.connection:   │
- │   현재 Connection  │
- │  ctx.verify:       │
- │   서명 검증 정보   │
- └───────┬────────────┘
-         │
-         │ ctx.emit(ConnectorEvent)
-         ▼
- ┌────────────────────────────────────────────────────────────────┐
- │                         Runtime                                 │
- │                                                                 │
- │   ┌───────────────────┐                                        │
- │   │ handleConnector   │                                        │
- │   │     Event         │                                        │
- │   └────────┬──────────┘                                        │
- │            │                                                    │
- │            │  1. Connection ingress rules 매칭                  │
- │            │  2. instanceKey 추출 (properties에서)              │
- │            │  3. SwarmInstance 조회/생성                        │
- │            │  4. agentRef 결정 (없으면 entrypoint)              │
- │            │  5. AgentEvent 생성                                │
- │            ▼                                                    │
- │   ┌────────────────────┐                                       │
- │   │   SwarmInstance    │                                       │
- │   │                    │                                       │
- │   │  ┌──────────────┐  │                                       │
- │   │  │AgentInstance │  │                                       │
- │   │  │              │  │                                       │
- │   │  │ EventQueue   │◄─┼─── enqueue(agentEvent)                │
- │   │  │   [event]    │  │                                       │
- │   │  │              │  │                                       │
- │   │  └──────────────┘  │                                       │
- │   └────────────────────┘                                       │
- │            │                                                    │
- │            │ scheduleAgentProcessing()                         │
- │            ▼                                                    │
- │   ┌──────────────────┐                                         │
- │   │    runTurn()     │──── Turn/Step 실행                      │
- │   └──────────────────┘                                         │
- │                                                                 │
- └────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 12. 에이전트 간 Handoff와 Auth 보존
-
-### 12.1 Handoff 메커니즘
-
-```typescript
-/**
- * 에이전트 간 Handoff 규칙
- *
- * 규칙:
- * - MUST: handoff 시 turn.auth는 변경 없이 전달
- * - MUST: 원래 사용자 컨텍스트가 위임된 에이전트에서도 유지
- */
-interface HandoffRequest {
-  /** 위임 대상 Agent 참조 */
-  targetAgentRef: ObjectRefLike;
-
-  /** 위임 입력 (대상 에이전트에 전달) */
-  input: string;
-
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-}
-
-interface HandoffResult {
-  /** Handoff 결과 상태 */
-  status: 'completed' | 'failed' | 'pending';
-
-  /** 대상 에이전트의 응답 */
-  output?: JsonValue;
-
-  /** 에러 정보 (실패 시) */
-  error?: JsonObject;
-}
-
-/**
- * Handoff 실행 알고리즘
- */
-async function executeHandoff(
-  sourceTurn: Turn,
-  request: HandoffRequest
-): Promise<HandoffResult> {
-  const sourceAgent = sourceTurn.agentInstance;
-  const swarmInstance = sourceAgent.swarmInstance;
-
-  // 1. 대상 AgentInstance 조회/생성
-  const targetAgentName = resolveRefName(request.targetAgentRef);
-  let targetAgent = swarmInstance.agents.get(targetAgentName);
-
-  if (!targetAgent) {
-    targetAgent = await createAgentInstance(
-      swarmInstance,
-      request.targetAgentRef
-    );
-    swarmInstance.agents.set(targetAgentName, targetAgent);
-  }
-
-  // 2. Handoff 이벤트 생성 (auth 보존)
-  const handoffEvent: AgentEvent = {
-    id: generateId(),
-    type: 'agent.delegate',
-    input: request.input,
-    // MUST: 원본 Turn의 origin 전달
-    origin: {
-      ...sourceTurn.origin,
-      delegatedFrom: sourceAgent.agentName,
-      delegationTurnId: sourceTurn.id,
-    },
-    // MUST: 원본 Turn의 auth 변경 없이 전달
-    auth: sourceTurn.auth,
-    metadata: {
-      sourceAgentName: sourceAgent.agentName,
-      sourceTurnId: sourceTurn.id,
-      ...request.metadata,
-    },
-    createdAt: new Date(),
-  };
-
-  // 3. 대상 AgentInstance 이벤트 큐에 enqueue
-  targetAgent.eventQueue.enqueue(handoffEvent);
-
-  // 4. Handoff 이벤트 로그 기록
-  await logAgentEvent(sourceAgent, {
-    kind: 'agent.delegated',
-    turnId: sourceTurn.id,
-    data: {
-      targetAgent: targetAgentName,
-      eventId: handoffEvent.id,
-    },
-  });
-
-  await logAgentEvent(targetAgent, {
-    kind: 'agent.delegateReceived',
-    data: {
-      sourceAgent: sourceAgent.agentName,
-      eventId: handoffEvent.id,
-    },
-  });
-
-  // 5. 동기 대기 또는 비동기 반환 (구현 선택)
-  // 여기서는 비동기 반환 예시
-  return {
-    status: 'pending',
-    output: {
-      message: `작업이 ${targetAgentName}에게 위임되었습니다.`,
-      delegationEventId: handoffEvent.id,
-    },
-  };
-}
-
-/**
- * Handoff 결과 반환 (대상 에이전트 -> 원본 에이전트)
- */
-async function returnHandoffResult(
-  targetTurn: Turn,
-  result: JsonValue
-): Promise<void> {
-  const targetAgent = targetTurn.agentInstance;
-  const swarmInstance = targetAgent.swarmInstance;
-
-  // 위임 정보 추출
-  const sourceAgentName = targetTurn.origin.delegatedFrom;
-  const sourceTurnId = targetTurn.origin.delegationTurnId;
-
-  if (!sourceAgentName) {
-    return; // 위임된 Turn이 아님
-  }
-
-  const sourceAgent = swarmInstance.agents.get(sourceAgentName);
-  if (!sourceAgent) {
-    logger.warn('Source agent not found for delegation result', {
-      sourceAgentName,
-    });
-    return;
-  }
-
-  // 결과 이벤트 생성
-  const resultEvent: AgentEvent = {
-    id: generateId(),
-    type: 'agent.delegationResult',
-    input: JSON.stringify(result),
-    // MUST: auth 보존
-    origin: targetTurn.origin,
-    auth: targetTurn.auth,
-    metadata: {
-      sourceTurnId,
-      targetAgentName: targetAgent.agentName,
-      targetTurnId: targetTurn.id,
-    },
-    createdAt: new Date(),
-  };
-
-  // 원본 AgentInstance 이벤트 큐에 enqueue
-  sourceAgent.eventQueue.enqueue(resultEvent);
-
-  // 이벤트 로그 기록
-  await logAgentEvent(targetAgent, {
-    kind: 'agent.delegationReturned',
-    turnId: targetTurn.id,
-    data: {
-      sourceAgent: sourceAgentName,
-      resultEventId: resultEvent.id,
-    },
-  });
-}
-```
-
-### 12.2 Auth 보존 검증
-
-```typescript
-/**
- * Auth 보존 규칙 검증
- *
- * 규칙:
- * - MUST: Handoff 시 auth 객체가 동일한지 검증
- * - MUST: auth 누락 시 user 토큰 조회 불가
- */
-function validateAuthPreservation(
-  sourceAuth: TurnAuth | undefined,
-  targetAuth: TurnAuth | undefined
-): void {
-  // 1. sourceAuth가 있으면 targetAuth도 있어야 함
-  if (sourceAuth && !targetAuth) {
-    throw new AuthPreservationError(
-      'turn.auth must be preserved during handoff'
-    );
-  }
-
-  // 2. subjects가 동일해야 함
-  if (sourceAuth && targetAuth) {
-    if (
-      sourceAuth.subjects?.global !== targetAuth.subjects?.global ||
-      sourceAuth.subjects?.user !== targetAuth.subjects?.user
-    ) {
-      throw new AuthPreservationError(
-        'turn.auth.subjects must be identical during handoff'
-      );
-    }
-
-    // 3. actor가 동일해야 함
-    if (
-      sourceAuth.actor?.type !== targetAuth.actor?.type ||
-      sourceAuth.actor?.id !== targetAuth.actor?.id
-    ) {
-      throw new AuthPreservationError(
-        'turn.auth.actor must be identical during handoff'
-      );
-    }
-  }
-}
-
-/**
- * Auth 누락 시 OAuth 동작 제한
- *
- * 규칙:
- * - MUST: auth가 없는 Turn에서 subjectMode=user OAuthApp 사용 금지
- */
-function validateAuthForOAuthRequest(
-  turn: Turn,
-  oauthApp: OAuthAppConfig
-): void {
-  if (oauthApp.spec.subjectMode === 'user') {
-    if (!turn.auth?.subjects?.user) {
-      throw new AuthError(
-        'Cannot request user token without turn.auth.subjects.user. ' +
-        'Please ensure the Connector provides proper authentication context.'
-      );
-    }
-  }
-
-  if (oauthApp.spec.subjectMode === 'global') {
-    if (!turn.auth?.subjects?.global) {
-      throw new AuthError(
-        'Cannot request global token without turn.auth.subjects.global. ' +
-        'Please ensure the Connector provides proper authentication context.'
-      );
-    }
-  }
-}
-```
-
----
-
-## 13. 이벤트 로그 스키마
-
-### 13.1 Swarm 이벤트 로그
-
-```typescript
-/**
- * Swarm 이벤트 로그 레코드
- *
- * 저장 경로: <stateRootDir>/instances/<workspaceId>/<instanceId>/swarm/events/events.jsonl
- */
-interface SwarmEventLogRecord {
-  /** 레코드 타입 */
-  type: 'swarm.event';
-
-  /** 기록 시각 */
-  recordedAt: string; // ISO8601
-
-  /** 이벤트 종류 */
-  kind: SwarmEventKind;
-
-  /** 인스턴스 ID */
-  instanceId: string;
-
-  /** 인스턴스 키 */
-  instanceKey: string;
-
-  /** Swarm 이름 */
-  swarmName: string;
-
-  /** 관련 Agent 이름 (선택) */
-  agentName?: string;
-
-  /** 이벤트 데이터 (선택) */
-  data?: JsonObject;
-}
-
-type SwarmEventKind =
-  | 'swarm.created'
-  | 'swarm.terminated'
-  | 'swarm.agentAdded'
-  | 'swarm.agentRemoved'
-  | 'swarm.configChanged'
-  | string; // 확장 이벤트
-```
-
-### 13.2 Agent 이벤트 로그
-
-```typescript
-/**
- * Agent 이벤트 로그 레코드
- *
- * 저장 경로: <stateRootDir>/instances/<workspaceId>/<instanceId>/agents/<agentName>/events/events.jsonl
- */
-interface AgentEventLogRecord {
-  /** 레코드 타입 */
-  type: 'agent.event';
-
-  /** 기록 시각 */
-  recordedAt: string; // ISO8601
-
-  /** 이벤트 종류 */
-  kind: AgentEventKind;
-
-  /** 인스턴스 ID */
-  instanceId: string;
-
-  /** 인스턴스 키 */
-  instanceKey: string;
-
-  /** Agent 이름 */
-  agentName: string;
-
-  /** 추적 ID (MUST: Turn에서 전파) */
-  traceId?: string;
-
-  /** Turn ID (선택) */
-  turnId?: string;
-
-  /** Step ID (선택) */
-  stepId?: string;
-
-  /** Step 인덱스 (선택) */
-  stepIndex?: number;
-
-  /** 이벤트 데이터 (선택) */
-  data?: JsonObject;
-}
-
-type AgentEventKind =
-  | 'agent.created'
-  | 'agent.terminated'
-  | 'event.enqueued'
-  | 'turn.started'
-  | 'turn.completed'
-  | 'turn.failed'
-  | 'turn.stepLimitReached'
-  | 'step.started'
-  | 'step.completed'
-  | 'step.failed'
-  | 'agent.delegated'
-  | 'agent.delegateReceived'
-  | 'agent.delegationReturned'
-  | 'changeset.committed'
-  | 'changeset.rejected'
-  | string; // 확장 이벤트
-
-/**
- * 이벤트 로그 기록 함수
- */
-async function logSwarmEvent(
-  swarmInstance: SwarmInstance,
-  event: Omit<SwarmEventLogRecord, 'type' | 'recordedAt' | 'instanceId' | 'instanceKey' | 'swarmName'>
-): Promise<void> {
-  const record: SwarmEventLogRecord = {
-    type: 'swarm.event',
-    recordedAt: new Date().toISOString(),
-    instanceId: swarmInstance.id,
-    instanceKey: swarmInstance.instanceKey,
-    swarmName: resolveRefName(swarmInstance.swarmRef),
-    ...event,
-  };
-
-  const logPath = path.join(
-    getSwarmStatePath(swarmInstance),
-    'events',
-    'events.jsonl'
-  );
-
-  await appendJsonl(logPath, record);
-}
-
-async function logAgentEvent(
-  agentInstance: AgentInstance,
-  event: Omit<AgentEventLogRecord, 'type' | 'recordedAt' | 'instanceId' | 'instanceKey' | 'agentName'>
-): Promise<void> {
-  const record: AgentEventLogRecord = {
-    type: 'agent.event',
-    recordedAt: new Date().toISOString(),
-    instanceId: agentInstance.swarmInstance.id,
-    instanceKey: agentInstance.swarmInstance.instanceKey,
-    agentName: agentInstance.agentName,
-    ...event,
-  };
-
-  const logPath = path.join(
-    getAgentStatePath(agentInstance),
-    'events',
-    'events.jsonl'
-  );
-
-  await appendJsonl(logPath, record);
-}
-```
-
----
-
-## 14. 에러 처리
-
-### 14.1 에러 타입 정의
-
-```typescript
-/**
- * Runtime 에러 기본 클래스
- */
-class RuntimeError extends Error {
-  readonly code: string;
-  readonly details?: JsonObject;
-
-  constructor(message: string, code: string, details?: JsonObject) {
-    super(message);
-    this.name = 'RuntimeError';
-    this.code = code;
-    this.details = details;
-  }
-}
-
-/**
- * 라우팅 에러
- */
-class RoutingError extends RuntimeError {
-  constructor(message: string, details?: JsonObject) {
-    super(message, 'ROUTING_ERROR', details);
-    this.name = 'RoutingError';
-  }
-}
-
-/**
- * 인증 에러
- */
-class AuthError extends RuntimeError {
-  constructor(message: string, details?: JsonObject) {
-    super(message, 'AUTH_ERROR', details);
-    this.name = 'AuthError';
-  }
-}
-
-/**
- * Auth 보존 에러
- */
-class AuthPreservationError extends AuthError {
-  constructor(message: string) {
-    super(message, { subtype: 'AUTH_PRESERVATION' });
-    this.name = 'AuthPreservationError';
-  }
-}
-
-/**
- * Config 로드 에러
- */
-class ConfigLoadError extends RuntimeError {
-  constructor(message: string, details?: JsonObject) {
-    super(message, 'CONFIG_LOAD_ERROR', details);
-    this.name = 'ConfigLoadError';
-  }
-}
-
-/**
- * LLM 호출 에러
- */
-class LlmCallError extends RuntimeError {
-  constructor(message: string, details?: JsonObject) {
-    super(message, 'LLM_CALL_ERROR', details);
-    this.name = 'LlmCallError';
-  }
-}
-
-/**
- * Tool 실행 에러
- */
-class ToolExecutionError extends RuntimeError {
-  readonly toolName: string;
-
-  constructor(message: string, toolName: string, details?: JsonObject) {
-    super(message, 'TOOL_EXECUTION_ERROR', details);
-    this.name = 'ToolExecutionError';
-    this.toolName = toolName;
-  }
-}
-
-/**
- * Step 제한 초과 에러
- */
-class StepLimitExceededError extends RuntimeError {
-  readonly maxSteps: number;
-  readonly actualSteps: number;
-
-  constructor(maxSteps: number, actualSteps: number) {
-    super(
-      `Step limit exceeded: ${actualSteps} >= ${maxSteps}`,
-      'STEP_LIMIT_EXCEEDED',
-      { maxSteps, actualSteps }
-    );
-    this.name = 'StepLimitExceededError';
-    this.maxSteps = maxSteps;
-    this.actualSteps = actualSteps;
-  }
-}
-```
-
-### 14.2 에러 처리 규칙
-
-```typescript
-/**
- * 에러 처리 규칙
- *
- * 1. Tool 실행 에러: 예외 전파 금지, ToolResult.output에 포함
- * 2. LLM 호출 에러: step.llmError 파이프라인 실행, 재시도 가능
- * 3. Turn 실행 에러: Turn.status = 'failed', 로그 기록
- * 4. 라우팅 에러: Connector에 알림, 외부 채널에 에러 응답 가능
- */
-
-/**
- * Tool 에러 -> ToolResult 변환
- */
-function toolErrorToResult(
-  error: Error,
-  toolCall: ToolCall,
-  errorMessageLimit: number = 1000
-): ToolResult {
-  return {
-    toolCallId: toolCall.id,
-    toolName: toolCall.name,
-    output: {
-      status: 'error',
-      error: {
-        message: truncateString(error.message, errorMessageLimit),
-        name: error.name,
-        code: (error as RuntimeError).code ?? 'E_TOOL',
-      },
-    },
-  };
-}
-
-/**
- * 에러 메시지 길이 제한
- */
-function truncateString(str: string, maxLength: number): string {
-  if (str.length <= maxLength) {
-    return str;
-  }
-  return str.slice(0, maxLength - 3) + '...';
-}
-
-/**
- * 에러 직렬화 (로그/메타데이터용)
- */
-function serializeError(error: Error): JsonObject {
-  return {
-    name: error.name,
-    message: error.message,
-    code: (error as RuntimeError).code,
-    details: (error as RuntimeError).details,
-    stack: error.stack?.split('\n').slice(0, 5).join('\n'),
-  };
-}
-```
-
----
-
-## 15. Retry / Timeout 정책
-
-### 15.1 LLM 호출 재시도
-
-```typescript
-/**
- * LLM 호출 재시도 정책
- *
- * 규칙:
- * - SHOULD: LLM 호출 실패 시 설정된 정책에 따라 재시도할 수 있다
- * - MUST: 재시도 횟수가 maxRetries를 초과하면 LlmCallError를 발생시킨다
- * - MUST: 재시도 간격은 exponential backoff를 따른다
- * - MUST NOT: 4xx 클라이언트 에러(400, 401, 403, 404)는 재시도하지 않는다
- * - SHOULD: 429(Rate Limit), 5xx(서버 에러)는 재시도한다
- */
-interface RetryPolicy {
-  /** 최대 재시도 횟수 (기본: 3) */
-  maxRetries: number;
-
-  /** 초기 재시도 대기 시간(ms) (기본: 1000) */
-  initialDelayMs: number;
-
-  /** 최대 재시도 대기 시간(ms) (기본: 30000) */
-  maxDelayMs: number;
-
-  /** backoff 승수 (기본: 2) */
-  backoffMultiplier: number;
-
-  /** 재시도 가능한 에러 코드 (기본: [429, 500, 502, 503, 504]) */
-  retryableStatusCodes: number[];
-}
-```
-
-### 15.2 Step Timeout
-
-```typescript
-/**
- * Step 실행 타임아웃 정책
- *
- * 규칙:
- * - SHOULD: 각 Step에 타임아웃을 설정할 수 있다
- * - MUST: 타임아웃 초과 시 StepTimeoutError를 발생시킨다
- * - SHOULD: LLM 호출과 Tool 실행에 각각 별도의 타임아웃을 설정할 수 있다
- */
-interface TimeoutPolicy {
-  /** Step 전체 타임아웃(ms) (기본: 300000 = 5분) */
-  stepTimeoutMs: number;
-
-  /** LLM 호출 타임아웃(ms) (기본: 120000 = 2분) */
-  llmCallTimeoutMs: number;
-
-  /** 개별 Tool 실행 타임아웃(ms) (기본: 60000 = 1분) */
-  toolExecutionTimeoutMs: number;
-}
-
-class StepTimeoutError extends RuntimeError {
-  constructor(phase: 'step' | 'llmCall' | 'toolExecution', timeoutMs: number) {
-    super(
-      `${phase} timed out after ${timeoutMs}ms`,
-      'STEP_TIMEOUT',
-      { phase, timeoutMs }
-    );
-    this.name = 'StepTimeoutError';
-  }
-}
-```
-
-### 15.3 Turn Timeout
-
-```typescript
-/**
- * Turn 전체 타임아웃
- *
- * 규칙:
- * - SHOULD: Turn에 전체 타임아웃을 설정할 수 있다 (Swarm.policy.maxTurnDurationMs)
- * - MUST: 타임아웃 초과 시 Turn.status를 'failed'로 설정하고 TurnTimeoutError를 기록한다
- */
-```
-
-### 15.4 정책 설정 위치
-
-Retry/Timeout 정책은 Swarm 리소스의 `policy` 필드에서 설정한다:
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: my-swarm
-spec:
-  policy:
-    maxStepsPerTurn: 32
-    retry:
-      maxRetries: 3
-      initialDelayMs: 1000
-      backoffMultiplier: 2
-    timeout:
-      stepTimeoutMs: 300000
-      llmCallTimeoutMs: 120000
-      toolExecutionTimeoutMs: 60000
-      maxTurnDurationMs: 600000
-```
-
----
-
-## 16. Observability
-
-### 16.1 구조화된 로깅
-
-```typescript
-/**
- * Runtime 이벤트 로깅
- *
- * 규칙:
- * - MUST: 모든 Turn/Step 시작/종료를 구조화된 로그로 기록한다
- * - MUST: 에러 발생 시 context 정보(instanceKey, agentName, turnId, stepIndex)를 포함한다
- * - MUST: Turn/Step/ToolCall 로그에 traceId를 포함한다
- * - MUST: 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다
- * - SHOULD: 로그 레벨을 debug/info/warn/error로 구분한다
- */
-interface RuntimeLogEntry {
-  timestamp: string;
-  level: 'debug' | 'info' | 'warn' | 'error';
-  event: string;
-  traceId?: string; // MUST: Turn에서 전파된 traceId
-  context: {
-    instanceKey?: string;
-    swarmRef?: string;
-    agentName?: string;
-    turnId?: string;
-    stepIndex?: number;
-  };
-  data?: JsonObject;
-  error?: {
-    name: string;
-    message: string;
-    code?: string;
-    stack?: string;
-  };
-}
-```
-
-### 16.2 메트릭 포인트
-
-Extension은 `api.events.emit()`을 통해 다음 메트릭 이벤트를 수집할 수 있다:
-
-| 이벤트 | 설명 | 포함 데이터 |
-|--------|------|------------|
-| `turn.started` | Turn 시작 | instanceKey, agentName, origin, traceId |
-| `turn.completed` | Turn 완료 | duration, stepCount, status, traceId |
-| `turn.failed` | Turn 실패 | error, duration, traceId |
-| `step.llmCall.started` | LLM 호출 시작 | model, messageCount, traceId |
-| `step.llmCall.completed` | LLM 호출 완료 | duration, tokenUsage, traceId |
-| `step.llmCall.failed` | LLM 호출 실패 | error, retryCount, traceId |
-| `step.toolCall.completed` | Tool 실행 완료 | toolName, duration, traceId |
-| `step.toolCall.failed` | Tool 실행 실패 | toolName, error, traceId |
-
-### 16.3 메트릭 인터페이스
-
-```typescript
-/**
- * Step/Turn 메트릭
- *
- * 규칙:
- * - SHOULD: Runtime은 최소 latencyMs, toolCallCount, errorCount, tokenUsage를 기록한다
- */
-interface StepMetrics {
-  /** Step 실행 시간(ms) */
-  latencyMs: number;
-
-  /** Tool 호출 횟수 */
-  toolCallCount: number;
-
-  /** 오류 횟수 */
-  errorCount: number;
-
-  /** 토큰 사용량 */
-  tokenUsage: TokenUsage;
-}
-
-interface TurnMetrics {
-  /** Turn 전체 실행 시간(ms) */
-  latencyMs: number;
-
-  /** Step 수 */
-  stepCount: number;
-
-  /** 총 Tool 호출 횟수 */
-  toolCallCount: number;
-
-  /** 총 오류 횟수 */
-  errorCount: number;
-
-  /** 총 토큰 사용량 */
-  tokenUsage: TokenUsage;
-}
-```
-
-### 16.4 Token 사용량 추적
-
-```typescript
-/**
- * LLM 토큰 사용량 추적
- *
- * 규칙:
- * - SHOULD: 각 Step에서 LLM 호출의 토큰 사용량을 기록한다
- * - SHOULD: Turn 완료 시 총 토큰 사용량을 집계한다
- */
-interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-}
-```
-
-### 16.5 민감값 마스킹
-
-```typescript
-/**
- * 민감값 마스킹 규칙
- *
- * 규칙:
- * - MUST: access token, refresh token, secret 등 민감값은 로그/메트릭에 평문으로 포함되어서는 안 된다
- * - SHOULD: 마스킹된 값은 앞 4자만 노출하고 나머지는 "****"로 대체한다
- */
-function maskSensitiveValue(value: string): string {
-  if (value.length <= 4) {
-    return '****';
-  }
-  return value.slice(0, 4) + '****';
-}
-
-/** 민감 필드 키 패턴 */
-const SENSITIVE_KEY_PATTERNS = [
-  /token/i,
-  /secret/i,
-  /password/i,
-  /credential/i,
-  /api[_-]?key/i,
-];
-```
-
-### 16.6 Health Check
-
-```typescript
-/**
- * Runtime 상태 점검(Health Check) 인터페이스
- *
- * 규칙:
- * - SHOULD: Runtime은 상태 점검 인터페이스를 제공한다
- */
-interface HealthCheckResult {
-  /** 전체 상태 */
-  status: 'healthy' | 'degraded' | 'unhealthy';
-
-  /** 활성 인스턴스 수 */
-  activeInstances: number;
-
-  /** 현재 실행 중인 Turn 수 */
-  activeTurns: number;
-
-  /** 마지막 활동 시각 */
-  lastActivityAt?: string;
-
-  /** 구성 요소별 상태 */
-  components?: Record<string, {
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message?: string;
-  }>;
-}
-```
-
----
-
-## 17. 구현 요구사항 요약
-
-### 15.1 MUST 요구사항
-
-| 항목 | 설명 |
-|------|------|
-| 인스턴스 라우팅 | instanceKey로 동일 맥락을 같은 SwarmInstance로 라우팅 |
-| AgentInstance 이벤트 큐 | FIFO 순서로 이벤트 처리 |
-| Turn traceId | Turn마다 traceId를 생성/보존하고 Step/ToolCall/Event 로그로 전파 |
-| Turn 메시지 모델 | `NextMessages = BaseMessages + SUM(Events)` 규칙으로 계산 |
-| Step 실행 순서 | step.config -> step.tools -> step.blocks -> step.llmInput -> step.llmCall -> toolCall -> step.post |
-| Effective Config 고정 | Step 시작 시 SwarmBundleRef와 Config 고정, 실행 중 변경 금지 |
-| 코드 변경 반영 | Step 시작 시 SwarmBundleRef 기준 entry 모듈 resolve, hot-reload 금지 |
-| Tool 오류 처리 | 예외를 전파하지 않고 ToolResult.output에 에러 정보 포함 |
-| Auth 보존 | 에이전트 간 handoff 시 turn.auth 변경 없이 전달 |
-| Auth 필수 검증 | subjectMode=user OAuthApp 사용 시 auth.subjects.user 필수 |
-| 파이프라인 포인트 | turn.pre/post, step.*, toolCall.*, workspace.* 제공 |
-| step.config 선행 | step.config는 step.tools보다 먼저 실행 |
-| Changeset 반영 시점 | 커밋된 changeset은 다음 Step의 step.config에서 활성화 |
-| 인스턴스 라이프사이클 | inspect/pause/resume/terminate/delete 연산 지원 |
-| pause 상태 Turn 금지 | paused 상태에서는 새 Turn을 실행해서는 안 된다 |
-| resume 큐 재개 | resume 이후 큐 적재 이벤트를 순서대로 재개 |
-| delete 전역 상태 보존 | delete 시 인스턴스 상태 제거, 시스템 전역 상태(OAuth grant 등) 보존 |
-| 운영 인터페이스 | 라이프사이클 연산을 운영 인터페이스(CLI 등)로 제공 |
-| 민감값 마스킹 | access token, refresh token, secret은 로그/메트릭에 평문 금지 |
-| 메시지 상태 로그 | `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록 |
-| 이벤트 로그 | Swarm/Agent 이벤트를 append-only JSONL로 기록 |
-
-### 15.2 SHOULD 요구사항
-
-| 항목 | 설명 |
-|------|------|
-| maxStepsPerTurn | 기본값 32, Swarm.policy로 설정 가능 |
-| Origin/Auth 채움 | Connector가 ingress 이벤트 변환 시 채움 |
-| Identity 기반 정규화 | /spec/tools, /spec/extensions 배열을 identity key로 정규화 |
-| Slack subject 형식 | global: "slack:team:\<team_id\>", user: "slack:user:\<team_id\>:\<user_id\>" |
-| step.llmError 처리 | LLM 오류 시 파이프라인 실행, 재시도 가능 |
-| 이벤트 로그 기록 | changeset 커밋/거부, Step 제한 초과 등 기록 |
-| GC 정책 | TTL/idle 기반 인스턴스 자동 정리 |
-| 메트릭 기록 | latencyMs, toolCallCount, errorCount, tokenUsage 기록 |
-| Health Check | Runtime 상태 점검 인터페이스 제공 |
-
-### 15.3 MAY 요구사항
-
-| 항목 | 설명 |
-|------|------|
-| maxStepsPerTurn 정책 | 선택적으로 적용 가능 |
-| LLM 재시도 | step.llmError 후 재시도 수행 가능 |
-| Retry Policy | Swarm.policy.retry로 재시도 정책 설정 가능 |
-| Timeout Policy | Swarm.policy.timeout으로 타임아웃 정책 설정 가능 |
-| Token 사용량 추적 | Step/Turn 단위로 토큰 사용량 기록 가능 |
-| 동기/비동기 Handoff | 위임 결과 대기 방식 선택 가능 |
-| Tool call 허용 범위 | Catalog 기반 또는 Registry 기반 선택 |
-
----
-
-## 부록 A. 전체 실행 흐름 다이어그램
-
-```
-[External Event via Connector]
-          │
-          ▼
-   [SwarmInstance (instanceKey)]
-          │
-          ▼
-   [AgentInstance Event Queue]
-          │  (dequeue 1 event)
-          ▼
-     ┌───────────────┐
-     │   Turn Start   │
-     └───────────────┘
-          │
-          │ load BaseMessages (base.jsonl)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ Message State Init                    │
-   │  - BaseMessages loaded                │
-   │  - Events = []                        │
-   └───────────────────────────────────────┘
-          │
-          │ turn.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │            Step Loop (0..N)           │
-   └───────────────────────────────────────┘
-          │
-          │ step.pre        (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.config     (Mutator)             │
-   │  - activate SwarmBundleRef + load cfg │
-   └───────────────────────────────────────┘
-          │
-          │ step.tools      (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.tools      (Mutator)             │
-   │  - build/transform Tool Catalog       │
-   └───────────────────────────────────────┘
-          │
-          │ step.blocks     (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.blocks     (Mutator)             │
-   │  - build/transform Context Blocks     │
-   │  - compose Next = Base + SUM(Events)  │
-   └───────────────────────────────────────┘
-          │
-          │ step.llmCall    (Middleware)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ step.llmCall    (Middleware onion)    │
-   │  EXT.before → CORE LLM → EXT.after    │
-   └───────────────────────────────────────┘
-          │
-          ├──── tool calls exist? ────┐
-          │                           │
-          ▼                           ▼
- (for each tool call)            (no tool call)
-          │
-          │ toolCall.pre   (Mutator)
-          ▼
-   ┌───────────────────────────────────────┐
-   │ toolCall.exec   (Middleware onion)    │
-   │  EXT.before → CORE exec → EXT.after   │
-   └───────────────────────────────────────┘
-          │
-          │ toolCall.post  (Mutator)
-          ▼
-          │ step.post      (Mutator)
-          ▼
-     ┌───────────────────────┐
-     │ Continue Step loop?   │
-     └───────────────────────┘
-          │yes                      │no
-          └───────────┐             └─────────────┐
-                      ▼                           ▼
-                  (next Step)               turn.post (Mutator)
-                                                │
-                                                │ hooks receive (base, events)
-                                                │ hooks may emit events
-                                                ▼
-                                   fold: Base + SUM(Events)
-                                                │
-                                                ▼
-                                  persist base.jsonl + clear events.jsonl
-                                                │
-                                                ▼
-                                             Turn End
-                                                │
-                                                ▼
-                                        wait next event…
-```
+## 부록 A. 기존 대비 변경 요약
+
+| 영역 | v1 (이전) | v2 (현재) |
+|------|-----------|-----------|
+| **런타임** | Node.js (`runtime: node`) | Bun only (필드 제거) |
+| **에이전트 실행** | 단일 프로세스 내 다중 AgentInstance | **Process-per-Agent** |
+| **에이전트 간 통신** | 인-메모리 호출 | IPC (Orchestrator 경유) |
+| **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** |
+| **메시지 타입** | 커스텀 `LlmMessage` | **Message** (AI SDK `CoreMessage` 래핑) |
+| **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseMessages + SUM(MessageEvents)` (이벤트 소싱 유지) |
+| **인스턴스 관리** | pause/resume/terminate/delete | **restart + delete** |
+| **로깅** | 파일 기반 이벤트/메트릭 로그 | **프로세스 stdout/stderr** |
+| **GC** | 인스턴스 GC 정책 | **프로세스 수준 관리** |
 
 ---
 
 ## 부록 B. 관련 문서
 
-- `docs/requirements/05_core-concepts.md`: Instance, Turn, Step 핵심 개념
+- `docs/requirements/05_core-concepts.md`: 핵심 개념 요구사항
 - `docs/requirements/09_runtime-model.md`: Runtime 실행 모델 요구사항
-- `docs/requirements/11_lifecycle-pipelines.md`: 라이프사이클 파이프라인 스펙
-- `docs/requirements/appendix_a_diagram.md`: 실행 흐름 다이어그램
-- `docs/specs/api.md`: Runtime/SDK API 스펙
-- `docs/specs/bundle.md`: Bundle YAML 스펙
+- `docs/specs/workspace.md`: Workspace 및 Storage 모델 스펙
+- `docs/specs/cli.md`: CLI 도구(gdn) 스펙
+- `docs/specs/pipeline.md`: 라이프사이클 파이프라인(훅) 스펙
+- `docs/specs/tool.md`: Tool 시스템 스펙
+- `docs/specs/extension.md`: Extension 시스템 스펙
+- `docs/specs/connector.md`: Connector 시스템 스펙
+- `docs/specs/connection.md`: Connection 시스템 스펙
+
+---
+
+**문서 버전**: v2.0
+**최종 수정**: 2026-02-12

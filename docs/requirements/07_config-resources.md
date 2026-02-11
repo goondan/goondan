@@ -1,19 +1,22 @@
 ## 7. Config 리소스 정의
 
-예시는 `agents.example.io/v1alpha1`을 사용한다.
+모든 예시는 `goondan.ai/v1`을 사용한다. v2에서 지원하는 Kind는 8종: Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package.
 
 ### 7.1 Model
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
-  name: openai-gpt-5
+  name: claude
 spec:
-  provider: openai
-  name: gpt-5
+  provider: anthropic
+  model: claude-sonnet-4-20250514
   endpoint: "https://..."   # 선택
   options: {}                 # 선택
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
   capabilities:
     streaming: true
     toolCalling: true
@@ -29,45 +32,64 @@ spec:
 ### 7.2 Tool
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: slackToolkit
+  name: bash
+  labels:
+    tier: base
 spec:
-  runtime: node
-  entry: "./tools/slack/index.js"
+  entry: "./tools/bash/index.ts"      # Bun으로 실행
   errorMessageLimit: 1200
 
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-    scopes: ["chat:write"]
-
   exports:
-    - name: slack.postMessage
-      description: "메시지 전송"
+    - name: exec                       # LLM에는 "bash__exec"로 노출
+      description: "셸 명령 실행"
       parameters:
         type: object
-        additionalProperties: true
-      auth:
-        scopes: ["chat:write"]
+        properties:
+          command: { type: string }
+        required: [command]
+    - name: script                     # LLM에는 "bash__script"로 노출
+      description: "스크립트 파일 실행"
+      parameters:
+        type: object
+        properties:
+          path: { type: string }
+        required: [path]
 ```
 
 규칙:
 
-1. `spec.auth.oauthAppRef`가 존재하면 Runtime은 Tool 실행 컨텍스트에 `ctx.oauth`를 제공해야 한다(MUST).
-2. Tool/export의 `auth.scopes`는 `OAuthApp.spec.scopes`의 부분집합이어야 하며, 로드 단계에서 검증해야 한다(MUST).
-3. `errorMessageLimit` 미설정 시 기본값은 1000이어야 한다(MUST).
+1. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다 (항상 Bun).
+2. entry 모듈은 `handlers: Record<string, ToolHandler>` 형식으로 하위 도구 핸들러를 export해야 한다(MUST).
+3. LLM에 노출되는 도구 이름은 `{Tool metadata.name}__{export name}` 형식이어야 한다(MUST). 구분자는 `__`(더블 언더스코어)를 사용한다.
+4. `errorMessageLimit` 미설정 시 기본값은 1000이어야 한다(MUST).
+5. `exports[].name`은 Tool 리소스 내에서 고유해야 한다(MUST).
+6. Tool 리소스 이름과 export name에는 `__`가 포함되어서는 안 된다(MUST NOT).
 
 ### 7.3 Extension
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: logging
+spec:
+  entry: "./extensions/logging/index.ts"
+  config:
+    level: info
+```
+
+예시: Skill Extension
+
+```yaml
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: skills
 spec:
-  runtime: node
-  entry: "./extensions/skills/index.js"
+  entry: "./extensions/skills/index.ts"
   config:
     discovery:
       repoSkillDirs: [".claude/skills", ".agents/skills"]
@@ -76,299 +98,199 @@ spec:
 예시: MCP 연동 Extension
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: mcp-github
 spec:
-  runtime: node
-  entry: "./extensions/mcp/index.js"
+  entry: "./extensions/mcp/index.ts"
   config:
     transport:
       type: stdio
       command: ["npx", "-y", "@acme/github-mcp"]
-    attach:
-      mode: stateful
-      scope: instance
     expose:
       tools: true
       resources: true
       prompts: true
 ```
 
+규칙:
+
+1. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다 (항상 Bun).
+2. entry 모듈은 `register(api: ExtensionApi)` 함수를 export해야 한다(MUST).
+3. `spec.config`는 Extension에 전달될 사용자 정의 설정이며, 자유 형식이다(MAY).
+4. Extension은 `api.pipeline.register()`를 통해 `turn`, `step`, `toolCall` 미들웨어를 등록할 수 있다(MAY).
+5. Extension은 `api.tools.register()`를 통해 동적으로 도구를 등록할 수 있다(MAY).
+6. Extension은 `api.state.get()`/`api.state.set()`을 통해 JSON 기반 상태를 영속화할 수 있다(MAY).
+
 ### 7.4 Agent
 
 Agent는 에이전트 실행을 구성하는 중심 리소스다.
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
-  name: planner
+  name: coder
 spec:
   modelConfig:
-    modelRef: { kind: Model, name: openai-gpt-5 }
+    modelRef: "Model/claude"
     params:
       temperature: 0.5
 
   prompts:
-    systemRef: "./prompts/planner.system.md"
+    systemPrompt: |
+      You are a coding assistant.
+    systemRef: "./prompts/coder.system.md"   # 선택: 외부 파일 참조
 
   tools:
-    - { kind: Tool, name: slackToolkit }
+    - ref: "Tool/bash"
+    - ref: "Tool/file-system"
+    - selector:
+        kind: Tool
+        matchLabels:
+          tier: base
 
   extensions:
-    - { kind: Extension, name: skills }
-    - { kind: Extension, name: toolSearch }
-
-  hooks:
-    - id: notify-summary
-      point: turn.post
-      priority: 0
-      action:
-        runtime: node
-        entry: "./hooks/notify-summary.js"
-        export: default
-        input:
-          channel: { expr: "$.turn.origin.channel" }
-          threadTs: { expr: "$.turn.origin.threadTs" }
-          text: { expr: "$.turn.summary" }
-```
-
-#### 7.4.1 Hook Action 스키마
-
-규칙:
-
-1. `hooks[].action`은 "스크립트 실행 기술자"여야 하며, 직접 `toolCall` 스키마를 사용해서는 안 된다(MUST NOT).
-2. Runtime은 `action.entry` 모듈의 `action.export` 함수를 호출하고 HookContext를 전달해야 한다(MUST).
-3. `action.input`의 `expr`은 JSONPath 호환 부분집합으로 해석해야 하며, 해석 실패는 구조화된 훅 오류로 기록해야 한다(MUST).
-4. Hook 스크립트는 필요 시 표준 API를 통해 도구 실행을 간접 호출할 수 있다(SHOULD).
-
-#### 7.4.2 Agent 단위 ChangesetPolicy
-
-Agent는 Swarm 정책을 더 좁게 제한하는 allowlist를 제공할 수 있다(MAY).
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: planner
-spec:
-  changesets:
-    allowed:
-      files:
-        - "prompts/**"
-        - "resources/**"
+    - ref: "Extension/logging"
+    - ref: "Extension/skills"
 ```
 
 규칙:
 
-1. Agent 정책은 Swarm 정책의 추가 제약으로 해석해야 한다(MUST).
-2. commit 허용 조건은 `Swarm.allowed ∩ Agent.allowed`를 만족해야 한다(MUST).
+1. `spec.modelConfig.modelRef`는 필수이며, 유효한 Model 리소스를 참조해야 한다(MUST).
+2. `spec.prompts.systemPrompt`와 `spec.prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다(MUST).
+3. `spec.tools`는 ObjectRef 또는 Selector + Overrides 형식을 지원해야 한다(MUST).
+4. `spec.extensions`는 ObjectRef 형식을 지원해야 한다(MUST).
+5. Agent 리소스에는 hooks 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다(MUST).
 
 ### 7.5 Swarm
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
 spec:
-  entrypoint: { kind: Agent, name: planner }
+  entryAgent: "Agent/coder"
   agents:
-    - { kind: Agent, name: planner }
+    - ref: "Agent/coder"
+    - ref: "Agent/reviewer"
   policy:
     maxStepsPerTurn: 32
-    queueMode: serial
     lifecycle:
-      autoPauseIdleSeconds: 3600
       ttlSeconds: 604800
       gcGraceSeconds: 86400
-    changesets:
-      enabled: true
-      applyAt:
-        - step.config
-      allowed:
-        files:
-          - "resources/**"
-          - "prompts/**"
-          - "tools/**"
-          - "extensions/**"
-      emitRevisionChangedEvent: true
 ```
 
 규칙:
 
-1. `policy.queueMode`는 기본 `serial`이며, AgentInstance 큐는 FIFO 직렬 처리되어야 한다(MUST).
-2. `policy.lifecycle`가 설정되면 Runtime은 pause/resume/terminate/delete/GC 정책에 반영해야 한다(SHOULD).
-3. changeset commit 시 `allowed.files` 위반은 `status="rejected"`로 반환해야 한다(MUST).
+1. `spec.entryAgent`는 필수이며, `spec.agents`에 포함된 유효한 Agent를 참조해야 한다(MUST).
+2. `spec.agents`는 최소 1개 이상의 Agent 참조를 포함해야 한다(MUST).
+3. `policy.maxStepsPerTurn`은 양의 정수여야 하며, Step 수가 이 값에 도달하면 Turn을 강제 종료해야 한다(MUST).
+4. `policy.lifecycle`이 설정되면 Runtime은 인스턴스 TTL 및 GC 정책에 반영해야 한다(SHOULD).
 
 ### 7.6 Connector
 
-Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 실행 패키지를 정의한다. entry 모듈은 단일 default export 함수를 제공한다. 인증 정보와 ingress 라우팅 규칙은 Connection에서 정의한다.
+Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 독립 프로세스를 정의한다. entry 모듈은 단일 default export 함수를 제공한다. Connector는 프로토콜 처리(HTTP 서버, cron 스케줄러, WebSocket 등)를 자체적으로 관리한다.
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Connector
 metadata:
-  name: slack
+  name: telegram
 spec:
-  runtime: node
-  entry: "./connectors/slack/index.ts"
-  triggers:
-    - type: http
-      endpoint:
-        path: /webhook/slack/events
-        method: POST
+  entry: "./connectors/telegram/index.ts"
   events:
-    - name: app_mention
+    - name: user_message
       properties:
-        channel_id: { type: string }
-        ts: { type: string }
-    - name: message.im
+        chat_id: { type: string }
+    - name: command
       properties:
-        channel_id: { type: string }
+        chat_id: { type: string }
+        command: { type: string }
 ```
 
 규칙:
 
-1. `spec.runtime`과 `spec.entry`는 필수이며, Runtime은 Connector 초기화 시 1회 로드해야 한다(MUST).
+1. `spec.entry`는 필수이며, Bun으로 실행되어야 한다(MUST). `runtime` 필드는 존재하지 않는다 (항상 Bun).
 2. entry 모듈은 단일 default export 함수를 제공해야 한다(MUST).
-3. `triggers`는 최소 1개 이상의 프로토콜 선언(`http`/`cron`/`cli`/`custom`)을 포함해야 한다(MUST).
-4. entry 함수는 ConnectorEvent를 `ctx.emit(...)`으로 Runtime에 전달해야 한다(MUST).
+3. Connector는 별도 Bun 프로세스로 실행되며, 프로토콜 수신을 자체적으로 관리해야 한다(MUST). `triggers` 필드는 존재하지 않는다.
+4. entry 함수는 ConnectorEvent를 `ctx.emit()`으로 Orchestrator에 전달해야 한다(MUST).
 5. Connector는 Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
 6. `events[].name`은 Connector 내에서 고유해야 한다(MUST).
-7. `custom` trigger의 경우 Runtime은 entry 함수를 한 번 호출하고, 함수가 자체적으로 이벤트 소스를 관리하도록 허용해야 한다(MUST). Runtime은 `AbortSignal`을 통해 종료를 요청해야 한다(MUST).
+7. ConnectorEvent는 `instanceKey`를 포함하여 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있게 해야 한다(MUST).
 
 ### 7.7 Connection
 
-Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스다. 인증 정보 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Connection
 metadata:
-  name: slack-main
+  name: telegram-to-swarm
 spec:
-  connectorRef: { kind: Connector, name: slack }
+  connectorRef: "Connector/telegram"
+  swarmRef: "Swarm/default"
 
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
+  secrets:
+    botToken:
+      valueFrom:
+        env: TELEGRAM_BOT_TOKEN
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
 
   ingress:
     rules:
       - match:
-          event: app_mention
+          event: user_message
         route:
-          agentRef: { kind: Agent, name: planner }
+          agentRef: "Agent/handler"
       - match:
-          event: message.im
-        route: {}  # entrypoint Agent로 라우팅
+          event: command
+        route: {}  # entryAgent로 라우팅
 
   verify:
     webhook:
       signingSecret:
         valueFrom:
-          secretRef: { ref: "Secret/slack-webhook", key: "signing_secret" }
-```
-
-Static Token 예시:
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Connection
-metadata:
-  name: telegram-main
-spec:
-  connectorRef: { kind: Connector, name: telegram }
-  auth:
-    staticToken:
-      valueFrom:
-        env: "TELEGRAM_BOT_TOKEN"
-  ingress:
-    rules:
-      - match:
-          event: message
-        route: {}
+          env: TELEGRAM_WEBHOOK_SECRET
 ```
 
 규칙:
 
-1. `auth.oauthAppRef`와 `auth.staticToken`은 동시에 존재할 수 없다(MUST).
-2. Connection은 Connector가 서명 검증에 사용할 시크릿을 제공해야 한다(MUST).
+1. `spec.connectorRef`는 필수이며, 유효한 Connector 리소스를 참조해야 한다(MUST).
+2. `spec.secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다(MUST).
 3. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
-4. OAuth를 사용하는 Connection은 Turn 생성 시 필요한 `turn.auth.subjects` 키를 채워야 한다(MUST).
-5. 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
-6. `ingress.rules[].match.event`는 Connector의 `events[].name`에 선언된 이름과 일치해야 한다(SHOULD).
-7. `ingress.rules[].route.agentRef`가 생략되면 Swarm의 entrypoint Agent로 라우팅한다(MUST).
+4. 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST).
+5. `ingress.rules[].match.event`는 Connector의 `events[].name`에 선언된 이름과 일치해야 한다(SHOULD).
+6. `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다(MUST).
+7. OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다(MUST NOT).
 
-### 7.8 ResourceType / ExtensionHandler
+### 7.8 Package
 
-ResourceType/ExtensionHandler는 사용자 정의 kind의 등록, 검증, 기본값, 런타임 변환을 지원한다.
-
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: ResourceType
-metadata:
-  name: rag.acme.io/Retrieval
-spec:
-  group: rag.acme.io
-  names:
-    kind: Retrieval
-    plural: retrievals
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-  handlerRef: { kind: ExtensionHandler, name: retrieval-handler }
----
-apiVersion: agents.example.io/v1alpha1
-kind: ExtensionHandler
-metadata:
-  name: retrieval-handler
-spec:
-  runtime: node
-  entry: "./extensions/retrieval/handler.js"
-  exports: ["validate", "default", "materialize"]
-```
-
-### 7.9 OAuthApp
-
-OAuthApp은 OAuth 클라이언트/엔드포인트/subject 모드를 정의한다. 실제 토큰 저장은 시스템 전역 OAuthStore에 속한다.
+Package는 프로젝트의 최상위 매니페스트 리소스다. 의존성, 버전, 레지스트리 정보를 포함한다.
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: OAuthApp
+apiVersion: goondan.ai/v1
+kind: Package
 metadata:
-  name: slack-bot
+  name: my-coding-swarm
 spec:
-  provider: slack
-  flow: authorizationCode
-  subjectMode: global
-
-  client:
-    clientId:
-      valueFrom:
-        env: "SLACK_CLIENT_ID"
-    clientSecret:
-      valueFrom:
-        secretRef: { ref: "Secret/slack-oauth", key: "client_secret" }
-
-  endpoints:
-    authorizationUrl: "https://slack.com/oauth/v2/authorize"
-    tokenUrl: "https://slack.com/api/oauth.v2.access"
-
-  scopes:
-    - "chat:write"
-    - "channels:read"
-
-  redirect:
-    callbackPath: "/oauth/callback/slack-bot"
+  version: "1.0.0"
+  description: "코딩 에이전트 스웜"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^1.0.0"
+  registry:
+    url: "https://registry.goondan.ai"
 ```
 
 규칙:
 
-1. `flow=authorizationCode`는 Authorization Code + PKCE(S256)를 지원해야 한다(MUST).
-2. `flow=deviceCode`는 선택 지원이며, 미지원 Runtime은 로드 단계에서 해당 구성을 거부해야 한다(MUST).
-3. `subjectMode`에 필요한 subject 키가 Turn에 없으면 토큰 조회를 진행해서는 안 되며 구조화된 오류를 반환해야 한다(MUST).
-4. 전역 토큰과 사용자 토큰은 별도 OAuthApp으로 분리하는 것을 권장한다(SHOULD).
+1. Package는 `goondan.yaml`의 첫 번째 YAML 문서로 정의되어야 한다(SHOULD).
+2. `spec.version`은 Semantic Versioning을 따라야 한다(MUST).
+3. `spec.dependencies`는 의존성 DAG를 형성하며, 순환 의존은 로드 단계에서 거부해야 한다(MUST).
+4. 패키지 게시/폐기/인증은 별도 패키징 요구사항(@08_packaging.md)을 따른다.

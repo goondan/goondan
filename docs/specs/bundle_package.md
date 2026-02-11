@@ -1,8 +1,15 @@
-# Goondan Package 스펙 (v1.0)
+# Goondan Package 스펙 (v2.0)
 
-본 문서는 Goondan 생태계에서 **Package를 정의/배포/의존성 해석**하기 위한 스펙을 정의한다.
+본 문서는 Goondan 생태계에서 **Package를 정의/배포/의존성 해석**하기 위한 스펙을 정의한다. `docs/requirements/08_packaging.md`의 요구사항을 기반으로 한다.
 
 Package는 Goondan 프로젝트의 **최상위 리소스**이다. 모든 goondan 프로젝트는 `goondan.yaml` 파일로 정의되며, Package 문서는 이 파일의 선택적 첫 번째 문서로 프로젝트의 메타데이터와 배포 구성을 선언한다.
+
+> **v2.0 주요 변경사항:**
+> - `apiVersion`: `agents.example.io/v1alpha1` -> `goondan.ai/v1`
+> - 시스템 루트: `~/.goondan/packages/` (패키지 저장 경로 명확화)
+> - Package spec: `version`, `description`, `dependencies` (name+version 객체 배열), `registry`
+> - 8종 Kind만 지원 (OAuthApp, ResourceType, ExtensionHandler 제거)
+> - Tool/Extension/Connector에서 `runtime` 필드 제거 (항상 Bun)
 
 ---
 
@@ -12,8 +19,8 @@ Package는 Goondan 프로젝트의 **최상위 리소스**이다. 모든 goondan
 
 Package는 goondan 프로젝트의 **루트 개념**이다.
 
-- **모든 리소스**(Swarm, Agent, Model, Tool, Extension, Connector, Connection 등)는 Package에 속한다
-- Package 문서가 없는 `goondan.yaml`도 유효하다 — 단순한 리소스 번들로 동작 (하위 호환)
+- **모든 리소스**(Model, Agent, Swarm, Tool, Extension, Connector, Connection)는 Package에 속한다
+- Package 문서가 없는 `goondan.yaml`도 유효하다 -- 단순한 리소스 번들로 동작 (하위 호환)
 - Package 문서가 있으면 의존성 해석, 배포, 버전 관리가 가능해진다
 
 ### 1.2 goondan.yaml 통합 구조
@@ -21,49 +28,38 @@ Package는 goondan 프로젝트의 **루트 개념**이다.
 `goondan.yaml`은 **다중 YAML 문서**로 구성된다. 첫 번째 문서가 `kind: Package`이면 Package 메타데이터로 해석하고, 이후 문서들은 리소스로 해석한다.
 
 ```yaml
-# goondan.yaml — Package가 첫 번째 문서 (선택)
-apiVersion: agents.example.io/v1alpha1
+# goondan.yaml -- Package가 첫 번째 문서 (선택)
+apiVersion: goondan.ai/v1
 kind: Package
 metadata:
   name: my-coding-swarm
-  version: "1.0.0"
 spec:
+  version: "1.0.0"
   dependencies:
-    - "@goondan/base"
-  exports:
-    - tools/file/tool.yaml
-    - swarm.yaml
-  dist:
-    - dist/
+    - name: "@goondan/base"
+      version: "^1.0.0"
 ---
 # 이하 리소스 정의
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
   name: claude
 spec:
   provider: anthropic
-  name: claude-sonnet-4-5
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
 ---
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
 spec:
-  entrypoint: { kind: Agent, name: planner }
+  entryAgent: "Agent/coder"
   agents:
-    - { kind: Agent, name: planner }
-    - { kind: Agent, name: coder }
+    - ref: "Agent/coder"
 ```
-
-### 1.3 gdn-package.yaml 폐기
-
-> **v1.0 Breaking Change**: 기존 `gdn-package.yaml` (또는 `package.yaml`) 파일은 폐기된다. Package 정보는 `goondan.yaml`의 첫 번째 문서로 통합한다.
-
-마이그레이션:
-1. `gdn-package.yaml`의 Package 문서를 `goondan.yaml` 첫 번째 문서로 이동
-2. `gdn-package.yaml` 파일 삭제
-3. `packages.lock.yaml` → `goondan.lock.yaml`로 이름 변경
 
 ---
 
@@ -71,77 +67,116 @@ spec:
 
 | 용어 | 정의 |
 |------|------|
-| **Package** | goondan 프로젝트의 최상위 리소스. 메타데이터, 의존성, export 선언을 포함 |
+| **Package** | goondan 프로젝트의 최상위 리소스. 메타데이터, 의존성, 배포 정보를 포함 |
 | **Package Root** | `goondan.yaml`이 위치한 폴더 |
 | **Package Ref** | Package를 가리키는 식별자 (예: `@goondan/base`, `@goondan/base@1.2.0`) |
-| **Export List** | 패키지 배포 시 포함할 리소스 YAML 경로 목록 |
-| **Dependency** | 다른 Package를 참조하는 Package Ref 목록 |
-| **Registry** | Package를 호스팅하는 서버 (예: `https://registry.goondan.io`) |
+| **Dependency** | 다른 Package를 참조하는 의존성 목록 |
+| **Registry** | Package를 호스팅하는 서버 (예: `https://registry.goondan.ai`) |
+| **System Root** | `~/.goondan/` -- 시스템 전역 설정, 패키지 캐시, 워크스페이스 저장 |
 
 ---
 
 ## 3. Package 스키마
 
-### 3.1 전체 스키마
+### 3.1 TypeScript 인터페이스
 
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Package
-metadata:
-  name: <string>          # MUST — 패키지 식별명
-  version: <semver>        # MUST for publish — semver 형식
-  annotations:             # MAY
-    description: <string>
-spec:
-  access: public           # MAY — 'public' | 'restricted', 기본값 'public'
-  dependencies:            # MAY — Package Ref 목록
-    - "@goondan/base"
-    - "@myorg/toolkit@^2.0.0"
-  exports:                 # MAY — 배포 시 포함할 리소스 YAML 경로
-    - tools/bash/tool.yaml
-    - connectors/telegram/connector.yaml
-  dist:                    # MAY — tarball에 포함할 빌드 아티팩트 디렉터리
-    - dist/
+```typescript
+/**
+ * Package 리소스 스펙
+ */
+interface PackageSpec {
+  /** 패키지 버전 (semver) */
+  version?: string;
+  /** 패키지 설명 */
+  description?: string;
+  /** 접근 수준 */
+  access?: 'public' | 'restricted';
+  /** 의존하는 Package 목록 */
+  dependencies?: PackageDependency[];
+  /** 레지스트리 설정 */
+  registry?: PackageRegistry;
+}
+
+interface PackageDependency {
+  /** 패키지 이름 (예: "@goondan/base") */
+  name: string;
+  /** 버전 범위 (semver range, 예: "^1.0.0") */
+  version: string;
+}
+
+interface PackageRegistry {
+  /** 레지스트리 URL */
+  url: string;
+}
+
+type PackageResource = Resource<PackageSpec>;
 ```
 
-### 3.2 필드 규칙
+### 3.2 전체 스키마 YAML
+
+```yaml
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: <string>          # MUST -- 패키지 식별명
+spec:
+  version: <semver>        # MUST for publish -- semver 형식
+  description: <string>    # MAY -- 패키지 설명
+  access: public           # MAY -- 'public' | 'restricted', 기본값 'public'
+  dependencies:            # MAY -- PackageDependency 목록
+    - name: "@goondan/base"
+      version: "^1.0.0"
+    - name: "@myorg/toolkit"
+      version: "^2.0.0"
+  registry:                # MAY -- 레지스트리 설정
+    url: "https://registry.goondan.ai"
+```
+
+### 3.3 필드 규칙
 
 | 필드 | 필수 | 설명 |
 |------|------|------|
-| `metadata.name` | MUST | Package의 식별명. Registry 기반 배포 시 scope 포함 가능 (예: `@goondan/base`) |
-| `metadata.version` | MUST (publish 시) | semver 형식. 로컬 개발에서는 생략 가능 |
+| `metadata.name` | MUST | Package의 식별명. scope 포함 가능 (예: `@goondan/base`) |
+| `spec.version` | MUST (publish 시) | semver 형식. 로컬 개발에서는 생략 가능 |
+| `spec.description` | MAY | 패키지 설명 |
 | `spec.access` | MAY | `'public'` (기본) 또는 `'restricted'` |
-| `spec.dependencies` | MAY | Package Ref 문자열 배열. 없으면 의존성 없음 |
-| `spec.exports` | MAY | 배포할 리소스 YAML 경로 배열. 없으면 배포 불가 (consumer-only) |
-| `spec.dist` | MAY | tarball에 포함할 빌드 아티팩트 디렉터리 배열 |
+| `spec.dependencies` | MAY | PackageDependency 배열. 없으면 의존성 없음 |
+| `spec.dependencies[].name` | MUST | 패키지 이름 |
+| `spec.dependencies[].version` | MUST | semver 범위 |
+| `spec.registry.url` | MAY | 레지스트리 URL |
 
-### 3.3 Package 문서 위치 규칙
+### 3.4 Package 문서 위치 규칙
 
 1. Package 문서는 `goondan.yaml`의 **첫 번째 YAML 문서**에만 위치할 수 있다(MUST).
 2. 두 번째 이후 문서에 `kind: Package`가 있으면 검증 오류이다(MUST).
 3. 첫 번째 문서가 `kind: Package`가 아니면 Package 없는 단순 리소스 번들로 취급한다(MUST).
 4. 하나의 `goondan.yaml`에는 최대 하나의 Package 문서만 존재할 수 있다(MUST).
 
-### 3.4 하위 호환
+### 3.5 하위 호환
 
 Package 문서 없이 리소스만 있는 `goondan.yaml`은 그대로 동작한다(MUST).
 
 ```yaml
-# Package 없는 goondan.yaml — 하위 호환
-apiVersion: agents.example.io/v1alpha1
+# Package 없는 goondan.yaml -- 하위 호환
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
   name: claude
 spec:
   provider: anthropic
-  name: claude-sonnet-4-5
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
 ---
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
 spec:
-  entrypoint: { kind: Agent, name: main }
+  entryAgent: "Agent/coder"
+  agents:
+    - ref: "Agent/coder"
 ```
 
 이 경우:
@@ -177,40 +212,39 @@ spec:
 
 ---
 
-## 5. Exports 규칙
+## 5. 의존성 해석 규칙
 
-`spec.exports`는 패키지 배포 시 **외부에 공개할 리소스 YAML 목록**을 정의한다.
+### 5.1 DAG 구성
 
-1. `spec.exports`에 명시된 YAML만 **소비자의 Config에 병합**된다(MUST).
-2. `spec.exports`에 포함되지 않은 파일도 **`spec.dist` 폴더 안에 있으면 다운로드**된다(MUST). 이는 코드 파일(`index.js`)이 YAML에서 참조될 수 있기 때문이다.
-3. `spec.exports` 경로는 **`spec.dist` 기준 상대 경로**로 해석한다(MUST).
-4. `spec.exports`가 없으면 이 패키지는 **리소스를 export하지 않는 consumer-only 프로젝트**이다(MUST).
-5. 패키지는 **사용 가능한 모든 리소스를 export**해야 한다(SHOULD). 인증이 필요한 리소스라도 패키지에서 제외해서는 안 되며, **사용처에서 적절한 인증 리소스를 구성**해야 한다(MUST).
+1. 의존성 그래프는 순환 참조 없이 DAG를 구성해야 한다(MUST).
+2. 순환 참조가 감지되면 설치를 거부해야 한다(MUST).
 
-### Exports vs 인라인 리소스
+### 5.2 버전 충돌 해결
 
-```yaml
-# goondan.yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Package
-metadata:
-  name: "@goondan/base"
-  version: "1.0.0"
-spec:
-  exports:                              # 이것들만 배포됨
-    - tools/bash/tool.yaml
-    - connectors/telegram/connector.yaml
-  dist:
-    - dist/
----
-# 이 인라인 리소스는 로컬에서만 사용됨 (배포 안 됨)
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: dev-test
-spec:
-  entrypoint: { kind: Agent, name: test-agent }
+1. 동일 패키지의 상이한 버전 요구가 충돌하면 **설치를 중단하고 충돌 보고를 반환**해야 한다(MUST).
+2. 충돌 자동 우회(임의 최신 버전 선택)는 **기본 동작이 되어서는 안 된다**(MUST NOT).
+3. 버전 제약(semver range) 해석 결과는 lockfile 생성 시 고정되어야 한다(MUST).
+
+충돌 보고 예시:
 ```
+ERROR: Version conflict for @goondan/core-utils
+  - @goondan/base@1.0.0 requires @goondan/core-utils@^0.5.0
+  - @myorg/toolkit@2.0.0 requires @goondan/core-utils@^1.0.0
+Resolution: Manually align version ranges or use explicit overrides.
+```
+
+### 5.3 values 병합 우선순위
+
+values 병합 우선순위는 다음 순서를 따라야 한다(MUST). 후순위가 선순위를 덮어쓴다.
+
+1. **패키지 기본값**: Package 내부에 정의된 기본 values
+2. **상위 패키지 override**: 상위(의존하는) Package에서 지정한 override
+3. **사용자 override**: 프로젝트 로컬(Package Root)에서 지정한 override
+
+추가 규칙:
+- 객체는 재귀 병합(deep merge)한다(SHOULD).
+- 배열은 기본 교체(replace) 정책을 사용한다(SHOULD).
+- 민감값은 values에 직접 입력하지 않고 ValueSource를 사용해야 한다(SHOULD).
 
 ---
 
@@ -222,7 +256,7 @@ Goondan 패키지 레지스트리는 Package의 메타데이터와 tarball을 �
 
 기본 레지스트리:
 ```
-https://registry.goondan.io
+https://registry.goondan.ai
 ```
 
 사용자는 `.goondanrc` 또는 환경 변수로 커스텀 레지스트리를 지정할 수 있다(MAY).
@@ -244,10 +278,12 @@ GET /<scope>/<name>
   "versions": {
     "1.0.0": {
       "version": "1.0.0",
-      "dependencies": {},
+      "dependencies": {
+        "@goondan/core-utils": "^0.5.0"
+      },
       "deprecated": "",
       "dist": {
-        "tarball": "https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz",
+        "tarball": "https://registry.goondan.ai/@goondan/base/-/base-1.0.0.tgz",
         "shasum": "abc123...",
         "integrity": "sha512-..."
       }
@@ -265,29 +301,6 @@ GET /<scope>/<name>
 GET /<scope>/<name>/<version>
 ```
 
-응답 예시:
-```json
-{
-  "name": "@goondan/base",
-  "version": "1.0.0",
-  "dependencies": {
-    "@goondan/core-utils": "^0.5.0"
-  },
-  "dist": {
-    "tarball": "https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz",
-    "shasum": "abc123def456...",
-    "integrity": "sha512-AAAA..."
-  },
-  "bundle": {
-    "exports": [
-      "dist/tools/bash/tool.yaml",
-      "dist/connectors/telegram/connector.yaml"
-    ],
-    "runtime": "node"
-  }
-}
-```
-
 #### 6.2.3 Tarball 다운로드
 
 ```
@@ -296,19 +309,35 @@ GET /<scope>/<name>/-/<name>-<version>.tgz
 
 Tarball은 Package Root 전체를 포함하는 gzip 압축 tar 아카이브이다.
 
-#### 6.2.4 패키지 비게시(Unpublish)
+#### 6.2.4 패키지 게시(Publish)
+
+```
+PUT /<scope>/<name>
+Content-Type: application/json
+
+{
+  "name": "@goondan/base",
+  "version": "1.0.0",
+  "dist": { ... },
+  "_attachments": { ... }
+}
+```
+
+인증 필수(MUST).
+
+#### 6.2.5 패키지 비게시(Unpublish)
 
 ```
 DELETE /<scope>/<name>/<version>
 ```
 
-인증 필수(MUST). 해당 버전을 레지스트리에서 제거한다. 전체 패키지를 비게시하려면 버전을 생략한다.
+인증 필수(MUST). 전체 패키지를 비게시하려면 버전을 생략한다:
 
 ```
 DELETE /<scope>/<name>
 ```
 
-#### 6.2.5 패키지 폐기(Deprecate)
+#### 6.2.6 패키지 폐기(Deprecate)
 
 ```
 PUT /<scope>/<name>/<version>/deprecate
@@ -338,7 +367,7 @@ Authorization: Bearer <token>
 ```yaml
 # .goondanrc - 권장: 환경 변수 참조
 registries:
-  "https://registry.goondan.io":
+  "https://registry.goondan.ai":
     token: "${GOONDAN_REGISTRY_TOKEN}"
 ```
 
@@ -346,92 +375,50 @@ registries:
 
 ## 7. 다운로드 및 캐시 규칙
 
-1. Package를 해석할 때, **Package Root 전체 디렉터리 트리를 다운로드**한다(MUST).
-2. `spec.exports`는 **다운로드 범위를 제한하지 않는다**(MUST).
-3. 다운로드 경로는 충돌을 방지하기 위해 **scope/name/version**을 포함해야 한다(SHOULD).
-4. 무결성 검증을 위해 **integrity hash(sha512)**를 확인해야 한다(MUST).
+### 7.1 시스템 루트
 
----
+패키지 저장 경로는 `~/.goondan/packages/`이다.
 
-## 8. 리소스 YAML 규칙
-
-Tool/Extension/Connector 등 리소스 정의 파일은 기존 Config 스펙과 동일하게 해석한다.
-단, `spec.entry` 경로는 **`spec.dist` 기준 상대 경로**로 해석한다(MUST).
-
-예시 (Tool):
-```yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-metadata:
-  name: fileRead
-spec:
-  runtime: node
-  entry: "./tools/fileRead/index.js"
-  exports:
-    - name: read
-      description: "파일을 읽습니다"
-      parameters:
-        type: object
-        properties:
-          path:
-            type: string
-        required: ["path"]
+```
+~/.goondan/
+├── config.json                    # CLI 설정
+├── packages/                      # 설치된 패키지
+│   └── <scope>/<name>/<version>/  # 패키지별 디렉터리
+└── workspaces/                    # 인스턴스 상태
 ```
 
+### 7.2 다운로드 규칙
+
+1. Package를 해석할 때, **Package Root 전체 디렉터리 트리를 다운로드**한다(MUST).
+2. 다운로드 경로는 충돌을 방지하기 위해 **scope/name/version**을 포함해야 한다(SHOULD).
+3. 무결성 검증을 위해 **integrity hash(sha512)**를 확인해야 한다(MUST).
+4. 동일 digest 재다운로드를 회피해야 한다(SHOULD).
+
 ---
 
-## 9. 구성 병합/로드 순서
+## 8. 구성 병합/로드 순서
 
 1. `goondan.yaml`을 파싱할 때, 첫 번째 문서가 `kind: Package`이면 Package 메타데이터로 추출하고 나머지를 리소스로 처리한다(MUST).
 2. Package의 `spec.dependencies`를 **재귀적으로 해석**한다(MUST).
-3. 로드 순서는 **의존성 → 현재 Package 인라인 리소스** 순으로 처리한다(SHOULD).
-4. 하나의 Package 안에서는 `spec.exports`에 나열된 **순서대로 리소스를 로드**한다(SHOULD).
-5. 인라인 리소스(goondan.yaml 내부)는 export 리소스 이후에 로드된다(SHOULD).
-6. 동일 Kind/name이 중복될 경우, **후순위 로드가 덮어쓴다**(정책 선택 가능). 덮어쓰기 허용 여부는 런타임 정책에 따른다(MAY).
+3. 로드 순서는 **의존성 -> 현재 Package 인라인 리소스** 순으로 처리한다(SHOULD).
+4. 인라인 리소스(goondan.yaml 내부)는 의존성 리소스 이후에 로드된다(SHOULD).
+5. 동일 Kind/name이 중복될 경우, **후순위 로드가 덮어쓴다**(정책 선택 가능). 덮어쓰기 허용 여부는 런타임 정책에 따른다(MAY).
 
-### 9.1 의존성 충돌 해결 정책
-
-1. 동일 패키지의 상이한 버전 요구가 충돌하면 **설치를 중단하고 충돌 보고를 반환**해야 한다(MUST).
-2. 충돌 자동 우회(임의 최신 버전 선택)는 **기본 동작이 되어서는 안 된다**(MUST NOT).
-3. 의존성 그래프는 **순환 참조 없이 DAG를 구성**해야 한다(MUST). 순환 참조가 감지되면 설치를 거부해야 한다(MUST).
-
-충돌 보고 예시:
-```
-ERROR: Version conflict for @goondan/core-utils
-  - @goondan/base@1.0.0 requires @goondan/core-utils@^0.5.0
-  - @myorg/toolkit@2.0.0 requires @goondan/core-utils@^1.0.0
-Resolution: Manually align version ranges or use explicit overrides.
-```
-
-### 9.2 values 병합 우선순위
-
-values 병합 우선순위는 다음 순서를 따라야 한다(MUST). 후순위가 선순위를 덮어쓴다.
-
-1. **패키지 기본값**: Package 내부에 정의된 기본 values
-2. **상위 패키지 override**: 상위(의존하는) Package에서 지정한 override
-3. **사용자 override**: 프로젝트 로컬(Package Root)에서 지정한 override
-
-추가 규칙:
-- 객체는 재귀 병합(deep merge)한다(SHOULD).
-- 배열은 기본 교체(replace) 정책을 사용한다(SHOULD).
-- 민감값은 values에 직접 입력하지 않고 ValueSource/SecretRef를 사용해야 한다(SHOULD).
-
----
-
-## 10. 이름 충돌과 참조 방식
+### 8.1 이름 충돌과 참조 방식
 
 - 이름이 유일하면 단순 참조:
-```
-Tool/fileRead
-Extension/skills
+```yaml
+ref: "Tool/bash"
+ref: "Extension/skills"
 ```
 
 - 이름이 충돌하면 `package`을 지정:
 ```yaml
-extensions:
-  - extensionRef: Extension/skills
-  - package: "@goondan/base@1.0.0"
-    extensionRef: Extension/skills
+tools:
+  - ref: "Tool/bash"
+  - kind: Tool
+    name: bash
+    package: "@goondan/base"
 ```
 
 규칙:
@@ -440,13 +427,13 @@ extensions:
 
 ---
 
-## 11. Lockfile (goondan.lock.yaml)
+## 9. Lockfile (goondan.lock.yaml)
 
-### 11.1 개요
+### 9.1 개요
 
 `goondan.lock.yaml`은 의존성 해석 결과를 고정하여 **재현 가능한 빌드**를 보장한다.
 
-### 11.2 Lockfile 형식
+### 9.2 Lockfile 형식
 
 ```yaml
 # goondan.lock.yaml
@@ -454,17 +441,17 @@ lockfileVersion: 1
 packages:
   "@goondan/base@1.0.0":
     version: "1.0.0"
-    resolved: "https://registry.goondan.io/@goondan/base/-/base-1.0.0.tgz"
+    resolved: "https://registry.goondan.ai/@goondan/base/-/base-1.0.0.tgz"
     integrity: "sha512-AAAA..."
     dependencies:
       "@goondan/core-utils": "0.5.2"
   "@goondan/core-utils@0.5.2":
     version: "0.5.2"
-    resolved: "https://registry.goondan.io/@goondan/core-utils/-/core-utils-0.5.2.tgz"
+    resolved: "https://registry.goondan.ai/@goondan/core-utils/-/core-utils-0.5.2.tgz"
     integrity: "sha512-BBBB..."
 ```
 
-### 11.3 Lockfile 규칙
+### 9.3 Lockfile 규칙
 
 1. Package 다운로드 후 **integrity hash(sha512)**를 검증한다(MUST).
 2. `goondan.lock.yaml`은 Package Ref와 정확한 버전/integrity 정보를 저장해 **재현 가능한 로딩**을 보장한다(SHOULD).
@@ -472,21 +459,22 @@ packages:
 
 ---
 
-## 12. 보안 및 검증
+## 10. 보안 및 검증
 
 패키지 설치 및 로드 시 다음 보안 규칙을 적용해야 한다.
 
-### Schema 검증
+### 10.1 Schema 검증
 
 1. `goondan.yaml`의 Package 문서 및 리소스 YAML의 **schema 검증을 수행**하고, 실패 시 로드를 중단해야 한다(MUST).
 2. 알 수 없는 `kind` 또는 필수 필드 누락은 오류로 처리한다(MUST).
+3. v2에서 제거된 Kind(OAuthApp, ResourceType, ExtensionHandler)는 로드 시 거부한다(MUST).
 
-### 경로 탐색 방지
+### 10.2 경로 탐색 방지
 
-1. `spec.exports`, `spec.dist`, 리소스의 `spec.entry` 등에서 **상위 디렉터리 참조(`../`)를 포함하는 경로는 거부**해야 한다(MUST).
-2. 절대 경로 참조도 거부해야 한다(MUST). 모든 경로는 Package Root 또는 `spec.dist` 기준 상대 경로여야 한다.
+1. 리소스의 `spec.entry` 등에서 **상위 디렉터리 참조(`../`)를 포함하는 경로는 거부**해야 한다(MUST).
+2. 절대 경로 참조도 거부해야 한다(MUST). 모든 경로는 Package Root 기준 상대 경로여야 한다.
 
-### 의존성 검증 오류 코드
+### 10.3 의존성 검증 오류 코드
 
 1. Runtime 실행 전에 패키지 의존성 검증 결과를 사용자에게 **명확한 오류 코드와 함께 제공**해야 한다(MUST).
 2. 오류 코드 예시:
@@ -500,159 +488,28 @@ packages:
 
 ---
 
-## 13. 상세 예시
+## 11. CLI 명령어
 
-### 13.1 라이브러리 패키지 (@goondan/base)
-
-배포용 패키지 — exports가 있어 다른 프로젝트에서 의존성으로 사용 가능.
-
-```yaml
-# goondan.yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Package
-metadata:
-  name: "@goondan/base"
-  version: "1.0.0"
-  annotations:
-    description: "Goondan 기본 Tool, Extension, Connector 번들"
-spec:
-  exports:
-    - tools/bash/tool.yaml
-    - tools/http-fetch/tool.yaml
-    - tools/json-query/tool.yaml
-    - tools/file-system/tool.yaml
-    - tools/text-transform/tool.yaml
-    - connectors/telegram/connector.yaml
-    - connectors/slack/connector.yaml
-    - connectors/cli/connector.yaml
-    - connectors/discord/connector.yaml
-    - connectors/github/connector.yaml
-    - extensions/basicCompaction/extension.yaml
-    - extensions/logging/extension.yaml
-  dist:
-    - dist/
-```
-
-디렉터리 구조:
-```
-@goondan/base/
-├── goondan.yaml          # Package + (인라인 리소스 없음)
-├── goondan.lock.yaml     # 의존성 lockfile (의존성 없으면 생략)
-├── package.json          # npm 패키지 설정 (Node.js 빌드용)
-├── src/                  # 소스 코드
-│   └── tools/bash/index.ts
-├── dist/                 # 빌드 아티팩트 (spec.dist)
-│   ├── tools/bash/
-│   │   ├── tool.yaml
-│   │   └── index.js
-│   └── connectors/telegram/
-│       ├── connector.yaml
-│       └── index.js
-```
-
-### 13.2 애플리케이션 프로젝트 (consumer)
-
-의존성을 소비하고 자체 리소스를 정의하는 프로젝트 — exports 없음.
-
-```yaml
-# goondan.yaml
-apiVersion: agents.example.io/v1alpha1
-kind: Package
-metadata:
-  name: my-coding-swarm
-  version: "0.0.1"
-spec:
-  dependencies:
-    - "@goondan/base"
----
-apiVersion: agents.example.io/v1alpha1
-kind: Model
-metadata:
-  name: claude
-spec:
-  provider: anthropic
-  name: claude-sonnet-4-5
----
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: planner
-spec:
-  modelConfig:
-    modelRef: { kind: Model, name: claude }
-  tools:
-    - { kind: Tool, name: bash }
-    - { kind: Tool, name: file-system }
----
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: default
-spec:
-  entrypoint: { kind: Agent, name: planner }
-  agents:
-    - { kind: Agent, name: planner }
----
-apiVersion: agents.example.io/v1alpha1
-kind: Connection
-metadata:
-  name: cli
-spec:
-  connectorRef: { kind: Connector, name: cli, package: "@goondan/base" }
-  ingress:
-    rules:
-      - route: {}
-```
-
-### 13.3 Package 없는 단순 프로젝트 (하위 호환)
-
-의존성 없이 모든 리소스를 인라인으로 정의하는 가장 단순한 형태.
-
-```yaml
-# goondan.yaml — kind: Package 없음
-apiVersion: agents.example.io/v1alpha1
-kind: Model
-metadata:
-  name: claude
-spec:
-  provider: anthropic
-  name: claude-sonnet-4-5
----
-apiVersion: agents.example.io/v1alpha1
-kind: Agent
-metadata:
-  name: chatbot
-spec:
-  modelConfig:
-    modelRef: { kind: Model, name: claude }
----
-apiVersion: agents.example.io/v1alpha1
-kind: Swarm
-metadata:
-  name: default
-spec:
-  entrypoint: { kind: Agent, name: chatbot }
-```
-
-### 13.4 동작 요약
-
-1. `goondan.yaml`을 파싱한다
-2. 첫 번째 문서가 `kind: Package`이면 Package 메타데이터를 추출한다
-3. `spec.dependencies`가 있으면 각 Package Ref를 레지스트리에서 해석한다
-4. 의존성 Package의 `spec.exports`에 명시된 리소스를 Config에 병합한다
-5. 현재 `goondan.yaml`의 인라인 리소스를 Config에 병합한다
-6. 스크립트(`index.js`)는 리소스 YAML에서의 상대 경로 기준으로 `entry`를 resolve한다
-
----
-
-## 14. CLI 명령어
-
-### 14.1 개요
+### 11.1 개요
 
 Goondan CLI(`gdn`)는 Package를 관리하기 위한 `package` 하위 명령어를 제공한다.
 모든 `gdn package *` 명령어는 `goondan.yaml`의 Package 문서를 읽고 쓴다.
 
-### 14.2 의존성 설치
+### 11.2 의존성 추가
+
+```bash
+gdn package add @goondan/base
+gdn package add @goondan/base@1.2.0
+```
+
+**동작:**
+1. 레지스트리에서 패키지 메타데이터를 조회한다
+2. `goondan.yaml`의 Package 문서 `spec.dependencies`에 추가한다
+3. `gdn package install`을 실행한다
+
+> 만약 `goondan.yaml`에 Package 문서가 없으면 자동 생성한다(SHOULD).
+
+### 11.3 의존성 설치
 
 ```bash
 # goondan.yaml의 spec.dependencies 설치
@@ -664,56 +521,14 @@ gdn package install --frozen-lockfile
 
 **동작:**
 1. `goondan.yaml`에서 Package 문서의 `spec.dependencies`를 읽는다
-2. 각 Package Ref에 대해 레지스트리에서 메타데이터를 조회한다
-3. 버전 해석(semver 범위 → 정확한 버전)을 수행한다
-4. 의존성 트리를 구성하고 충돌을 해결한다
+2. 각 패키지에 대해 레지스트리에서 메타데이터를 조회한다
+3. 버전 해석(semver 범위 -> 정확한 버전)을 수행한다
+4. 의존성 트리를 구성하고 충돌을 감지한다
 5. tarball을 다운로드하고 integrity를 검증한다
-6. `<goondanHome>/bundles/<scope>/<name>/<version>/`에 압축 해제한다
+6. `~/.goondan/packages/<scope>/<name>/<version>/`에 압축 해제한다
 7. `goondan.lock.yaml`을 생성/업데이트한다
 
-### 14.3 의존성 추가
-
-```bash
-gdn package add @goondan/base
-gdn package add @goondan/base@1.2.0
-gdn package add @goondan/base@1.2.0 --exact
-```
-
-**동작:**
-1. 레지스트리에서 패키지 메타데이터를 조회한다
-2. `goondan.yaml`의 Package 문서 `spec.dependencies`에 추가한다
-3. `gdn package install`을 실행한다
-
-> 만약 `goondan.yaml`에 Package 문서가 없으면 자동 생성한다(SHOULD).
-
-### 14.4 의존성 제거
-
-```bash
-gdn package remove @goondan/base
-```
-
-**동작:**
-1. `goondan.yaml`의 Package 문서에서 해당 의존성을 제거한다
-2. 더 이상 필요하지 않은 패키지를 정리한다
-3. `goondan.lock.yaml`을 업데이트한다
-
-### 14.5 의존성 업데이트
-
-```bash
-gdn package update
-gdn package update @goondan/base
-gdn package update --latest
-```
-
-### 14.6 설치된 패키지 목록
-
-```bash
-gdn package list
-gdn package list --depth 1
-gdn package list --all
-```
-
-### 14.7 패키지 발행
+### 11.4 패키지 발행
 
 ```bash
 gdn package publish
@@ -724,99 +539,216 @@ gdn package publish --dry-run
 
 **발행 절차:**
 1. `goondan.yaml`에서 Package 문서 검증
-2. `spec.exports` 존재 확인 — 없으면 발행 거부
-3. `spec.dist` 디렉터리 존재 확인
-4. `spec.exports`에 명시된 파일 존재 확인
-5. 구성 검증 (`gdn validate`)
-6. tarball 생성 (`spec.dist` 디렉터리 + `goondan.yaml` 포함)
-7. integrity hash(sha512) 계산
-8. 레지스트리에 업로드
+2. `spec.version` 존재 확인 (필수)
+3. 구성 검증 (`gdn validate`)
+4. tarball 생성
+5. integrity hash(sha512) 계산
+6. 레지스트리에 업로드
 
-### 14.8 패키지 비게시(Unpublish)
+### 11.5 패키지 비게시/폐기
 
 ```bash
+# 비게시
 gdn package unpublish @goondan/base@1.0.0
-gdn package unpublish @goondan/base
-gdn package unpublish @goondan/base@1.0.0 --dry-run
-```
 
-### 14.9 패키지 폐기(Deprecate)
-
-```bash
+# 폐기
 gdn package deprecate @goondan/base@1.0.0 --message "Use v2.0.0 instead"
-gdn package deprecate @goondan/base@1.0.0 --message ""
+gdn package deprecate @goondan/base@1.0.0 --message ""   # 폐기 해제
 ```
 
-### 14.10 레지스트리 로그인/로그아웃
-
-```bash
-gdn package login
-gdn package login --registry https://my-registry.example.com
-gdn package logout
-```
-
-### 14.11 패키지 정보 조회
-
-```bash
-gdn package info @goondan/base
-gdn package info @goondan/base@1.0.0
-```
-
-### 14.12 로컬 tarball 생성
-
-```bash
-gdn package pack
-gdn package pack --out ./dist
-```
-
-### 14.13 캐시 관리
-
-```bash
-gdn package cache info
-gdn package cache clean
-gdn package cache clean @goondan/base
-```
-
-### 14.14 명령어 요약
+### 11.6 명령어 요약
 
 | 명령어 | 설명 |
 |--------|------|
-| `gdn package install` | 의존성 설치 |
 | `gdn package add <ref>` | 의존성 추가 |
-| `gdn package remove <ref>` | 의존성 제거 |
-| `gdn package update [ref]` | 의존성 업데이트 |
-| `gdn package list` | 설치된 패키지 목록 |
+| `gdn package install` | 의존성 설치 |
 | `gdn package publish` | 패키지 발행 |
 | `gdn package unpublish <ref>` | 패키지 비게시 |
 | `gdn package deprecate <ref>` | 패키지 폐기 |
-| `gdn package login` | 레지스트리 로그인 |
-| `gdn package logout` | 레지스트리 로그아웃 |
-| `gdn package info <ref>` | 패키지 정보 조회 |
-| `gdn package pack` | 로컬 tarball 생성 |
-| `gdn package cache` | 캐시 관리 |
 
-자세한 CLI 스펙은 `docs/specs/cli.md`를 참조한다
+자세한 CLI 스펙은 `docs/specs/cli.md`를 참조한다.
 
 ---
 
-## 15. 레지스트리 설정
+## 12. 상세 예시
 
-### 15.1 .goondanrc
+### 12.1 라이브러리 패키지 (@goondan/base)
+
+배포용 패키지 -- 다른 프로젝트에서 의존성으로 사용 가능.
+
 ```yaml
-registry: "https://registry.goondan.io"
+# goondan.yaml
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/base"
+spec:
+  version: "1.0.0"
+  description: "Goondan 기본 Tool, Extension, Connector 번들"
+  registry:
+    url: "https://registry.goondan.ai"
 ```
 
-### 15.2 환경 변수
+디렉터리 구조:
+```
+@goondan/base/
+├── goondan.yaml          # Package 매니페스트 + 리소스 정의
+├── goondan.lock.yaml     # 의존성 lockfile
+├── tools/
+│   ├── bash/
+│   │   ├── tool.yaml     # Tool 리소스 YAML
+│   │   └── index.ts      # 핸들러 구현
+│   └── file-system/
+│       ├── tool.yaml
+│       └── index.ts
+├── extensions/
+│   ├── logging/
+│   │   ├── extension.yaml
+│   │   └── index.ts
+│   └── compaction/
+│       ├── extension.yaml
+│       └── index.ts
+└── connectors/
+    ├── telegram/
+    │   ├── connector.yaml
+    │   └── index.ts
+    └── cli/
+        ├── connector.yaml
+        └── index.ts
+```
+
+### 12.2 애플리케이션 프로젝트 (consumer)
+
+의존성을 소비하고 자체 리소스를 정의하는 프로젝트.
+
+```yaml
+# goondan.yaml
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: my-coding-swarm
+spec:
+  version: "0.0.1"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^1.0.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: claude
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: coder
+spec:
+  modelConfig:
+    modelRef: "Model/claude"
+  prompts:
+    systemPrompt: |
+      You are a coding assistant.
+  tools:
+    - ref: "Tool/bash"
+    - ref: "Tool/file-system"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/coder"
+  agents:
+    - ref: "Agent/coder"
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: cli
+spec:
+  connectorRef:
+    kind: Connector
+    name: cli
+    package: "@goondan/base"
+  ingress:
+    rules:
+      - route: {}
+```
+
+### 12.3 Package 없는 단순 프로젝트 (하위 호환)
+
+의존성 없이 모든 리소스를 인라인으로 정의하는 가장 단순한 형태.
+
+```yaml
+# goondan.yaml -- kind: Package 없음
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: claude
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: chatbot
+spec:
+  modelConfig:
+    modelRef: "Model/claude"
+  prompts:
+    systemPrompt: "You are a helpful chatbot."
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/chatbot"
+  agents:
+    - ref: "Agent/chatbot"
+```
+
+### 12.4 동작 요약
+
+1. `goondan.yaml`을 파싱한다
+2. 첫 번째 문서가 `kind: Package`이면 Package 메타데이터를 추출한다
+3. `spec.dependencies`가 있으면 각 패키지를 레지스트리에서 해석한다
+4. 의존성 Package의 리소스를 Config에 병합한다
+5. 현재 `goondan.yaml`의 인라인 리소스를 Config에 병합한다
+6. 스크립트(`index.ts`)는 리소스 YAML에서의 상대 경로 기준으로 `entry`를 resolve한다
+
+---
+
+## 13. 레지스트리 설정
+
+### 13.1 .goondanrc
+
+```yaml
+registry: "https://registry.goondan.ai"
+```
+
+### 13.2 환경 변수
+
 ```bash
-GOONDAN_REGISTRY=https://registry.goondan.io
+GOONDAN_REGISTRY=https://registry.goondan.ai
 GOONDAN_REGISTRY_TOKEN=your-auth-token
 ```
 
-### 15.3 스코프별 레지스트리
+### 13.3 스코프별 레지스트리
 
 ```yaml
 # .goondanrc
-registry: "https://registry.goondan.io"
+registry: "https://registry.goondan.ai"
 scopedRegistries:
   "@myorg": "https://my-org-registry.example.com"
 ```
@@ -824,4 +756,15 @@ scopedRegistries:
 **동작 규칙:**
 1. `@scope` 패턴에 매칭되는 패키지는 해당 scope의 레지스트리를 우선 사용해야 한다(SHOULD).
 2. 매칭되는 scope가 없으면 기본 레지스트리(`registry`)를 사용한다.
-3. scope별 레지스트리 라우팅은 설치(`install`/`add`), 게시(`publish`), 조회(`info`) 모두에 적용된다.
+3. scope별 레지스트리 라우팅은 설치(`install`/`add`), 게시(`publish`), 조회 모두에 적용된다.
+
+---
+
+## 관련 문서
+
+- `/docs/specs/resources.md` - Config Plane 리소스 정의 스펙
+- `/docs/specs/bundle.md` - Bundle YAML 스펙
+- `/docs/requirements/08_packaging.md` - 패키징 요구사항
+- `/docs/requirements/06_config-spec.md` - Config 스펙 요구사항
+- `/docs/new_spec.md` - Goondan v2 설계 스펙
+- `/GUIDE.md` - 개발자 가이드

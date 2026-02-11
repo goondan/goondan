@@ -11,7 +11,8 @@
 | **Bun-native** | 스크립트 런타임은 Bun만 지원. Node.js 호환 레이어 불필요 |
 | **Process-per-Agent** | 각 AgentInstance는 독립 Bun 프로세스로 실행. 크래시 격리, 독립 스케일링 |
 | **Edit & Restart** | Changeset/SwarmBundleRef 제거. `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
-| **MessageEnvelope** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 확장 식별/조작 |
+| **Message** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 메시지 식별/조작 |
+| **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
 | **Declarative YAML** | 리소스 정의는 기존과 동일하게 YAML 선언형 유지 |
 
 ---
@@ -26,8 +27,8 @@
 | **Agent** | 에이전트 정의 (모델, 프롬프트, 도구, 익스텐션) | 유지 |
 | **Swarm** | 에이전트 집합 + 실행 정책 | 유지 (단순화) |
 | **Tool** | LLM이 호출하는 함수 | `runtime` 필드 제거 (항상 Bun) |
-| **Extension** | 라이프사이클 훅/파이프라인 인터셉터 | `runtime` 필드 제거 |
-| **Connector** | 외부 프로토콜 수신 (HTTP, cron, CLI) | `runtime` 필드 제거 |
+| **Extension** | 라이프사이클 미들웨어 인터셉터 | `runtime` 필드 제거 |
+| **Connector** | 외부 프로토콜 수신 (별도 프로세스, 자체 서버/스케줄러) | `runtime` 필드 제거, 프로토콜 자체 관리 |
 | **Connection** | Connector ↔ Swarm 바인딩 | 유지 |
 | **Package** | 프로젝트 매니페스트/배포 단위 | 유지 |
 
@@ -39,7 +40,7 @@
 ### 2.1 공통 리소스 형식
 
 ```yaml
-apiVersion: goondan.io/v2
+apiVersion: goondan.ai/v1
 kind: <Kind>
 metadata:
   name: <string>
@@ -53,12 +54,12 @@ spec:
 
 ```yaml
 # 문자열 축약
-toolRef: "Tool/bash-exec"
+toolRef: "Tool/bash"
 
 # 객체 형식
 toolRef:
   kind: Tool
-  name: bash-exec
+  name: bash
 ```
 
 ### 2.3 Selector + Overrides
@@ -86,7 +87,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
   │   └── Turn → Step → Step → ...
   ├── AgentProcess-B  (별도 Bun 프로세스)
   │   └── Turn → Step → ...
-  └── ConnectorProcess (별도 Bun 프로세스, 선택)
+  └── ConnectorProcess-telegram (별도 Bun 프로세스)
+      └── 자체 HTTP 서버/cron 스케줄러 등 프로토콜 직접 관리
 ```
 
 ### 3.2 Orchestrator (오케스트레이터 상주 프로세스)
@@ -95,7 +97,7 @@ Orchestrator는 `gdn run` 시 뜨는 **상주 프로세스**로, Swarm의 전체
 
 - `goondan.yaml` 파싱 및 리소스 로딩
 - AgentProcess 스폰/감시/재시작
-- Connector 프로세스 관리
+- Connector 프로세스 스폰/감시 (프로토콜 처리는 Connector 자체에서 수행)
 - 인스턴스 라우팅 (`instanceKey` → AgentProcess 매핑)
 - IPC 메시지 브로커 (에이전트 간 delegate/handoff)
 - **설정 변경 감지 및 에이전트 프로세스 재시작** (자체 판단 또는 명령 수신)
@@ -154,13 +156,13 @@ interface AgentProcess {
 
   // 상태
   readonly status: 'idle' | 'processing' | 'terminated';
-  readonly conversationHistory: MessageEnvelope[];
+  readonly conversationHistory: Message[];
 }
 ```
 
 ### 3.4 IPC (Inter-Process Communication)
 
-에이전트 간 통신은 Supervisor를 통한 메시지 패싱:
+에이전트 간 통신은 Orchestrator를 통한 메시지 패싱:
 
 ```typescript
 interface IpcMessage {
@@ -196,7 +198,7 @@ interface Turn {
   readonly id: string;
   readonly agentName: string;
   readonly inputEvent: AgentEvent;
-  readonly envelopes: MessageEnvelope[];   // 이 Turn의 메시지들
+  readonly messages: Message[];        // 이 Turn의 메시지들
   readonly steps: Step[];
   status: 'running' | 'completed' | 'failed';
   metadata: Record<string, JsonValue>;
@@ -214,28 +216,28 @@ interface Step {
 
 ---
 
-## 4. MessageEnvelope
+## 4. Message
 
 ### 4.1 핵심 타입
 
-모든 LLM 메시지는 AI SDK의 메시지 형식(`CoreMessage`)을 사용하되, `MessageEnvelope`로 감싸서 관리:
+모든 LLM 메시지는 AI SDK의 메시지 형식(`CoreMessage`)을 사용하되, `Message`로 감싸서 관리:
 
 ```typescript
 import type { CoreMessage } from 'ai';  // ai-sdk
 
 /**
  * AI SDK 메시지를 감싸는 관리 래퍼.
- * Extension 훅에서 메시지 식별/조작에 사용.
+ * Extension 미들웨어에서 메시지 식별/조작에 사용.
  */
-interface MessageEnvelope {
+interface Message {
   /** 고유 ID */
   readonly id: string;
 
   /** AI SDK CoreMessage (system | user | assistant | tool) */
-  readonly message: CoreMessage;
+  readonly data: CoreMessage;
 
   /**
-   * Extension/훅이 읽고 쓸 수 있는 메타데이터.
+   * Extension/미들웨어가 읽고 쓸 수 있는 메타데이터.
    * 메시지 식별, 필터링, 조작 판단에 활용.
    */
   metadata: Record<string, JsonValue>;
@@ -244,13 +246,10 @@ interface MessageEnvelope {
   readonly createdAt: Date;
 
   /** 이 메시지를 생성한 주체 */
-  readonly source: EnvelopeSource;
-
-  /** Turn 내 순서 번호 */
-  readonly seq: number;
+  readonly source: MessageSource;
 }
 
-type EnvelopeSource =
+type MessageSource =
   | { type: 'user' }
   | { type: 'assistant'; stepId: string }
   | { type: 'tool'; toolCallId: string; toolName: string }
@@ -260,140 +259,140 @@ type EnvelopeSource =
 
 ### 4.2 메시지 상태 모델 (이벤트 소싱 유지)
 
-기존의 `BaseMessages + SUM(Events)` 이벤트 소싱 모델을 **MessageEnvelope 기반**으로 유지:
+기존의 `BaseMessages + SUM(Events)` 이벤트 소싱 모델을 **Message 기반**으로 유지:
 
 ```
-NextEnvelopes = BaseEnvelopes + SUM(Events)
+NextMessages = BaseMessages + SUM(Events)
 ```
 
 ```typescript
 /**
- * MessageEnvelope에 대한 이벤트 소싱 이벤트.
- * Extension 훅에서 메시지 추가/교체/삭제를 이벤트로 기록.
+ * Message에 대한 이벤트 소싱 이벤트.
+ * Extension 미들웨어에서 메시지 추가/교체/삭제를 이벤트로 기록.
  */
-type EnvelopeEvent =
-  | { type: 'append';   envelope: MessageEnvelope }
-  | { type: 'replace';  targetId: string; envelope: MessageEnvelope }
+type MessageEvent =
+  | { type: 'append';   message: Message }
+  | { type: 'replace';  targetId: string; message: Message }
   | { type: 'remove';   targetId: string }
   | { type: 'truncate' };
 
 interface ConversationState {
   /** Turn 시작 시점의 확정된 메시지들 */
-  readonly baseEnvelopes: MessageEnvelope[];
+  readonly baseMessages: Message[];
 
   /** Turn 진행 중 누적된 이벤트 */
-  readonly events: EnvelopeEvent[];
+  readonly events: MessageEvent[];
 
   /** 계산된 현재 메시지 상태: base + events 적용 결과 */
-  readonly nextEnvelopes: MessageEnvelope[];
+  readonly nextMessages: Message[];
 
-  /** LLM에 보낼 메시지만 추출 (envelope.message 배열) */
+  /** LLM에 보낼 메시지만 추출 (message.data 배열) */
   toLlmMessages(): CoreMessage[];
 }
 ```
 
 **영속화:**
-- `messages/base.jsonl` — Turn 종료 시 확정된 MessageEnvelope 목록
-- `messages/events.jsonl` — Turn 진행 중 누적된 EnvelopeEvent 로그
+- `messages/base.jsonl` — Turn 종료 시 확정된 Message 목록
+- `messages/events.jsonl` — Turn 진행 중 누적된 MessageEvent 로그
 - Turn 종료 후: events → base로 폴딩, events 클리어
 
 **이벤트 소싱의 이점:**
 - 복구: base + events 재생으로 정확한 상태 복원
 - 관찰: 모든 메시지 변경이 이벤트로 추적됨
-- Extension 조작: 훅에서 이벤트를 발행하여 메시지 조작 (직접 배열 변경 대신)
+- Extension 조작: 미들웨어에서 이벤트를 발행하여 메시지 조작 (직접 배열 변경 대신)
 - Compaction: 주기적으로 events → base 폴딩으로 정리
 
-### 4.3 Extension 훅에서의 활용
+### 4.3 Middleware에서의 활용
 
-Extension은 파이프라인 훅에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작:
+Extension은 미들웨어에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작:
 
 ```typescript
-// 예: compaction extension이 오래된 메시지를 요약으로 대체
-api.pipeline.register('turn.pre', async (ctx) => {
-  const { nextEnvelopes } = ctx.conversationState;
+// 예: compaction extension이 turn 시작 전 오래된 메시지를 요약으로 대체
+api.pipeline.register('turn', async (ctx) => {
+  const { nextMessages } = ctx.conversationState;
 
   // metadata로 "요약 가능" 메시지 식별
-  const compactable = nextEnvelopes.filter(
-    e => e.metadata['compaction.eligible'] === true
+  const compactable = nextMessages.filter(
+    m => m.metadata['compaction.eligible'] === true
   );
 
   if (compactable.length > 20) {
     const summary = await summarize(compactable);
 
-    // 이벤트 발행으로 메시지 조작
-    for (const e of compactable) {
-      ctx.emitEnvelopeEvent({ type: 'remove', targetId: e.id });
+    // 이벤트 발행으로 메시지 조작 (next() 호출 전 = turn.pre)
+    for (const m of compactable) {
+      ctx.emitMessageEvent({ type: 'remove', targetId: m.id });
     }
-    ctx.emitEnvelopeEvent({
+    ctx.emitMessageEvent({
       type: 'append',
-      envelope: createSystemEnvelope(summary, { 'compaction.summary': true }),
+      message: createSystemMessage(summary, { 'compaction.summary': true }),
     });
   }
 
-  return ctx;
+  // Turn 실행
+  const result = await ctx.next();
+
+  // next() 호출 후 = turn.post: 결과 후처리
+  return result;
 });
 ```
 
 ```typescript
 // 예: 특정 Extension이 자기가 추가한 메시지만 찾기
-const myMessages = nextEnvelopes.filter(
-  e => e.source.type === 'extension' && e.source.extensionName === 'my-ext'
+const myMessages = nextMessages.filter(
+  m => m.source.type === 'extension' && m.source.extensionName === 'my-ext'
 );
 ```
 
 ---
 
-## 5. 파이프라인 (Extension Hooks)
+## 5. 파이프라인 (Middleware)
 
-기존 13개 파이프라인 포인트를 **7개**로 축소:
+모든 파이프라인 훅은 **Middleware** 형태로 통일. `next()` 호출 전후로 전처리(pre)/후처리(post)를 수행:
 
-### 5.1 파이프라인 포인트
+### 5.1 미들웨어 종류
 
-| 포인트 | 타입 | 설명 |
-|--------|------|------|
-| `turn.pre` | Mutator | Turn 시작 전. 메시지 히스토리 조작 가능 |
-| `turn.post` | Mutator | Turn 종료 후. 결과 후처리 |
-| `step.pre` | Mutator | Step(LLM 호출) 전. 도구/컨텍스트 조작 |
-| `step.llmCall` | Middleware | LLM 호출 래핑 (로깅, 재시도, 캐싱) |
-| `step.post` | Mutator | Step 완료 후 |
-| `toolCall.pre` | Mutator | 도구 실행 전. 입력 검증/변환 |
-| `toolCall.post` | Mutator | 도구 실행 후. 결과 변환 |
+| 미들웨어 | 설명 |
+|----------|------|
+| `turn` | Turn 전체를 감싸는 미들웨어. `next()` 전: 메시지 히스토리 조작. `next()` 후: 결과 후처리 |
+| `step` | Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어. `next()` 전: 도구/컨텍스트 조작. `next()` 후: 결과 변환, 로깅, 재시도 |
+| `toolCall` | 개별 도구 호출을 감싸는 미들웨어. `next()` 전: 입력 검증/변환. `next()` 후: 결과 변환 |
 
-**제거된 포인트:**
-- `step.config` → 설정 변경은 재시작으로 처리
-- `step.tools` → `step.pre`에 통합
-- `step.blocks` → `step.pre`에 통합
-- `step.llmInput` → `step.pre`에 통합
-- `step.llmError` → `step.llmCall` 미들웨어 내부 catch로 처리
-- `toolCall.exec` → `toolCall.pre`/`toolCall.post`로 충분
+**기존 대비 제거/통합된 포인트:**
+- `turn.pre` / `turn.post` → `turn` 미들웨어로 통합
+- `step.pre` / `step.post` / `step.llmCall` → `step` 미들웨어로 통합
+- `toolCall.pre` / `toolCall.post` → `toolCall` 미들웨어로 통합
+- `step.config`, `step.tools`, `step.blocks`, `step.llmInput`, `step.llmError` → `step` 미들웨어 내부에서 처리
 
-### 5.2 파이프라인 컨텍스트
+### 5.2 미들웨어 컨텍스트
 
 ```typescript
-interface TurnPipelineContext {
+interface TurnMiddlewareContext {
   readonly agentName: string;
   readonly instanceKey: string;
   readonly inputEvent: AgentEvent;
-  readonly conversationState: ConversationState;   // 읽기용
-  emitEnvelopeEvent(event: EnvelopeEvent): void;   // 이벤트 발행으로 조작
-  metadata: Record<string, JsonValue>;              // Turn 메타데이터
+  readonly conversationState: ConversationState;
+  emitMessageEvent(event: MessageEvent): void;
+  metadata: Record<string, JsonValue>;
+  next(): Promise<TurnResult>;
 }
 
-interface StepPipelineContext {
+interface StepMiddlewareContext {
   readonly turn: Turn;
   readonly stepIndex: number;
-  readonly conversationState: ConversationState;   // 읽기용
-  emitEnvelopeEvent(event: EnvelopeEvent): void;   // 이벤트 발행으로 조작
-  toolCatalog: ToolCatalogItem[];                   // 노출할 도구 목록
+  readonly conversationState: ConversationState;
+  emitMessageEvent(event: MessageEvent): void;
+  toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
+  next(): Promise<StepResult>;
 }
 
-interface ToolCallPipelineContext {
+interface ToolCallMiddlewareContext {
   readonly toolName: string;
   readonly toolCallId: string;
-  args: JsonObject;                     // 조작 가능
-  result?: JsonValue;                   // post에서만 존재
+  args: JsonObject;
   metadata: Record<string, JsonValue>;
+  next(): Promise<ToolCallResult>;
 }
 ```
 
@@ -402,15 +401,32 @@ interface ToolCallPipelineContext {
 ```typescript
 // extension entry point
 export function register(api: ExtensionApi): void {
-  api.pipeline.register('turn.pre', async (ctx) => {
-    // MessageEnvelope 조작
-    return ctx;
+  // Turn 미들웨어
+  api.pipeline.register('turn', async (ctx) => {
+    // next() 전 = turn.pre: 메시지 히스토리 조작
+    const result = await ctx.next();
+    // next() 후 = turn.post: 결과 후처리
+    return result;
   });
 
-  api.pipeline.register('step.llmCall', async (ctx, next) => {
+  // Step 미들웨어 (기존 step.pre + step.llmCall + step.post 통합)
+  api.pipeline.register('step', async (ctx) => {
+    // next() 전 = step.pre: 도구 목록 조작 등
+    ctx.toolCatalog = ctx.toolCatalog.filter(t => !t.disabled);
+
     const start = Date.now();
-    const result = await next(ctx);
-    console.log(`LLM call took ${Date.now() - start}ms`);
+    const result = await ctx.next();
+    console.log(`Step took ${Date.now() - start}ms`);
+
+    // next() 후 = step.post: 결과 검사/변환
+    return result;
+  });
+
+  // ToolCall 미들웨어
+  api.pipeline.register('toolCall', async (ctx) => {
+    console.log(`Calling ${ctx.toolName} with`, ctx.args);
+    const result = await ctx.next();
+    console.log(`${ctx.toolName} returned`, result);
     return result;
   });
 }
@@ -420,7 +436,7 @@ export function register(api: ExtensionApi): void {
 
 ```typescript
 interface ExtensionApi {
-  /** 파이프라인 훅 등록 */
+  /** 미들웨어 등록 */
   pipeline: PipelineRegistry;
 
   /** 동적 도구 등록 */
@@ -451,22 +467,32 @@ interface ExtensionApi {
 
 ### 6.1 Tool 리소스
 
+도구 이름은 `{Tool 리소스 이름}__{하위 도구 이름}` 형식으로 LLM에 노출 (예: `bash__exec`):
+
 ```yaml
+apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: bash-exec
+  name: bash
   labels:
     tier: base
 spec:
   entry: "./tools/bash/index.ts"      # Bun으로 실행
   exports:
-    - name: bash.exec
+    - name: exec                       # LLM에는 "bash__exec"로 노출
       description: "셸 명령 실행"
       parameters:
         type: object
         properties:
           command: { type: string }
         required: [command]
+    - name: script                     # LLM에는 "bash__script"로 노출
+      description: "스크립트 파일 실행"
+      parameters:
+        type: object
+        properties:
+          path: { type: string }
+        required: [path]
 ```
 
 `runtime` 필드 제거 — 항상 Bun.
@@ -475,12 +501,16 @@ spec:
 
 ```typescript
 export const handlers: Record<string, ToolHandler> = {
-  'bash.exec': async (ctx, input) => {
-    const { command } = input as { command: string };
-    const proc = Bun.spawn(['sh', '-c', command]);
+  'exec': async (ctx, input) => {
+    const proc = Bun.spawn(['sh', '-c', input.command]);
     const output = await new Response(proc.stdout).text();
     return { stdout: output, exitCode: proc.exitCode };
-  }
+  },
+  'script': async (ctx, input) => {
+    const proc = Bun.spawn(['sh', input.path]);
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
+  },
 };
 
 interface ToolHandler {
@@ -492,21 +522,24 @@ interface ToolContext {
   readonly instanceKey: string;
   readonly turnId: string;
   readonly toolCallId: string;
-  readonly envelope: MessageEnvelope;  // 이 도구 호출을 트리거한 메시지
+  readonly message: Message;     // 이 도구 호출을 트리거한 메시지
   readonly logger: Console;
 }
 ```
 
-### 6.3 AI SDK 도구 이름 변환
+### 6.3 도구 이름 규칙
 
-AI SDK는 도구 이름에 점(`.`)을 허용하지 않으므로, 자동 변환:
+LLM에 노출되는 도구 이름은 **`{Tool 리소스 이름}__{하위 도구 이름}`** 형식:
 
 ```
-goondan 이름:  bash.exec       →  AI SDK 이름:  bash_exec
-goondan 이름:  file.read       →  AI SDK 이름:  file_read
+Tool 리소스: bash          →  exports: exec, script
+LLM 도구 이름:  bash__exec,  bash__script
+
+Tool 리소스: file-system   →  exports: read, write
+LLM 도구 이름:  file-system__read,  file-system__write
 ```
 
-역매핑을 통해 LLM 응답의 도구 호출을 원래 이름으로 복원.
+`__` (더블 언더스코어)는 AI SDK에서 허용되는 문자이므로 별도 변환 없이 그대로 사용.
 
 ---
 
@@ -514,40 +547,55 @@ goondan 이름:  file.read       →  AI SDK 이름:  file_read
 
 ### 7.1 Connector 리소스
 
+Connector는 **별도 Bun 프로세스**로 실행되며, 프로토콜 수신(HTTP 서버, cron 스케줄러 등)을 **자체적으로** 관리:
+
 ```yaml
+apiVersion: goondan.ai/v1
 kind: Connector
 metadata:
   name: telegram
 spec:
   entry: "./connectors/telegram/index.ts"
-  triggers:
-    - type: http
-      endpoint: { path: /webhook, method: POST }
   events:
     - name: user_message
       properties:
         chat_id: { type: string }
 ```
 
+`triggers` 필드 제거 — Connector가 프로토콜 처리를 직접 구현.
+
 ### 7.2 Connector 핸들러
 
 ```typescript
 export default async function (ctx: ConnectorContext): Promise<void> {
-  const { trigger, emit, secrets, logger } = ctx;
+  const { emit, secrets, logger } = ctx;
 
-  // 외부 페이로드 → ConnectorEvent 정규화
-  await emit({
-    name: 'user_message',
-    message: { type: 'text', text: trigger.body.message.text },
-    properties: { chat_id: String(trigger.body.message.chat.id) },
-    instanceKey: `telegram:${trigger.body.message.chat.id}`,
+  // Connector가 직접 HTTP 서버를 열어 웹훅 수신
+  Bun.serve({
+    port: Number(secrets.PORT) || 3000,
+    async fetch(req) {
+      const body = await req.json();
+
+      // 외부 페이로드 → ConnectorEvent 정규화 후 Orchestrator로 전달
+      await emit({
+        name: 'user_message',
+        message: { type: 'text', text: body.message.text },
+        properties: { chat_id: String(body.message.chat.id) },
+        instanceKey: `telegram:${body.message.chat.id}`,
+      });
+
+      return new Response('OK');
+    },
   });
+
+  logger.info('Telegram connector listening on port', Number(secrets.PORT) || 3000);
 };
 ```
 
 ### 7.3 Connection 리소스
 
 ```yaml
+apiVersion: goondan.ai/v1
 kind: Connection
 metadata:
   name: telegram-to-swarm
@@ -558,6 +606,9 @@ spec:
     botToken:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
   ingress:
     rules:
       - match:
@@ -629,7 +680,7 @@ my-agent/
 ### 9.2 goondan.yaml 예시
 
 ```yaml
-apiVersion: goondan.io/v2
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
   name: claude
@@ -640,7 +691,7 @@ spec:
     valueFrom:
       env: ANTHROPIC_API_KEY
 ---
-apiVersion: goondan.io/v2
+apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
   name: coder
@@ -649,10 +700,10 @@ spec:
   systemPrompt: |
     You are a coding assistant.
   tools:
-    - ref: "Tool/bash-exec"
-    - ref: "Tool/file-read"
+    - ref: "Tool/bash"
+    - ref: "Tool/file-system"
 ---
-apiVersion: goondan.io/v2
+apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
@@ -680,8 +731,8 @@ spec:
             └── <instanceKey>/           # 인스턴스별
                 ├── metadata.json        # 상태, 생성일시
                 ├── messages/
-                │   ├── base.jsonl       # 확정된 MessageEnvelope 목록
-                │   └── events.jsonl     # Turn 중 누적 EnvelopeEvent 로그
+                │   ├── base.jsonl       # 확정된 Message 목록
+                │   └── events.jsonl     # Turn 중 누적 MessageEvent 로그
                 └── extensions/
                     └── <ext-name>.json  # Extension 상태
 ```
@@ -691,16 +742,16 @@ spec:
 
 ### 10.2 메시지 영속화
 
-**base.jsonl** (확정된 Envelope):
+**base.jsonl** (확정된 Message):
 ```jsonl
-{"id":"m1","message":{"role":"user","content":"Hello"},"metadata":{},"createdAt":"...","source":{"type":"user"},"seq":0}
-{"id":"m2","message":{"role":"assistant","content":"Hi!"},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s1"},"seq":1}
+{"id":"m1","data":{"role":"user","content":"Hello"},"metadata":{},"createdAt":"...","source":{"type":"user"}}
+{"id":"m2","data":{"role":"assistant","content":"Hi!"},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s1"}}
 ```
 
 **events.jsonl** (Turn 중 이벤트):
 ```jsonl
-{"type":"append","envelope":{"id":"m3","message":{"role":"user","content":"Fix the bug"},"metadata":{},"createdAt":"...","source":{"type":"user"},"seq":2}}
-{"type":"append","envelope":{"id":"m4","message":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s2"},"seq":3}}
+{"type":"append","message":{"id":"m3","data":{"role":"user","content":"Fix the bug"},"metadata":{},"createdAt":"...","source":{"type":"user"}}}
+{"type":"append","message":{"id":"m4","data":{"role":"assistant","content":null,"tool_calls":[...]},"metadata":{},"createdAt":"...","source":{"type":"assistant","stepId":"s2"}}}
 ```
 
 Turn 종료 시: `events.jsonl`의 이벤트를 `base.jsonl`에 폴딩 → `events.jsonl` 클리어
@@ -741,75 +792,16 @@ gdn doctor                       # 환경 진단
 |------|-----------|-----------|
 | **런타임** | Node.js (`runtime: node`) | Bun only (필드 제거) |
 | **에이전트 실행** | 단일 프로세스 내 다중 AgentInstance | **프로세스-per-에이전트** |
-| **에이전트 간 통신** | 인-메모리 호출 | IPC (Supervisor 경유) |
+| **에이전트 간 통신** | 인-메모리 호출 | IPC (Orchestrator 경유) |
 | **설정 변경** | SwarmBundleRef + Changeset + Safe Point | **Edit & Restart** (Orchestrator가 관리) |
-| **메시지 타입** | 커스텀 `LlmMessage` | **MessageEnvelope** (AI SDK `CoreMessage` 래핑) |
-| **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseEnvelopes + SUM(EnvelopeEvents)` (이벤트 소싱 유지) |
-| **파이프라인 포인트** | 13개 | **7개** |
+| **메시지 타입** | 커스텀 `LlmMessage` | **Message** (AI SDK `CoreMessage` 래핑) |
+| **메시지 상태** | `BaseMessages + SUM(Events)` | `BaseMessages + SUM(MessageEvents)` (이벤트 소싱 유지) |
+| **파이프라인** | 13개 포인트 (Mutator + Middleware) | **3개 미들웨어** (turn / step / toolCall) |
 | **리소스 Kind** | 11종 | **8종** |
+| **도구 이름** | `bash.exec` (점 구분) | **`bash__exec`** (더블 언더스코어) |
+| **Connector** | 시스템이 프로토콜 처리 (http/cron) | **Connector가 자체 프로세스로 프로토콜 직접 관리** |
 | **OAuth** | 1급 리소스 (OAuthApp Kind) | Extension 내부 구현 |
 | **Workspace** | 3-root 분리 | **2-root** (프로젝트 + 시스템) |
 | **자기 수정** | Changeset API로 코드 수정 | 외부에서 파일 수정 + restart |
 | **CLI** | pause/resume/terminate/logs | **restart + stdout** |
-| **apiVersion** | `agents.example.io/v1alpha1` | `goondan.io/v2` |
-
----
-
-## 13. 마이그레이션 경로
-
-### 13.1 YAML 변환
-
-```yaml
-# v1
-apiVersion: agents.example.io/v1alpha1
-kind: Tool
-spec:
-  runtime: node          # 제거
-  entry: "./tools/x.ts"
-
-# v2
-apiVersion: goondan.io/v2
-kind: Tool
-spec:
-  entry: "./tools/x.ts"  # Bun으로 실행
-```
-
-### 13.2 메시지 타입 변환
-
-```typescript
-// v1: 커스텀 메시지
-interface LlmUserMessage {
-  readonly id: string;
-  readonly role: 'user';
-  readonly content: string;
-  readonly attachments?: MessageAttachment[];
-}
-
-// v2: AI SDK 메시지를 감싸는 Envelope
-interface MessageEnvelope {
-  readonly id: string;
-  readonly message: CoreMessage;     // AI SDK 타입 직접 사용
-  metadata: Record<string, JsonValue>;
-  readonly createdAt: Date;
-  readonly source: EnvelopeSource;
-  readonly seq: number;
-}
-```
-
-### 13.3 Extension 코드 변환
-
-```typescript
-// v1: 복잡한 컨텍스트
-api.pipeline.register('step.config', async (ctx) => { ... });
-api.pipeline.register('step.tools', async (ctx) => { ... });
-api.pipeline.register('step.blocks', async (ctx) => { ... });
-
-// v2: step.pre로 통합
-api.pipeline.register('step.pre', async (ctx) => {
-  // 도구 목록 조작
-  ctx.toolCatalog = ctx.toolCatalog.filter(...);
-  // 메시지 조작 (컨텍스트 블록 대체)
-  ctx.envelopes.push(createSystemEnvelope('추가 지시사항'));
-  return ctx;
-});
-```
+| **apiVersion** | `agents.example.io/v1alpha1` | **`goondan.ai/v1`** |

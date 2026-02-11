@@ -2,12 +2,36 @@
 
 ### 12.1 도구 레지스트리와 도구 카탈로그
 
-- Tool Registry: 런타임이 실행할 수 있는 전체 도구 집합
-- Tool Catalog: 현재 Step에서 LLM에 노출되는 도구 목록
+- **Tool Registry**: 런타임이 실행할 수 있는 전체 도구 집합. Bundle에 선언된 모든 Tool 리소스의 핸들러를 포함한다.
+- **Tool Catalog**: 현재 Step에서 LLM에 노출되는 도구 목록. Step 미들웨어의 `toolCatalog` 필드로 조작할 수 있다.
 
-Runtime은 Step마다 `step.tools`에서 Tool Catalog를 구성해야 한다(MUST).
+규칙:
 
-### 12.2 tool call의 허용 범위
+1. AgentProcess는 Step마다 Tool Catalog를 구성해야 한다(MUST).
+2. Tool Catalog는 Agent 리소스의 `spec.tools` 선언을 기반으로 초기화해야 한다(MUST).
+3. Step 미들웨어는 `ctx.toolCatalog`를 조작하여 LLM에 노출되는 도구를 변경할 수 있다(MAY).
+4. Extension이 `api.tools.register()`로 동적 등록한 도구도 Tool Registry에 포함되어야 한다(MUST).
+
+### 12.2 도구 이름 규칙
+
+LLM에 노출되는 도구 이름은 **`{Tool 리소스 이름}__{하위 도구 이름}`** 형식(더블 언더스코어)을 사용해야 한다(MUST).
+
+```
+Tool 리소스: bash          → exports: exec, script
+LLM 도구 이름:  bash__exec,  bash__script
+
+Tool 리소스: file-system   → exports: read, write
+LLM 도구 이름:  file-system__read,  file-system__write
+```
+
+규칙:
+
+1. 더블 언더스코어(`__`)를 리소스 이름과 하위 도구 이름의 구분자로 사용해야 한다(MUST).
+2. AI SDK에서 허용되는 문자이므로 별도 인코딩/디코딩 없이 그대로 사용해야 한다(MUST).
+3. Tool 리소스 이름과 하위 도구 이름 각각에는 `__`를 포함해서는 안 된다(MUST NOT).
+4. 단일 export만 가진 Tool 리소스도 `{리소스명}__{export명}` 형식을 따라야 한다(MUST).
+
+### 12.3 tool call의 허용 범위
 
 규칙:
 
@@ -16,14 +40,14 @@ Runtime은 Step마다 `step.tools`에서 Tool Catalog를 구성해야 한다(MUS
 3. Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다(MAY).
 4. 거부 결과는 구조화된 ToolResult(`status="error"`, `code`)로 반환해야 한다(MUST).
 
-### 12.3 동기/비동기 결과
+### 12.4 동기/비동기 결과
 
 - 동기 완료: `output` 포함
 - 비동기 제출: `handle` 포함(완료 이벤트 또는 polling)
 
-#### 12.3.1 Tool 오류 결과 및 메시지 제한
+#### 12.4.1 Tool 오류 결과 및 메시지 제한
 
-Runtime은 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
+AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
 
 ```json
 {
@@ -33,7 +57,7 @@ Runtime은 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전�
     "name": "Error",
     "message": "요청 실패",
     "suggestion": "입력 파라미터를 확인하세요.",
-    "helpUrl": "https://docs.goondan.io/errors/E_TOOL"
+    "helpUrl": "https://docs.goondan.ai/errors/E_TOOL"
   }
 }
 ```
@@ -45,84 +69,71 @@ Runtime은 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전�
 3. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
 4. 문서 링크(`helpUrl`) 제공을 권장한다(SHOULD).
 
-### 12.4 SwarmBundle 변경 도구 패턴
+### 12.5 ToolContext
 
-SwarmBundle 변경은 changeset 패턴으로 수행해야 한다(MUST).
+Tool 핸들러에 전달되는 ToolContext는 다음 필드를 포함해야 한다(MUST).
 
-1. `swarmBundle.openChangeset`으로 workdir 발급
-2. workdir에서 파일 수정
-3. `swarmBundle.commitChangeset` 호출
-4. Safe Point에서 새 Ref 활성화
+```typescript
+interface ToolContext {
+  /** 현재 에이전트 이름 */
+  readonly agentName: string;
 
-규칙:
+  /** 현재 인스턴스 키 */
+  readonly instanceKey: string;
 
-1. commit 결과는 `ok/rejected/conflict/failed`를 반환해야 한다(MUST).
-2. `conflict` 상태는 충돌 파일과 복구 힌트를 포함해야 한다(MUST).
-3. 별도 changeset 상태 파일을 정본으로 요구하지 않는다(MUST NOT).
+  /** 현재 Turn ID */
+  readonly turnId: string;
 
-### 12.5 Handoff 도구 패턴
+  /** 이 도구 호출의 고유 ID */
+  readonly toolCallId: string;
 
-Agent 간 handoff는 tool call 패턴으로 제공한다.
+  /** 이 도구 호출을 트리거한 Message */
+  readonly message: Message;
 
-규칙:
+  /** 인스턴스 작업 디렉토리 경로 */
+  readonly workdir: string;
 
-1. handoff 요청은 대상 agent와 입력을 포함해야 한다(MUST).
-2. handoff는 비동기 제출 모델을 지원해야 한다(SHOULD).
-3. 원래 Agent의 Turn/Auth/Trace 컨텍스트는 보존되어야 한다(MUST).
-4. 기본 handoff 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
-
-### 12.6 OAuth 토큰 접근 인터페이스
-
-Tool/Connector는 외부 API 호출을 위해 `ctx.oauth.getAccessToken` 인터페이스를 사용해야 한다(MUST).
-
-```ts
-ctx.oauth.getAccessToken({
-  oauthAppRef: { kind: "OAuthApp", name: string },
-  scopes?: string[],
-  minTtlSeconds?: number
-}) -> OAuthTokenResult
+  /** 로거 */
+  readonly logger: Console;
+}
 ```
 
-#### 12.6.1 getAccessToken 의미론
+규칙:
 
-1. Runtime은 OAuthApp `subjectMode`에 따라 subject를 결정해야 한다(MUST).
-2. `scopes`가 주어지면 `scopes ⊆ OAuthApp.spec.scopes`를 검증해야 한다(MUST).
-3. Grant 조회 키는 `(oauthAppRef, subject)`여야 한다(MUST).
-4. 유효 토큰이 있으면 `status="ready"`를 반환해야 한다(MUST).
-5. 토큰이 없거나 무효면 `status="authorization_required"` 또는 구조화된 `error`를 반환해야 한다(MUST).
-6. 만료 임박 시 refresh를 시도하는 것을 권장한다(SHOULD).
+1. `workdir`은 해당 인스턴스의 워크스페이스 경로를 가리켜야 한다(MUST).
+2. bash, file-system 등 파일 시스템 접근 도구는 `ctx.workdir`을 기본 작업 디렉토리로 사용해야 한다(MUST).
+3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
+4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
 
-#### 12.6.2 OAuthTokenResult
+### 12.6 Handoff 도구 패턴
 
-- `ready`: API 호출 가능한 토큰 반환
-- `authorization_required`: 승인 링크/세션 정보 반환
-- `error`: subject 부재, 스코프 위반 등 비복구 또는 정책 오류 반환
+Agent 간 handoff는 tool call 패턴으로 제공하며, Orchestrator를 경유하는 IPC로 구현한다.
 
-#### 12.6.3 OAuthStore 보안 규칙
+#### 12.6.1 Handoff 흐름
 
-1. OAuthStore는 Runtime의 단일 작성자여야 한다(MUST).
-2. accessToken/refreshToken/PKCE/state는 at-rest encryption 대상이다(MUST).
-3. 민감값은 로그/이벤트/LLM 컨텍스트에 평문 노출 금지다(MUST).
-4. refresh 경쟁 방지를 위한 single-flight 또는 락을 제공하는 것을 권장한다(SHOULD).
-
-#### 12.6.4 Authorization Code + PKCE(S256)
-
-1. `authorization_required` 반환 시 AuthSession을 생성/암호화 저장해야 한다(MUST).
-2. authorization URL에 `code_challenge`, `code_challenge_method=S256`, `state`를 포함해야 한다(MUST).
-3. callback에서 state/session/만료/일회성을 검증해야 한다(MUST).
-4. token exchange 시 저장된 `code_verifier`를 사용해야 한다(MUST).
-5. 성공 시 OAuthGrant 저장 후 `auth.granted` 이벤트 enqueue를 수행해야 한다(MUST).
-
-#### 12.6.5 Device Code (선택)
-
-1. Runtime은 device code를 지원할 수 있다(MAY).
-2. 미지원 Runtime은 `flow=deviceCode` 구성을 로드 단계에서 거부해야 한다(MUST).
-
-#### 12.6.6 승인 안내 블록
-
-Runtime은 `step.blocks`에 승인 대기 정보를 주입할 수 있다(SHOULD).
+1. Agent A가 handoff 도구를 호출한다.
+2. AgentProcess A가 Orchestrator에 `{ type: 'delegate', to: 'AgentB', payload: {...} }` IPC 메시지를 전송한다.
+3. Orchestrator가 Agent B 프로세스로 라우팅한다(필요시 스폰).
+4. Agent B가 처리 후 Orchestrator에 `{ type: 'delegate_result', to: 'AgentA', ... }` 결과를 전달한다.
+5. Orchestrator가 Agent A에 결과를 전달한다.
 
 규칙:
 
-1. 블록에는 비밀값을 포함해서는 안 된다(MUST).
-2. 사용자 안내에 필요한 최소 필드(authSessionId, authorizationUrl, expiresAt, message)를 포함하는 것을 권장한다(SHOULD).
+1. handoff 요청은 대상 agent 이름과 입력 payload를 포함해야 한다(MUST).
+2. handoff는 비동기 제출 모델을 지원해야 한다(SHOULD).
+3. 원래 Agent의 Turn/Trace 컨텍스트는 `correlationId`를 통해 추적 가능해야 한다(MUST).
+4. handoff 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다(MUST).
+5. 기본 handoff 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
+6. Orchestrator는 delegate 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+
+#### 12.6.2 IPC 메시지 형식
+
+```typescript
+interface IpcMessage {
+  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
+  from: string;          // agentName
+  to: string;            // agentName
+  payload: JsonValue;
+  correlationId?: string;
+}
+```

@@ -1,6 +1,10 @@
-# Goondan Tool 시스템 구현 스펙 (v0.9)
+# Goondan Tool 시스템 스펙 v2.0
 
-본 문서는 Goondan의 Tool 시스템을 정의한다. Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이며, Runtime 컨텍스트 및 이벤트 시스템에 접근할 수 있다.
+본 문서는 Goondan v2의 Tool 시스템을 정의한다. Tool은 LLM이 tool call로 호출할 수 있는 1급 실행 단위이며, AgentProcess 내에서 실행된다.
+
+> 기반 요구사항: `docs/requirements/05_core-concepts.md` §5.2, `docs/requirements/07_config-resources.md` §7.2, `docs/requirements/12_tool-spec-runtime.md`
+
+---
 
 ## 1. 핵심 개념
 
@@ -8,29 +12,29 @@
 
 | 개념 | 설명 |
 |------|------|
-| **Tool Registry** | Runtime이 보유한 **실행 가능한 전체 도구 엔드포인트(핸들러 포함) 집합**. Tool 리소스 로딩 및 동적 등록(`api.tools.register`)으로 구성된다. |
-| **Tool Catalog** | **특정 Step에서 LLM에 노출되는 도구 목록**. Runtime은 매 Step마다 `step.tools` 파이프라인을 통해 Tool Catalog를 구성한다. |
+| **Tool Registry** | AgentProcess가 보유한 **실행 가능한 전체 도구 엔드포인트(핸들러 포함) 집합**. Bundle에 선언된 모든 Tool 리소스의 핸들러 로딩 및 Extension 동적 등록(`api.tools.register`)으로 구성된다. |
+| **Tool Catalog** | **특정 Step에서 LLM에 노출되는 도구 목록**. AgentProcess는 매 Step마다 Step 미들웨어의 `toolCatalog`를 통해 Tool Catalog를 구성한다. |
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Tool Registry                          │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  Tool A (exports: a.foo, a.bar)                      │  │
-│  │  Tool B (exports: b.run)                             │  │
-│  │  Dynamic Tool C (api.tools.register)                 │  │
-│  │  MCP Extension D (tools: d.query, d.mutate)          │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Tool Registry                            │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Tool A (exports: a__foo, a__bar)                      │  │
+│  │  Tool B (exports: b__run)                              │  │
+│  │  Dynamic Tool C (api.tools.register)                   │  │
+│  │  MCP Extension D (tools: d__query, d__mutate)          │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
                            │
-                           │ step.tools 파이프라인
+                           │ step 미들웨어의 ctx.toolCatalog
                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Tool Catalog (Step N)                     │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  a.foo, a.bar, b.run  (Agent.spec.tools에 선언된 것)   │  │
-│  │  + Extension이 추가한 도구들                          │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                   Tool Catalog (Step N)                       │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  a__foo, a__bar, b__run  (Agent.spec.tools 선언 기반)   │  │
+│  │  + Extension이 동적 등록한 도구들                       │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 Tool Identity
@@ -41,10 +45,15 @@ Tool의 identity는 `"{kind}/{name}"` 형식으로 표현된다.
 type ToolIdentity = `Tool/${string}`;
 
 // 예시
-const identity: ToolIdentity = "Tool/slackToolkit";
+const identity: ToolIdentity = "Tool/bash";
 ```
 
-Runtime은 Effective Config의 `tools` 배열을 identity 기반으로 정규화하며, 동일 identity가 중복될 경우 마지막에 나타난 항목이 내용을 대표(last-wins)한다.
+규칙:
+
+1. AgentProcess는 Step마다 Tool Catalog를 구성해야 한다(MUST).
+2. Tool Catalog는 Agent 리소스의 `spec.tools` 선언을 기반으로 초기화해야 한다(MUST).
+3. Step 미들웨어는 `ctx.toolCatalog`를 조작하여 LLM에 노출되는 도구를 변경할 수 있다(MAY).
+4. Extension이 `api.tools.register()`로 동적 등록한 도구도 Tool Registry에 포함되어야 한다(MUST).
 
 ---
 
@@ -53,81 +62,50 @@ Runtime은 Effective Config의 `tools` 배열을 identity 기반으로 정규화
 ### 2.1 YAML 정의
 
 ```yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: slackToolkit
-  labels:                           # 선택
-    tier: integration
+  name: bash
+  labels:
+    tier: base
 spec:
-  runtime: node                     # 필수: 런타임 환경
-  entry: "./tools/slack/index.js"   # 필수: Package Root 기준 경로
-  errorMessageLimit: 1200           # 선택: 오류 메시지 최대 길이 (기본값: 1000)
+  entry: "./tools/bash/index.ts"     # 필수: Bun으로 실행 (runtime 필드 없음)
+  errorMessageLimit: 1200            # 선택: 오류 메시지 최대 길이 (기본값: 1000)
 
-  # 선택: 이 Tool이 기본적으로 사용하는 OAuthApp
-  auth:
-    oauthAppRef: { kind: OAuthApp, name: slack-bot }
-    scopes: ["chat:write"]          # 선택: OAuthApp.spec.scopes의 부분집합
-
-  # 필수: 최소 1개의 export
   exports:
-    - name: slack.postMessage
-      description: "채널에 메시지를 전송합니다"
+    - name: exec                     # LLM에는 "bash__exec"로 노출
+      description: "셸 명령 실행"
       parameters:
         type: object
         properties:
-          channel:
-            type: string
-            description: "대상 채널 ID"
-          text:
-            type: string
-            description: "전송할 메시지 내용"
-        required: ["channel", "text"]
-      # 선택: export 레벨 auth (tool 레벨보다 좁게만 선언 가능)
-      auth:
-        scopes: ["chat:write"]
+          command: { type: string }
+        required: [command]
 
-    - name: slack.listChannels
-      description: "사용자가 접근 가능한 채널 목록을 조회합니다"
+    - name: script                   # LLM에는 "bash__script"로 노출
+      description: "스크립트 파일 실행"
       parameters:
         type: object
         properties:
-          limit:
-            type: number
-            description: "최대 조회 개수"
-        required: []
-      auth:
-        scopes: ["channels:read"]
+          path: { type: string }
+        required: [path]
 ```
 
 ### 2.2 ToolSpec TypeScript 인터페이스
 
 ```typescript
 interface ToolSpec {
-  /** 런타임 환경 (현재 'node'만 지원) */
-  runtime: 'node';
-
-  /** 핸들러 모듈 경로 (Package Root 기준) */
+  /** 핸들러 모듈 경로 (프로젝트 루트 기준). 항상 Bun으로 실행. */
   entry: string;
 
   /** Tool 오류 메시지 최대 길이 (기본값: 1000) */
   errorMessageLimit?: number;
 
-  /** Tool 레벨 OAuth 설정 */
-  auth?: ToolAuthSpec;
-
   /** LLM에 노출되는 함수 목록 */
   exports: ToolExportSpec[];
 }
-
-interface ToolAuthSpec {
-  /** 참조할 OAuthApp */
-  oauthAppRef: ObjectRef;
-
-  /** OAuthApp.spec.scopes의 부분집합 (선택) */
-  scopes?: string[];
-}
 ```
+
+> **v2 변경**: `runtime` 필드 제거(항상 Bun), `auth` 필드 제거(OAuth는 Extension 내부 구현으로 이동).
 
 ### 2.3 검증 규칙
 
@@ -135,19 +113,65 @@ interface ToolAuthSpec {
 |------|------|------|
 | `spec.entry` 필수 | MUST | 핸들러 모듈 경로가 반드시 존재해야 한다 |
 | `spec.exports` 최소 1개 | MUST | 최소 하나의 export가 필요하다 |
-| `auth.scopes` 부분집합 검증 | MUST | Tool/export의 `auth.scopes`는 `OAuthApp.spec.scopes`의 부분집합이어야 한다 |
-| export `auth.scopes` 제한 | MUST | export 레벨 `auth.scopes`는 tool 레벨보다 좁게(부분집합)만 선언 가능하다 |
+| `exports[].name` 고유성 | MUST | Tool 리소스 내에서 export name이 고유해야 한다 |
+| `__` 금지 (이름 내부) | MUST NOT | Tool 리소스 이름과 export name에는 `__`를 포함해서는 안 된다 |
 | `errorMessageLimit` 기본값 | MUST | 미설정 시 1000자로 적용한다 |
+| entry default export | MUST | entry 모듈에 `handlers: Record<string, ToolHandler>` export가 존재해야 한다 |
 
 ---
 
-## 3. Tool Export 스키마
+## 3. 도구 이름 규칙
 
-### 3.1 ToolExportSpec 인터페이스
+### 3.1 네이밍 컨벤션
+
+LLM에 노출되는 도구 이름은 **`{Tool 리소스 metadata.name}__{export name}`** 형식이어야 한다(MUST). 구분자는 `__`(더블 언더스코어)를 사용한다.
+
+```
+Tool 리소스: bash          → exports: exec, script
+LLM 도구 이름: bash__exec, bash__script
+
+Tool 리소스: file-system   → exports: read, write
+LLM 도구 이름: file-system__read, file-system__write
+
+Tool 리소스: http-fetch    → exports: get, post
+LLM 도구 이름: http-fetch__get, http-fetch__post
+```
+
+### 3.2 규칙
+
+1. 더블 언더스코어(`__`)를 리소스 이름과 하위 도구 이름의 구분자로 사용해야 한다(MUST).
+2. AI SDK에서 허용되는 문자이므로 별도 인코딩/디코딩 없이 그대로 사용해야 한다(MUST).
+3. Tool 리소스 이름과 하위 도구 이름 각각에는 `__`를 포함해서는 안 된다(MUST NOT).
+4. 단일 export만 가진 Tool 리소스도 `{리소스명}__{export명}` 형식을 따라야 한다(MUST).
+
+### 3.3 이름 파싱/조합
+
+```typescript
+/** Tool 이름을 리소스 이름과 export 이름으로 분해 */
+function parseToolName(fullName: string): { resourceName: string; exportName: string } | null {
+  const idx = fullName.indexOf('__');
+  if (idx < 0) return null;
+  return {
+    resourceName: fullName.slice(0, idx),
+    exportName: fullName.slice(idx + 2),
+  };
+}
+
+/** 리소스 이름과 export 이름으로 full tool name 조합 */
+function buildToolName(resourceName: string, exportName: string): string {
+  return `${resourceName}__${exportName}`;
+}
+```
+
+---
+
+## 4. Tool Export 스키마
+
+### 4.1 ToolExportSpec 인터페이스
 
 ```typescript
 interface ToolExportSpec {
-  /** export 이름 (LLM tool call의 name으로 사용) */
+  /** export 이름 (LLM tool call에서 "{리소스명}__{name}"으로 사용) */
   name: string;
 
   /** LLM에 제공되는 도구 설명 */
@@ -155,12 +179,6 @@ interface ToolExportSpec {
 
   /** JSON Schema 형식의 파라미터 정의 */
   parameters?: JsonSchemaObject;
-
-  /** export 레벨 OAuth 설정 (선택) */
-  auth?: {
-    /** Tool 레벨 scopes의 부분집합 */
-    scopes?: string[];
-  };
 }
 
 interface JsonSchemaObject {
@@ -179,17 +197,17 @@ interface JsonSchemaProperty {
 }
 ```
 
-### 3.2 Export 이름 규칙
+### 4.2 Export 이름 규칙
 
-- **권장 형식**: `<namespace>.<action>` (예: `slack.postMessage`, `file.read`)
-- **고유성**: 동일 Agent 내에서 중복될 수 없다
-- **식별자 규칙**: 영문 소문자, 숫자, `.`, `_`, `-`만 허용
+- **식별자 규칙**: 영문 소문자, 숫자, `_`, `-`만 허용. `__`는 금지.
+- **고유성**: 동일 Tool 리소스 내에서 중복될 수 없다(MUST).
+- **예시**: `exec`, `script`, `read`, `write`, `list-channels`, `post_message`
 
 ---
 
-## 4. ToolHandler 인터페이스
+## 5. ToolHandler 인터페이스
 
-### 4.1 핸들러 시그니처
+### 5.1 핸들러 시그니처
 
 ```typescript
 /**
@@ -204,172 +222,98 @@ type ToolHandler = (
 ) => Promise<JsonValue> | JsonValue;
 ```
 
-### 4.2 핸들러 모듈 형식
+### 5.2 핸들러 모듈 형식
 
-핸들러 모듈은 `handlers` 객체를 export해야 한다.
+핸들러 모듈은 `handlers` 객체를 export해야 한다(MUST). 키는 export name이다.
 
 ```typescript
-// tools/calculator/index.ts
+// tools/bash/index.ts
 import type { ToolHandler, ToolContext, JsonValue } from '@goondan/core';
 
-interface CalcInput {
-  a: number;
-  b: number;
-}
-
 export const handlers: Record<string, ToolHandler> = {
-  'calc.add': async (ctx: ToolContext, input: CalcInput): Promise<JsonValue> => {
-    const { a, b } = input;
-
-    // 입력 검증
-    if (typeof a !== 'number' || typeof b !== 'number') {
-      throw new Error('a와 b는 숫자여야 합니다.');
-    }
-
-    return {
-      result: a + b,
-      expression: `${a} + ${b} = ${a + b}`,
-    };
+  'exec': async (ctx: ToolContext, input: { command: string }): Promise<JsonValue> => {
+    const proc = Bun.spawn(['sh', '-c', input.command], {
+      cwd: ctx.workdir,
+    });
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
   },
 
-  'calc.multiply': async (ctx: ToolContext, input: CalcInput): Promise<JsonValue> => {
-    const { a, b } = input;
-    return {
-      result: a * b,
-      expression: `${a} × ${b} = ${a * b}`,
-    };
+  'script': async (ctx: ToolContext, input: { path: string }): Promise<JsonValue> => {
+    const proc = Bun.spawn(['sh', input.path], {
+      cwd: ctx.workdir,
+    });
+    const output = await new Response(proc.stdout).text();
+    return { stdout: output, exitCode: proc.exitCode };
   },
 };
 ```
 
-### 4.3 ToolContext 구조
+### 5.3 ToolContext 구조
 
 ```typescript
 interface ToolContext {
-  /** SwarmInstance 참조 */
-  instance: SwarmInstance;
+  /** 현재 에이전트 이름 */
+  readonly agentName: string;
 
-  /** Swarm 리소스 정의 */
-  swarm: Resource<SwarmSpec>;
+  /** 현재 인스턴스 키 */
+  readonly instanceKey: string;
 
-  /** Agent 리소스 정의 */
-  agent: Resource<AgentSpec>;
+  /** 현재 Turn ID */
+  readonly turnId: string;
 
-  /** 현재 Turn */
-  turn: Turn;
+  /** 이 도구 호출의 고유 ID */
+  readonly toolCallId: string;
 
-  /** 현재 Step */
-  step: Step;
+  /** 이 도구 호출을 트리거한 Message */
+  readonly message: Message;
 
-  /** 현재 Step의 Tool Catalog */
-  toolCatalog: ToolCatalogItem[];
-
-  /** SwarmBundle 변경 API */
-  swarmBundle: SwarmBundleApi;
-
-  /** OAuth 토큰 접근 API */
-  oauth: OAuthApi;
-
-  /** 이벤트 버스 */
-  events: EventBus;
+  /** 인스턴스 작업 디렉토리 경로 */
+  readonly workdir: string;
 
   /** 로거 */
-  logger: Console;
+  readonly logger: Console;
 }
 ```
 
-### 4.4 Turn/Step 참조
+규칙:
 
-```typescript
-interface Turn {
-  id: string;
-  instanceId: string;
-  agentName: string;
-
-  /** Turn 메시지 상태 */
-  messageState: {
-    baseMessages: LlmMessage[];
-    events: MessageEvent[];
-    nextMessages: LlmMessage[];
-  };
-
-  /** Turn 내 누적 tool 결과 */
-  toolResults: Map<string, ToolResult>;
-
-  /** 호출 맥락 */
-  origin?: {
-    connector?: string;
-    channel?: string;
-    threadTs?: string;
-    [key: string]: JsonValue;
-  };
-
-  /** 인증 컨텍스트 */
-  auth?: TurnAuth;
-
-  /** Turn 메타데이터 */
-  metadata?: JsonObject;
-}
-
-type MessageEvent =
-  | { type: 'system_message'; seq: number; message: LlmMessage }
-  | { type: 'llm_message'; seq: number; message: LlmMessage }
-  | { type: 'replace'; seq: number; targetId: string; message: LlmMessage }
-  | { type: 'remove'; seq: number; targetId: string }
-  | { type: 'truncate'; seq: number };
-
-interface Step {
-  id: string;
-  index: number;
-  turnId: string;
-
-  /** LLM 호출 결과 */
-  llmResult?: LlmResult;
-
-  /** 현재 Step에서 처리 중인 tool calls */
-  pendingToolCalls?: ToolCall[];
-}
-```
+1. `workdir`은 해당 인스턴스의 워크스페이스 경로를 가리켜야 한다(MUST).
+2. bash, file-system 등 파일 시스템 접근 도구는 `ctx.workdir`을 기본 작업 디렉토리로 사용해야 한다(MUST).
+3. ToolContext에는 `swarmBundle`, `oauth` 등 v1의 제거된 인터페이스를 포함해서는 안 된다(MUST NOT).
+4. `message` 필드는 이 도구 호출을 포함하는 assistant Message를 참조해야 한다(MUST).
 
 ---
 
-## 5. Tool 실행 흐름
+## 6. Tool 실행 흐름
 
-### 5.1 파이프라인 포인트
+### 6.1 Middleware 기반 파이프라인
+
+v2에서는 모든 파이프라인 훅이 Middleware 형태로 통일된다. Tool 실행은 `toolCall` 미들웨어를 통과한다.
 
 ```
 LLM 응답에 tool_calls 포함
            │
            ▼
-┌─────────────────────────────┐
-│  toolCall.pre (Mutator)     │  ← tool call 전처리, 입력 변환
-└─────────────────────────────┘
+┌──────────────────────────────────┐
+│  toolCall 미들웨어 체인           │
+│    Extension.before (next 전)    │  ← 입력 검증/변환
+│      → CORE handler exec        │  ← 실제 핸들러 실행
+│    Extension.after (next 후)     │  ← 결과 변환, 로깅
+└──────────────────────────────────┘
            │
            ▼
-┌─────────────────────────────┐
-│  toolCall.exec (Middleware) │  ← 실제 핸들러 실행 (onion 래핑)
-│    EXT.before               │
-│      → CORE handler exec    │
-│    EXT.after                │
-└─────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│  toolCall.post (Mutator)    │  ← 결과 후처리, 로깅
-└─────────────────────────────┘
-           │
-           ▼
-    ToolResult → emit `llm_message` event (messages/events.jsonl)
+    ToolResult → MessageEvent(append) 발행
 ```
 
-### 5.2 ToolCall 구조
+### 6.2 ToolCall 구조
 
 ```typescript
 interface ToolCall {
   /** tool call ID (LLM이 생성) */
   id: string;
 
-  /** 호출할 tool export name */
+  /** 호출할 tool 이름 (예: "bash__exec") */
   name: string;
 
   /** LLM이 전달한 인자 (JSON) */
@@ -377,73 +321,53 @@ interface ToolCall {
 }
 ```
 
-### 5.3 실행 컨텍스트 (toolCall.exec)
+### 6.3 ToolCallMiddlewareContext
 
 ```typescript
-interface ToolCallExecContext {
-  /** 현재 tool call */
-  toolCall: ToolCall;
+interface ToolCallMiddlewareContext {
+  /** 호출 대상 도구 이름 */
+  readonly toolName: string;
 
-  /** 실행 전까지는 undefined, 실행 후 채워짐 */
-  toolResult?: ToolResult;
+  /** tool call ID */
+  readonly toolCallId: string;
 
-  /** Turn 참조 */
-  turn: Turn;
+  /** LLM이 전달한 인자 (변경 가능) */
+  args: JsonObject;
 
-  /** Step 참조 */
-  step: Step;
+  /** 미들웨어 메타데이터 */
+  metadata: Record<string, JsonValue>;
 
-  /** Effective Config */
-  effectiveConfig: EffectiveConfig;
-
-  /** 현재 Step의 Tool Catalog */
-  toolCatalog: ToolCatalogItem[];
+  /** 다음 미들웨어 또는 핵심 핸들러 실행 */
+  next(): Promise<ToolCallResult>;
 }
 ```
 
-### 5.4 Extension에서의 파이프라인 등록
+### 6.4 Extension에서의 toolCall 미들웨어 등록
 
 ```typescript
-// extensions/tool-logger/index.ts
-export async function register(api: ExtensionApi): Promise<void> {
-  // toolCall.pre: 입력 검증/변환
-  api.pipelines.mutate('toolCall.pre', async (ctx) => {
-    api.logger?.debug?.(`Tool 호출: ${ctx.toolCall.name}`, ctx.toolCall.args);
-    return ctx;
-  });
+// extension entry point
+export function register(api: ExtensionApi): void {
+  api.pipeline.register('toolCall', async (ctx) => {
+    // next() 전 = 입력 검증/변환 (기존 toolCall.pre)
+    api.logger.debug(`Tool 호출: ${ctx.toolName}`, ctx.args);
 
-  // toolCall.exec: 실행 래핑 (타이밍, 재시도 등)
-  api.pipelines.wrap('toolCall.exec', async (ctx, next) => {
     const startTime = Date.now();
-    try {
-      const result = await next(ctx);
-      const elapsed = Date.now() - startTime;
-      api.logger?.debug?.(`Tool 완료: ${ctx.toolCall.name} (${elapsed}ms)`);
-      return result;
-    } catch (error) {
-      api.logger?.error?.(`Tool 실패: ${ctx.toolCall.name}`, error);
-      throw error;
-    }
-  });
+    const result = await ctx.next();
+    const elapsed = Date.now() - startTime;
 
-  // toolCall.post: 결과 로깅/변환
-  api.pipelines.mutate('toolCall.post', async (ctx) => {
-    if (ctx.toolResult?.status === 'error') {
-      api.events.emit?.('tool.error', {
-        toolName: ctx.toolCall.name,
-        error: ctx.toolResult.error,
-      });
-    }
-    return ctx;
+    // next() 후 = 결과 후처리 (기존 toolCall.post)
+    api.logger.debug(`Tool 완료: ${ctx.toolName} (${elapsed}ms)`);
+
+    return result;
   });
 }
 ```
 
 ---
 
-## 5A. Tool Call 허용 범위
+## 7. Tool Call 허용 범위
 
-### 5A.1 허용 범위 규칙
+### 7.1 허용 범위 규칙
 
 | 규칙 | 수준 | 설명 |
 |------|------|------|
@@ -452,101 +376,25 @@ export async function register(api: ExtensionApi): Promise<void> {
 | Registry 직접 호출 | MAY | Tool Registry 직접 호출 허용 모드는 명시적 보안 정책으로만 활성화할 수 있다 |
 | 거부 결과 반환 | MUST | 거부 시 구조화된 ToolResult를 반환해야 한다 |
 
-### 5A.2 거부 시 반환 형식
+### 7.2 거부 시 반환 형식
 
-```typescript
-// Catalog에 없는 도구 호출 거부 시
-const rejectedResult: ToolResult = {
-  status: 'error',
-  error: {
-    message: `Tool '${toolCall.name}' is not available in the current Tool Catalog.`,
-    name: 'ToolNotInCatalogError',
-    code: 'E_TOOL_NOT_IN_CATALOG',
-    suggestion: 'Agent 구성의 spec.tools에 해당 도구를 추가하거나, step.tools 파이프라인에서 동적으로 등록하세요.',
-  },
-};
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "E_TOOL_NOT_IN_CATALOG",
+    "name": "ToolNotInCatalogError",
+    "message": "Tool 'unknown__action' is not available in the current Tool Catalog.",
+    "suggestion": "Agent 구성의 spec.tools에 해당 도구를 추가하거나, step 미들웨어에서 동적으로 등록하세요."
+  }
+}
 ```
 
 ---
 
-## 5B. Handoff 도구 패턴
+## 8. Tool 결과 처리
 
-Agent 간 제어 이전(Handoff)을 Tool call로 구현하는 패턴이다.
-
-### 5B.1 Handoff 규칙
-
-| 규칙 | 수준 | 설명 |
-|------|------|------|
-| 대상+입력 포함 | MUST | Handoff 요청은 대상 agent와 입력을 포함해야 한다 |
-| 비동기 제출 | SHOULD | 비동기 제출 모델(`status: 'pending'`)을 지원하는 것이 권장된다 |
-| 컨텍스트 보존 | MUST | 원래 Agent의 Turn/Auth/Trace 컨텍스트를 보존해야 한다 |
-| 기본 구현체 | SHOULD | 기본 handoff 구현체를 packages/base에서 제공하는 것이 권장된다 |
-
-### 5B.2 Handoff ToolCall 구조
-
-```typescript
-// Handoff tool call 예시
-interface HandoffInput {
-  /** 대상 Agent 이름 */
-  targetAgent: string;
-  /** 대상 Agent에 전달할 입력 */
-  input: string;
-  /** 추가 메타데이터 */
-  metadata?: JsonObject;
-}
-
-// Handoff 결과
-interface HandoffResult {
-  /** 제출 상태 */
-  status: 'ok' | 'pending';
-  /** 대상 Agent 이름 */
-  targetAgent: string;
-  /** 비동기 제출 시 핸들 */
-  handle?: string;
-  /** 결과 메시지 */
-  message?: string;
-}
-```
-
-### 5B.3 ToolContext.agents API
-
-`ToolContext.agents`는 Agent 위임/인스턴스 관리 API를 제공한다. `packages/base`의 `agents` Tool이 이 API를 래핑한다.
-
-```typescript
-interface ToolAgentsApi {
-  /** 다른 에이전트에 작업을 위임 (새 인스턴스 생성 → Turn 실행 → 결과 반환) */
-  delegate(agentName: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
-
-  /** 현재 Swarm 내 에이전트 인스턴스 목록 조회 */
-  listInstances(): Promise<AgentInstanceInfo[]>;
-
-  /** 에이전트 이름으로 새 인스턴스 생성 (Turn 실행 없이) */
-  spawnInstance(agentName: string): Promise<AgentSpawnResult>;
-
-  /** 특정 인스턴스 ID의 에이전트에 작업 위임 */
-  delegateToInstance(instanceId: string, task: string, options?: AgentDelegateOptions): Promise<AgentDelegateResult>;
-
-  /** 인스턴스 ID로 에이전트 인스턴스 삭제 */
-  destroyInstance(instanceId: string): Promise<AgentDestroyResult>;
-}
-
-interface AgentDelegateOptions {
-  context?: string;
-  async?: boolean;  // true면 fire-and-forget
-}
-```
-
-| 규칙 | 수준 | 설명 |
-|------|------|------|
-| delegate/delegateToInstance의 async 옵션 | MAY | `async: true`이면 Turn을 비동기로 시작하고 즉시 반환 (fire-and-forget) |
-| spawnInstance | MAY | Turn 실행 없이 AgentInstance만 생성하여 instanceId 반환 |
-| destroyInstance | MAY | 캐시 및 SwarmInstance에서 인스턴스 제거 |
-
----
-
-## 6. Tool 결과 처리
-
-### 6.1 ToolResult 구조
+### 8.1 ToolResult 구조
 
 ```typescript
 interface ToolResult {
@@ -581,387 +429,151 @@ interface ToolError {
 }
 ```
 
-### 6.2 동기 완료 결과
+### 8.2 동기/비동기 결과
 
-핸들러가 값을 반환하면 동기 완료로 처리된다.
+- **동기 완료**: 핸들러가 값을 반환하면 `output` 포함
+- **비동기 제출**: `handle` 포함(완료 이벤트 또는 polling)
 
-```typescript
-// 성공
-{
-  status: 'ok',
-  output: {
-    result: 42,
-    expression: "6 × 7 = 42"
-  }
-}
+### 8.3 오류 결과 및 메시지 제한
 
-// LLM 메시지로 변환
-{
-  role: 'tool',
-  toolCallId: 'call_abc123',
-  toolName: 'calc.multiply',
-  output: { result: 42, expression: "6 × 7 = 42" }
-}
-```
-
-### 6.3 비동기 제출 결과
-
-장시간 작업의 경우 `handle`을 반환하고 이벤트로 완료를 통지할 수 있다.
-
-```typescript
-// Tool 핸들러
-export const handlers: Record<string, ToolHandler> = {
-  'build.start': async (ctx, input) => {
-    const buildId = await startBuildAsync(input.project);
-
-    // 비동기 완료를 위한 핸들 반환
-    return {
-      __async: true,
-      handle: buildId,
-      message: '빌드가 시작되었습니다. 완료되면 알려드리겠습니다.',
-    };
-  },
-};
-
-// 결과
-{
-  status: 'pending',
-  handle: 'build-12345',
-  output: { message: '빌드가 시작되었습니다...' }
-}
-```
-
----
-
-## 7. Tool 오류 처리
-
-### 7.1 오류 처리 규칙 (MUST)
-
-1. **예외 전파 금지**: Runtime은 Tool 실행 중 오류가 발생하면 예외를 외부로 전파하지 않고, `ToolResult.output`에 오류 정보를 포함하여 LLM에 전달해야 한다.
-
-2. **메시지 길이 제한**: `error.message`는 `Tool.spec.errorMessageLimit` 길이 제한을 적용한다. 미설정 시 기본값은 1000자이다.
-
-3. **오류 결과 형식**:
+AgentProcess는 Tool 실행 오류를 예외 전파 대신 ToolResult로 LLM에 전달해야 한다(MUST).
 
 ```json
 {
   "status": "error",
   "error": {
-    "message": "요청 실패: 채널을 찾을 수 없습니다 (channel_not_found)",
-    "name": "SlackApiError",
-    "code": "E_CHANNEL_NOT_FOUND",
-    "suggestion": "채널 ID를 확인하거나 slack.listChannels를 호출하여 유효한 채널 목록을 조회하세요.",
-    "helpUrl": "https://api.slack.com/methods/chat.postMessage#errors"
+    "code": "E_TOOL",
+    "name": "Error",
+    "message": "요청 실패",
+    "suggestion": "입력 파라미터를 확인하세요.",
+    "helpUrl": "https://docs.goondan.ai/errors/E_TOOL"
   }
 }
 ```
 
-> **참고**: `suggestion`과 `helpUrl`은 SHOULD 수준이며, 사용자가 오류로부터 복구할 수 있도록 돕는 필드이다.
+규칙:
 
-### 7.2 오류 메시지 제한 구현
+1. `error.message` 길이는 `Tool.spec.errorMessageLimit`를 적용해야 한다(MUST).
+2. 미설정 시 기본값은 1000자여야 한다(MUST).
+3. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
+4. 문서 링크(`helpUrl`) 제공을 권장한다(SHOULD).
+
+### 8.4 오류 메시지 제한 구현
 
 ```typescript
 function truncateErrorMessage(message: string, limit: number): string {
   if (message.length <= limit) {
     return message;
   }
-
   const truncationSuffix = '... (truncated)';
   const maxContentLength = limit - truncationSuffix.length;
-
   return message.slice(0, maxContentLength) + truncationSuffix;
 }
-
-function createToolErrorResult(
-  error: Error,
-  tool: Resource<ToolSpec>
-): ToolResult {
-  const limit = tool.spec.errorMessageLimit ?? 1000;
-
-  return {
-    status: 'error',
-    error: {
-      message: truncateErrorMessage(error.message, limit),
-      name: error.name,
-      code: (error as { code?: string }).code,
-    },
-  };
-}
-```
-
-### 7.3 핸들러에서의 오류 처리 패턴
-
-```typescript
-export const handlers: Record<string, ToolHandler> = {
-  'api.call': async (ctx, input) => {
-    try {
-      const response = await fetch(input.url);
-
-      if (!response.ok) {
-        // 명시적 오류 반환 (throw 대신)
-        throw new Error(`API 요청 실패: ${response.status} ${response.statusText}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      // Runtime이 오류를 catch하고 ToolResult로 변환
-      throw error;
-    }
-  },
-};
 ```
 
 ---
 
-## 8. OAuth 통합
+## 9. Handoff 도구 패턴
 
-### 8.1 ctx.oauth.getAccessToken
+Agent 간 제어 이전(Handoff)을 Tool call로 구현하며, Orchestrator를 경유하는 IPC로 통신한다.
 
-Tool에서 OAuth 토큰이 필요한 경우 `ctx.oauth.getAccessToken`을 사용한다.
+### 9.1 Handoff 흐름
+
+```
+1. Agent A가 handoff 도구를 호출
+2. AgentProcess A → Orchestrator: { type: 'delegate', to: 'AgentB', payload: {...} }
+3. Orchestrator → AgentProcess B로 라우팅 (필요시 스폰)
+4. AgentProcess B 처리 후 → Orchestrator: { type: 'delegate_result', to: 'AgentA', ... }
+5. Orchestrator → AgentProcess A에 결과 전달
+```
+
+### 9.2 IPC 메시지 형식
 
 ```typescript
-interface OAuthApi {
-  getAccessToken(request: OAuthTokenRequest): Promise<OAuthTokenResult>;
-}
-
-interface OAuthTokenRequest {
-  /** 참조할 OAuthApp */
-  oauthAppRef: ObjectRef;
-
-  /** OAuthApp.spec.scopes의 부분집합 (선택) */
-  scopes?: string[];
-
-  /** 만료 임박 판단 기준 (초) */
-  minTtlSeconds?: number;
-}
-
-type OAuthTokenResult =
-  | OAuthTokenReady
-  | OAuthAuthorizationRequired
-  | OAuthTokenError;
-
-interface OAuthTokenReady {
-  status: 'ready';
-  accessToken: string;
-  tokenType: string;
-  expiresAt?: string;
-  scopes: string[];
-}
-
-interface OAuthAuthorizationRequired {
-  status: 'authorization_required';
-  authSessionId: string;
-  authorizationUrl: string;
-  expiresAt: string;
-  message: string;
-}
-
-interface OAuthTokenError {
-  status: 'error';
-  error: {
-    code: string;
-    message: string;
-  };
+interface IpcMessage {
+  type: 'delegate' | 'delegate_result' | 'event' | 'shutdown';
+  from: string;          // agentName
+  to: string;            // agentName
+  payload: JsonValue;
+  correlationId?: string;
 }
 ```
 
-### 8.2 OAuth 통합 Tool 구현 예시
+### 9.3 Handoff 규칙
 
-```typescript
-// tools/slack/index.ts
-import type { ToolHandler, ToolContext, JsonValue } from '@goondan/core';
-
-interface PostMessageInput {
-  channel: string;
-  text: string;
-}
-
-export const handlers: Record<string, ToolHandler> = {
-  'slack.postMessage': async (
-    ctx: ToolContext,
-    input: PostMessageInput
-  ): Promise<JsonValue> => {
-    // 1. OAuth 토큰 획득
-    const tokenResult = await ctx.oauth.getAccessToken({
-      oauthAppRef: { kind: 'OAuthApp', name: 'slack-bot' },
-      scopes: ['chat:write'],
-    });
-
-    // 2. 승인 필요 시 안내 반환
-    if (tokenResult.status === 'authorization_required') {
-      return {
-        status: 'authorization_required',
-        message: tokenResult.message,
-        authorizationUrl: tokenResult.authorizationUrl,
-      };
-    }
-
-    // 3. 오류 시 throw
-    if (tokenResult.status === 'error') {
-      throw new Error(tokenResult.error.message);
-    }
-
-    // 4. API 호출
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tokenResult.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channel: input.channel,
-        text: input.text,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!result.ok) {
-      throw new Error(`Slack API 오류: ${result.error}`);
-    }
-
-    return {
-      ok: true,
-      channel: result.channel,
-      ts: result.ts,
-      message: result.message,
-    };
-  },
-};
-```
-
-### 8.3 OAuth 흐름 다이어그램
-
-```
-Tool 실행
-    │
-    ▼
-ctx.oauth.getAccessToken({ oauthAppRef, scopes })
-    │
-    ├── Grant 존재 + 토큰 유효 ──────────────────────┐
-    │                                                │
-    ├── Grant 없음 / 토큰 무효 / 스코프 불충분       ▼
-    │                                         status: 'ready'
-    ▼                                         accessToken: '***'
-AuthSession 생성                                    │
-status: 'authorization_required'                    │
-authorizationUrl: 'https://...'                     │
-    │                                               ▼
-    ▼                                          API 호출
-Tool 결과로 사용자에게 안내                          │
-(에이전트가 승인 링크 전달)                          ▼
-    │                                          결과 반환
-    ▼
-사용자가 승인 완료
-    │
-    ▼
-Runtime callback 처리
-    │
-    ▼
-OAuthGrant 저장 + auth.granted 이벤트
-    │
-    ▼
-다음 Turn에서 다시 Tool 호출 시 토큰 사용 가능
-```
+| 규칙 | 수준 | 설명 |
+|------|------|------|
+| 대상+입력 포함 | MUST | handoff 요청은 대상 agent 이름과 입력 payload를 포함해야 한다 |
+| 비동기 제출 | SHOULD | 비동기 제출 모델을 지원하는 것이 권장된다 |
+| correlationId 추적 | MUST | 원래 Agent의 Turn/Trace 컨텍스트는 `correlationId`를 통해 추적 가능해야 한다 |
+| 실패 시 에러 반환 | MUST | handoff 실패는 구조화된 ToolResult(`status="error"`)로 반환해야 한다 |
+| 기본 구현체 | SHOULD | 기본 handoff 구현체를 `packages/base`에 제공하는 것이 권장된다 |
+| 자동 스폰 | MUST | Orchestrator는 delegate 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다 |
 
 ---
 
-## 9. 동적 Tool 등록
+## 10. 동적 Tool 등록
 
-### 9.1 api.tools.register
+### 10.1 api.tools.register
 
-Extension에서 런타임에 Tool을 등록할 수 있다.
+Extension에서 런타임에 Tool을 동적으로 등록할 수 있다.
 
 ```typescript
-interface DynamicToolDefinition {
-  /** Tool 이름 */
-  name: string;
-
-  /** LLM에 제공되는 설명 */
-  description?: string;
-
-  /** JSON Schema 파라미터 */
-  parameters?: JsonSchemaObject;
-
-  /** 핸들러 함수 */
-  handler: ToolHandler;
+interface ExtensionApi {
+  tools: {
+    register(item: ToolCatalogItem, handler: ToolHandler): void;
+  };
+  // ... 기타 필드
 }
 ```
 
-### 9.2 동적 등록 예시
+### 10.2 동적 등록 예시
 
 ```typescript
 // extensions/weather/index.ts
-export async function register(api: ExtensionApi): Promise<void> {
-  // 동적 Tool 등록
-  api.tools.register({
-    name: 'weather.get',
-    description: '특정 도시의 현재 날씨 정보를 조회합니다',
-    parameters: {
-      type: 'object',
-      properties: {
-        city: {
-          type: 'string',
-          description: '도시 이름 (예: Seoul, Tokyo)',
+export function register(api: ExtensionApi): void {
+  api.tools.register(
+    {
+      name: 'weather__get',
+      description: '특정 도시의 현재 날씨 정보를 조회합니다',
+      parameters: {
+        type: 'object',
+        properties: {
+          city: {
+            type: 'string',
+            description: '도시 이름 (예: Seoul, Tokyo)',
+          },
         },
-        units: {
-          type: 'string',
-          enum: ['metric', 'imperial'],
-          description: '온도 단위',
-        },
+        required: ['city'],
       },
-      required: ['city'],
     },
-    handler: async (ctx, input) => {
+    async (ctx, input) => {
       const city = String(input.city);
-      const units = String(input.units || 'metric');
-
       const response = await fetch(
-        `https://api.weather.example/v1/current?city=${encodeURIComponent(city)}&units=${units}`
+        `https://api.weather.example/v1/current?city=${encodeURIComponent(city)}`
       );
-
       if (!response.ok) {
         throw new Error(`날씨 API 오류: ${response.status}`);
       }
-
       return await response.json();
-    },
-  });
+    }
+  );
 }
 ```
 
-### 9.3 동적 Tool의 Catalog 노출
+### 10.3 동적 Tool의 Catalog 노출
 
-동적으로 등록된 Tool은 다음 Step의 Tool Catalog에 포함된다.
-
-```typescript
-// step.tools 파이프라인에서 동적 Tool 추가
-api.pipelines.mutate('step.tools', async (ctx) => {
-  const catalog = [...ctx.toolCatalog];
-
-  // Extension이 등록한 동적 Tool 추가
-  for (const dynamicTool of ctx.instance.dynamicTools) {
-    catalog.push({
-      name: dynamicTool.name,
-      description: dynamicTool.description,
-      parameters: dynamicTool.parameters,
-      source: { type: 'extension', name: api.extension.metadata.name },
-    });
-  }
-
-  return { ...ctx, toolCatalog: catalog };
-});
-```
+동적으로 등록된 Tool은 다음 Step의 Tool Catalog에 자동으로 포함된다. Step 미들웨어에서 `ctx.toolCatalog`를 통해 확인/변경할 수 있다.
 
 ---
 
-## 10. ToolCatalogItem 구조
+## 11. ToolCatalogItem 구조
 
-### 10.1 인터페이스 정의
+### 11.1 인터페이스 정의
 
 ```typescript
 interface ToolCatalogItem {
-  /** LLM에 노출되는 Tool 이름 */
+  /** LLM에 노출되는 Tool 이름 (예: "bash__exec") */
   name: string;
 
   /** LLM에 제공되는 설명 */
@@ -969,12 +581,6 @@ interface ToolCatalogItem {
 
   /** JSON Schema 파라미터 */
   parameters?: JsonSchemaObject;
-
-  /** 원본 Tool 리소스 (동적 등록 시 null) */
-  tool?: Resource<ToolSpec> | null;
-
-  /** 원본 Export 정의 (동적 등록 시 null) */
-  export?: ToolExportSpec | null;
 
   /** Tool 출처 정보 */
   source?: ToolSource;
@@ -995,53 +601,44 @@ interface ToolSource {
 }
 ```
 
-### 10.2 Catalog 구성 예시
+### 11.2 Catalog 구성 예시
 
 ```typescript
-// Step N의 Tool Catalog 예시
 const toolCatalog: ToolCatalogItem[] = [
   // Config에서 로드된 Tool
   {
-    name: 'slack.postMessage',
-    description: '채널에 메시지를 전송합니다',
+    name: 'bash__exec',
+    description: '셸 명령 실행',
     parameters: {
       type: 'object',
       properties: {
-        channel: { type: 'string' },
-        text: { type: 'string' },
+        command: { type: 'string' },
       },
-      required: ['channel', 'text'],
+      required: ['command'],
     },
-    tool: slackToolkitResource,
-    export: slackToolkitResource.spec.exports[0],
-    source: { type: 'config', name: 'slackToolkit' },
+    source: { type: 'config', name: 'bash' },
   },
 
   // Extension에서 동적 등록된 Tool
   {
-    name: 'skills.list',
-    description: '사용 가능한 스킬 목록을 조회합니다',
+    name: 'weather__get',
+    description: '특정 도시의 현재 날씨 정보를 조회합니다',
     parameters: { type: 'object', properties: {} },
-    tool: null,
-    export: null,
-    source: { type: 'extension', name: 'skills' },
+    source: { type: 'extension', name: 'weather-ext' },
   },
 
   // MCP Extension에서 노출된 Tool
   {
-    name: 'github.createIssue',
+    name: 'github__create_issue',
     description: 'GitHub 이슈를 생성합니다',
     parameters: {
       type: 'object',
       properties: {
         repo: { type: 'string' },
         title: { type: 'string' },
-        body: { type: 'string' },
       },
       required: ['repo', 'title'],
     },
-    tool: null,
-    export: null,
     source: {
       type: 'mcp',
       name: 'mcp-github',
@@ -1053,22 +650,22 @@ const toolCatalog: ToolCatalogItem[] = [
 
 ---
 
-## 11. 실전 Tool 구현 예시
+## 12. 실전 Tool 구현 예시
 
-### 11.1 파일 읽기 Tool
+### 12.1 파일 시스템 Tool
 
 ```yaml
-# tools/file/tool.yaml
-apiVersion: agents.example.io/v1alpha1
+apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: fileToolkit
+  name: file-system
+  labels:
+    tier: base
 spec:
-  runtime: node
-  entry: "./tools/file/index.js"
+  entry: "./tools/file-system/index.ts"
   errorMessageLimit: 2000
   exports:
-    - name: file.read
+    - name: read
       description: "파일 내용을 읽습니다"
       parameters:
         type: object
@@ -1076,15 +673,12 @@ spec:
           path:
             type: string
             description: "읽을 파일 경로"
-          encoding:
-            type: string
-            description: "인코딩 (기본: utf8)"
           maxBytes:
             type: number
             description: "최대 읽기 바이트 (기본: 100000)"
-        required: ["path"]
+        required: [path]
 
-    - name: file.write
+    - name: write
       description: "파일에 내용을 씁니다"
       parameters:
         type: object
@@ -1095,180 +689,89 @@ spec:
           content:
             type: string
             description: "작성할 내용"
-          encoding:
-            type: string
-            description: "인코딩 (기본: utf8)"
-        required: ["path", "content"]
+        required: [path, content]
 ```
 
 ```typescript
-// tools/file/index.ts
-import * as fs from 'fs/promises';
-import * as path from 'path';
+// tools/file-system/index.ts
 import type { ToolHandler, ToolContext, JsonValue } from '@goondan/core';
-
-interface FileReadInput {
-  path: string;
-  encoding?: BufferEncoding;
-  maxBytes?: number;
-}
-
-interface FileWriteInput {
-  path: string;
-  content: string;
-  encoding?: BufferEncoding;
-}
+import { join, isAbsolute } from 'path';
 
 export const handlers: Record<string, ToolHandler> = {
-  'file.read': async (ctx: ToolContext, input: FileReadInput): Promise<JsonValue> => {
-    const targetPath = String(input.path || '');
+  'read': async (ctx: ToolContext, input: { path: string; maxBytes?: number }): Promise<JsonValue> => {
+    const targetPath = isAbsolute(input.path)
+      ? input.path
+      : join(ctx.workdir, input.path);
 
-    if (!targetPath) {
-      throw new Error('path가 필요합니다.');
+    const file = Bun.file(targetPath);
+    const exists = await file.exists();
+    if (!exists) {
+      throw new Error(`파일이 존재하지 않습니다: ${targetPath}`);
     }
 
-    // 상대 경로를 절대 경로로 변환
-    const resolved = path.isAbsolute(targetPath)
-      ? targetPath
-      : path.join(process.cwd(), targetPath);
-
-    // 파일 존재 확인
-    const stat = await fs.stat(resolved);
-    if (!stat.isFile()) {
-      throw new Error(`${resolved}는 파일이 아닙니다.`);
-    }
-
-    // 파일 읽기
-    const encoding = input.encoding || 'utf8';
     const maxBytes = input.maxBytes ?? 100_000;
-    const content = await fs.readFile(resolved, encoding);
-
-    // 크기 제한
-    const truncated = content.length > maxBytes;
-    const finalContent = truncated ? content.slice(0, maxBytes) : content;
+    const text = await file.text();
+    const truncated = text.length > maxBytes;
 
     return {
-      path: resolved,
-      size: stat.size,
+      path: targetPath,
+      size: file.size,
       truncated,
-      content: finalContent,
+      content: truncated ? text.slice(0, maxBytes) : text,
     };
   },
 
-  'file.write': async (ctx: ToolContext, input: FileWriteInput): Promise<JsonValue> => {
-    const targetPath = String(input.path || '');
-    const content = String(input.content || '');
+  'write': async (ctx: ToolContext, input: { path: string; content: string }): Promise<JsonValue> => {
+    const targetPath = isAbsolute(input.path)
+      ? input.path
+      : join(ctx.workdir, input.path);
 
-    if (!targetPath) {
-      throw new Error('path가 필요합니다.');
-    }
-
-    const resolved = path.isAbsolute(targetPath)
-      ? targetPath
-      : path.join(process.cwd(), targetPath);
-
-    const encoding = input.encoding || 'utf8';
-
-    // 디렉터리 생성
-    await fs.mkdir(path.dirname(resolved), { recursive: true });
-
-    // 파일 쓰기
-    await fs.writeFile(resolved, content, encoding);
-
-    const stat = await fs.stat(resolved);
+    await Bun.write(targetPath, input.content);
+    const file = Bun.file(targetPath);
 
     return {
-      path: resolved,
-      size: stat.size,
+      path: targetPath,
+      size: file.size,
       written: true,
     };
   },
 };
 ```
 
-### 11.2 SwarmBundle 변경 Tool
+### 12.2 HTTP Fetch Tool
 
-```typescript
-// tools/bundle/index.ts
-import type { ToolHandler, ToolContext, JsonValue } from '@goondan/core';
-
-export const handlers: Record<string, ToolHandler> = {
-  'swarmBundle.openChangeset': async (
-    ctx: ToolContext,
-    input: { reason?: string }
-  ): Promise<JsonValue> => {
-    // SwarmBundleApi를 통해 changeset 열기
-    const result = await ctx.swarmBundle.openChangeset({
-      reason: input.reason,
-    });
-
-    return result;
-  },
-
-  'swarmBundle.commitChangeset': async (
-    ctx: ToolContext,
-    input: { changesetId: string; message?: string }
-  ): Promise<JsonValue> => {
-    // SwarmBundleApi를 통해 changeset 커밋
-    const result = await ctx.swarmBundle.commitChangeset({
-      changesetId: input.changesetId,
-      message: input.message,
-    });
-
-    return result;
-  },
-};
-```
-
-### 11.3 SwarmBundle Commit 결과 타입
-
-Changeset commit 결과는 다음 status 값 중 하나를 반환해야 한다(MUST):
-
-```typescript
-type ChangesetCommitResult =
-  | {
-      status: 'ok';
-      changesetId: string;
-      baseRef: string;
-      newRef: string;
-      summary: {
-        filesChanged: string[];
-        filesAdded: string[];
-        filesDeleted: string[];
-      };
-    }
-  | {
-      status: 'rejected';
-      changesetId: string;
-      reason: 'policy_violation' | 'invalid_files';
-      message: string;
-      violations?: string[];
-    }
-  | {
-      status: 'conflict';
-      changesetId: string;
-      baseRef: string;
-      /** 충돌 파일 목록 (MUST) */
-      conflictFiles: string[];
-      /** 복구 힌트 (MUST) */
-      recoveryHint: string;
-      message: string;
-    }
-  | {
-      status: 'failed';
-      changesetId: string;
-      error: {
-        code: string;
-        message: string;
-      };
-    };
+```yaml
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: http-fetch
+  labels:
+    tier: base
+spec:
+  entry: "./tools/http-fetch/index.ts"
+  exports:
+    - name: get
+      description: "HTTP GET 요청을 수행합니다"
+      parameters:
+        type: object
+        properties:
+          url: { type: string, description: "요청 URL" }
+          headers: { type: object, description: "요청 헤더" }
+        required: [url]
+    - name: post
+      description: "HTTP POST 요청을 수행합니다"
+      parameters:
+        type: object
+        properties:
+          url: { type: string, description: "요청 URL" }
+          body: { type: object, description: "요청 본문" }
+          headers: { type: object, description: "요청 헤더" }
+        required: [url]
 ```
 
 ---
 
-## 12. 검증 및 디버깅
-
-### 12.1 Tool 검증 체크리스트
+## 13. 검증 체크리스트
 
 | 항목 | 검증 내용 |
 |------|----------|
@@ -1276,38 +779,8 @@ type ChangesetCommitResult =
 | 파일 존재 | entry 경로가 실제로 존재하는지 |
 | 핸들러 export | `handlers` 객체가 export되는지 |
 | export 매핑 | 각 export.name에 대응하는 handler가 있는지 |
-| OAuth 스코프 | auth.scopes가 OAuthApp.spec.scopes의 부분집합인지 |
+| 이름 규칙 | Tool 리소스 이름과 export name에 `__`가 없는지 |
 | 파라미터 스키마 | JSON Schema 형식이 유효한지 |
-
-### 12.2 런타임 디버깅
-
-```typescript
-// 디버그 로깅 Extension
-export async function register(api: ExtensionApi): Promise<void> {
-  api.pipelines.wrap('toolCall.exec', async (ctx, next) => {
-    const { toolCall } = ctx;
-
-    console.log('[Tool] 호출:', {
-      name: toolCall.name,
-      args: toolCall.args,
-      turnId: ctx.turn.id,
-      stepIndex: ctx.step.index,
-    });
-
-    const startTime = Date.now();
-    const result = await next(ctx);
-    const elapsed = Date.now() - startTime;
-
-    console.log('[Tool] 완료:', {
-      name: toolCall.name,
-      status: ctx.toolResult?.status,
-      elapsed: `${elapsed}ms`,
-    });
-
-    return result;
-  });
-}
-```
 
 ---
 
@@ -1320,35 +793,52 @@ type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 type JsonObject = { [key: string]: JsonValue };
 type JsonArray = JsonValue[];
 
-// 리소스 참조
-type ObjectRef = { kind: string; name: string; apiVersion?: string };
-type ObjectRefLike = string | ObjectRef;
-
-// LLM 메시지
-type LlmMessage =
-  | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
-  | { role: 'assistant'; content?: string; toolCalls?: ToolCall[] }
-  | { role: 'tool'; toolCallId: string; toolName: string; output: JsonValue };
+// Message (AI SDK CoreMessage 래퍼)
+interface Message {
+  readonly id: string;
+  readonly data: CoreMessage;
+  metadata: Record<string, JsonValue>;
+  readonly createdAt: Date;
+  readonly source: MessageSource;
+}
 
 // Tool 핸들러
 type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> | JsonValue;
 
 // Tool 결과
-type ToolResult = {
+interface ToolResult {
   status: 'ok' | 'error' | 'pending';
   output?: JsonValue;
   handle?: string;
   error?: ToolError;
-};
+}
 ```
 
 ---
 
-## 부록 B. 참고 문서
+## 부록 B. v1 → v2 변경 요약
 
-- @docs/requirements/05_core-concepts.md: Tool 핵심 개념 정의
-- @docs/requirements/07_config-resources.md: Tool 리소스 스키마
-- @docs/requirements/12_tool-spec-runtime.md: Tool Registry, Catalog, 실행 모델
-- @docs/specs/api.md: Runtime/SDK API 스펙
-- @docs/specs/bundle.md: Bundle YAML 스펙
+| 항목 | v1 | v2 |
+|------|----|----|
+| `spec.runtime` | `node` (필수) | 제거 (항상 Bun) |
+| `spec.auth` | OAuthApp 참조 | 제거 (Extension 내부 구현) |
+| 도구 이름 구분자 | `.` (점) | `__` (더블 언더스코어) |
+| ToolContext | `instance`, `swarm`, `agent`, `oauth`, `swarmBundle` 포함 | `agentName`, `instanceKey`, `turnId`, `toolCallId`, `message`, `workdir`, `logger` |
+| apiVersion | `agents.example.io/v1alpha1` | `goondan.ai/v1` |
+| 파이프라인 | `toolCall.pre` / `toolCall.exec` / `toolCall.post` (Mutator + Middleware) | `toolCall` 미들웨어 단일 통합 |
+| Handoff | 인메모리 delegate | IPC (Orchestrator 경유) |
+
+---
+
+## 부록 C. 참고 문서
+
+- `docs/requirements/05_core-concepts.md` §5.2: Tool 핵심 개념 정의
+- `docs/requirements/07_config-resources.md` §7.2: Tool 리소스 스키마
+- `docs/requirements/12_tool-spec-runtime.md`: Tool Registry, Catalog, 실행 모델
+- `docs/specs/extension.md`: Extension 시스템 (동적 도구 등록, 미들웨어)
+- `docs/specs/runtime.md`: Runtime 실행 모델 (Turn/Step, AgentProcess)
+
+---
+
+**문서 버전**: v2.0
+**최종 수정**: 2026-02-12

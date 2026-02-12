@@ -46,6 +46,28 @@ export interface RuntimeRestartResult {
   restarted: string[];
 }
 
+export type LogStream = 'stdout' | 'stderr' | 'both';
+
+export interface LogReadRequest {
+  instanceKey?: string;
+  process: string;
+  stream: LogStream;
+  lines: number;
+  stateRoot?: string;
+}
+
+export interface LogChunk {
+  stream: 'stdout' | 'stderr';
+  path: string;
+  lines: string[];
+}
+
+export interface LogReadResult {
+  instanceKey: string;
+  process: string;
+  chunks: LogChunk[];
+}
+
 export interface InstanceRecord {
   key: string;
   agent: string;
@@ -208,6 +230,10 @@ export interface DoctorService {
   run(bundlePath: string, fix: boolean, stateRoot?: string): Promise<DoctorReport>;
 }
 
+export interface LogService {
+  read(request: LogReadRequest): Promise<LogReadResult>;
+}
+
 export interface CliIO {
   out(message: string): void;
   err(message: string): void;
@@ -223,12 +249,6 @@ export interface CliDependencies {
   instances: InstanceStore;
   packages: PackageService;
   doctor: DoctorService;
+  logs: LogService;
 }
 
-export interface ParsedArguments {
-  command?: string;
-  subcommand?: string;
-  rest: string[];
-  options: Record<string, string | boolean>;
-  globalOptions: Record<string, string | boolean>;
-}

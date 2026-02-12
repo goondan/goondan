@@ -1,82 +1,87 @@
-import { usageError } from '../errors.js';
-import { getAccessOption, getBooleanOption, getStringOption } from '../options.js';
-import type { CommandHandler } from './context.js';
+import type { CliDependencies, ExitCode } from '../types.js';
+import type { GdnArgs, GdnCommand } from '../parser.js';
 
-export const handlePackage: CommandHandler = async ({ parsed, deps, globals }) => {
-  const sub = parsed.subcommand;
-  if (!sub) {
-    throw usageError('package 하위 명령이 필요합니다.', 'gdn package add|install|publish 를 사용하세요.');
+type PackageAddCommand = Extract<GdnCommand, { action: 'package.add' }>;
+type PackageInstallCommand = Extract<GdnCommand, { action: 'package.install' }>;
+type PackagePublishCommand = Extract<GdnCommand, { action: 'package.publish' }>;
+
+interface PackageAddContext {
+  cmd: PackageAddCommand;
+  deps: CliDependencies;
+  globals: Omit<GdnArgs, 'command'>;
+}
+
+interface PackageInstallContext {
+  cmd: PackageInstallCommand;
+  deps: CliDependencies;
+  globals: Omit<GdnArgs, 'command'>;
+}
+
+interface PackagePublishContext {
+  cmd: PackagePublishCommand;
+  deps: CliDependencies;
+  globals: Omit<GdnArgs, 'command'>;
+}
+
+export async function handlePackageAdd({ cmd, deps, globals }: PackageAddContext): Promise<ExitCode> {
+  const bundlePath = globals.config;
+  const registry = cmd.registry ?? undefined;
+
+  const result = await deps.packages.addDependency({
+    ref: cmd.ref,
+    dev: cmd.dev ?? false,
+    exact: cmd.exact ?? false,
+    registry,
+    bundlePath,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
+
+  const installResult = await deps.packages.installDependencies({
+    frozenLockfile: false,
+    bundlePath,
+    registry,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
+
+  deps.io.out(
+    `Dependency ${result.added ? 'added' : 'already exists'}: ${result.ref}` +
+      `${result.resolvedVersion ? ` (${result.resolvedVersion})` : ''}`,
+  );
+  deps.io.out(`Manifest: ${result.manifestPath}`);
+  deps.io.out(`Installed dependencies: ${installResult.installed}`);
+  return 0;
+}
+
+export async function handlePackageInstall({ cmd, deps, globals }: PackageInstallContext): Promise<ExitCode> {
+  const result = await deps.packages.installDependencies({
+    frozenLockfile: cmd.frozenLockfile ?? false,
+    bundlePath: globals.config,
+    registry: cmd.registry ?? undefined,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
+
+  deps.io.out(`Installed dependencies: ${result.installed}`);
+  if (result.lockfilePath) {
+    deps.io.out(`Lockfile: ${result.lockfilePath}`);
   }
+  return 0;
+}
 
-  const bundlePath = globals.configPath;
+export async function handlePackagePublish({ cmd, deps, globals }: PackagePublishContext): Promise<ExitCode> {
+  const publishPath = cmd.publishPath ?? '.';
 
-  if (sub === 'add') {
-    const ref = parsed.rest[0];
-    if (!ref) {
-      throw usageError('package add에는 ref가 필요합니다.', '예: gdn package add @goondan/base');
-    }
+  const result = await deps.packages.publishPackage({
+    path: publishPath,
+    tag: cmd.tag,
+    access: cmd.access,
+    dryRun: cmd.dryRun ?? false,
+    registry: cmd.registry ?? undefined,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
 
-    const registry = getStringOption(parsed, 'registry');
-    const result = await deps.packages.addDependency({
-      ref,
-      dev: getBooleanOption(parsed, 'dev'),
-      exact: getBooleanOption(parsed, 'exact'),
-      registry,
-      bundlePath,
-      stateRoot: globals.stateRoot,
-    });
-
-    const installResult = await deps.packages.installDependencies({
-      frozenLockfile: false,
-      bundlePath,
-      registry,
-      stateRoot: globals.stateRoot,
-    });
-
-    deps.io.out(
-      `Dependency ${result.added ? 'added' : 'already exists'}: ${result.ref}` +
-        `${result.resolvedVersion ? ` (${result.resolvedVersion})` : ''}`,
-    );
-    deps.io.out(`Manifest: ${result.manifestPath}`);
-    deps.io.out(`Installed dependencies: ${installResult.installed}`);
-    return 0;
-  }
-
-  if (sub === 'install') {
-    const result = await deps.packages.installDependencies({
-      frozenLockfile: getBooleanOption(parsed, 'frozen-lockfile'),
-      bundlePath,
-      registry: getStringOption(parsed, 'registry'),
-      stateRoot: globals.stateRoot,
-    });
-
-    deps.io.out(`Installed dependencies: ${result.installed}`);
-    if (result.lockfilePath) {
-      deps.io.out(`Lockfile: ${result.lockfilePath}`);
-    }
-    return 0;
-  }
-
-  if (sub === 'publish') {
-    const publishPath = parsed.rest[0] ?? '.';
-    const tag = getStringOption(parsed, 'tag') ?? 'latest';
-    const access = getAccessOption(parsed);
-
-    const result = await deps.packages.publishPackage({
-      path: publishPath,
-      tag,
-      access,
-      dryRun: getBooleanOption(parsed, 'dry-run'),
-      registry: getStringOption(parsed, 'registry'),
-      stateRoot: globals.stateRoot,
-    });
-
-    deps.io.out(
-      `${result.dryRun ? 'Dry-run publish checked' : 'Published'} ${result.packageName}@${result.version}` +
-        ` tag=${result.tag} registry=${result.registryUrl}`,
-    );
-    return 0;
-  }
-
-  throw usageError(`지원하지 않는 package 하위 명령입니다: ${sub}`, 'add, install, publish 중 하나를 사용하세요.');
-};
+  deps.io.out(
+    `${result.dryRun ? 'Dry-run publish checked' : 'Published'} ${result.packageName}@${result.version}` +
+      ` tag=${result.tag} registry=${result.registryUrl}`,
+  );
+  return 0;
+}

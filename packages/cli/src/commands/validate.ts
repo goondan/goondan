@@ -1,17 +1,21 @@
 import { formatValidationResult } from '../formatter.js';
 import { validateError } from '../errors.js';
-import { getBooleanOption, getFormatOption } from '../options.js';
-import type { CommandHandler } from './context.js';
+import type { CliDependencies, ExitCode } from '../types.js';
+import type { GdnArgs, GdnCommand } from '../parser.js';
 
-export const handleValidate: CommandHandler = async ({ parsed, deps, globals }) => {
-  const target = parsed.subcommand ?? '.';
-  if (parsed.rest.length > 0) {
-    throw validateError('validate 명령의 위치 인자가 너무 많습니다.', 'gdn validate [path] 형태를 사용하세요.');
-  }
+type ValidateCommand = Extract<GdnCommand, { action: 'validate' }>;
 
-  const strict = getBooleanOption(parsed, 'strict');
-  const fix = getBooleanOption(parsed, 'fix');
-  const format = getFormatOption(parsed, 'text');
+interface ValidateContext {
+  cmd: ValidateCommand;
+  deps: CliDependencies;
+  globals: Omit<GdnArgs, 'command'>;
+}
+
+export async function handleValidate({ cmd, deps, globals }: ValidateContext): Promise<ExitCode> {
+  const target = cmd.target ?? '.';
+  const strict = cmd.strict ?? false;
+  const fix = cmd.fix ?? false;
+  const format = cmd.format;
 
   const result = await deps.validator.validate(target, strict, fix);
 
@@ -25,9 +29,10 @@ export const handleValidate: CommandHandler = async ({ parsed, deps, globals }) 
     throw validateError('strict 모드에서 경고가 발견되었습니다.', '경고를 모두 해결하거나 --strict 옵션을 제거하세요.');
   }
 
-  if (globals.json && format !== 'json') {
+  const isJson = globals.json ?? false;
+  if (isJson && format !== 'json') {
     deps.io.out('Tip: --json 플래그와 함께 --format json을 사용하면 기계 처리에 적합합니다.');
   }
 
   return 0;
-};
+}

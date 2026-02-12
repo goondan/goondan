@@ -7,10 +7,19 @@ import { isJsonObject, isKnownKind } from "../types.js";
 import { isObjectRefLikeString, normalizeObjectRef } from "./object-ref.js";
 
 const SUPPORTED_API_VERSION = "goondan.ai/v1";
+export const LOCAL_PACKAGE_SCOPE = "__local__";
 
 interface RefCandidate {
   value: string | { kind: string; name: string; package?: string };
   path: string;
+}
+
+function resourcePackageScope(resource: RuntimeResource): string {
+  return resource.__package ?? LOCAL_PACKAGE_SCOPE;
+}
+
+export function toScopedResourceIdentity(packageName: string, kind: string, name: string): string {
+  return `${packageName}|${kind}/${name}`;
 }
 
 export function validateResources(resources: RuntimeResource[]): ValidationError[] {
@@ -19,6 +28,7 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
 
   resources.forEach((resource) => {
     const resourcePath = `${resource.__file}#${resource.__docIndex}`;
+    const packageScope = resourcePackageScope(resource);
 
     if (resource.apiVersion !== SUPPORTED_API_VERSION) {
       errors.push({
@@ -46,11 +56,11 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
       });
     }
 
-    const identity = `${resource.kind}/${resource.metadata.name}`;
+    const identity = toScopedResourceIdentity(packageScope, resource.kind, resource.metadata.name);
     if (seenNames.has(identity)) {
       errors.push({
         code: "E_CONFIG_DUPLICATE_NAME",
-        message: `Duplicate resource identity '${identity}'.`,
+        message: `Duplicate resource identity '${resource.kind}/${resource.metadata.name}' in package '${packageScope}'.`,
         path: `${resourcePath}.metadata.name`,
         suggestion: "동일 kind 내 name 고유성을 보장하세요.",
       });
@@ -58,11 +68,16 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
     seenNames.add(identity);
   });
 
-  const existing = new Set(resources.map((resource) => `${resource.kind}/${resource.metadata.name}`));
+  const existing = new Set(
+    resources.map((resource) =>
+      toScopedResourceIdentity(resourcePackageScope(resource), resource.kind, resource.metadata.name),
+    ),
+  );
 
   resources.forEach((resource) => {
     const rootPath = `${resource.__file}#${resource.__docIndex}.spec`;
     const refs = collectObjectRefCandidates(resource.spec, rootPath);
+    const fallbackPackage = resourcePackageScope(resource);
 
     refs.forEach((candidate) => {
       try {
@@ -71,15 +86,12 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
             ? normalizeObjectRef(candidate.value)
             : normalizeObjectRef(candidate.value);
 
-        if (normalized.package !== undefined) {
-          return;
-        }
-
-        const identity = `${normalized.kind}/${normalized.name}`;
+        const targetPackage = normalized.package ?? fallbackPackage;
+        const identity = toScopedResourceIdentity(targetPackage, normalized.kind, normalized.name);
         if (!existing.has(identity)) {
           errors.push({
             code: "E_CONFIG_REF_NOT_FOUND",
-            message: `${identity} 참조를 찾을 수 없습니다.`,
+            message: `${normalized.kind}/${normalized.name} 참조를 찾을 수 없습니다. (package=${targetPackage})`,
             path: candidate.path,
             suggestion: "kind/name 또는 package 범위를 확인하세요.",
           });
@@ -241,6 +253,8 @@ export function toRuntimeResource(input: {
   value: unknown;
   file: string;
   docIndex: number;
+  packageName?: string;
+  rootDir?: string;
 }): RuntimeResource | null {
   const maybeObject = input.value;
   if (!isJsonObject(maybeObject)) {
@@ -281,6 +295,8 @@ export function toRuntimeResource(input: {
       spec,
       __file: input.file,
       __docIndex: input.docIndex,
+      __package: input.packageName,
+      __rootDir: input.rootDir,
     };
   }
 
@@ -294,6 +310,8 @@ export function toRuntimeResource(input: {
       spec,
       __file: input.file,
       __docIndex: input.docIndex,
+      __package: input.packageName,
+      __rootDir: input.rootDir,
     };
   }
 
@@ -308,6 +326,8 @@ export function toRuntimeResource(input: {
     spec,
     __file: input.file,
     __docIndex: input.docIndex,
+    __package: input.packageName,
+    __rootDir: input.rootDir,
   };
 }
 
@@ -321,15 +341,23 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 export interface ResourceIndex {
   byIdentity: Map<string, RuntimeResource>;
+  byScopedIdentity: Map<string, RuntimeResource>;
   byKind: Map<KnownKind, RuntimeResource[]>;
 }
 
 export function buildResourceIndex(resources: RuntimeResource[]): ResourceIndex {
   const byIdentity = new Map<string, RuntimeResource>();
+  const byScopedIdentity = new Map<string, RuntimeResource>();
   const byKind = new Map<KnownKind, RuntimeResource[]>();
 
   resources.forEach((resource) => {
-    byIdentity.set(`${resource.kind}/${resource.metadata.name}`, resource);
+    const identity = `${resource.kind}/${resource.metadata.name}`;
+    if (!byIdentity.has(identity)) {
+      byIdentity.set(identity, resource);
+    }
+
+    const scopedIdentity = toScopedResourceIdentity(resourcePackageScope(resource), resource.kind, resource.metadata.name);
+    byScopedIdentity.set(scopedIdentity, resource);
 
     const list = byKind.get(resource.kind) ?? [];
     list.push(resource);
@@ -338,6 +366,7 @@ export function buildResourceIndex(resources: RuntimeResource[]): ResourceIndex 
 
   return {
     byIdentity,
+    byScopedIdentity,
     byKind,
   };
 }

@@ -29,7 +29,7 @@
 - docs/specs/shared-types.md : 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/**EventEnvelope/ExecutionContext**/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
 - docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, **Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥**, YAML 보안, 분할 파일 구성)
-- docs/specs/bundle_package.md : Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
+- docs/specs/bundle_package.md : Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, values 병합 우선순위, **dist/goondan.yaml 배포 규칙/manifest 우선순위/Package Root 경로 규칙**, 보안/검증 오류 코드, CLI 명령어)
 - docs/specs/runtime.md : **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, **Reconciliation Loop**, **Graceful Shutdown Protocol**, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
 - docs/specs/pipeline.md : 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
 - docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, Bun-only)
@@ -42,11 +42,13 @@
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
+- .gitignore : 저장소 공통 ignore 규칙 (`/test/`는 루트 테스트 산출물만 무시, 패키지 테스트 소스는 추적)
 - packages/runtime/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/types/src/* : 공통 타입 계약(SSOT) 구현
-- packages/cli/src/* : CLI 도구(gdn) 구현
+- packages/cli/src/* : CLI 도구(gdn) 구현 (`dist/bin.js` shebang + 실행 권한 보장)
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
 - packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (CLI publish 입력)
+- packages/base/build-manifest.mjs : `dist/goondan.yaml` 생성 스크립트 (`files: ["dist"]` 배포 대응, Package name/version은 `packages/base/goondan.yaml` 기준)
 - packages/registry/src/* : 패키지 레지스트리 API 서버/클라이언트 구현 (HTTP + 파일시스템 저장소 기본 구현)
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**

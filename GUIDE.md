@@ -485,7 +485,10 @@ gdn package publish
 
 - 매니페스트: `goondan.yaml` 첫 문서의 `kind: Package`
 - lockfile: `goondan.lock.yaml`
-- 캐시: `~/.goondan/packages/`
+- 설치 경로: `~/.goondan/packages/<scope>/<name>/<version>/`
+- 배포 tarball 내부 manifest: `goondan.yaml` 또는 `dist/goondan.yaml`
+
+`package.json`의 `files`를 `["dist"]`로 운영하는 패키지는, 빌드 단계에서 `dist/goondan.yaml`을 생성해야 한다.
 
 `gdn package` 명령 매트릭스는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
@@ -573,7 +576,7 @@ gdn doctor
 
 ### 13.2 Tool/Extension/Connector entry 로드 실패
 
-- `spec.entry`가 Project Root 기준 상대 경로인지 확인
+- `spec.entry`가 Project Root(의존 패키지는 Package Root) 기준 상대 경로인지 확인
 - `../` 또는 절대 경로 사용 여부 확인
 - 파일 존재/권한 확인
 

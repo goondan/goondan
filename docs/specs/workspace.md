@@ -297,10 +297,10 @@ interface SystemConfig {
 
 ```json
 {
-  "registry": "https://registry.goondan.ai",
+  "registry": "https://goondan-registry.yechanny.workers.dev",
   "logLevel": "info",
   "registries": {
-    "https://registry.goondan.ai": {
+    "https://goondan-registry.yechanny.workers.dev": {
       "token": "xxx..."
     }
   },
@@ -717,7 +717,7 @@ async function initializeInstanceState(
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
 | `GOONDAN_STATE_ROOT` | System Root 경로 | `~/.goondan` |
-| `GOONDAN_REGISTRY` | Package 레지스트리 URL | `https://registry.goondan.ai` |
+| `GOONDAN_REGISTRY` | Package 레지스트리 URL | `https://goondan-registry.yechanny.workers.dev` |
 | `GOONDAN_REGISTRY_TOKEN` | 레지스트리 인증 토큰 | - |
 | `GOONDAN_LOG_LEVEL` | 로그 레벨 (`debug`, `info`, `warn`, `error`) | `info` |
 

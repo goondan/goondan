@@ -1,3 +1,5 @@
+# source package manifest used for publish metadata/validation.
+# runtime-consumable resources are emitted to dist/goondan.yaml at build time.
 apiVersion: goondan.ai/v1
 kind: Package
 metadata:

@@ -8,6 +8,7 @@
 - `src/conversation/*`: `NextMessages = BaseMessages + SUM(Events)` 기반 상태 계산
 - `src/tools/*`: Tool 이름 파싱, ToolRegistry, ToolExecutor, catalog 허용 범위 검증
 - `src/config/*`: Bundle/Resource 로딩, ObjectRef 파싱, 기본 검증(apiVersion/kind/ref)
+- `src/config/bundle-loader.ts`: 로컬 번들 + 설치된 dependency 패키지(`~/.goondan/packages`) 리소스 병합 로딩 (manifest는 `dist/goondan.yaml` 우선, 경로 기준은 Package Root)
 - `src/workspace/*`: `messages/base.jsonl`, `messages/events.jsonl`, extension state 저장소
 - `src/orchestrator/*`: spawn/restart/reconcile/shutdown, process status, crash backoff, graceful shutdown ack 모델
 - `src/events/*`: Runtime 표준 이벤트 버스 인터페이스

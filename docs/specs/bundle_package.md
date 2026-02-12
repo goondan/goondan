@@ -91,14 +91,24 @@ values 병합 우선순위는 다음 순서를 따라야 한다 (MUST). 후순�
 8. dist-tag(latest, beta 등) 지정을 지원해야 한다 (SHOULD).
 9. `--dry-run` 모드로 게시 전 검증만 수행할 수 있어야 한다 (SHOULD).
 
-### 2.7 레지스트리 인증
+### 2.7 배포 아티팩트 레이아웃
+
+1. 설치 후 Runtime이 읽을 수 있는 manifest(`goondan.yaml`)는 tarball 내부에 반드시 포함되어야 한다 (MUST).
+2. manifest 위치는 다음 두 경로 중 하나를 허용한다 (MUST):
+   - `package/goondan.yaml`
+   - `package/dist/goondan.yaml`
+3. `package.json`의 `files`가 `["dist"]`인 패키지는 빌드 단계에서 `dist/goondan.yaml`을 생성해야 한다 (MUST).
+4. 두 manifest가 동시에 존재하면 Runtime 로더는 `package/dist/goondan.yaml`을 우선 로드해야 한다 (MUST).
+5. `gdn package publish`는 tarball에 위 manifest가 없으면 publish를 거부해야 한다 (MUST).
+
+### 2.8 레지스트리 인증
 
 1. 레지스트리는 Bearer Token 기반 인증을 지원해야 한다 (MUST).
 2. 인증 토큰은 `~/.goondan/config.json` 또는 환경 변수(`GOONDAN_REGISTRY_TOKEN`)로 제공할 수 있어야 한다 (MUST).
 3. scope별 레지스트리 분리 구성을 지원해야 한다 (SHOULD).
 4. 인증 토큰은 설정 파일에 평문 저장하지 않는 것을 권장한다 (SHOULD).
 
-### 2.8 Lockfile
+### 2.9 Lockfile
 
 1. 설치 결과를 재현하기 위해 lockfile을 생성해야 한다 (MUST).
 2. lockfile에는 해석된 버전, 소스(ref/digest), 의존성 트리를 포함해야 한다 (MUST).
@@ -547,6 +557,7 @@ packages:
 2. `goondan.lock.yaml`은 Package Ref와 정확한 버전/integrity 정보를 저장해 **재현 가능한 로딩**을 보장한다(SHOULD).
 3. `--frozen-lockfile` 옵션으로 설치 시, lockfile과 불일치하면 설치를 거부해야 한다(MUST).
 4. CI/배포 환경은 lockfile 기반 설치 모드(`--frozen-lockfile`)를 제공해야 한다(SHOULD).
+5. `gdn package install`은 lockfile 작성 전에 tarball 다운로드, integrity 검증, 압축 해제를 수행해야 한다 (MUST).
 
 ---
 
@@ -696,6 +707,16 @@ spec:
         └── index.ts
 ```
 
+`files: ["dist"]` 전략을 사용하는 경우, 배포 tarball에는 최소 다음이 포함되어야 한다:
+
+```
+package/
+├── package.json
+└── dist/
+    ├── goondan.yaml      # 빌드 시 생성된 배포 manifest
+    └── **/*.js           # 실행 가능한 JS 엔트리
+```
+
 ### 14.2 애플리케이션 프로젝트 (consumer)
 
 의존성을 소비하고 자체 리소스를 정의하는 프로젝트.
@@ -804,7 +825,7 @@ spec:
 3. `spec.dependencies`가 있으면 각 패키지를 레지스트리에서 해석한다
 4. 의존성 Package의 리소스를 Config에 병합한다
 5. 현재 `goondan.yaml`의 인라인 리소스를 Config에 병합한다
-6. 스크립트(`index.ts`)는 리소스 YAML에서의 상대 경로 기준으로 `entry`를 resolve한다
+6. 스크립트(`index.ts`)의 `entry`는 항상 Package Root 기준 상대 경로로 resolve한다 (manifest 위치와 무관)
 
 ---
 

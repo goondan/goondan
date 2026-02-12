@@ -76,7 +76,7 @@
 
 ### 4.1 기본 엔드포인트
 
-- 기본 레지스트리 URL: `https://registry.goondan.ai`
+- 기본 레지스트리 URL: `https://goondan-registry.yechanny.workers.dev`
 
 ### 4.2 설정 소스
 
@@ -93,9 +93,9 @@
 
 ```json
 {
-  "registry": "https://registry.goondan.ai",
+  "registry": "https://goondan-registry.yechanny.workers.dev",
   "registries": {
-    "https://registry.goondan.ai": {
+    "https://goondan-registry.yechanny.workers.dev": {
       "token": "${GOONDAN_REGISTRY_TOKEN}"
     }
   },

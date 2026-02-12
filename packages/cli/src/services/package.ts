@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { configError, validateError } from '../errors.js';
+import { configError, networkError, validateError } from '../errors.js';
 import type {
   BundleValidator,
   PackageAddRequest,
@@ -34,6 +35,13 @@ interface PackedAttachment {
   fileName: string;
   data: string;
   length: number;
+}
+
+interface InstalledLockRecord {
+  version: string;
+  resolved: string;
+  integrity: string;
+  dependencies: Record<string, string>;
 }
 
 function quoteYaml(value: string): string {
@@ -279,27 +287,219 @@ function readCommandError(error: unknown): string {
   return String(error);
 }
 
-function runPnpmPack(packageDir: string, outputDir: string): Promise<void> {
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+function runCommand(command: string, args: string[], cwd?: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     execFile(
-      'pnpm',
-      ['pack', '--pack-destination', outputDir],
+      command,
+      args,
       {
-        cwd: packageDir,
+        cwd,
         encoding: 'utf8',
         maxBuffer: 10 * 1024 * 1024,
       },
-      (error, _stdout, stderr) => {
+      (error, stdout, stderr) => {
         if (error) {
           const stderrMessage = typeof stderr === 'string' ? stderr.trim() : '';
           const detail = stderrMessage.length > 0 ? stderrMessage : readCommandError(error);
           reject(new Error(detail));
           return;
         }
-        resolve();
+        resolve({
+          stdout: typeof stdout === 'string' ? stdout : '',
+          stderr: typeof stderr === 'string' ? stderr : '',
+        });
       },
     );
   });
+}
+
+async function runPnpmPack(packageDir: string, outputDir: string): Promise<void> {
+  await runCommand('pnpm', ['pack', '--pack-destination', outputDir], packageDir);
+}
+
+function splitLines(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, '\n');
+  return normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function hasPathTraversal(value: string): boolean {
+  const normalized = path.posix.normalize(value.replaceAll('\\', '/'));
+  if (normalized === '..') {
+    return true;
+  }
+  return normalized.startsWith('../');
+}
+
+function isUnsafeTarEntry(entryPath: string): boolean {
+  if (entryPath.startsWith('/')) {
+    return true;
+  }
+  if (entryPath.startsWith('\\')) {
+    return true;
+  }
+
+  return hasPathTraversal(entryPath);
+}
+
+async function listTarEntries(tarballPath: string): Promise<string[]> {
+  const result = await runCommand('tar', ['-tzf', tarballPath]);
+  return splitLines(result.stdout);
+}
+
+function hasPackageManifestEntry(entries: string[]): boolean {
+  for (const entry of entries) {
+    const normalized = entry.replaceAll('\\', '/');
+    if (normalized === 'package/goondan.yaml') {
+      return true;
+    }
+    if (normalized === 'package/dist/goondan.yaml') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function validateTarEntries(entries: string[]): void {
+  for (const entry of entries) {
+    if (isUnsafeTarEntry(entry)) {
+      throw validateError(`tarball에 허용되지 않은 경로가 포함되어 있습니다: ${entry}`);
+    }
+  }
+}
+
+async function ensurePackManifestInTarball(tarballPath: string): Promise<void> {
+  const entries = await listTarEntries(tarballPath);
+  validateTarEntries(entries);
+
+  if (!hasPackageManifestEntry(entries)) {
+    throw configError(
+      'publish 대상 tarball에 goondan manifest가 없습니다.',
+      "패키지 빌드 산출물(dist)에 goondan.yaml 또는 dist/goondan.yaml을 포함하세요.",
+    );
+  }
+}
+
+function verifyIntegrity(tarball: Uint8Array, expectedIntegrity: string): void {
+  if (!expectedIntegrity.includes('-')) {
+    return;
+  }
+
+  const delimiter = expectedIntegrity.indexOf('-');
+  if (delimiter <= 0 || delimiter >= expectedIntegrity.length - 1) {
+    return;
+  }
+
+  const algorithm = expectedIntegrity.slice(0, delimiter);
+  const expectedDigest = expectedIntegrity.slice(delimiter + 1);
+
+  if (algorithm !== 'sha512' && algorithm !== 'sha1') {
+    return;
+  }
+
+  const actualDigest = createHash(algorithm).update(tarball).digest('base64');
+  if (actualDigest !== expectedDigest) {
+    throw validateError('패키지 무결성 검증에 실패했습니다.', `expected=${expectedIntegrity}`);
+  }
+}
+
+async function fetchTarball(tarballUrl: string, token?: string): Promise<Uint8Array> {
+  const headers: Record<string, string> = {};
+  if (token && token.length > 0) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(tarballUrl, {
+      method: 'GET',
+      headers,
+    });
+  } catch (error) {
+    throw networkError(
+      `패키지 tarball 다운로드 네트워크 요청에 실패했습니다: ${tarballUrl}`,
+      `--registry 또는 GOONDAN_REGISTRY를 확인하세요. 원인: ${readCommandError(error)}`,
+    );
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw configError('패키지 tarball 다운로드 인증에 실패했습니다.', '레지스트리 토큰을 확인하세요.');
+  }
+
+  if (!response.ok) {
+    throw configError(`패키지 tarball 다운로드 실패: ${response.status} ${response.statusText}`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return bytes;
+}
+
+async function extractTarballToDirectory(tarballPath: string, installBase: string): Promise<void> {
+  await runCommand('tar', ['-xzf', tarballPath, '-C', installBase, '--strip-components=1']);
+}
+
+function toInstallPath(stateRoot: string, packageName: string, version: string): string {
+  const parts = packagePathParts(packageName);
+  if (parts.scope) {
+    return path.join(stateRoot, 'packages', parts.scope, parts.name, version);
+  }
+  return path.join(stateRoot, 'packages', parts.name, version);
+}
+
+async function ensureInstalledPackageManifest(installBase: string, packageName: string, version: string): Promise<void> {
+  const rootManifest = path.join(installBase, 'goondan.yaml');
+  const distManifest = path.join(installBase, 'dist', 'goondan.yaml');
+
+  const hasRoot = await exists(rootManifest);
+  const hasDist = await exists(distManifest);
+
+  if (!hasRoot && !hasDist) {
+    throw validateError(
+      `${packageName}@${version} 패키지에 goondan manifest가 없습니다.`,
+      "패키지 tarball에 goondan.yaml 또는 dist/goondan.yaml을 포함해야 합니다.",
+    );
+  }
+}
+
+function formatLockKey(packageName: string, version: string): string {
+  return `${packageName}@${version}`;
+}
+
+function buildLockfileText(records: Map<string, InstalledLockRecord>): string {
+  const keys = [...records.keys()].sort((left, right) => left.localeCompare(right));
+  const lines: string[] = ['lockfileVersion: 1', 'packages:'];
+
+  for (const key of keys) {
+    const entry = records.get(key);
+    if (!entry) {
+      continue;
+    }
+
+    lines.push(`  ${quoteYaml(key)}:`);
+    lines.push(`    version: ${quoteYaml(entry.version)}`);
+    lines.push(`    resolved: ${quoteYaml(entry.resolved)}`);
+    lines.push(`    integrity: ${quoteYaml(entry.integrity)}`);
+
+    const dependencies = Object.entries(entry.dependencies).sort(([left], [right]) => left.localeCompare(right));
+    if (dependencies.length === 0) {
+      lines.push('    dependencies: {}');
+      continue;
+    }
+
+    lines.push('    dependencies:');
+    for (const [depName, depVersion] of dependencies) {
+      lines.push(`      ${quoteYaml(depName)}: ${quoteYaml(depVersion)}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
 }
 
 async function createPackedAttachment(packageDir: string, packageName: string, version: string): Promise<PackedAttachment> {
@@ -316,6 +516,7 @@ async function createPackedAttachment(packageDir: string, packageName: string, v
     }
 
     const packedPath = path.join(tempDir, packedFile);
+    await ensurePackManifestInTarball(packedPath);
     const bytes = await readFile(packedPath);
     const fileName = toTarballFileName(packageName, version);
 
@@ -451,59 +652,93 @@ export class DefaultPackageService implements PackageService {
 
     const stateRoot = resolveStateRoot(request.stateRoot, this.env);
     const config = await readCliConfig(stateRoot);
+    const resolvedVersions = new Map<string, string>();
+    const installedRecords = new Map<string, InstalledLockRecord>();
+    const queue: DependencyEntry[] = [...manifest.dependencies];
 
-    const lockLines: string[] = ['lockfileVersion: 1', 'packages:'];
-    let installed = 0;
+    while (queue.length > 0) {
+      const dep = queue.shift();
+      if (!dep) {
+        continue;
+      }
 
-    for (const dep of manifest.dependencies) {
       const registryUrl = resolveRegistryUrl(request.registry, this.env, config, dep.name);
       const token = resolveRegistryToken(registryUrl, this.env, config);
 
       const resolved = await this.registryClient.resolvePackage(`${dep.name}@${dep.version}`, registryUrl, token);
       const resolvedVersion = resolved.latestVersion;
 
-      const parts = packagePathParts(dep.name);
-      const installBase = parts.scope
-        ? path.join(stateRoot, 'packages', parts.scope, parts.name, resolvedVersion)
-        : path.join(stateRoot, 'packages', parts.name, resolvedVersion);
+      const previousVersion = resolvedVersions.get(dep.name);
+      if (previousVersion !== undefined && previousVersion !== resolvedVersion) {
+        throw validateError(
+          `의존성 버전 충돌: ${dep.name} (${previousVersion} vs ${resolvedVersion})`,
+          'goondan.yaml dependency 버전 범위를 조정하세요.',
+        );
+      }
+      resolvedVersions.set(dep.name, resolvedVersion);
 
-      await mkdir(installBase, { recursive: true });
-      await writeFile(
-        path.join(installBase, 'package.json'),
-        JSON.stringify(
-          {
-            name: dep.name,
-            version: resolvedVersion,
-            source: registryUrl,
-          },
-          null,
-          2,
-        ),
-        'utf8',
+      const lockKey = formatLockKey(dep.name, resolvedVersion);
+      if (installedRecords.has(lockKey)) {
+        continue;
+      }
+
+      const versionMetadata = await this.registryClient.getPackageVersion(
+        dep.name,
+        resolvedVersion,
+        registryUrl,
+        token,
       );
 
-      const lockKey = `${dep.name}@${resolvedVersion}`;
-      lockLines.push(`  ${quoteYaml(lockKey)}:`);
-      lockLines.push(`    version: ${quoteYaml(resolvedVersion)}`);
-      lockLines.push(`    resolved: ${quoteYaml(`${registryUrl}/${dep.name}/-/${parts.name}-${resolvedVersion}.tgz`)}`);
-      lockLines.push('    integrity: "sha512-PLACEHOLDER"');
-      installed += 1;
+      const tarball = await fetchTarball(versionMetadata.dist.tarball, token);
+      verifyIntegrity(tarball, versionMetadata.dist.integrity);
+
+      const installBase = toInstallPath(stateRoot, dep.name, resolvedVersion);
+      await rm(installBase, { recursive: true, force: true });
+      await mkdir(installBase, { recursive: true });
+
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), 'goondan-install-'));
+      try {
+        const tarballPath = path.join(tempDir, 'package.tgz');
+        await writeFile(tarballPath, tarball);
+
+        const entries = await listTarEntries(tarballPath);
+        validateTarEntries(entries);
+        await extractTarballToDirectory(tarballPath, installBase);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+
+      await ensureInstalledPackageManifest(installBase, dep.name, resolvedVersion);
+
+      installedRecords.set(lockKey, {
+        version: resolvedVersion,
+        resolved: versionMetadata.dist.tarball,
+        integrity: versionMetadata.dist.integrity,
+        dependencies: versionMetadata.dependencies,
+      });
+
+      for (const [childName, childVersion] of Object.entries(versionMetadata.dependencies)) {
+        queue.push({
+          name: childName,
+          version: childVersion,
+        });
+      }
     }
 
     const lockfilePath = path.join(path.dirname(manifestPath), 'goondan.lock.yaml');
+    const lockfileText = buildLockfileText(installedRecords);
 
     if (request.frozenLockfile && (await exists(lockfilePath))) {
       const existing = await readFile(lockfilePath, 'utf8');
-      const nextText = `${lockLines.join('\n')}\n`;
-      if (existing !== nextText) {
+      if (existing !== lockfileText) {
         throw validateError('frozen-lockfile 모드에서 lockfile이 현재 의존성과 일치하지 않습니다.');
       }
     } else {
-      await writeFile(lockfilePath, `${lockLines.join('\n')}\n`, 'utf8');
+      await writeFile(lockfilePath, lockfileText, 'utf8');
     }
 
     return {
-      installed,
+      installed: installedRecords.size,
       lockfilePath,
     };
   }

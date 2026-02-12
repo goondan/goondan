@@ -18,7 +18,6 @@
 ## 주요 파일 목록
 - GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
 - docs/architecture.md : 아키텍처 개요 문서 (시스템 설계 이해용 - 핵심 개념, 다이어그램, 설계 패턴, 시나리오, 기대 효과)
-- IMPLEMENTATION_VERIFICATION_REPORT.md : 구현 정확성 검증 보고서
 - .agents/skills/* : 저장소 로컬 에이전트 스킬 번들 (SKILL.md 기반 절차/스크립트/레퍼런스)
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
@@ -47,6 +46,7 @@
 - packages/types/src/* : 공통 타입 계약(SSOT) 구현
 - packages/cli/src/* : CLI 도구(gdn) 구현
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
+- packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (CLI publish 입력)
 - packages/registry/src/* : 패키지 레지스트리 API 서버/클라이언트 구현 (HTTP + 파일시스템 저장소 기본 구현)
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**

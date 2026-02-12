@@ -7,6 +7,7 @@
 - 명령 파싱/라우팅 (`run`, `restart`, `validate`, `instance`, `package`, `doctor`)
 - 출력 포맷(구조화 오류, suggestion/helpUrl 포함)
 - 런타임/레지스트리/검증 계층과의 연동 인터페이스
+- `package publish` 시 `pnpm pack` 기반 tarball 생성 및 레지스트리 publish payload 구성
 - CLI 단위 테스트(vitest)
 
 ## 구현 규칙

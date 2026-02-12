@@ -1,0 +1,6 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/base"
+spec:
+  version: "0.1.0"

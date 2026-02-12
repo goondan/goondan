@@ -20,6 +20,7 @@
 
 ## 디렉토리 가이드
 
+- `goondan.yaml`: `@goondan/base` 배포용 Package 매니페스트
 - `src/types.ts`: base 패키지의 공통 타입 및 가드
 - `src/tools/*`: Tool 핸들러 구현 (`handlers` export)
 - `src/extensions/*`: Extension 등록 함수 및 미들웨어

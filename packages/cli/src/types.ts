@@ -118,12 +118,21 @@ export interface RegistryPackageMetadata {
   latestVersion: string;
 }
 
+export interface RegistryPublishAttachment {
+  data: string;
+  contentType?: string;
+  length?: number;
+}
+
 export interface RegistryPublishPayload {
-  packageName: string;
+  name: string;
   version: string;
   access: 'public' | 'restricted';
-  tag: string;
-  path: string;
+  description?: string;
+  dependencies?: Record<string, string>;
+  deprecated?: string;
+  'dist-tags'?: Record<string, string>;
+  _attachments: Record<string, RegistryPublishAttachment>;
 }
 
 export interface RegistryPublishResult {

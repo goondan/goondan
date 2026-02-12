@@ -26,7 +26,7 @@
 - docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
 - docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, Runtime Events API 표면)
 - docs/specs/help.md : 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, package 도움말 기준, 문서 링크 자동 점검 체크리스트)
-- docs/specs/layers.md : 구성 계층 역할 개요 v2.0 (`core/runtime`, `core/types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
+- docs/specs/layers.md : 구성 계층 역할 개요 v2.0 (`runtime`, `types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
 - docs/specs/shared-types.md : 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/**EventEnvelope/ExecutionContext**/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
 - docs/specs/bundle.md : Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, **Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥**, YAML 보안, 분할 파일 구성)
@@ -43,10 +43,11 @@
 - mise.toml : mise 환경/툴 버전 설정
 - package.json : pnpm 워크스페이스 루트
 - pnpm-workspace.yaml : 워크스페이스 설정
-- packages/core/src/* : 오케스트레이터 런타임/Config/LiveConfig
+- packages/runtime/src/* : 오케스트레이터 런타임/Config/LiveConfig
+- packages/types/src/* : 공통 타입 계약(SSOT) 구현
 - packages/cli/src/* : CLI 도구(gdn) 구현
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
-- packages/registry/src/* : 패키지 레지스트리 (Cloudflare Workers, R2/KV 기반)
+- packages/registry/src/* : 패키지 레지스트리 API 서버/클라이언트 구현 (HTTP + 파일시스템 저장소 기본 구현)
 - packages/sample/* : 에이전트 샘플 모음
   - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**
   - sample-2-telegram-coder: Telegram 봇 코딩 에이전트

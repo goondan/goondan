@@ -2,5 +2,6 @@ lockfileVersion: 1
 packages:
   "@goondan/base@0.1.0":
     version: "0.1.0"
-    resolved: "https://goondan-registry.yechanny.workers.dev/@goondan/base/-/base-0.1.0.tgz"
-    integrity: "sha512-PLACEHOLDER"
+    resolved: "https://goondan-registry.yechanny.workers.dev/%40goondan/base/-/base-0.1.0.tgz"
+    integrity: "sha512-IobLtF3ldR0RRCmtvzXGt0YA/3muvzTG2PzcTEUwFXCFD573ScoMBzD5wm5F0u59sguyKoZ35CZ1JThvWBU2Hg=="
+    dependencies: {}

@@ -18,9 +18,9 @@
 
 ## 패키지별 책임 요약
 
-- `runtime`: Orchestrator/AgentProcess 실행 모델, IPC, 파이프라인, 상태/검증
+- `runtime`: Orchestrator/AgentProcess 실행 모델, IPC, 파이프라인, 상태/검증, dependency 패키지 리소스 병합 로딩(`dist/goondan.yaml` 우선 / Package Root 경로 기준)
 - `types`: 공통 타입 계약(SSOT), 리소스/이벤트/IPC 타입과 유틸리티
 - `base`: 기본 Tool/Extension/Connector 구현
-- `cli`: `gdn` 운영 인터페이스(run/restart/validate/instance/package/doctor)
+- `cli`: `gdn` 운영 인터페이스(run/restart/validate/instance/package/doctor), package install/publish 파이프라인, `dist/bin.js` 실행 가능 권한 유지
 - `registry`: 패키지 유통 API 서버와 메타데이터/아티팩트 저장소
 - `sample`: 기능 검증 및 온보딩용 실행 가능한 샘플 패키지 모음

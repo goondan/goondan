@@ -118,6 +118,20 @@ export interface RegistryPackageMetadata {
   latestVersion: string;
 }
 
+export interface RegistryVersionDist {
+  tarball: string;
+  shasum: string;
+  integrity: string;
+}
+
+export interface RegistryPackageVersionMetadata {
+  version: string;
+  dependencies: Record<string, string>;
+  deprecated: string;
+  access: 'public' | 'restricted';
+  dist: RegistryVersionDist;
+}
+
 export interface RegistryPublishAttachment {
   data: string;
   contentType?: string;
@@ -142,6 +156,12 @@ export interface RegistryPublishResult {
 
 export interface RegistryClient {
   resolvePackage(ref: string, registryUrl: string, token?: string): Promise<RegistryPackageMetadata>;
+  getPackageVersion(
+    packageName: string,
+    version: string,
+    registryUrl: string,
+    token?: string,
+  ): Promise<RegistryPackageVersionMetadata>;
   publishPackage(
     payload: RegistryPublishPayload,
     registryUrl: string,

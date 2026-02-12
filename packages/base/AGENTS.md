@@ -20,7 +20,8 @@
 
 ## 디렉토리 가이드
 
-- `goondan.yaml`: `@goondan/base` 배포용 Package 매니페스트
+- `goondan.yaml`: publish 입력용 Package 메타데이터 매니페스트
+- `build-manifest.mjs`: 빌드 후 `dist/goondan.yaml`(리소스 포함 배포 manifest) 생성 스크립트 (`goondan.yaml`의 Package name/version을 소스로 사용)
 - `src/types.ts`: base 패키지의 공통 타입 및 가드
 - `src/tools/*`: Tool 핸들러 구현 (`handlers` export)
 - `src/extensions/*`: Extension 등록 함수 및 미들웨어

@@ -10,7 +10,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `shared-types.md` - 공통 타입 스펙 v2.0 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - `resources.md` - Config Plane 리소스 정의 스펙 v2.0 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", Selector+Overrides, ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v2.0 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥, YAML 보안, 경로 해석, 분할 파일 구성)
-- `bundle_package.md` - Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, 보안/검증 오류 코드, CLI 명령어)
+- `bundle_package.md` - Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, **dist/goondan.yaml 배포 규칙/manifest 우선순위/Package Root 경로 규칙**, 보안/검증 오류 코드, CLI 명령어)
 - `runtime.md` - **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
 - `connector.md` - Connector 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - `connection.md` - Connection 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증 시크릿)

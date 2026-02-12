@@ -234,6 +234,40 @@ export interface LogService {
   read(request: LogReadRequest): Promise<LogReadResult>;
 }
 
+export type InitTemplate = 'default' | 'multi-agent' | 'package' | 'minimal';
+
+export interface InitRequest {
+  targetDir: string;
+  name: string;
+  template: InitTemplate;
+  asPackage: boolean;
+  git: boolean;
+  force: boolean;
+}
+
+export interface InitResult {
+  projectDir: string;
+  template: InitTemplate;
+  filesCreated: string[];
+  gitInitialized: boolean;
+}
+
+export interface InitService {
+  init(request: InitRequest): Promise<InitResult>;
+}
+
+export interface TerminalIO {
+  readonly stdinIsTTY: boolean;
+  readonly stdoutIsTTY: boolean;
+  readonly columns: number;
+  setRawMode(enable: boolean): void;
+  onData(callback: (data: Buffer) => void): void;
+  offData(callback: (data: Buffer) => void): void;
+  resume(): void;
+  pause(): void;
+  write(data: string): void;
+}
+
 export interface CliIO {
   out(message: string): void;
   err(message: string): void;
@@ -241,6 +275,7 @@ export interface CliIO {
 
 export interface CliDependencies {
   io: CliIO;
+  terminal: TerminalIO;
   env: NodeJS.ProcessEnv;
   cwd: string;
   version: string;
@@ -250,5 +285,6 @@ export interface CliDependencies {
   packages: PackageService;
   doctor: DoctorService;
   logs: LogService;
+  init: InitService;
 }
 

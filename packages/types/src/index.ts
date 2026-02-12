@@ -1,3 +1,4 @@
+export * from "./connector.js";
 export * from "./events.js";
 export * from "./json.js";
 export * from "./message.js";

@@ -1,47 +1,4 @@
 {
-  "offset": 915667729,
-  "conversations": {
-    "8393982468": [
-      {
-        "role": "user",
-        "content": "이제야 반응하는구만. 내이름이 뭐라고?"
-      },
-      {
-        "role": "assistant",
-        "content": "죄송하지만, 저는 당신의 이름을 알지 못합니다. \n\n이전 대화 내역이 제공되지 않았거나, 제 컨텍스트에 당신의 이름 정보가 없습니다.\n\n이름을 알려주시면 기억하겠습니다! 😊\n\n혹시 Goondan 프로젝트 관련해서 도움이 필요하신가요?"
-      },
-      {
-        "role": "user",
-        "content": "난 차니다 알겠나?"
-      },
-      {
-        "role": "assistant",
-        "content": "네, 알겠습니다 차님! 👋\n\nGoondan 프로젝트에서 도움이 필요하신 부분이 있으신가요? \n\n코드 수정, 새로운 기능 추가, 버그 수정 등 무엇이든 말씀해주세요!"
-      },
-      {
-        "role": "user",
-        "content": "아니 차니가 이름이라고"
-      },
-      {
-        "role": "assistant",
-        "content": "아, 죄송합니다! 차니님! 😅\n\n이름을 제대로 이해했습니다. 차니님, Goondan 프로젝트에서 어떤 도움이 필요하신가요?"
-      },
-      {
-        "role": "user",
-        "content": "내이름이 뭐라고?"
-      },
-      {
-        "role": "assistant",
-        "content": "차니님입니다! 😊"
-      },
-      {
-        "role": "user",
-        "content": "머라고?"
-      },
-      {
-        "role": "assistant",
-        "content": "**차니**님입니다!"
-      }
-    ]
-  }
+  "offset": 915667733,
+  "conversations": {}
 }

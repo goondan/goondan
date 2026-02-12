@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyEvolutionPlan,
   isAllowedEvolutionPath,
+  parseEvolutionPlanFromUnknown,
   type EvolutionPlan,
 } from "../src/evolve.js";
 
@@ -27,10 +28,42 @@ afterEach(async () => {
 describe("evolve path guard", () => {
   it("accepts only allowed relative paths", () => {
     expect(isAllowedEvolutionPath("goondan.yaml")).toBe(true);
-    expect(isAllowedEvolutionPath("src/main.ts")).toBe(true);
+    expect(isAllowedEvolutionPath("src/connector-entry.ts")).toBe(true);
     expect(isAllowedEvolutionPath("../secret.txt")).toBe(false);
     expect(isAllowedEvolutionPath("/abs/path")).toBe(false);
     expect(isAllowedEvolutionPath("src/main.js")).toBe(false);
+  });
+});
+
+describe("parseEvolutionPlanFromUnknown", () => {
+  it("parses valid evolution payload", () => {
+    const parsed = parseEvolutionPlanFromUnknown({
+      summary: "update prompt",
+      updates: [
+        {
+          path: "prompts/system.md",
+          content: "hello",
+        },
+      ],
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.summary).toBe("update prompt");
+    expect(parsed?.updates[0]?.path).toBe("prompts/system.md");
+  });
+
+  it("returns null for disallowed path", () => {
+    const parsed = parseEvolutionPlanFromUnknown({
+      summary: "bad path",
+      updates: [
+        {
+          path: "../../secret",
+          content: "x",
+        },
+      ],
+    });
+
+    expect(parsed).toBeNull();
   });
 });
 

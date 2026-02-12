@@ -45,7 +45,7 @@
 - .gitignore : 저장소 공통 ignore 규칙 (`/test/`는 루트 테스트 산출물만 무시, 패키지 테스트 소스는 추적)
 - packages/runtime/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/types/src/* : 공통 타입 계약(SSOT) 구현
-- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, runtime runner의 Swarm/Connection 해석 + Connector entry 실행, `instance list` active runtime 반영/legacy 기본 제외, `instance delete` active+workspace 정리 + pid 안전 검증, `logs` 명령 포함)
+- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, runtime runner의 Swarm/Connection/ingress 해석 + Connector 실행 + Agent LLM(Tool 포함) 처리 + Telegram 응답 전송, `instance list` active runtime 반영/legacy 기본 제외, `instance delete` active+workspace 정리 + pid 안전 검증, bare `instance` 인터랙티브 TUI 모드(TerminalIO 래퍼, ANSI TUI, non-TTY 폴백), `logs` 명령 포함)
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
 - packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (CLI publish 입력)
 - packages/base/build-manifest.mjs : `dist/goondan.yaml` 생성 스크립트 (`files: ["dist"]` 배포 대응, Package name/version은 `packages/base/goondan.yaml` 기준)
@@ -60,6 +60,7 @@
   - sample-7-multi-model: 여러 LLM 모델 조합 (라우터 + 창작/분석 에이전트)
   - sample-8-web-researcher: 웹 리서치 에이전트 (http-fetch + json-query 활용, 수집/요약 분리)
   - sample-9-devops-assistant: DevOps 지원 에이전트 (bash + logging, 계획/실행 분리)
+  - sample-10-telegram-evolving-bot: Telegram polling self-evolving bot (Connector polling+emit + runtime-runner의 ingress/Agent/Tool 처리 + `/evolve` Tool 적용)
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것

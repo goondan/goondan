@@ -14,7 +14,10 @@ export interface ToolExecutionRequest {
   catalog: ToolCatalogItem[];
   context: ToolContext;
   allowRegistryBypass?: boolean;
+  errorMessageLimit?: number;
 }
+
+const DEFAULT_ERROR_MESSAGE_LIMIT = 1000;
 
 export class ToolExecutor {
   constructor(private readonly registry: ToolRegistry) {}
@@ -59,11 +62,12 @@ export class ToolExecutor {
         output,
       };
     } catch (error) {
+      const limit = request.errorMessageLimit ?? DEFAULT_ERROR_MESSAGE_LIMIT;
       return {
         toolCallId: request.toolCallId,
         toolName: request.toolName,
         status: "error",
-        error: toToolError(error),
+        error: toToolError(error, limit),
       };
     }
   }
@@ -73,30 +77,42 @@ function isToolInCatalog(toolName: string, catalog: ToolCatalogItem[]): boolean 
   return catalog.some((item) => item.name === toolName);
 }
 
-function toToolError(error: unknown): {
+function toToolError(error: unknown, limit: number): {
   name?: string;
   message: string;
   code?: string;
+  suggestion?: string;
+  helpUrl?: string;
 } {
   if (error instanceof Error) {
     const toolError: {
       name?: string;
       message: string;
       code?: string;
+      suggestion?: string;
+      helpUrl?: string;
     } = {
       name: error.name,
-      message: error.message,
+      message: truncateErrorMessage(error.message, limit),
     };
 
     if (hasCode(error)) {
       toolError.code = error.code;
     }
 
+    if (hasSuggestion(error)) {
+      toolError.suggestion = error.suggestion;
+    }
+
+    if (hasHelpUrl(error)) {
+      toolError.helpUrl = error.helpUrl;
+    }
+
     return toolError;
   }
 
   return {
-    message: "Unknown tool execution error",
+    message: truncateErrorMessage("Unknown tool execution error", limit),
   };
 }
 
@@ -107,6 +123,38 @@ function hasCode(error: Error): error is Error & { code: string } {
 
   const maybeCode = Reflect.get(error, "code");
   return typeof maybeCode === "string";
+}
+
+function hasSuggestion(error: Error): error is Error & { suggestion: string } {
+  if (!("suggestion" in error)) {
+    return false;
+  }
+
+  const maybeSuggestion = Reflect.get(error, "suggestion");
+  return typeof maybeSuggestion === "string";
+}
+
+function hasHelpUrl(error: Error): error is Error & { helpUrl: string } {
+  if (!("helpUrl" in error)) {
+    return false;
+  }
+
+  const maybeHelpUrl = Reflect.get(error, "helpUrl");
+  return typeof maybeHelpUrl === "string";
+}
+
+export function truncateErrorMessage(message: string, limit: number): string {
+  if (message.length <= limit) {
+    return message;
+  }
+
+  const truncationSuffix = "... (truncated)";
+  const maxContentLength = limit - truncationSuffix.length;
+  if (maxContentLength <= 0) {
+    return message.slice(0, limit);
+  }
+
+  return message.slice(0, maxContentLength) + truncationSuffix;
 }
 
 export function createMinimalToolContext(input: {

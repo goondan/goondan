@@ -1,28 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { isRecord, readNumber, readString } from "./types.js";
-
-export interface ConversationTurn {
-  role: "user" | "assistant";
-  content: string;
-}
+import { isRecord, readNumber } from "./types.js";
 
 interface PersistedState {
   offset: number;
-  conversations: Record<string, ConversationTurn[]>;
-}
-
-function isConversationTurn(value: unknown): value is ConversationTurn {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const role = readString(value, "role");
-  const content = readString(value, "content");
-  if (role !== "user" && role !== "assistant") {
-    return false;
-  }
-  return typeof content === "string";
 }
 
 function isPersistedState(value: unknown): value is PersistedState {
@@ -30,44 +12,21 @@ function isPersistedState(value: unknown): value is PersistedState {
     return false;
   }
   const offset = readNumber(value, "offset");
-  if (offset === undefined || offset < 0) {
-    return false;
-  }
-  const conversationsUnknown = value.conversations;
-  if (!isRecord(conversationsUnknown)) {
-    return false;
-  }
-
-  const entries = Object.entries(conversationsUnknown);
-  for (const entry of entries) {
-    const turns = entry[1];
-    if (!Array.isArray(turns)) {
-      return false;
-    }
-    for (const turn of turns) {
-      if (!isConversationTurn(turn)) {
-        return false;
-      }
-    }
-  }
-
-  return true;
+  return offset !== undefined && offset >= 0;
 }
 
 export class BotStateStore {
   private readonly filePath: string;
-  private readonly maxConversationTurns: number;
   private state: PersistedState;
 
-  private constructor(filePath: string, maxConversationTurns: number, state: PersistedState) {
+  private constructor(filePath: string, state: PersistedState) {
     this.filePath = filePath;
-    this.maxConversationTurns = maxConversationTurns;
     this.state = state;
   }
 
-  static async create(filePath: string, maxConversationTurns: number): Promise<BotStateStore> {
+  static async create(filePath: string): Promise<BotStateStore> {
     const state = await BotStateStore.loadFromDisk(filePath);
-    return new BotStateStore(filePath, maxConversationTurns, state);
+    return new BotStateStore(filePath, state);
   }
 
   getOffset(): number {
@@ -78,24 +37,6 @@ export class BotStateStore {
     if (offset >= 0) {
       this.state.offset = offset;
     }
-  }
-
-  getConversation(chatId: number): ConversationTurn[] {
-    const key = String(chatId);
-    const turns = this.state.conversations[key] ?? [];
-    return turns.slice();
-  }
-
-  appendTurn(chatId: number, turn: ConversationTurn): void {
-    const key = String(chatId);
-    const turns = this.state.conversations[key] ?? [];
-    const next = turns.concat(turn);
-    const maxTurns = this.maxConversationTurns * 2;
-    if (next.length > maxTurns) {
-      this.state.conversations[key] = next.slice(next.length - maxTurns);
-      return;
-    }
-    this.state.conversations[key] = next;
   }
 
   async save(): Promise<void> {
@@ -109,11 +50,11 @@ export class BotStateStore {
       const content = await fs.readFile(filePath, "utf8");
       const parsed: unknown = JSON.parse(content);
       if (isPersistedState(parsed)) {
-        return parsed;
+        return { offset: parsed.offset };
       }
-      return { offset: 0, conversations: {} };
+      return { offset: 0 };
     } catch {
-      return { offset: 0, conversations: {} };
+      return { offset: 0 };
     }
   }
 }

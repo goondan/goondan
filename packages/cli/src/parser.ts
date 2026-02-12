@@ -24,6 +24,20 @@ const globalOptions = object('Global Options', {
 // Command parsers
 // ---------------------------------------------------------------------------
 
+const initCommand = command(
+  'init',
+  object({
+    action: constant('init' as const),
+    initPath: optional(argument(string({ metavar: 'PATH' }))),
+    name: optional(option('-n', '--name', string({ metavar: 'NAME' }))),
+    template: withDefault(option('-t', '--template', choice(['default', 'multi-agent', 'package', 'minimal'])), 'default'),
+    asPackage: optional(option('--package')),
+    git: withDefault(option('--git'), true),
+    noGit: optional(option('--no-git')),
+    force: optional(option('-f', '--force')),
+  }),
+);
+
 const runCommand = command(
   'run',
   object({
@@ -139,6 +153,7 @@ const logsCommand = command(
 // ---------------------------------------------------------------------------
 
 const allCommands = or(
+  initCommand,
   runCommand,
   restartCommand,
   validateCommand,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { isRegistryPackageMetadata, isRegistryVersionMetadata } from "../src/validators.js";
+import { isObjectRecord, isRegistryPackageMetadata, isRegistryVersionMetadata } from "../src/validators.js";
 import { startTestRegistryServer } from "./utils.js";
 
 function createPublishPayload(version: string, tarball: Buffer, access: "public" | "restricted" = "public") {
@@ -134,6 +134,110 @@ describe("registry server", () => {
       });
 
       expect(invalidTokenResponse.status).toBe(401);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("동일 버전 중복 publish를 거부한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const tarball = Buffer.from("duplicate-test", "utf8");
+      const firstResponse = await fetch(`${server.url}/@goondan/base`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(createPublishPayload("5.0.0", tarball)),
+      });
+      expect(firstResponse.status).toBe(201);
+
+      const secondResponse = await fetch(`${server.url}/@goondan/base`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(createPublishPayload("5.0.0", tarball)),
+      });
+      expect(secondResponse.status).toBe(409);
+      const errorBody: unknown = await secondResponse.json();
+      expect(isObjectRecord(errorBody) && errorBody.error).toBe("PKG_VERSION_EXISTS");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("전체 패키지를 삭제한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const tarball = Buffer.from("delete-test", "utf8");
+      await fetch(`${server.url}/@goondan/base`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(createPublishPayload("6.0.0", tarball)),
+      });
+
+      const deleteResponse = await fetch(`${server.url}/@goondan/base`, {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+        },
+      });
+      expect(deleteResponse.status).toBe(200);
+
+      const metadataResponse = await fetch(`${server.url}/@goondan/base`);
+      expect(metadataResponse.status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("deprecate 해제 (빈 message)를 지원한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const tarball = Buffer.from("deprecate-unset-test", "utf8");
+      await fetch(`${server.url}/@goondan/base`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(createPublishPayload("7.0.0", tarball)),
+      });
+
+      await fetch(`${server.url}/@goondan/base/7.0.0/deprecate`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "Deprecated" }),
+      });
+
+      const deprecatedResponse = await fetch(`${server.url}/@goondan/base/7.0.0`);
+      const deprecatedData: unknown = await deprecatedResponse.json();
+      expect(isRegistryVersionMetadata(deprecatedData) && deprecatedData.deprecated).toBe("Deprecated");
+
+      await fetch(`${server.url}/@goondan/base/7.0.0/deprecate`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "" }),
+      });
+
+      const undeprecatedResponse = await fetch(`${server.url}/@goondan/base/7.0.0`);
+      const undeprecatedData: unknown = await undeprecatedResponse.json();
+      expect(isRegistryVersionMetadata(undeprecatedData) && undeprecatedData.deprecated).toBe("");
     } finally {
       await server.close();
     }

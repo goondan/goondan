@@ -88,4 +88,48 @@ describe('executeCli router', () => {
     expect(code).toBe(0);
     expect(state.outs.join('\n')).toContain('Goondan Doctor');
   });
+
+  it('init 명령을 init.init으로 라우팅한다', async () => {
+    const { deps, state } = createMockDeps({ cwd: '/tmp/workspace' });
+
+    const code = await executeCli(['init', 'my-project', '--name', 'my-swarm', '--template', 'multi-agent', '--force'], deps);
+
+    expect(code).toBe(0);
+    expect(state.initRequests.length).toBe(1);
+    expect(state.initRequests[0].targetDir).toBe(path.resolve('/tmp/workspace', 'my-project'));
+    expect(state.initRequests[0].name).toBe('my-swarm');
+    expect(state.initRequests[0].template).toBe('multi-agent');
+    expect(state.initRequests[0].force).toBe(true);
+    expect(state.outs.join('\n')).toContain('Initialized Goondan project');
+  });
+
+  it('init 명령에서 이름 미지정 시 디렉토리명을 사용한다', async () => {
+    const { deps, state } = createMockDeps({ cwd: '/tmp/workspace' });
+
+    const code = await executeCli(['init', 'cool-agent'], deps);
+
+    expect(code).toBe(0);
+    expect(state.initRequests[0].name).toBe('cool-agent');
+    expect(state.initRequests[0].template).toBe('default');
+    expect(state.initRequests[0].git).toBe(true);
+  });
+
+  it('init --no-git 옵션으로 git 초기화를 비활성화한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['init', '--no-git'], deps);
+
+    expect(code).toBe(0);
+    expect(state.initRequests[0].git).toBe(false);
+  });
+
+  it('bare instance 명령을 instance.interactive로 라우팅한다 (non-TTY 폴백)', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['instance'], deps);
+
+    expect(code).toBe(0);
+    // non-TTY 환경이므로 instance list로 폴백
+    expect(state.listRequests.length).toBe(1);
+  });
 });

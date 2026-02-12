@@ -17,4 +17,4 @@
 
 ## 현재 샘플
 
-- `sample-10-telegram-evolving-bot`: Telegram polling + Claude Sonnet 4.5 + `/evolve` 제안/적용(검증/백업/롤백)
+- `sample-10-telegram-evolving-bot`: Telegram polling Connector + runtime-runner 기반 Agent 실행(ingress 라우팅/Tool 실행/Telegram 응답) + `/evolve` 적용(검증/백업/롤백)

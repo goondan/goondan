@@ -36,6 +36,16 @@ spec:
           content:
             type: string
         required: [path, content]
+    - name: evolve
+      description: "apply safe evolution updates with backup/rollback"
+      parameters:
+        type: object
+        properties:
+          summary:
+            type: string
+          updates:
+            type: array
+        required: [summary, updates]
 ---
 apiVersion: goondan.ai/v1
 kind: Agent
@@ -103,9 +113,6 @@ spec:
     TELEGRAM_BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
-    ANTHROPIC_API_KEY:
-      valueFrom:
-        env: ANTHROPIC_API_KEY
   ingress:
     rules:
       - match:

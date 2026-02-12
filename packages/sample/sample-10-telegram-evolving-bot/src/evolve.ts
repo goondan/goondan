@@ -1,9 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { parseJsonObjectFromText, requestAnthropicText } from "./anthropic.js";
-import type { ConversationTurn } from "./state.js";
-
 export interface EvolutionUpdate {
   path: string;
   content: string;
@@ -12,16 +9,6 @@ export interface EvolutionUpdate {
 export interface EvolutionPlan {
   summary: string;
   updates: EvolutionUpdate[];
-}
-
-export interface RequestEvolutionPlanInput {
-  apiKey: string;
-  model: string;
-  maxTokens: number;
-  instruction: string;
-  goondanYaml: string;
-  turns: ConversationTurn[];
-  fetchImpl?: typeof fetch;
 }
 
 export interface ApplyEvolutionInput {
@@ -120,48 +107,12 @@ function parseEvolutionPlan(raw: Record<string, unknown>): EvolutionPlan | null 
   };
 }
 
-function createEvolutionPrompt(instruction: string, goondanYaml: string): string {
-  return [
-    "다음 요구사항에 맞춰 self-evolve 계획을 JSON으로 반환하세요.",
-    "반드시 JSON 객체만 반환하세요.",
-    "형식:",
-    '{"summary":"...","updates":[{"path":"goondan.yaml","content":"..."}]}',
-    "규칙:",
-    "- path는 상대 경로만 사용",
-    "- goondan.yaml 변경이 필요하면 반드시 포함",
-    "- content는 전체 파일 내용으로 제공",
-    "",
-    "사용자 지시:",
-    instruction,
-    "",
-    "현재 goondan.yaml:",
-    goondanYaml,
-  ].join("\n");
-}
-
-export async function requestEvolutionPlan(input: RequestEvolutionPlanInput): Promise<EvolutionPlan> {
-  const responseText = await requestAnthropicText({
-    apiKey: input.apiKey,
-    model: input.model,
-    systemPrompt:
-      "You are a careful software evolution assistant. Return strict JSON only and never include markdown wrapper unless explicitly asked.",
-    maxTokens: input.maxTokens,
-    turns: input.turns,
-    userInput: createEvolutionPrompt(input.instruction, input.goondanYaml),
-    fetchImpl: input.fetchImpl,
-  });
-
-  const parsed = parseJsonObjectFromText(responseText);
-  if (parsed === null) {
-    throw new Error("evolution 응답에서 JSON 객체를 파싱할 수 없습니다.");
+export function parseEvolutionPlanFromUnknown(raw: unknown): EvolutionPlan | null {
+  if (!isObjectRecord(raw)) {
+    return null;
   }
 
-  const plan = parseEvolutionPlan(parsed);
-  if (plan === null) {
-    throw new Error("evolution 계획 형식이 잘못되었습니다.");
-  }
-
-  return plan;
+  return parseEvolutionPlan(raw);
 }
 
 export async function validateGoondanBundle(projectRoot: string): Promise<void> {

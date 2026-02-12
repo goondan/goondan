@@ -351,9 +351,16 @@ async function publishPackage(
     });
   }
 
-  await store.saveTarball(route.packageName, version, tarball);
-
   const existingMetadata = await store.getMetadata(route.packageName);
+
+  if (existingMetadata !== null && existingMetadata.versions[version] !== undefined) {
+    return createJsonResponse(409, {
+      error: "PKG_VERSION_EXISTS",
+      message: `Version ${version} already exists for ${route.packageName.fullName}`,
+    });
+  }
+
+  await store.saveTarball(route.packageName, version, tarball);
   const metadata = buildUpdatedMetadata(existingMetadata, route.packageName, payload, version, tarball, baseUrl);
 
   await store.saveMetadata(route.packageName, metadata);

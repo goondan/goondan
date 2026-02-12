@@ -54,6 +54,9 @@ importers:
       '@goondan/runtime':
         specifier: workspace:*
         version: link:../../runtime
+      '@goondan/types':
+        specifier: workspace:*
+        version: link:../../types
     devDependencies:
       '@types/node':
         specifier: ^22.19.7

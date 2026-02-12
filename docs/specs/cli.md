@@ -8,7 +8,7 @@
 
 `gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞춰, Orchestrator 운영(`run`, `restart`)과 인스턴스 운영(`instance list/delete`), 패키지 운영(`package`) 중심의 명령 체계를 제공한다.
 
-CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/delete`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
 `gdn package` 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
@@ -53,6 +53,7 @@ gdn <command> [subcommand] [options]
 | `gdn restart` | 실행 중인 Orchestrator에 재시작 신호 전송 |
 | `gdn validate` | Bundle 구성 검증 |
 | `gdn instance` | 인스턴스 관리 (list, delete) |
+| `gdn logs` | 프로세스 로그 조회 |
 | `gdn package` | 패키지 관리 (add, install, publish) |
 | `gdn doctor` | 환경 진단 및 문제 확인 |
 
@@ -576,23 +577,66 @@ gdn package publish --dry-run
 
 ---
 
-## 9. gdn doctor
+## 9. gdn logs
 
-환경을 진단하고 일반적인 문제를 확인한다.
+프로세스 로그 파일을 조회한다.
 
 ### 9.1 사용법
 
 ```bash
-gdn doctor [options]
+gdn logs [options]
 ```
 
 ### 9.2 옵션
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
+| `--instance-key <key>` | `-i` | 조회할 인스턴스 키. 생략 시 `runtime/active.json`의 인스턴스 | active instance |
+| `--process <name>` | `-p` | 프로세스 이름 | `orchestrator` |
+| `--stream <stdout\|stderr\|both>` | | 로그 스트림 선택 | `both` |
+| `--lines <n>` | `-l` | 각 로그 파일에서 마지막 N줄 | `200` |
+
+### 9.3 로그 파일 경로
+
+기본 로그 경로는 다음을 따른다.
+
+```text
+~/.goondan/runtime/logs/<instanceKey>/<process>.stdout.log
+~/.goondan/runtime/logs/<instanceKey>/<process>.stderr.log
+```
+
+### 9.4 예시
+
+```bash
+# active 인스턴스의 orchestrator stdout/stderr 최근 200줄
+gdn logs
+
+# 특정 인스턴스 stderr 최근 100줄
+gdn logs --instance-key session-001 --stream stderr --lines 100
+
+# 특정 프로세스 로그 조회
+gdn logs --instance-key session-001 --process connector-telegram
+```
+
+---
+
+## 10. gdn doctor
+
+환경을 진단하고 일반적인 문제를 확인한다.
+
+### 10.1 사용법
+
+```bash
+gdn doctor [options]
+```
+
+### 10.2 옵션
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
 | `--fix` | | 자동 수정 시도 (placeholder) | `false` |
 
-### 9.3 검사 항목
+### 10.3 검사 항목
 
 **System:**
 
@@ -624,7 +668,7 @@ gdn doctor [options]
 | Bundle Config | goondan.yaml 존재 여부 | warn |
 | Bundle Validation | goondan.yaml 유효성 검증 | fail/warn |
 
-### 9.4 출력 예시
+### 10.4 출력 예시
 
 ```
 Goondan Doctor
@@ -654,7 +698,7 @@ Summary
 
 ---
 
-## 10. 종료 코드
+## 11. 종료 코드
 
 | 코드 | 의미 |
 |------|------|
@@ -669,9 +713,9 @@ Summary
 
 ---
 
-## 11. 설정 파일
+## 12. 설정 파일
 
-### 11.1 ~/.goondan/config.json
+### 12.1 ~/.goondan/config.json
 
 전역 CLI 설정 파일 경로는 `~/.goondan/config.json`이다.
 
@@ -693,7 +737,7 @@ Summary
 설정을 변경하려면 이 파일을 직접 편집한다.
 레지스트리 설정 소스/우선순위의 규범 기준은 `docs/specs/help.md` 4절을 따른다.
 
-### 11.2 환경 변수 우선순위
+### 12.2 환경 변수 우선순위
 
 설정 우선순위 (높은 것이 우선):
 
@@ -704,7 +748,7 @@ Summary
 
 ---
 
-## 12. 관련 문서
+## 13. 관련 문서
 
 - `docs/specs/runtime.md`: Runtime 실행 모델 스펙
 - `docs/specs/workspace.md`: Workspace 모델 스펙

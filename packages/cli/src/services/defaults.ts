@@ -4,6 +4,7 @@ import type { CliDependencies } from '../types.js';
 import { isObjectRecord } from '../utils.js';
 import { DefaultDoctorService } from './doctor.js';
 import { FileInstanceStore } from './instances.js';
+import { FileLogService } from './logs.js';
 import { DefaultPackageService } from './package.js';
 import { HttpRegistryClient } from './registry.js';
 import { LocalRuntimeController } from './runtime.js';
@@ -44,6 +45,7 @@ export function createDefaultDependencies(): CliDependencies {
 
   const runtime = new LocalRuntimeController(cwd, env);
   const instances = new FileInstanceStore(env);
+  const logs = new FileLogService(env);
   const packages = new DefaultPackageService(cwd, env, registry, validator);
   const doctor = new DefaultDoctorService(cwd, env, validator);
 
@@ -57,6 +59,7 @@ export function createDefaultDependencies(): CliDependencies {
     instances,
     packages,
     doctor,
+    logs,
   };
 
   void readCliVersion(cwd).then((version) => {

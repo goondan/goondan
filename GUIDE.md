@@ -534,6 +534,7 @@ gdn restart [--agent <name>] [--fresh]
 gdn validate [path] [--strict] [--format json]
 gdn instance list
 gdn instance delete <key> [--force]
+gdn logs [--instance-key <key>] [--process <name>] [--stream both] [--lines 200]
 gdn package add <ref>
 gdn package install [--frozen-lockfile]
 gdn package publish [--dry-run]
@@ -595,6 +596,14 @@ gdn doctor
 - 프로세스 로그에서 연속 크래시 원인 확인
 - Tool/Extension 초기화 예외 여부 확인
 - 백오프 상태(`crashLoopBackOff`)에서 원인 수정 후 재시작
+
+```bash
+# active 인스턴스의 orchestrator 로그 확인
+gdn logs
+
+# stderr만 최근 100줄 확인
+gdn logs --stream stderr --lines 100
+```
 
 ---
 

@@ -11,7 +11,8 @@ Telegram polling 기반 self-evolving bot 샘플 패키지다.
 
 ## 파일 구성
 
-- `src/main.ts`: polling 루프, 대화 처리, `/evolve` 플로우 진입점
+- `src/connector-entry.ts`: polling 루프, 대화 처리, `/evolve` 플로우 진입점 (runtime connector 기본 엔트리)
+- `src/main.ts`: standalone 실행용 얇은 래퍼 (connector-entry 호출)
 - `src/telegram.ts`: Telegram API 호출/업데이트 파싱
 - `src/anthropic.ts`: Anthropic Messages API 호출
 - `src/evolve.ts`: 명령 파서, 경로 검증, 변경 적용/롤백

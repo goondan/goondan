@@ -1,174 +1,173 @@
-import type { ParsedArguments } from './types.js';
+import { merge, object, or } from '@optique/core/constructs';
+import { optional, withDefault } from '@optique/core/modifiers';
+import { argument, command, constant, option } from '@optique/core/primitives';
+import { choice, integer, string } from '@optique/core/valueparser';
+import { parse } from '@optique/core/parser';
+import type { InferValue, Result } from '@optique/core/parser';
+import { formatMessage } from '@optique/core/message';
+import { DEFAULT_BUNDLE_FILE } from './constants.js';
 
-const aliasMap: Record<string, string> = {
-  h: 'help',
-  V: 'version',
-  v: 'verbose',
-  q: 'quiet',
-  c: 'config',
-  s: 'swarm',
-  i: 'instance-key',
-  w: 'watch',
-  a: 'agent',
-  n: 'limit',
-  f: 'force',
-  D: 'dev',
-  E: 'exact',
-};
+// ---------------------------------------------------------------------------
+// Global options (shared across all commands)
+// ---------------------------------------------------------------------------
 
-const globalOptionSet = new Set([
-  'help',
-  'version',
-  'verbose',
-  'quiet',
-  'config',
-  'state-root',
-  'no-color',
-  'json',
-]);
+const globalOptions = object('Global Options', {
+  config: withDefault(option('-c', '--config', string({ metavar: 'PATH' })), DEFAULT_BUNDLE_FILE),
+  stateRoot: optional(option('--state-root', string({ metavar: 'PATH' }))),
+  json: optional(option('--json')),
+  verbose: optional(option('-v', '--verbose')),
+  quiet: optional(option('-q', '--quiet')),
+  noColor: optional(option('--no-color')),
+});
 
-const valueOptionSet = new Set([
-  'config',
-  'state-root',
-  'swarm',
-  'instance-key',
-  'input',
-  'input-file',
-  'env-file',
-  'agent',
-  'limit',
-  'format',
-  'registry',
-  'tag',
-  'access',
-]);
+// ---------------------------------------------------------------------------
+// Command parsers
+// ---------------------------------------------------------------------------
 
-function optionExpectsValue(name: string): boolean {
-  return valueOptionSet.has(name);
+const runCommand = command(
+  'run',
+  object({
+    action: constant('run' as const),
+    bundlePath: optional(argument(string({ metavar: 'BUNDLE_PATH' }))),
+    swarm: optional(option('-s', '--swarm', string({ metavar: 'NAME' }))),
+    instanceKey: optional(option('-i', '--instance-key', string({ metavar: 'KEY' }))),
+    watch: optional(option('-w', '--watch')),
+    interactive: optional(option('--interactive')),
+    input: optional(option('--input', string())),
+    inputFile: optional(option('--input-file', string({ metavar: 'FILE' }))),
+    noInstall: optional(option('--no-install')),
+    envFile: optional(option('--env-file', string({ metavar: 'FILE' }))),
+  }),
+);
+
+const restartCommand = command(
+  'restart',
+  object({
+    action: constant('restart' as const),
+    agent: optional(option('-a', '--agent', string({ metavar: 'NAME' }))),
+    fresh: optional(option('--fresh')),
+  }),
+);
+
+const validateCommand = command(
+  'validate',
+  object({
+    action: constant('validate' as const),
+    target: optional(argument(string({ metavar: 'PATH' }))),
+    strict: optional(option('--strict')),
+    fix: optional(option('--fix')),
+    format: withDefault(option('--format', choice(['text', 'json', 'github'])), 'text'),
+  }),
+);
+
+const instanceListCommand = command(
+  'list',
+  object({
+    action: constant('instance.list' as const),
+    agent: optional(option('-a', '--agent', string({ metavar: 'NAME' }))),
+    limit: withDefault(option('-n', '--limit', integer({ min: 1 })), 20),
+    all: optional(option('--all')),
+  }),
+);
+
+const instanceDeleteCommand = command(
+  'delete',
+  object({
+    action: constant('instance.delete' as const),
+    key: argument(string({ metavar: 'KEY' })),
+    force: optional(option('-f', '--force')),
+  }),
+);
+
+const instanceCommand = command('instance', or(instanceListCommand, instanceDeleteCommand));
+
+const packageAddCommand = command(
+  'add',
+  object({
+    action: constant('package.add' as const),
+    ref: argument(string({ metavar: 'PACKAGE_REF' })),
+    dev: optional(option('-D', '--dev')),
+    exact: optional(option('-E', '--exact')),
+    registry: optional(option('--registry', string({ metavar: 'URL' }))),
+  }),
+);
+
+const packageInstallCommand = command(
+  'install',
+  object({
+    action: constant('package.install' as const),
+    frozenLockfile: optional(option('--frozen-lockfile')),
+    registry: optional(option('--registry', string({ metavar: 'URL' }))),
+  }),
+);
+
+const packagePublishCommand = command(
+  'publish',
+  object({
+    action: constant('package.publish' as const),
+    publishPath: optional(argument(string({ metavar: 'PATH' }))),
+    tag: withDefault(option('--tag', string()), 'latest'),
+    access: withDefault(option('--access', choice(['public', 'restricted'])), 'public'),
+    dryRun: optional(option('--dry-run')),
+    registry: optional(option('--registry', string({ metavar: 'URL' }))),
+  }),
+);
+
+const packageCommand = command('package', or(packageAddCommand, packageInstallCommand, packagePublishCommand));
+
+const doctorCommand = command(
+  'doctor',
+  object({
+    action: constant('doctor' as const),
+    fix: optional(option('--fix')),
+  }),
+);
+
+const logsCommand = command(
+  'logs',
+  object({
+    action: constant('logs' as const),
+    instanceKey: optional(option('-i', '--instance-key', string({ metavar: 'KEY' }))),
+    process: withDefault(option('-p', '--process', string({ metavar: 'NAME' })), 'orchestrator'),
+    stream: withDefault(option('--stream', choice(['stdout', 'stderr', 'both'])), 'both'),
+    lines: withDefault(option('-l', '--lines', integer({ min: 1 })), 200),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Top-level parser: global options + command union
+// ---------------------------------------------------------------------------
+
+const allCommands = or(
+  runCommand,
+  restartCommand,
+  validateCommand,
+  instanceCommand,
+  packageCommand,
+  doctorCommand,
+  logsCommand,
+);
+
+export const gdnParser = merge(globalOptions, object({ command: allCommands }));
+
+// ---------------------------------------------------------------------------
+// Inferred types
+// ---------------------------------------------------------------------------
+
+export type GdnArgs = InferValue<typeof gdnParser>;
+export type GdnCommand = GdnArgs['command'];
+
+// ---------------------------------------------------------------------------
+// Test-friendly parse wrapper (no process.exit)
+// ---------------------------------------------------------------------------
+
+export function parseArgv(argv: readonly string[]): Result<GdnArgs> {
+  return parse(gdnParser, argv);
 }
 
-function resolveShortOptionName(short: string): string {
-  const resolved = aliasMap[short];
-  if (resolved) {
-    return resolved;
+export function formatParseError(result: Result<GdnArgs>): string {
+  if (result.success) {
+    return '';
   }
-  return short;
-}
-
-function assignOption(target: Record<string, string | boolean>, name: string, value: string | boolean): void {
-  target[name] = value;
-}
-
-export function parseArguments(argv: string[]): ParsedArguments {
-  const options: Record<string, string | boolean> = {};
-  const positionals: string[] = [];
-
-  let index = 0;
-  while (index < argv.length) {
-    const token = argv[index];
-    if (typeof token !== 'string') {
-      index += 1;
-      continue;
-    }
-
-    if (token === '--') {
-      const trailing = argv.slice(index + 1);
-      positionals.push(...trailing);
-      break;
-    }
-
-    if (token.startsWith('--')) {
-      const raw = token.slice(2);
-      const equalIndex = raw.indexOf('=');
-      if (equalIndex >= 0) {
-        const name = raw.slice(0, equalIndex);
-        const value = raw.slice(equalIndex + 1);
-        assignOption(options, name, value);
-        index += 1;
-        continue;
-      }
-
-      const name = raw;
-      if (optionExpectsValue(name)) {
-        const next = argv[index + 1];
-        if (next && !next.startsWith('-')) {
-          assignOption(options, name, next);
-          index += 2;
-          continue;
-        }
-      }
-
-      assignOption(options, name, true);
-      index += 1;
-      continue;
-    }
-
-    if (token.startsWith('-') && token.length > 1) {
-      const shortBody = token.slice(1);
-      if (shortBody.length === 1) {
-        const shortName = resolveShortOptionName(shortBody);
-        if (optionExpectsValue(shortName)) {
-          const next = argv[index + 1];
-          if (next && !next.startsWith('-')) {
-            assignOption(options, shortName, next);
-            index += 2;
-            continue;
-          }
-        }
-
-        assignOption(options, shortName, true);
-        index += 1;
-        continue;
-      }
-
-      const chars = shortBody.split('');
-      let consumed = false;
-      for (let charIndex = 0; charIndex < chars.length; charIndex += 1) {
-        const currentChar = chars[charIndex];
-        if (typeof currentChar !== 'string') {
-          continue;
-        }
-        const mapped = resolveShortOptionName(currentChar);
-        const isLast = charIndex === chars.length - 1;
-
-        if (isLast && optionExpectsValue(mapped)) {
-          const next = argv[index + 1];
-          if (next && !next.startsWith('-')) {
-            assignOption(options, mapped, next);
-            index += 2;
-            consumed = true;
-            break;
-          }
-        }
-
-        assignOption(options, mapped, true);
-      }
-
-      if (!consumed) {
-        index += 1;
-      }
-      continue;
-    }
-
-    positionals.push(token);
-    index += 1;
-  }
-
-  const globalOptions: Record<string, string | boolean> = {};
-  for (const [name, value] of Object.entries(options)) {
-    if (globalOptionSet.has(name)) {
-      globalOptions[name] = value;
-    }
-  }
-
-  const command = positionals[0];
-  const subcommand = positionals[1];
-
-  return {
-    command,
-    subcommand,
-    rest: positionals.slice(2),
-    options,
-    globalOptions,
-  };
+  return formatMessage(result.error);
 }

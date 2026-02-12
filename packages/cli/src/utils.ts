@@ -14,32 +14,6 @@ export async function exists(targetPath: string): Promise<boolean> {
   }
 }
 
-export function ensureString(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  return undefined;
-}
-
-export function ensureBoolean(value: unknown): boolean {
-  return value === true;
-}
-
-export function ensureNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return undefined;
-}
 
 export async function resolveBundlePath(cwd: string, configuredPath: string): Promise<string> {
   const candidate = path.resolve(cwd, configuredPath);

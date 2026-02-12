@@ -14,7 +14,7 @@
 - 리소스 스키마 SSOT: `docs/specs/resources.md`
 - 런타임/프로세스 모델 SSOT: `docs/specs/runtime.md`
 - CLI 명령어 SSOT: `docs/specs/cli.md`
-- 구성 계층 역할 개요(`core/runtime`, `core/types`, `base`, `cli`, `registry`): `docs/specs/layers.md`
+- 구성 계층 역할 개요(`runtime`, `types`, `base`, `cli`, `registry`): `docs/specs/layers.md`
 - 공통 타입 SSOT: `docs/specs/shared-types.md`
 
 ---
@@ -325,7 +325,7 @@ spec:
 Tool 호출은 AgentProcess(Bun) 내부에서 `entry` 모듈 로드 후 같은 프로세스의 JS 함수 호출로 실행된다.
 
 ```typescript
-import type { ToolHandler } from '@goondan/core';
+import type { ToolHandler } from '@goondan/types';
 
 export const handlers: Record<string, ToolHandler> = {
   exec: async (ctx, input) => {
@@ -370,7 +370,7 @@ spec:
 `register(api)`를 export해야 한다.
 
 ```typescript
-import type { ExtensionApi } from '@goondan/core';
+import type { ExtensionApi } from '@goondan/runtime';
 
 export function register(api: ExtensionApi): void {
   api.pipeline.register('step', async (ctx) => {
@@ -416,7 +416,7 @@ spec:
 Connector는 프로토콜 수신을 직접 구현한다.
 
 ```typescript
-import type { ConnectorContext } from '@goondan/core';
+import type { ConnectorContext } from '@goondan/runtime';
 
 export default async function (ctx: ConnectorContext): Promise<void> {
   Bun.serve({

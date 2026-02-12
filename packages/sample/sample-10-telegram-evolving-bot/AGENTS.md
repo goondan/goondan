@@ -17,7 +17,8 @@ Telegram polling 기반 self-evolving bot 샘플 패키지다.
 - `src/evolve.ts`: 명령 파서, 경로 검증, 변경 적용/롤백
 - `src/config.ts`: 환경 변수/경로 설정 로더
 - `src/state.ts`: offset + 대화 히스토리 상태 저장
-- `test/evolve.spec.ts`: 핵심 파서/경로 제한/롤백 테스트
+- `test/anthropic.test.ts`: Anthropic 요청 payload/응답 파싱 검증
+- `test/evolve.test.ts`: 핵심 파서/경로 제한/롤백 테스트
 
 ## 구현 규칙
 

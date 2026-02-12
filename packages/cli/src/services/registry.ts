@@ -140,7 +140,7 @@ export class HttpRegistryClient implements RegistryClient {
     token?: string,
   ): Promise<RegistryPublishResult> {
     const normalized = normalizeRegistryUrl(registryUrl);
-    const endpoint = `${normalized}/${encodedPackageName(payload.packageName)}`;
+    const endpoint = `${normalized}/${encodedPackageName(payload.name)}`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

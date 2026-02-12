@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { configError, validateError } from '../errors.js';
 import type {
   BundleValidator,
@@ -26,6 +28,12 @@ interface PackageManifestMeta {
   packageName?: string;
   packageVersion?: string;
   dependencies: DependencyEntry[];
+}
+
+interface PackedAttachment {
+  fileName: string;
+  data: string;
+  length: number;
 }
 
 function quoteYaml(value: string): string {
@@ -251,6 +259,85 @@ function defaultPackageNameFromManifestPath(manifestPath: string): string {
   return normalized;
 }
 
+function dependencyEntriesToRecord(entries: DependencyEntry[]): Record<string, string> {
+  const dependencies: Record<string, string> = {};
+  for (const entry of entries) {
+    dependencies[entry.name] = entry.version;
+  }
+  return dependencies;
+}
+
+function toTarballFileName(packageName: string, version: string): string {
+  const parts = packagePathParts(packageName);
+  return `${parts.name}-${version}.tgz`;
+}
+
+function readCommandError(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function runPnpmPack(packageDir: string, outputDir: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'pnpm',
+      ['pack', '--pack-destination', outputDir],
+      {
+        cwd: packageDir,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, _stdout, stderr) => {
+        if (error) {
+          const stderrMessage = typeof stderr === 'string' ? stderr.trim() : '';
+          const detail = stderrMessage.length > 0 ? stderrMessage : readCommandError(error);
+          reject(new Error(detail));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
+
+async function createPackedAttachment(packageDir: string, packageName: string, version: string): Promise<PackedAttachment> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'goondan-pack-'));
+  try {
+    await runPnpmPack(packageDir, tempDir);
+
+    const entries = await readdir(tempDir);
+    const tarballs = entries.filter((entry) => entry.endsWith('.tgz')).sort();
+    const packedFile = tarballs[0];
+
+    if (!packedFile) {
+      throw configError('패키지 tarball 생성 결과를 찾을 수 없습니다.', 'pnpm pack 출력 경로를 확인하세요.');
+    }
+
+    const packedPath = path.join(tempDir, packedFile);
+    const bytes = await readFile(packedPath);
+    const fileName = toTarballFileName(packageName, version);
+
+    return {
+      fileName,
+      data: bytes.toString('base64'),
+      length: bytes.byteLength,
+    };
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'CONFIG_ERROR') {
+      throw error;
+    }
+
+    throw configError(
+      'publish용 tarball 생성에 실패했습니다.',
+      `pnpm pack 실행 실패: ${readCommandError(error)}`,
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 export class DefaultPackageService implements PackageService {
   private readonly cwd: string;
 
@@ -452,15 +539,27 @@ export class DefaultPackageService implements PackageService {
     const config = await readCliConfig(stateRoot);
     const registryUrl = resolveRegistryUrl(request.registry, this.env, config, manifest.packageName);
     const token = resolveRegistryToken(registryUrl, this.env, config);
+    const packageDir = path.dirname(manifestPath);
+    const packedAttachment = await createPackedAttachment(packageDir, manifest.packageName, manifest.packageVersion);
+    const dependencies = dependencyEntriesToRecord(manifest.dependencies);
 
     if (!request.dryRun) {
       const response = await this.registryClient.publishPackage(
         {
-          packageName: manifest.packageName,
+          name: manifest.packageName,
           version: manifest.packageVersion,
           access: request.access,
-          tag: request.tag,
-          path: path.dirname(manifestPath),
+          dependencies,
+          'dist-tags': {
+            [request.tag]: manifest.packageVersion,
+          },
+          _attachments: {
+            [packedAttachment.fileName]: {
+              data: packedAttachment.data,
+              contentType: 'application/gzip',
+              length: packedAttachment.length,
+            },
+          },
         },
         registryUrl,
         token,

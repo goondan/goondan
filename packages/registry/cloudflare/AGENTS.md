@@ -7,7 +7,8 @@
 - Worker `fetch` 핸들러 기반 Registry API(`GET/PUT/DELETE`) 라우팅 구현
 - 메타데이터 저장소(KV) + tarball 저장소(R2) 연결
 - Bearer 인증, access(public/restricted), dist-tags, integrity 생성 규칙 유지
-- wrangler 배포 예시 설정/스크립트 제공
+- wrangler 배포 예시 설정 제공 (`wrangler.toml.example`)
+- 실제 배포는 `pnpx wrangler` 명령(`kv namespace create`, `r2 bucket create`, `secret put`, `deploy`) 기반으로 수행
 
 ## 작업 규칙
 

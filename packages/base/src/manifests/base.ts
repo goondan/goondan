@@ -252,6 +252,27 @@ export function createBaseConnectorManifests(): BaseConnectorManifest[] {
         },
       ],
     }),
+    createConnectorManifest('telegram-polling', {
+      entry: './src/connectors/telegram-polling.ts',
+      events: [
+        {
+          name: 'telegram_message',
+          properties: {
+            update_id: { type: 'number', optional: true },
+            chat_id: { type: 'string', optional: true },
+            chat_type: { type: 'string', optional: true },
+            chat_title: { type: 'string', optional: true },
+            chat_username: { type: 'string', optional: true },
+            message_id: { type: 'number', optional: true },
+            date: { type: 'number', optional: true },
+            from_id: { type: 'string', optional: true },
+            from_username: { type: 'string', optional: true },
+            from_first_name: { type: 'string', optional: true },
+            from_last_name: { type: 'string', optional: true },
+          },
+        },
+      ],
+    }),
   ];
 }
 

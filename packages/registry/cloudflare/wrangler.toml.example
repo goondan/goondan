@@ -1,0 +1,23 @@
+name = "goondan-registry"
+main = "src/worker.ts"
+compatibility_date = "2026-02-12"
+workers_dev = true
+
+# Optional: public origin override for dist.tarball URL generation.
+[vars]
+PUBLIC_REGISTRY_URL = "https://registry.example.com"
+
+# Set one or more comma-separated bearer tokens via secret.
+# Example: wrangler secret put REGISTRY_AUTH_TOKENS
+# REGISTRY_AUTH_TOKENS="token-a,token-b"
+
+[[kv_namespaces]]
+binding = "REGISTRY_KV"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
+[[r2_buckets]]
+binding = "REGISTRY_R2"
+bucket_name = "goondan-registry-tarballs"
+
+[observability.logs]
+enabled = true

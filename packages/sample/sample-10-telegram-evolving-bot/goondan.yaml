@@ -1,0 +1,114 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/sample-10-telegram-evolving-bot"
+spec:
+  version: "0.1.0"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^0.1.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: claude-sonnet-4-5
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: local-file-system
+spec:
+  entry: "./src/local-tools.ts"
+  exports:
+    - name: write
+      description: "write file in sample workspace"
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+          content:
+            type: string
+        required: [path, content]
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: telegram-evolver
+spec:
+  modelConfig:
+    modelRef: "Model/claude-sonnet-4-5"
+    params:
+      temperature: 0.2
+      maxTokens: 1200
+  prompts:
+    systemRef: "./prompts/system.md"
+  tools:
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: bash
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: local-file-system
+  extensions:
+    - ref:
+        kind: Extension
+        name: logging
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/telegram-evolver"
+  agents:
+    - ref: "Agent/telegram-evolver"
+  policy:
+    maxStepsPerTurn: 24
+---
+apiVersion: goondan.ai/v1
+kind: Connector
+metadata:
+  name: telegram-polling
+spec:
+  entry: "./src/connector-entry.ts"
+  events:
+    - name: telegram_message
+      properties:
+        chat_id:
+          type: string
+        from_username:
+          type: string
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: telegram-to-default
+spec:
+  connectorRef: "Connector/telegram-polling"
+  swarmRef: "Swarm/default"
+  secrets:
+    TELEGRAM_BOT_TOKEN:
+      valueFrom:
+        env: TELEGRAM_BOT_TOKEN
+    ANTHROPIC_API_KEY:
+      valueFrom:
+        env: ANTHROPIC_API_KEY
+  ingress:
+    rules:
+      - match:
+          event: telegram_message
+        route:
+          agentRef: "Agent/telegram-evolver"

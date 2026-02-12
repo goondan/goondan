@@ -1,0 +1,7 @@
+wrangler.toml
+.deploy/
+.deploy.log
+.deploy.token
+.wrangler/
+!test/
+!test/**

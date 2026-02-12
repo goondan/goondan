@@ -203,6 +203,175 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         },
       ],
     }),
+    createToolManifest('http-fetch', {
+      entry: './src/tools/http-fetch.ts',
+      exports: [
+        {
+          name: 'get',
+          description: 'Perform HTTP GET request',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string' },
+              headers: { type: 'object' },
+              timeoutMs: { type: 'number' },
+              maxBytes: { type: 'number' },
+            },
+            required: ['url'],
+          },
+        },
+        {
+          name: 'post',
+          description: 'Perform HTTP POST request',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string' },
+              body: { type: 'object' },
+              bodyString: { type: 'string' },
+              headers: { type: 'object' },
+              timeoutMs: { type: 'number' },
+              maxBytes: { type: 'number' },
+            },
+            required: ['url'],
+          },
+        },
+      ],
+    }),
+    createToolManifest('json-query', {
+      entry: './src/tools/json-query.ts',
+      exports: [
+        {
+          name: 'query',
+          description: 'Query JSON data by dot-notation path',
+          parameters: {
+            type: 'object',
+            properties: {
+              data: { type: 'string' },
+              path: { type: 'string' },
+            },
+            required: ['data'],
+          },
+        },
+        {
+          name: 'pick',
+          description: 'Pick specific keys from JSON object',
+          parameters: {
+            type: 'object',
+            properties: {
+              data: { type: 'string' },
+              keys: { type: 'array' },
+            },
+            required: ['data', 'keys'],
+          },
+        },
+        {
+          name: 'count',
+          description: 'Count elements at a JSON path',
+          parameters: {
+            type: 'object',
+            properties: {
+              data: { type: 'string' },
+              path: { type: 'string' },
+            },
+            required: ['data'],
+          },
+        },
+        {
+          name: 'flatten',
+          description: 'Flatten nested JSON arrays',
+          parameters: {
+            type: 'object',
+            properties: {
+              data: { type: 'string' },
+              depth: { type: 'number' },
+            },
+            required: ['data'],
+          },
+        },
+      ],
+    }),
+    createToolManifest('text-transform', {
+      entry: './src/tools/text-transform.ts',
+      exports: [
+        {
+          name: 'replace',
+          description: 'Replace text occurrences',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              search: { type: 'string' },
+              replacement: { type: 'string' },
+              all: { type: 'boolean' },
+            },
+            required: ['text', 'search'],
+          },
+        },
+        {
+          name: 'slice',
+          description: 'Extract substring by start/end positions',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              start: { type: 'number' },
+              end: { type: 'number' },
+            },
+            required: ['text'],
+          },
+        },
+        {
+          name: 'split',
+          description: 'Split text by delimiter',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              delimiter: { type: 'string' },
+              maxParts: { type: 'number' },
+            },
+            required: ['text'],
+          },
+        },
+        {
+          name: 'join',
+          description: 'Join array of strings with delimiter',
+          parameters: {
+            type: 'object',
+            properties: {
+              parts: { type: 'array' },
+              delimiter: { type: 'string' },
+            },
+            required: ['parts'],
+          },
+        },
+        {
+          name: 'trim',
+          description: 'Trim whitespace from text',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              mode: { type: 'string' },
+            },
+            required: ['text'],
+          },
+        },
+        {
+          name: 'case',
+          description: 'Transform text case (upper/lower)',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              to: { type: 'string' },
+            },
+            required: ['text', 'to'],
+          },
+        },
+      ],
+    }),
   ];
 }
 
@@ -269,6 +438,91 @@ export function createBaseConnectorManifests(): BaseConnectorManifest[] {
             from_username: { type: 'string', optional: true },
             from_first_name: { type: 'string', optional: true },
             from_last_name: { type: 'string', optional: true },
+          },
+        },
+      ],
+    }),
+    createConnectorManifest('slack', {
+      entry: './src/connectors/slack.ts',
+      events: [
+        {
+          name: 'app_mention',
+          properties: {
+            channel_id: { type: 'string' },
+            ts: { type: 'string' },
+            thread_ts: { type: 'string', optional: true },
+            user_id: { type: 'string', optional: true },
+          },
+        },
+        {
+          name: 'message_im',
+          properties: {
+            channel_id: { type: 'string' },
+            ts: { type: 'string' },
+            user_id: { type: 'string', optional: true },
+          },
+        },
+      ],
+    }),
+    createConnectorManifest('discord', {
+      entry: './src/connectors/discord.ts',
+      events: [
+        {
+          name: 'slash_command',
+          properties: {
+            interaction_id: { type: 'string', optional: true },
+            channel_id: { type: 'string', optional: true },
+            guild_id: { type: 'string', optional: true },
+            command_name: { type: 'string', optional: true },
+            user_id: { type: 'string', optional: true },
+          },
+        },
+        {
+          name: 'component_interaction',
+          properties: {
+            interaction_id: { type: 'string', optional: true },
+            channel_id: { type: 'string', optional: true },
+            custom_id: { type: 'string', optional: true },
+          },
+        },
+      ],
+    }),
+    createConnectorManifest('github', {
+      entry: './src/connectors/github.ts',
+      events: [
+        {
+          name: 'github_push',
+          properties: {
+            repo: { type: 'string', optional: true },
+            ref: { type: 'string', optional: true },
+            sender: { type: 'string', optional: true },
+          },
+        },
+        {
+          name: 'github_pull_request',
+          properties: {
+            repo: { type: 'string', optional: true },
+            action: { type: 'string', optional: true },
+            number: { type: 'string', optional: true },
+            sender: { type: 'string', optional: true },
+          },
+        },
+        {
+          name: 'github_issue',
+          properties: {
+            repo: { type: 'string', optional: true },
+            action: { type: 'string', optional: true },
+            number: { type: 'string', optional: true },
+            sender: { type: 'string', optional: true },
+          },
+        },
+        {
+          name: 'github_issue_comment',
+          properties: {
+            repo: { type: 'string', optional: true },
+            action: { type: 'string', optional: true },
+            number: { type: 'string', optional: true },
+            sender: { type: 'string', optional: true },
           },
         },
       ],

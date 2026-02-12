@@ -39,6 +39,56 @@ export interface SelectorWithOverrides {
 /** Used in Agent.tools / Agent.extensions / Swarm.agents. */
 export type RefOrSelector = RefItem | SelectorWithOverrides | ObjectRefLike;
 
+export function isRefItem(value: unknown): value is RefItem {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  const refValue = value["ref"];
+  return isObjectRefLike(refValue);
+}
+
+export function isSelectorWithOverrides(value: unknown): value is SelectorWithOverrides {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  const selectorValue = value["selector"];
+  if (!isPlainObject(selectorValue)) {
+    return false;
+  }
+
+  const kindValue = selectorValue["kind"];
+  if (kindValue !== undefined && typeof kindValue !== "string") {
+    return false;
+  }
+
+  const nameValue = selectorValue["name"];
+  if (nameValue !== undefined && typeof nameValue !== "string") {
+    return false;
+  }
+
+  const matchLabelsValue = selectorValue["matchLabels"];
+  if (matchLabelsValue !== undefined) {
+    if (!isPlainObject(matchLabelsValue)) {
+      return false;
+    }
+
+    const keys = Object.keys(matchLabelsValue);
+    for (const key of keys) {
+      if (typeof matchLabelsValue[key] !== "string") {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+export function isRefOrSelector(value: unknown): value is RefOrSelector {
+  return isRefItem(value) || isSelectorWithOverrides(value) || isObjectRefLike(value);
+}
+
 export function parseObjectRef(value: ObjectRefLike): ObjectRef {
   if (typeof value === "string") {
     return parseObjectRefString(value);

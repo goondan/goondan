@@ -19,3 +19,18 @@ This directory owns the shared type system for Goondan v2.
    - ValueSource resolution: `value`, `valueFrom.env`, `valueFrom.secretRef`
    - Message state fold: `NextMessages = BaseMessages + SUM(Events)`
    - IPC and ProcessStatus guards
+
+## Source Files
+
+| File | Responsibility |
+|------|----------------|
+| `src/json.ts` | JSON primitive types (`JsonPrimitive`, `JsonValue`, `JsonObject`, `JsonArray`) + `isJsonValue`, `isPlainObject` guards |
+| `src/references.ts` | ObjectRef, RefItem, Selector, SelectorWithOverrides, RefOrSelector types + parse/format/guard functions (`isObjectRef`, `isObjectRefLike`, `isRefItem`, `isSelectorWithOverrides`, `isRefOrSelector`) |
+| `src/value-source.ts` | ValueSource, ValueFrom, SecretRef types + `resolveValueSource`, `isSecretRefPath` |
+| `src/message.ts` | CoreMessage (local), MessageSource, Message, MessageEvent, ConversationState + `applyMessageEvent`, `foldMessageEvents`, `createConversationState` |
+| `src/events.ts` | EventEnvelope, EventSource, ReplyChannel, TurnAuth, AgentEvent, ProcessStatus, IpcMessage, ShutdownReason + guards (`isEventEnvelope`, `isReplyChannel`, `isAgentEvent`, `isProcessStatus`, `isIpcMessage`, `isIpcMessageType`, `isShutdownReason`) |
+| `src/connector.ts` | ConnectorEventMessage, ConnectorEvent, ConnectorContext types + `isConnectorEventMessage`, `isConnectorEvent` guards (SSOT: docs/specs/connector.md 5.2-5.3절) |
+| `src/tool.ts` | ExecutionContext, ToolCall, ToolCallResult, ToolContext, ToolHandler |
+| `src/turn.ts` | TurnResult |
+| `src/resources.ts` | Resource, KnownKind (8종), TypedResource, all Kind-specific spec interfaces (ModelSpec, AgentSpec, SwarmSpec, ToolSpec, ExtensionSpec, ConnectorSpec, ConnectionSpec, PackageSpec), typed resource aliases, ValidationError + guards (`isKnownKind`, `isResource`, `isGoodanResource`, `isModelResource`, `isAgentResource`, `isSwarmResource`, `isToolResource`, `isExtensionResource`, `isConnectorResource`, `isConnectionResource`, `isPackageResource`) |
+| `src/index.ts` | Barrel re-export of all modules |

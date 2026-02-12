@@ -69,6 +69,18 @@ export class RegistryClient {
     return payload;
   }
 
+  async getTarball(packageName: string, version: string): Promise<Buffer> {
+    const parsedName = parseScopedPackageName(packageName);
+    if (parsedName === null) {
+      throw new Error(`Invalid package name: ${packageName}`);
+    }
+
+    const packagePath = buildScopedPackagePath(parsedName.scope, parsedName.name);
+    const tarballPath = `${packagePath}/-/${encodeURIComponent(parsedName.name)}-${encodeURIComponent(version)}.tgz`;
+    const response = await this.request("GET", tarballPath);
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   async publish(input: RegistryPublishInput): Promise<void> {
     const parsedName = parseScopedPackageName(input.name);
     if (parsedName === null) {
@@ -111,10 +123,29 @@ export class RegistryClient {
     await consumeJsonResponse(response);
   }
 
+  async unpublish(packageName: string, version: string): Promise<void> {
+    const packagePath = buildPackagePath(packageName);
+    const response = await this.request("DELETE", `${packagePath}/${encodeURIComponent(version)}`);
+    await consumeJsonResponse(response);
+  }
+
+  async deletePackage(packageName: string): Promise<void> {
+    const packagePath = buildPackagePath(packageName);
+    const response = await this.request("DELETE", packagePath);
+    await consumeJsonResponse(response);
+  }
+
+  async deprecate(packageName: string, version: string, message: string): Promise<void> {
+    const packagePath = buildPackagePath(packageName);
+    const deprecatePath = `${packagePath}/${encodeURIComponent(version)}/deprecate`;
+    const response = await this.request("PUT", deprecatePath, { message });
+    await consumeJsonResponse(response);
+  }
+
   private async request(
     method: string,
     path: string,
-    body?: RegistryPublishPayload,
+    body?: unknown,
     tokenOverride?: string,
   ): Promise<Response> {
     const targetUrl = `${this.registryUrl}${path}`;

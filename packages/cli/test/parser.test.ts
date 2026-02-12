@@ -149,4 +149,77 @@ describe('parseArgv', () => {
       }
     }
   });
+
+  it('init 명령을 파싱한다', () => {
+    const result = parseArgv(['init', 'my-project', '--name', 'my-swarm', '--template', 'multi-agent', '--force']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('init');
+      const cmd = result.value.command;
+      if (cmd.action === 'init') {
+        expect(cmd.initPath).toBe('my-project');
+        expect(cmd.name).toBe('my-swarm');
+        expect(cmd.template).toBe('multi-agent');
+        expect(cmd.force).toBe(true);
+      }
+    }
+  });
+
+  it('init 명령 기본값을 설정한다', () => {
+    const result = parseArgv(['init']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('init');
+      const cmd = result.value.command;
+      if (cmd.action === 'init') {
+        expect(cmd.initPath).toBeUndefined();
+        expect(cmd.name).toBeUndefined();
+        expect(cmd.template).toBe('default');
+        expect(cmd.git).toBe(true);
+        expect(cmd.force).toBeUndefined();
+        expect(cmd.asPackage).toBeUndefined();
+      }
+    }
+  });
+
+  it('init --package 옵션을 파싱한다', () => {
+    const result = parseArgv(['init', '--package', '--template', 'package']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const cmd = result.value.command;
+      if (cmd.action === 'init') {
+        expect(cmd.asPackage).toBe(true);
+        expect(cmd.template).toBe('package');
+      }
+    }
+  });
+
+  it('init --no-git 옵션을 파싱한다', () => {
+    const result = parseArgv(['init', '--no-git']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const cmd = result.value.command;
+      if (cmd.action === 'init') {
+        expect(cmd.noGit).toBe(true);
+      }
+    }
+  });
+
+  it('init 잘못된 template 값은 파싱 실패한다', () => {
+    const result = parseArgv(['init', '--template', 'invalid']);
+
+    expect(result.success).toBe(false);
+  });
+
+  it('bare instance 명령은 파싱 실패한다 (라우터에서 interactive 폴백)', () => {
+    const result = parseArgv(['instance']);
+
+    // Optique or()는 토큰 미소비 브랜치를 허용하지 않으므로
+    // bare "instance"는 파싱 실패 → 라우터에서 interactive로 폴백
+    expect(result.success).toBe(false);
+  });
 });

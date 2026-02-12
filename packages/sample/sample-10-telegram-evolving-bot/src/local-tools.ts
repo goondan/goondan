@@ -1,15 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-interface ToolContext {
-  workdir: string;
-}
+import type { JsonObject, JsonValue, ToolContext } from "@goondan/types";
 
-interface JsonObject {
-  [key: string]: unknown;
-}
+import { applyEvolutionPlan, parseEvolutionPlanFromUnknown } from "./evolve.js";
 
-function requireString(value: unknown, field: string): string {
+function requireString(value: JsonValue | undefined, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${field} is required`);
   }
@@ -29,7 +25,25 @@ function resolveSafePath(workdir: string, target: string): string {
   return path.resolve(workdir, normalized);
 }
 
-export async function write(ctx: ToolContext, input: JsonObject): Promise<JsonObject> {
+function resolveProjectRoot(ctx: ToolContext): string {
+  const fromEnv = process.env.BOT_PROJECT_ROOT;
+  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return path.resolve(fromEnv);
+  }
+
+  return path.resolve(ctx.workdir);
+}
+
+function resolveBackupRoot(projectRoot: string): string {
+  const fromEnv = process.env.BOT_BACKUP_DIR;
+  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return path.resolve(projectRoot, fromEnv);
+  }
+
+  return path.resolve(projectRoot, ".evolve-backups");
+}
+
+export async function write(ctx: ToolContext, input: JsonObject): Promise<JsonValue> {
   const filePath = requireString(input.path, "path");
   const content = requireString(input.content, "content");
 
@@ -44,6 +58,30 @@ export async function write(ctx: ToolContext, input: JsonObject): Promise<JsonOb
   };
 }
 
+export async function evolve(ctx: ToolContext, input: JsonObject): Promise<JsonValue> {
+  const plan = parseEvolutionPlanFromUnknown(input);
+  if (!plan) {
+    throw new Error("evolve tool input 형식이 올바르지 않습니다. (summary, updates 필요)");
+  }
+
+  const projectRoot = resolveProjectRoot(ctx);
+  const backupRootDir = resolveBackupRoot(projectRoot);
+
+  const result = await applyEvolutionPlan({
+    projectRoot,
+    backupRootDir,
+    plan,
+  });
+
+  return {
+    ok: true,
+    summary: plan.summary,
+    changedFiles: result.changedFiles,
+    backupDir: result.backupDir,
+  };
+}
+
 export const handlers = {
   write,
+  evolve,
 };

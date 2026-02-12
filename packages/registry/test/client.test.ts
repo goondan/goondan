@@ -37,6 +37,107 @@ describe("registry client", () => {
     }
   });
 
+  it("클라이언트로 tarball 다운로드를 수행한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const client = await RegistryClient.create({
+        registry: server.url,
+        token: server.token,
+      });
+
+      const tarball = Buffer.from("tarball download test", "utf8");
+      await client.publish({
+        name: "@goondan/base",
+        version: "4.0.0",
+        tarball,
+      });
+
+      const downloaded = await client.getTarball("@goondan/base", "4.0.0");
+      expect(downloaded.equals(tarball)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("클라이언트로 unpublish를 수행한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const client = await RegistryClient.create({
+        registry: server.url,
+        token: server.token,
+      });
+
+      const tarball = Buffer.from("unpublish test", "utf8");
+      await client.publish({
+        name: "@goondan/base",
+        version: "5.0.0",
+        tarball,
+      });
+
+      await client.unpublish("@goondan/base", "5.0.0");
+
+      await expect(client.getVersion("@goondan/base", "5.0.0")).rejects.toThrow();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("클라이언트로 deprecate/해제를 수행한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const client = await RegistryClient.create({
+        registry: server.url,
+        token: server.token,
+      });
+
+      const tarball = Buffer.from("deprecate test", "utf8");
+      await client.publish({
+        name: "@goondan/base",
+        version: "6.0.0",
+        tarball,
+      });
+
+      await client.deprecate("@goondan/base", "6.0.0", "Use 7.0.0 instead");
+
+      const deprecated = await client.getVersion("@goondan/base", "6.0.0");
+      expect(deprecated.deprecated).toBe("Use 7.0.0 instead");
+
+      await client.deprecate("@goondan/base", "6.0.0", "");
+
+      const undeprecated = await client.getVersion("@goondan/base", "6.0.0");
+      expect(undeprecated.deprecated).toBe("");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("클라이언트로 전체 패키지 삭제를 수행한다", async () => {
+    const server = await startTestRegistryServer();
+
+    try {
+      const client = await RegistryClient.create({
+        registry: server.url,
+        token: server.token,
+      });
+
+      const tarball = Buffer.from("delete package test", "utf8");
+      await client.publish({
+        name: "@goondan/base",
+        version: "7.0.0",
+        tarball,
+      });
+
+      await client.deletePackage("@goondan/base");
+
+      await expect(client.getMetadata("@goondan/base")).rejects.toThrow();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("registry 설정 우선순위(옵션 > env > config > default)를 따른다", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "goondan-registry-config-"));
     const configPath = path.join(tempDir, "config.json");

@@ -24,3 +24,24 @@ export type {
   TelegramPollingOptions,
   TelegramSendMessageOptions,
 } from './telegram-polling.js';
+
+export {
+  default as runSlackConnectorEntry,
+  handleSlackRequest,
+  verifySlackSignature,
+} from './slack.js';
+export type { SlackConnectorConfig } from './slack.js';
+
+export {
+  default as runDiscordConnectorEntry,
+  handleDiscordRequest,
+  parseDiscordInteraction,
+  createDiscordPingResponse,
+} from './discord.js';
+
+export {
+  default as runGithubConnectorEntry,
+  handleGithubRequest,
+  parseGithubWebhook,
+  verifyGithubSignature,
+} from './github.js';

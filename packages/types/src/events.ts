@@ -107,6 +107,32 @@ export function isIpcMessage(value: unknown): value is IpcMessage {
   return isJsonValue(payloadValue);
 }
 
+export function isEventEnvelope(value: unknown): value is EventEnvelope {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  if (typeof value["id"] !== "string" || value["id"].length === 0) {
+    return false;
+  }
+
+  if (typeof value["type"] !== "string" || value["type"].length === 0) {
+    return false;
+  }
+
+  const createdAtValue = value["createdAt"];
+  if (!(createdAtValue instanceof Date) || Number.isNaN(createdAtValue.getTime())) {
+    return false;
+  }
+
+  const traceIdValue = value["traceId"];
+  if (traceIdValue !== undefined && typeof traceIdValue !== "string") {
+    return false;
+  }
+
+  return true;
+}
+
 export function isReplyChannel(value: unknown): value is ReplyChannel {
   if (!isPlainObject(value)) {
     return false;

@@ -1,4 +1,5 @@
 import type { JsonValue } from "./json.js";
+import { isPlainObject } from "./json.js";
 import type { ObjectRefLike, RefOrSelector } from "./references.js";
 import type { ValueSource } from "./value-source.js";
 
@@ -244,4 +245,69 @@ export function isKnownKind(value: unknown): value is KnownKind {
     value === "Connection" ||
     value === "Package"
   );
+}
+
+export function isResource(value: unknown): value is Resource {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  if (typeof value["apiVersion"] !== "string" || value["apiVersion"].length === 0) {
+    return false;
+  }
+
+  if (typeof value["kind"] !== "string" || value["kind"].length === 0) {
+    return false;
+  }
+
+  const metadataValue = value["metadata"];
+  if (!isPlainObject(metadataValue)) {
+    return false;
+  }
+
+  if (typeof metadataValue["name"] !== "string" || metadataValue["name"].length === 0) {
+    return false;
+  }
+
+  return value["spec"] !== undefined;
+}
+
+export function isGoodanResource(value: unknown): value is Resource & { apiVersion: typeof GOONDAN_API_VERSION } {
+  return isResource(value) && value.apiVersion === GOONDAN_API_VERSION;
+}
+
+function isResourceOfKind<K extends KnownKind>(value: unknown, kind: K): boolean {
+  return isGoodanResource(value) && value.kind === kind;
+}
+
+export function isModelResource(value: unknown): value is ModelResource {
+  return isResourceOfKind(value, "Model");
+}
+
+export function isAgentResource(value: unknown): value is AgentResource {
+  return isResourceOfKind(value, "Agent");
+}
+
+export function isSwarmResource(value: unknown): value is SwarmResource {
+  return isResourceOfKind(value, "Swarm");
+}
+
+export function isToolResource(value: unknown): value is ToolResource {
+  return isResourceOfKind(value, "Tool");
+}
+
+export function isExtensionResource(value: unknown): value is ExtensionResource {
+  return isResourceOfKind(value, "Extension");
+}
+
+export function isConnectorResource(value: unknown): value is ConnectorResource {
+  return isResourceOfKind(value, "Connector");
+}
+
+export function isConnectionResource(value: unknown): value is ConnectionResource {
+  return isResourceOfKind(value, "Connection");
+}
+
+export function isPackageResource(value: unknown): value is PackageResource {
+  return isResourceOfKind(value, "Package");
 }

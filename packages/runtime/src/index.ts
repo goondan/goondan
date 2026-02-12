@@ -15,8 +15,10 @@ export * from "./config/bundle-loader.js";
 
 export * from "./workspace/paths.js";
 export * from "./workspace/storage.js";
+export * from "./workspace/instance-manager.js";
 
 export * from "./orchestrator/types.js";
 export * from "./orchestrator/orchestrator.js";
+export * from "./orchestrator/event-queue.js";
 
 export * from "./events/runtime-events.js";

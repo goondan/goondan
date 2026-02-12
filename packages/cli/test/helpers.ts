@@ -5,6 +5,8 @@ import type {
   DeleteInstanceRequest,
   DiagnosticIssue,
   DoctorReport,
+  InitRequest,
+  InitResult,
   InstanceRecord,
   ListInstancesRequest,
   LogReadRequest,
@@ -19,12 +21,14 @@ import type {
   RuntimeRestartResult,
   RuntimeStartRequest,
   RuntimeStartResult,
+  TerminalIO,
   ValidationResult,
 } from '../src/types.js';
 
 export interface MockState {
   outs: string[];
   errs: string[];
+  initRequests: InitRequest[];
   runRequests: RuntimeStartRequest[];
   restartRequests: RuntimeRestartRequest[];
   listRequests: ListInstancesRequest[];
@@ -35,10 +39,61 @@ export interface MockState {
   publishRequests: PackagePublishRequest[];
 }
 
+export interface MockTerminalState {
+  writes: string[];
+  rawMode: boolean;
+  dataListeners: Array<(data: Buffer) => void>;
+}
+
+export function createMockTerminal(isTTY = true): { terminal: TerminalIO; state: MockTerminalState } {
+  const state: MockTerminalState = {
+    writes: [],
+    rawMode: false,
+    dataListeners: [],
+  };
+
+  const terminal: TerminalIO = {
+    stdinIsTTY: isTTY,
+    stdoutIsTTY: isTTY,
+    columns: 80,
+    setRawMode(enable: boolean): void {
+      state.rawMode = enable;
+    },
+    onData(cb: (data: Buffer) => void): void {
+      state.dataListeners.push(cb);
+    },
+    offData(cb: (data: Buffer) => void): void {
+      const idx = state.dataListeners.indexOf(cb);
+      if (idx >= 0) {
+        state.dataListeners.splice(idx, 1);
+      }
+    },
+    resume(): void {
+      // no-op in mock
+    },
+    pause(): void {
+      // no-op in mock
+    },
+    write(data: string): void {
+      state.writes.push(data);
+    },
+  };
+
+  return { terminal, state };
+}
+
+export function simulateKey(mockState: MockTerminalState, key: string): void {
+  const buf = Buffer.from(key, 'utf8');
+  for (const listener of [...mockState.dataListeners]) {
+    listener(buf);
+  }
+}
+
 export interface MockOverrides {
   cwd?: string;
   version?: string;
   env?: NodeJS.ProcessEnv;
+  terminal?: TerminalIO;
   validateResult?: ValidationResult;
   startResult?: RuntimeStartResult;
   restartResult?: RuntimeRestartResult;
@@ -49,6 +104,7 @@ export interface MockOverrides {
   publishResult?: PackagePublishResult;
   doctorResult?: DoctorReport;
   logResult?: LogReadResult;
+  initResult?: InitResult;
 }
 
 function defaultValidation(): ValidationResult {
@@ -72,6 +128,7 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
   const state: MockState = {
     outs: [],
     errs: [],
+    initRequests: [],
     runRequests: [],
     restartRequests: [],
     listRequests: [],
@@ -88,6 +145,8 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
     validate: vi.fn(async (): Promise<ValidationResult> => validateResult),
   };
 
+  const defaultTerminal = createMockTerminal(false).terminal;
+
   const deps: CliDependencies = {
     io: {
       out(message: string): void {
@@ -97,6 +156,7 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
         state.errs.push(message);
       },
     },
+    terminal: overrides?.terminal ?? defaultTerminal,
     env: overrides?.env ?? {},
     cwd: overrides?.cwd ?? '/tmp/project',
     version: overrides?.version ?? '2.0.0',
@@ -182,6 +242,19 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
                 lines: ['[default] log line'],
               },
             ],
+          }
+        );
+      }),
+    },
+    init: {
+      init: vi.fn(async (request: InitRequest): Promise<InitResult> => {
+        state.initRequests.push(request);
+        return (
+          overrides?.initResult ?? {
+            projectDir: request.targetDir,
+            template: request.template,
+            filesCreated: ['goondan.yaml', '.env', '.gitignore'],
+            gitInitialized: request.git,
           }
         );
       }),

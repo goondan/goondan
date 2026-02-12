@@ -14,3 +14,13 @@ export type {
   WebhookEmitOptions,
   WebhookEmitResult,
 } from './webhook.js';
+
+export {
+  default as runTelegramPollingConnectorEntry,
+  pollTelegramUpdates,
+  sendTelegramMessage,
+} from './telegram-polling.js';
+export type {
+  TelegramPollingOptions,
+  TelegramSendMessageOptions,
+} from './telegram-polling.js';

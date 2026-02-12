@@ -6,7 +6,7 @@
 
 - Tool 기본 구현: `bash`, `file-system`, `agents`
 - Extension 기본 구현: `logging`, `compaction`, `tool-search`
-- Connector 예시: `cli`, `webhook` skeleton
+- Connector 기본 구현: `cli`, `webhook`, `telegram-polling`
 - 리소스 매니페스트 헬퍼: Tool/Extension/Connector/Connection 샘플 생성
 - `vitest` 기반 단위 테스트
 

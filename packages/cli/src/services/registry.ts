@@ -12,6 +12,10 @@ interface PackageRefInfo {
   version?: string;
 }
 
+function isExactSemver(value: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value);
+}
+
 export function parsePackageRef(ref: string): PackageRefInfo {
   if (ref.length === 0) {
     throw networkError('빈 package ref는 해석할 수 없습니다.');
@@ -52,7 +56,12 @@ function normalizeRegistryUrl(registryUrl: string): string {
 
 function encodedPackageName(name: string): string {
   if (name.startsWith('@')) {
-    return `@${encodeURIComponent(name.slice(1))}`;
+    const slash = name.indexOf('/');
+    if (slash > 1 && slash < name.length - 1) {
+      const scope = name.slice(0, slash);
+      const pkg = name.slice(slash + 1);
+      return `${encodeURIComponent(scope)}/${encodeURIComponent(pkg)}`;
+    }
   }
 
   return encodeURIComponent(name);
@@ -82,7 +91,7 @@ function parseLatestVersion(metadata: unknown): string | undefined {
 export class HttpRegistryClient implements RegistryClient {
   async resolvePackage(ref: string, registryUrl: string, token?: string): Promise<RegistryPackageMetadata> {
     const parsed = parsePackageRef(ref);
-    if (parsed.version) {
+    if (parsed.version && isExactSemver(parsed.version)) {
       return {
         name: parsed.name,
         latestVersion: parsed.version,

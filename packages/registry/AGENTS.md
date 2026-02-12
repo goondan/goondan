@@ -1,13 +1,14 @@
 # packages/registry
 
-`@goondan/registry`는 Goondan 패키지 유통을 위한 파일시스템 기반 Registry API 구현체다.
+`@goondan/registry`는 Goondan 패키지 유통을 위한 Registry 구현체 묶음이다.
 
 ## 책임 범위
 
 - Package 메타데이터/버전/tarball 조회 API 제공
 - publish/unpublish/deprecate 쓰기 API 제공
 - Bearer 토큰 인증, access(public/restricted), integrity/dist-tags 관리
-- Node 런타임에서 동작하는 테스트 가능한 서버/클라이언트 유틸 제공
+- `src/`: Node 런타임 파일시스템 기반 서버/클라이언트 유틸 제공
+- `cloudflare/`: Cloudflare Worker(KV + R2) 배포 경로 제공
 
 ## 작업 규칙
 

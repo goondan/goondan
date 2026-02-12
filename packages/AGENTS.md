@@ -4,7 +4,7 @@
 
 ## 목적
 
-- `runtime`, `types`, `base`, `cli`, `registry` 패키지의 소스/테스트를 관리한다.
+- `runtime`, `types`, `base`, `cli`, `registry`, `sample` 패키지의 소스/테스트를 관리한다.
 - 각 패키지는 스펙(`docs/specs/*.md`)의 소유 범위에 맞는 책임만 구현한다.
 
 ## 공통 규칙
@@ -22,3 +22,4 @@
 - `base`: 기본 Tool/Extension/Connector 구현
 - `cli`: `gdn` 운영 인터페이스(run/restart/validate/instance/package/doctor)
 - `registry`: 패키지 유통 API 서버와 메타데이터/아티팩트 저장소
+- `sample`: 기능 검증 및 온보딩용 실행 가능한 샘플 패키지 모음

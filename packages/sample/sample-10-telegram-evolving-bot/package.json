@@ -1,0 +1,25 @@
+{
+  "name": "@goondan/sample-10-telegram-evolving-bot",
+  "version": "0.1.0",
+  "description": "Telegram polling based self-evolving bot sample",
+  "type": "module",
+  "private": true,
+  "main": "./dist/src/main.js",
+  "types": "./dist/src/main.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist",
+    "start": "node ./dist/src/main.js"
+  },
+  "dependencies": {
+    "@goondan/base": "workspace:*",
+    "@goondan/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

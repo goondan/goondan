@@ -7,6 +7,8 @@ import type {
   DoctorReport,
   InstanceRecord,
   ListInstancesRequest,
+  LogReadRequest,
+  LogReadResult,
   PackageAddRequest,
   PackageAddResult,
   PackageInstallRequest,
@@ -26,6 +28,7 @@ export interface MockState {
   runRequests: RuntimeStartRequest[];
   restartRequests: RuntimeRestartRequest[];
   listRequests: ListInstancesRequest[];
+  logRequests: LogReadRequest[];
   deleteRequests: DeleteInstanceRequest[];
   addRequests: PackageAddRequest[];
   installRequests: PackageInstallRequest[];
@@ -45,6 +48,7 @@ export interface MockOverrides {
   installResult?: PackageInstallResult;
   publishResult?: PackagePublishResult;
   doctorResult?: DoctorReport;
+  logResult?: LogReadResult;
 }
 
 function defaultValidation(): ValidationResult {
@@ -71,6 +75,7 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
     runRequests: [],
     restartRequests: [],
     listRequests: [],
+    logRequests: [],
     deleteRequests: [],
     addRequests: [],
     installRequests: [],
@@ -162,6 +167,24 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
     },
     doctor: {
       run: vi.fn(async (): Promise<DoctorReport> => overrides?.doctorResult ?? defaultDoctor()),
+    },
+    logs: {
+      read: vi.fn(async (request: LogReadRequest): Promise<LogReadResult> => {
+        state.logRequests.push(request);
+        return (
+          overrides?.logResult ?? {
+            instanceKey: request.instanceKey ?? 'instance-1',
+            process: request.process,
+            chunks: [
+              {
+                stream: 'stdout',
+                path: '/tmp/goondan/runtime/logs/instance-1/orchestrator.stdout.log',
+                lines: ['[default] log line'],
+              },
+            ],
+          }
+        );
+      }),
     },
   };
 

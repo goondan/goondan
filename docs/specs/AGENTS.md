@@ -13,7 +13,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `bundle_package.md` - Package 스펙 v2.0 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, **dist/goondan.yaml 배포 규칙/manifest 우선순위/Package Root 경로 규칙**, 보안/검증 오류 코드, CLI 명령어)
 - `runtime.md` - **[v2.0]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
 - `connector.md` - Connector 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
-- `connection.md` - Connection 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증 시크릿)
+- `connection.md` - Connection 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 시크릿)
 - `extension.md` - Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - `oauth.md` - OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - `pipeline.md` - 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
@@ -46,7 +46,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
    - IPC: `event`/`shutdown`/`shutdown_ack` 3종 + `AgentEvent.replyTo` 기반 통합 이벤트 모델
    - 공통 타입 SSOT: `shared-types.md` 기준으로 문서 간 타입 드리프트 방지
    - Connector: 별도 Bun 프로세스, 자체 프로토콜 관리
-   - Connection: `secrets` 기반 전달, OAuth는 Extension 내부 구현
+- Connection: `config`/`secrets` 분리 전달, OAuth는 Extension 내부 구현
    - 설정 변경 모델: Edit & Restart (runtime.md 참조)
    - OAuth: Extension 내부 구현
    - Pipeline: Middleware 통합 (turn/step/toolCall 3종)

@@ -338,6 +338,7 @@ export interface ConnectorEvent {
 
 export interface ConnectorContext {
   emit(event: ConnectorEvent): Promise<void>;
+  config: Record<string, string>;
   secrets: Record<string, string>;
   logger: Pick<Console, "debug" | "info" | "warn" | "error">;
 }

@@ -26,6 +26,7 @@ export interface ConnectorEvent {
  */
 export interface ConnectorContext {
   emit(event: ConnectorEvent): Promise<void>;
+  readonly config: Record<string, string>;
   readonly secrets: Record<string, string>;
   readonly logger: Console;
 }

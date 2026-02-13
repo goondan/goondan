@@ -8,6 +8,7 @@ import { parseYamlDocuments, WorkspacePaths } from '@goondan/runtime';
 import { configError } from '../errors.js';
 import { loadRuntimeEnv } from './env.js';
 import type {
+  ExitCode,
   RuntimeController,
   RuntimeRestartRequest,
   RuntimeRestartResult,
@@ -121,6 +122,7 @@ interface RunnerReadyResult {
   process: string;
   stdoutLogPath: string;
   stderrLogPath: string;
+  completion?: Promise<ExitCode>;
 }
 
 const STARTUP_TIMEOUT_MS = 5000;
@@ -275,6 +277,18 @@ function closeFd(fd: number): void {
   }
 }
 
+function normalizeExitCode(code: number | null, signal: NodeJS.Signals | null): ExitCode {
+  if (signal === 'SIGINT') {
+    return 130;
+  }
+
+  if (code === 0 || code === 1 || code === 2 || code === 3 || code === 4 || code === 5 || code === 6 || code === 130) {
+    return code;
+  }
+
+  return 1;
+}
+
 export class LocalRuntimeController implements RuntimeController {
   private readonly cwd: string;
 
@@ -300,6 +314,7 @@ export class LocalRuntimeController implements RuntimeController {
     const stateRoot = resolveStateRoot(request.stateRoot, runtimeEnv);
     const runtimeDir = path.join(stateRoot, 'runtime');
     await mkdir(runtimeDir, { recursive: true });
+    const foreground = request.foreground ?? false;
 
     const instanceKey = request.instanceKey ?? (await resolveDefaultInstanceKey(manifestPath, stateRoot));
     const activePath = path.join(runtimeDir, 'active.json');
@@ -307,6 +322,12 @@ export class LocalRuntimeController implements RuntimeController {
       const rawActive = await readFile(activePath, 'utf8');
       const active = parseRuntimeState(rawActive);
       if (active && active.instanceKey === instanceKey && isProcessAlive(active.pid)) {
+        if (foreground) {
+          throw configError(
+            `이미 실행 중인 Orchestrator 인스턴스가 있습니다: ${instanceKey}`,
+            'foreground 모드는 기존 실행 중인 인스턴스에 attach할 수 없습니다. 기존 프로세스를 종료하거나 --instance-key를 변경하세요.',
+          );
+        }
         return {
           instanceKey,
           pid: active.pid,
@@ -314,14 +335,23 @@ export class LocalRuntimeController implements RuntimeController {
       }
     }
 
-    const runner = await this.startDetachedRunner({
-      manifestPath,
-      stateRoot,
-      env: runtimeEnv,
-      instanceKey,
-      swarm: request.swarm,
-      watch: request.watch,
-    });
+    const runner = foreground
+      ? await this.startForegroundRunner({
+          manifestPath,
+          stateRoot,
+          env: runtimeEnv,
+          instanceKey,
+          swarm: request.swarm,
+          watch: request.watch,
+        })
+      : await this.startDetachedRunner({
+          manifestPath,
+          stateRoot,
+          env: runtimeEnv,
+          instanceKey,
+          swarm: request.swarm,
+          watch: request.watch,
+        });
     const state: RuntimeStateFile = {
       instanceKey,
       bundlePath: manifestPath,
@@ -343,6 +373,7 @@ export class LocalRuntimeController implements RuntimeController {
     return {
       instanceKey,
       pid: runner.pid,
+      completion: runner.completion,
     };
   }
 
@@ -532,6 +563,124 @@ export class LocalRuntimeController implements RuntimeController {
       child.disconnect();
     }
     child.unref();
+
+    return startup;
+  }
+
+  private async startForegroundRunner(input: RunnerStartInput): Promise<RunnerReadyResult> {
+    const logPaths = resolveProcessLogPaths(input.stateRoot, input.instanceKey, ORCHESTRATOR_PROCESS_NAME);
+    const runnerModulePath = runtimeRunnerPath();
+    const args = buildRunnerArgs(input);
+    const child = fork(runnerModulePath, args, {
+      cwd: path.dirname(input.manifestPath),
+      detached: false,
+      env: {
+        ...input.env,
+        GOONDAN_STATE_ROOT: input.stateRoot,
+      },
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+    });
+
+    if (!child.pid || child.pid <= 0) {
+      throw configError('Orchestrator 프로세스를 시작하지 못했습니다.', 'Node 실행 환경과 권한을 확인하세요.');
+    }
+
+    const completion = new Promise<ExitCode>((resolve) => {
+      child.once('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+        resolve(normalizeExitCode(code, signal));
+      });
+    });
+
+    const startup = await new Promise<RunnerReadyResult>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        killIfRunning(child.pid);
+        cleanup();
+        reject(
+          configError(
+            'Orchestrator 시작 확인이 시간 내에 완료되지 않았습니다.',
+            '설정/환경 변수를 확인한 뒤 다시 실행하세요.',
+          ),
+        );
+      }, STARTUP_TIMEOUT_MS);
+
+      const fail = (message: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(
+          configError(
+            message,
+            'gdn validate로 설정을 점검하고, 필요한 환경 변수를 설정한 뒤 다시 실행하세요.',
+          ),
+        );
+      };
+
+      const succeed = (pid: number): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve({
+          pid,
+          process: ORCHESTRATOR_PROCESS_NAME,
+          stdoutLogPath: logPaths.stdoutPath,
+          stderrLogPath: logPaths.stderrPath,
+          completion,
+        });
+      };
+
+      const onMessage = (message: unknown): void => {
+        if (isRunnerReadyMessage(message)) {
+          if (message.instanceKey !== input.instanceKey) {
+            fail(`Orchestrator instanceKey 불일치: expected=${input.instanceKey}, actual=${message.instanceKey}`);
+            return;
+          }
+          succeed(message.pid);
+          return;
+        }
+
+        if (isRunnerStartErrorMessage(message)) {
+          fail(`Orchestrator 시작 실패: ${message.message}`);
+        }
+      };
+
+      const onError = (error: Error): void => {
+        fail(`Orchestrator 프로세스 오류: ${error.message}`);
+      };
+
+      const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+        const cause = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'unknown reason';
+        fail(`Orchestrator가 초기화 중 종료되었습니다 (${cause}).`);
+      };
+
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        child.off('message', onMessage);
+        child.off('error', onError);
+        child.off('exit', onExit);
+      };
+
+      child.on('message', onMessage);
+      child.on('error', onError);
+      child.on('exit', onExit);
+    }).catch((error: unknown) => {
+      if (child.pid) {
+        killIfRunning(child.pid);
+      }
+      throw error;
+    });
+
+    if (child.connected) {
+      child.disconnect();
+    }
 
     return startup;
   }

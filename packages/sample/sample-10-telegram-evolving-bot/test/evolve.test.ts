@@ -82,7 +82,6 @@ describe("applyEvolutionPlan", () => {
 
     const result = await applyEvolutionPlan({
       projectRoot: root,
-      backupRootDir: path.join(root, ".backup"),
       plan,
       validate: async () => {},
     });
@@ -109,7 +108,6 @@ describe("applyEvolutionPlan", () => {
     await expect(
       applyEvolutionPlan({
         projectRoot: root,
-        backupRootDir: path.join(root, ".backup"),
         plan,
         validate: async () => {
           throw new Error("invalid");

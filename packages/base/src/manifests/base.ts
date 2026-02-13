@@ -548,7 +548,7 @@ export function createBaseConnectionManifest(
   const spec: ConnectionManifestSpec = {
     connectorRef: `Connector/${connectorName}`,
     swarmRef: `Swarm/${swarmName}`,
-    secrets: {
+    config: {
       PORT: {
         valueFrom: {
           env: 'GOONDAN_CONNECTOR_PORT',

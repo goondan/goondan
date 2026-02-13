@@ -23,6 +23,7 @@ export interface RuntimeStartRequest {
   swarm?: string;
   instanceKey?: string;
   watch: boolean;
+  foreground?: boolean;
   interactive: boolean;
   input?: string;
   inputFile?: string;
@@ -34,6 +35,7 @@ export interface RuntimeStartRequest {
 export interface RuntimeStartResult {
   instanceKey: string;
   pid?: number;
+  completion?: Promise<ExitCode>;
 }
 
 export interface RuntimeRestartRequest {
@@ -290,4 +292,3 @@ export interface CliDependencies {
   logs: LogService;
   init: InitService;
 }
-

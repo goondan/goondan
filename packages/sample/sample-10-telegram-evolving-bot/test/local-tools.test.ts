@@ -62,9 +62,6 @@ function createToolContext(workdir: string): ToolContext {
 }
 
 afterEach(async () => {
-  delete process.env.BOT_PROJECT_ROOT;
-  delete process.env.BOT_BACKUP_DIR;
-
   for (const dir of tempDirs.splice(0, tempDirs.length)) {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -73,7 +70,6 @@ afterEach(async () => {
 describe('local-tools evolve', () => {
   it('evolve 적용 성공 시 restart 신호를 반환한다', async () => {
     const root = await createTempProjectRoot();
-    process.env.BOT_PROJECT_ROOT = root;
 
     const output = await evolve(createToolContext(root), {
       summary: 'prompt update',

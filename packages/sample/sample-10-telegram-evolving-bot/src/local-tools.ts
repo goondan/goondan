@@ -26,21 +26,7 @@ function resolveSafePath(workdir: string, target: string): string {
 }
 
 function resolveProjectRoot(ctx: ToolContext): string {
-  const fromEnv = process.env.BOT_PROJECT_ROOT;
-  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-
   return path.resolve(ctx.workdir);
-}
-
-function resolveBackupRoot(projectRoot: string): string {
-  const fromEnv = process.env.BOT_BACKUP_DIR;
-  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
-    return path.resolve(projectRoot, fromEnv);
-  }
-
-  return path.resolve(projectRoot, ".evolve-backups");
 }
 
 export async function write(ctx: ToolContext, input: JsonObject): Promise<JsonValue> {
@@ -88,11 +74,8 @@ export async function evolve(ctx: ToolContext, input: JsonObject): Promise<JsonV
   }
 
   const projectRoot = resolveProjectRoot(ctx);
-  const backupRootDir = resolveBackupRoot(projectRoot);
-
   const result = await applyEvolutionPlan({
     projectRoot,
-    backupRootDir,
     plan,
   });
 
@@ -108,7 +91,6 @@ export async function evolve(ctx: ToolContext, input: JsonObject): Promise<JsonV
     ok: true,
     summary: plan.summary,
     changedFiles: result.changedFiles,
-    backupDir: result.backupDir,
     restartRequested: true,
     restartReason: "tool:evolve",
   };

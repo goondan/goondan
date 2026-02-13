@@ -25,18 +25,10 @@ function pickSecret(secrets: Record<string, string>, keys: string[]): string | u
   return undefined;
 }
 
-function pickConfigString(
-  secrets: Record<string, string>,
-  env: NodeJS.ProcessEnv,
-  key: string,
-): string | undefined {
-  const secretValue = secrets[key];
-  if (typeof secretValue === "string" && secretValue.trim().length > 0) {
-    return secretValue;
-  }
-  const envValue = env[key];
-  if (typeof envValue === "string" && envValue.trim().length > 0) {
-    return envValue;
+function pickConfigString(config: Record<string, string>, key: string): string | undefined {
+  const configValue = config[key];
+  if (typeof configValue === "string" && configValue.trim().length > 0) {
+    return configValue;
   }
   return undefined;
 }
@@ -59,20 +51,21 @@ function loadPollingConfig(ctx: ConnectorContext): ConnectorPollingConfig {
   }
 
   const projectRoot = path.resolve(process.env.BOT_PROJECT_ROOT ?? process.cwd());
+  const stateFile = pickConfigString(ctx.config, 'BOT_STATE_FILE');
   const stateFilePath = path.resolve(
     projectRoot,
-    process.env.BOT_STATE_FILE ?? ".telegram-evolving-bot-state.json",
+    stateFile ?? ".telegram-evolving-bot-state.json",
   );
 
   return {
     telegramBotToken,
     pollingTimeoutSeconds: readPositiveInteger(
-      pickConfigString(ctx.secrets, process.env, "TELEGRAM_POLL_TIMEOUT_SECONDS"),
+      pickConfigString(ctx.config, "TELEGRAM_POLL_TIMEOUT_SECONDS"),
       25,
       "TELEGRAM_POLL_TIMEOUT_SECONDS",
     ),
     pollingRetryDelayMs: readPositiveInteger(
-      pickConfigString(ctx.secrets, process.env, "TELEGRAM_POLL_RETRY_DELAY_MS"),
+      pickConfigString(ctx.config, "TELEGRAM_POLL_RETRY_DELAY_MS"),
       3000,
       "TELEGRAM_POLL_RETRY_DELAY_MS",
     ),

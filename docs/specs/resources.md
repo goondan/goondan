@@ -876,11 +876,11 @@ entry 모듈은 단일 default export 함수를 제공해야 한다 (MUST). Conn
 
 ```typescript
 export default async function (ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
+  const { emit, config, logger } = ctx;
 
   // Connector가 직접 HTTP 서버를 열어 웹훅 수신
   Bun.serve({
-    port: Number(secrets.PORT) || 3000,
+    port: Number(config.PORT) || 3000,
     async fetch(req) {
       const body = await req.json();
 
@@ -919,7 +919,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ### 7.7 Connection
 
-Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙을 담당한다. 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행한다.
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. config와 secrets 제공, ConnectorEvent 기반 ingress 라우팅 규칙을 담당한다. 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행한다.
 
 #### TypeScript 인터페이스
 
@@ -935,13 +935,14 @@ metadata:
 spec:
   connectorRef: "Connector/telegram"
   swarmRef: "Swarm/default"
+  config:
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
   secrets:
     BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
-    PORT:
-      valueFrom:
-        env: TELEGRAM_WEBHOOK_PORT
     SIGNING_SECRET:
       valueFrom:
         env: TELEGRAM_WEBHOOK_SECRET
@@ -975,6 +976,7 @@ spec:
 |------|------|------|------|
 | `connectorRef` | MUST | ObjectRefLike | 유효한 Connector 참조 |
 | `swarmRef` | MAY | ObjectRefLike | 유효한 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm) |
+| `config` | MAY | Record<string, ValueSource> | Connector에 전달할 일반 설정 |
 | `secrets` | MAY | Record<string, ValueSource> | Connector에 전달할 시크릿 (서명 시크릿 포함) |
 | `ingress.rules` | MAY | array | IngressRule 배열 |
 | `ingress.rules[].match.event` | SHOULD | string | Connector의 events[].name에 선언된 이름 |
@@ -983,6 +985,7 @@ spec:
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
 - `swarmRef`가 지정된 경우, 유효한 Swarm 리소스를 참조해야 한다 (MUST). 생략 시 Bundle 내 첫 번째 Swarm을 사용한다 (MUST).
+- `config`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다 (MUST).
 - `secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다 (MUST).
 - 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행해야 한다 (SHOULD).
 - 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다 (MUST).

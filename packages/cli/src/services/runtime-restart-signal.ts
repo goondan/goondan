@@ -36,8 +36,7 @@ export function readRuntimeRestartSignal(value: unknown, toolName?: string): Run
 
   if (typeof toolName === 'string' && toolName.endsWith('__evolve')) {
     const changedFiles = value['changedFiles'];
-    const backupDir = value['backupDir'];
-    if (hasChangedFiles(changedFiles) && typeof backupDir === 'string' && backupDir.trim().length > 0) {
+    if (hasChangedFiles(changedFiles)) {
       return {
         requested: true,
         reason: 'tool:evolve',

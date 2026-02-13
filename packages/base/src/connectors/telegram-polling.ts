@@ -518,6 +518,15 @@ function pickTelegramToken(secrets: Record<string, string>): string | undefined 
   return undefined;
 }
 
+function pickConfigValue(config: Record<string, string>, secrets: Record<string, string>, key: string): string | undefined {
+  const configValue = config[key];
+  if (typeof configValue === 'string' && configValue.length > 0) {
+    return configValue;
+  }
+
+  return secrets[key];
+}
+
 export default async function run(ctx: ConnectorContext): Promise<void> {
   const token = pickTelegramToken(ctx.secrets);
   if (!token) {
@@ -536,14 +545,18 @@ export default async function run(ctx: ConnectorContext): Promise<void> {
 
   try {
     const timeoutSeconds = parseSecretInteger(
-      ctx.secrets.TELEGRAM_POLL_TIMEOUT_SECONDS
+      pickConfigValue(ctx.config, ctx.secrets, 'TELEGRAM_POLL_TIMEOUT_SECONDS')
     );
     const requestTimeoutMs = parseSecretInteger(
-      ctx.secrets.TELEGRAM_REQUEST_TIMEOUT_MS
+      pickConfigValue(ctx.config, ctx.secrets, 'TELEGRAM_REQUEST_TIMEOUT_MS')
     );
-    const retryDelayMs = parseSecretInteger(ctx.secrets.TELEGRAM_RETRY_DELAY_MS);
-    const initialOffset = parseSecretInteger(ctx.secrets.TELEGRAM_INITIAL_OFFSET);
-    const apiBaseUrl = ctx.secrets.TELEGRAM_API_BASE_URL;
+    const retryDelayMs = parseSecretInteger(
+      pickConfigValue(ctx.config, ctx.secrets, 'TELEGRAM_RETRY_DELAY_MS')
+    );
+    const initialOffset = parseSecretInteger(
+      pickConfigValue(ctx.config, ctx.secrets, 'TELEGRAM_INITIAL_OFFSET')
+    );
+    const apiBaseUrl = pickConfigValue(ctx.config, ctx.secrets, 'TELEGRAM_API_BASE_URL');
 
     await pollTelegramUpdates(ctx, {
       token,

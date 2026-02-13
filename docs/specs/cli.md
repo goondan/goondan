@@ -176,6 +176,7 @@ gdn run [options]
 | `--swarm <name>` | `-s` | 실행할 Swarm 이름. 미지정 시 `default`를 찾고, 없으면 Swarm이 1개일 때 자동 선택 | `default` |
 | `--instance-key <key>` | `-i` | 인스턴스 키 | Project Root + Package 기반 human-readable 해시 키 |
 | `--watch` | `-w` | 파일 변경 감시 모드 (변경 시 자동 재시작) | `false` |
+| `--foreground` | | 백그라운드 분리 없이 현재 터미널에 붙어서 실행 | `false` |
 | `--input <text>` | | 초기 입력 메시지 | - |
 | `--input-file <path>` | | 입력 파일 경로 | - |
 | `--interactive` | | 대화형 모드 | CLI Connector 시 기본 |
@@ -252,6 +253,9 @@ gdn run --instance-key session-001
 
 # 개발 모드 (watch)
 gdn run --watch
+
+# foreground 모드 (Ctrl+C로 종료)
+gdn run --foreground
 
 # 단일 입력 후 종료
 gdn run --input "Hello, agent!"

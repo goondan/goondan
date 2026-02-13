@@ -17,6 +17,23 @@ describe('executeCli router', () => {
     expect(state.outs.join('\n')).toContain('logs: gdn logs --instance-key');
   });
 
+  it('run --foreground는 완료 코드를 반환할 때까지 대기한다', async () => {
+    const { deps, state } = createMockDeps({
+      startResult: {
+        instanceKey: 'instance-foreground',
+        pid: 5678,
+        completion: Promise.resolve(130),
+      },
+    });
+
+    const code = await executeCli(['run', '--foreground'], deps);
+
+    expect(code).toBe(130);
+    expect(state.runRequests.length).toBe(1);
+    expect(state.runRequests[0].foreground).toBe(true);
+    expect(state.outs.join('\n')).toContain('foreground mode');
+  });
+
   it('restart 명령을 runtime.restart로 라우팅한다', async () => {
     const { deps, state } = createMockDeps();
 

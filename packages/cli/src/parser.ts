@@ -46,6 +46,7 @@ const runCommand = command(
     swarm: optional(option('-s', '--swarm', string({ metavar: 'NAME' }))),
     instanceKey: optional(option('-i', '--instance-key', string({ metavar: 'KEY' }))),
     watch: optional(option('-w', '--watch')),
+    foreground: optional(option('--foreground')),
     interactive: optional(option('--interactive')),
     input: optional(option('--input', string())),
     inputFile: optional(option('--input-file', string({ metavar: 'FILE' }))),

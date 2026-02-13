@@ -160,6 +160,9 @@ export interface ConnectorSpec {
 export interface ConnectionSpec {
   connectorRef: ObjectRefLike;
   swarmRef?: ObjectRefLike;
+  /** Connector의 일반 설정 값 */
+  config?: Record<string, ValueSource>;
+  /** Connector의 비밀 값 */
   secrets?: Record<string, ValueSource>;
   verify?: ConnectionVerify;
   ingress?: IngressConfig;

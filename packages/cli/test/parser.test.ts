@@ -73,6 +73,18 @@ describe('parseArgv', () => {
     }
   });
 
+  it('run --foreground 옵션을 파싱한다', () => {
+    const result = parseArgv(['run', '--foreground']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const cmd = result.value.command;
+      if (cmd.action === 'run') {
+        expect(cmd.foreground).toBe(true);
+      }
+    }
+  });
+
   it('instance delete 명령을 파싱한다', () => {
     const result = parseArgv(['instance', 'delete', 'my-key', '--force']);
 

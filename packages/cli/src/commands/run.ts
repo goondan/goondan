@@ -19,6 +19,7 @@ export async function handleRun({ cmd, deps, globals }: RunContext): Promise<Exi
     swarm: cmd.swarm ?? undefined,
     instanceKey: cmd.instanceKey ?? undefined,
     watch: cmd.watch ?? false,
+    foreground: cmd.foreground ?? false,
     interactive: cmd.interactive ?? false,
     input: cmd.input ?? undefined,
     inputFile: cmd.inputFile ?? undefined,
@@ -29,6 +30,14 @@ export async function handleRun({ cmd, deps, globals }: RunContext): Promise<Exi
 
   const result = await deps.runtime.startOrchestrator(request);
   deps.io.out(`Orchestrator started (instanceKey=${result.instanceKey}${result.pid ? `, pid=${result.pid}` : ''})`);
+  if (request.foreground) {
+    deps.io.out('foreground mode: Ctrl+C로 종료하세요.');
+    if (result.completion) {
+      return await result.completion;
+    }
+    return 0;
+  }
+
   if (result.pid) {
     deps.io.out(`check: ps -p ${result.pid} -o pid,ppid,stat,etime,command`);
   }

@@ -45,7 +45,7 @@ spec:
             type: string
         required: [path]
     - name: evolve
-      description: "apply safe evolution updates with backup/rollback"
+      description: "apply safe evolution updates with validation + rollback"
       parameters:
         type: object
         properties:
@@ -117,6 +117,13 @@ metadata:
 spec:
   connectorRef: "Connector/telegram-polling"
   swarmRef: "Swarm/default"
+  config:
+    BOT_STATE_FILE:
+      value: ".telegram-evolving-bot-state.json"
+    TELEGRAM_POLL_TIMEOUT_SECONDS:
+      value: "25"
+    TELEGRAM_POLL_RETRY_DELAY_MS:
+      value: "3000"
   secrets:
     TELEGRAM_BOT_TOKEN:
       valueFrom:

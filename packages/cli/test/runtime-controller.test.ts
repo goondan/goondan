@@ -167,6 +167,8 @@ spec:
         env: SAMPLE_MARKER_PATH
 `;
 
+const connectorConfigBundle = connectorBundle.replace('  secrets:', '  config:');
+
 const connectorSource = `
 import { writeFile } from 'node:fs/promises';
 
@@ -174,6 +176,20 @@ export default async function run(ctx) {
   const markerPath = ctx.secrets.MARKER_PATH;
   if (typeof markerPath !== 'string' || markerPath.length === 0) {
     throw new Error('MARKER_PATH secret is required');
+  }
+
+  await writeFile(markerPath, 'started\\n', 'utf8');
+  await new Promise(() => {});
+}
+`;
+
+const connectorConfigSource = `
+import { writeFile } from 'node:fs/promises';
+
+export default async function run(ctx) {
+  const markerPath = ctx.config.MARKER_PATH;
+  if (typeof markerPath !== 'string' || markerPath.length === 0) {
+    throw new Error('MARKER_PATH config is required');
   }
 
   await writeFile(markerPath, 'started\\n', 'utf8');
@@ -223,6 +239,47 @@ describe('LocalRuntimeController.startOrchestrator', () => {
 
       expect(second.instanceKey).toBe(expectedKey);
       expect(second.pid).toBe(first.pid);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('foreground 모드에서는 이미 실행 중인 동일 instance-key에 attach하지 않고 오류를 반환한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const started = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!started.pid) {
+        throw new Error('첫 실행 pid가 없습니다.');
+      }
+      startedPid = started.pid;
+
+      await expect(
+        controller.startOrchestrator({
+          bundlePath: fixture.bundleDir,
+          watch: false,
+          foreground: true,
+          interactive: false,
+          noInstall: false,
+          stateRoot: fixture.stateRoot,
+        }),
+      ).rejects.toThrow(/이미 실행 중인 Orchestrator 인스턴스가 있습니다/);
     } finally {
       if (startedPid && isProcessAlive(startedPid)) {
         process.kill(startedPid, 'SIGTERM');
@@ -336,6 +393,41 @@ describe('LocalRuntimeController.startOrchestrator', () => {
 
   it('connection으로 참조된 connector entry를 실제로 실행한다', async () => {
     const fixture = await createRuntimeFixtureWithConnector(connectorBundle, connectorSource);
+    const markerPath = path.join(fixture.rootDir, 'connector.marker');
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        SAMPLE_MARKER_PATH: markerPath,
+      });
+
+      const result = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!result.pid) {
+        throw new Error('pid가 반환되지 않았습니다.');
+      }
+      startedPid = result.pid;
+
+      const marker = await waitForFile(markerPath);
+      expect(marker.trim()).toBe('started');
+      expect(isProcessAlive(result.pid)).toBe(true);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('connection의 config 값이 connector context로 전달된다', async () => {
+    const fixture = await createRuntimeFixtureWithConnector(connectorConfigBundle, connectorConfigSource);
     const markerPath = path.join(fixture.rootDir, 'connector.marker');
     let startedPid: number | undefined;
 

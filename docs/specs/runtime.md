@@ -959,10 +959,10 @@ Runtime 관점의 핵심 제약은 `instanceKey` 기반 라우팅 가능성이�
 ```typescript
 // connectors/telegram/index.ts
 export default async function (ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
+  const { emit, config, logger } = ctx;
 
   Bun.serve({
-    port: Number(secrets.PORT) || 3000,
+    port: Number(config.PORT) || 3000,
     async fetch(req) {
       const body = await req.json();
 
@@ -977,7 +977,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
     },
   });
 
-  logger.info('Telegram connector listening on port', Number(secrets.PORT) || 3000);
+  logger.info('Telegram connector listening on port', Number(config.PORT) || 3000);
 };
 ```
 

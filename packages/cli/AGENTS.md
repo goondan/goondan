@@ -8,13 +8,13 @@
 - `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
 - `run` 시 프로젝트 루트 기준으로 `.env`/`.env.local`/`--env-file`을 우선순위대로 로딩하고, 기존 시스템 env 값을 우선 유지
-- runtime-runner는 Tool 결과의 재시작 신호(`restartRequested` 또는 `__*__evolve`의 `changedFiles+backupDir`)를 감지하면 replacement orchestrator를 기동하고 active runtime pid를 갱신한 뒤 self-shutdown 한다
+- runtime-runner는 Tool 결과의 재시작 신호(`restartRequested`, `runtimeRestart`, `__goondanRestart`)를 감지하면 replacement orchestrator를 기동하고 active runtime pid를 갱신한 뒤 self-shutdown 한다
 - runtime runner가 BundleLoader 기반으로 선택된 Swarm의 Connection/ingress를 해석하고 Connector entry 실행, ConnectorEvent 라우팅, Agent LLM 실행(Anthropic), Tool 실행, Telegram 응답 전송을 처리
 - `run`에서 `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 키를 사용하고, 동일 키 active runtime이 있으면 재사용(resume)한다
 - `run` 시 프로세스 stdout/stderr를 `~/.goondan/runtime/logs/<instanceKey>/` 파일로 기록
-- `instance list` 시 `runtime/active.json`의 active orchestrator만 노출하고, Agent 대화 인스턴스(`workspaces/*/instances/*`)와 legacy `instances/*`는 표시하지 않음
+- `instance list` 시 `runtime/active.json`의 active orchestrator + 동일 state-root의 managed runtime-runner를 함께 노출하고, Agent 대화 인스턴스(`workspaces/*/instances/*`)와 legacy `instances/*`는 표시하지 않음
 - `instance restart` 시 active runtime 인스턴스를 최신 runner 바이너리로 재기동하고 active pid를 교체
-- `instance delete` 시 active runtime(`runtime/active.json`) + 다중 레이아웃 인스턴스 경로(`workspaces/*/instances/*`, `instances/*/*`)를 함께 정리
+- `instance delete` 시 active 여부와 무관하게 동일 state-root의 managed runtime-runner PID 종료 + 다중 레이아웃 인스턴스 경로(`workspaces/*/instances/*`, `instances/*/*`)를 함께 정리
 - `instance` (bare) 시 인터랙티브 TUI 모드 — non-TTY/`--json` 환경에서는 `instance list`로 자동 폴백, TTY에서는 `r` 키로 선택 인스턴스 재시작 + started 시각 확인
 - active pid 종료 전 `runtime-runner + instance-key` 일치 여부를 검증해 오탐 종료를 방지
 - `logs` 명령으로 인스턴스/프로세스별 로그 파일 tail 조회 지원

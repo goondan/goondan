@@ -533,6 +533,7 @@ gdn run [--watch] [--swarm <name>] [--instance-key <key>]
 gdn restart [--agent <name>] [--fresh]
 gdn validate [path] [--strict] [--format json]
 gdn instance list
+gdn instance restart <key> [--fresh]
 gdn instance delete <key> [--force]
 gdn logs [--instance-key <key>] [--process <name>] [--stream both] [--lines 200]
 gdn package add <ref>
@@ -543,6 +544,11 @@ gdn doctor
 
 `gdn run`에서 `--instance-key`를 생략하면 Project Root + Package 이름 기반의 human-readable 해시 키를 사용한다.  
 동일 폴더 + 동일 Package 이름에서 다시 실행하면 동일 키로 자동 resume된다.
+
+`gdn instance list`는 현재 active orchestrator 인스턴스(`runtime/active.json`)만 표시하며, Agent 대화 인스턴스(`workspaces/*/instances/*`)는 출력하지 않는다.
+
+`gdn instance restart <key>`는 선택한 active 인스턴스를 최신 runner 바이너리로 재기동하며, 인터랙티브 `gdn instance` 화면에서는 선택 후 `r` 키로 같은 동작을 실행할 수 있다.
+인터랙티브 목록에는 `started=<timestamp>`가 함께 표시되어 재시작 직후 시작 시각 변화를 바로 확인할 수 있다.
 
 ### 11.2 전역 옵션
 

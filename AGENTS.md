@@ -22,7 +22,7 @@
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
 ### 구현 스펙 문서 (docs/specs/)
-- docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
+- docs/specs/cli.md : **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor)
 - docs/specs/api.md : Runtime/SDK API 스펙 v2.0 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, Runtime Events API 표면)
 - docs/specs/help.md : 스펙 운영 도움말 v2.0 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, package 도움말 기준, 문서 링크 자동 점검 체크리스트)
 - docs/specs/layers.md : 구성 계층 역할 개요 v2.0 (`runtime`, `types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
@@ -45,7 +45,7 @@
 - .gitignore : 저장소 공통 ignore 규칙 (`/test/`는 루트 테스트 산출물만 무시, 패키지 테스트 소스는 추적)
 - packages/runtime/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/types/src/* : 공통 타입 계약(SSOT) 구현
-- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, `--instance-key` 미지정 시 Project Root+Package 기반 human-readable 해시 키 사용/동일 키 active runtime resume, runtime runner의 Swarm/Connection/ingress 해석 + Connector 실행 + Agent LLM(Tool 포함) 처리 + Telegram 응답 전송, `instance list` active runtime 반영/legacy 기본 제외, `instance delete` active+workspace 정리 + pid 안전 검증, bare `instance` 인터랙티브 TUI 모드(TerminalIO 래퍼, ANSI TUI, non-TTY 폴백), `logs` 명령 포함)
+- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, `.env`/`.env.local`/`--env-file` 우선순위 로딩(기존 env 우선 유지), `--instance-key` 미지정 시 Project Root+Package 기반 human-readable 해시 키 사용/동일 키 active runtime resume, runtime runner의 Swarm/Connection/ingress 해석 + Connector 실행 + Agent LLM(Tool 포함) 처리 + Telegram 응답 전송, Tool 기반 self-evolution 재시작 신호 감지 시 replacement orchestrator 기동 + active pid 갱신 + self-shutdown 수행, `instance list`는 active orchestrator(`runtime/active.json`)만 표시(Agent 대화 인스턴스/legacy 제외), `instance restart`는 최신 runner 바이너리 재기동 + active pid 교체, `instance delete` active+workspace 정리 + pid 안전 검증, bare `instance` 인터랙티브 TUI 모드(TerminalIO 래퍼, ANSI TUI, non-TTY 폴백, `r` 재시작, started 시각 표시), `logs` 명령 포함)
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음
 - packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (CLI publish 입력)
 - packages/base/build-manifest.mjs : `dist/goondan.yaml` 생성 스크립트 (`files: ["dist"]` 배포 대응, Package name/version은 `packages/base/goondan.yaml` 기준)

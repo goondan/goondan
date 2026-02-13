@@ -80,6 +80,18 @@ describe('executeCli router', () => {
     expect(state.deleteRequests[0].force).toBe(true);
   });
 
+
+  it('instance restart 명령을 라우팅한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['instance', 'restart', 'my-key', '--fresh'], deps);
+
+    expect(code).toBe(0);
+    expect(state.restartRequests.length).toBe(1);
+    expect(state.restartRequests[0].instanceKey).toBe('my-key');
+    expect(state.restartRequests[0].fresh).toBe(true);
+  });
+
   it('doctor 명령을 라우팅한다', async () => {
     const { deps, state } = createMockDeps();
 

@@ -282,6 +282,38 @@ describe('LocalRuntimeController.startOrchestrator', () => {
     }
   });
 
+  it('.env 파일의 값을 자동 로드해 Orchestrator를 시작한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let startedPid: number | undefined;
+
+    try {
+      await writeFile(path.join(fixture.bundleDir, '.env'), 'ANTHROPIC_API_KEY=loaded-from-dotenv\n', 'utf8');
+      const controller = new LocalRuntimeController(fixture.bundleDir, {});
+
+      const result = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      expect(result.pid).toBeDefined();
+      if (!result.pid) {
+        return;
+      }
+
+      startedPid = result.pid;
+      expect(isProcessAlive(result.pid)).toBe(true);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('필수 env가 누락되면 시작 단계에서 원인을 포함한 오류를 출력한다', async () => {
     const fixture = await createRuntimeFixture(basicBundle);
 
@@ -332,6 +364,105 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       if (startedPid && isProcessAlive(startedPid)) {
         process.kill(startedPid, 'SIGTERM');
         await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+
+  it('instance restart는 최신 runner를 다시 기동하고 기존 pid를 교체한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let runningPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const started = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!started.pid) {
+        throw new Error('start pid가 없습니다.');
+      }
+
+      const previousPid = started.pid;
+      runningPid = previousPid;
+
+      const restarted = await controller.restart({
+        instanceKey: started.instanceKey,
+        fresh: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      expect(restarted.instanceKey).toBe(started.instanceKey);
+      expect(restarted.pid).toBeDefined();
+      if (!restarted.pid) {
+        throw new Error('restart pid가 없습니다.');
+      }
+
+      runningPid = restarted.pid;
+      expect(restarted.pid).not.toBe(previousPid);
+      expect(isProcessAlive(restarted.pid)).toBe(true);
+
+      await waitForProcessExit(previousPid);
+      expect(isProcessAlive(previousPid)).toBe(false);
+
+      const activePath = path.join(fixture.stateRoot, 'runtime', 'active.json');
+      const activeRaw = await readFile(activePath, 'utf8');
+      const activeState: unknown = JSON.parse(activeRaw);
+      if (typeof activeState !== 'object' || activeState === null) {
+        throw new Error('active.json 파싱 결과가 객체가 아닙니다.');
+      }
+      if (!('pid' in activeState) || typeof activeState.pid !== 'number') {
+        throw new Error('active.json pid가 유효하지 않습니다.');
+      }
+
+      expect(activeState.pid).toBe(restarted.pid);
+    } finally {
+      if (runningPid && isProcessAlive(runningPid)) {
+        process.kill(runningPid, 'SIGTERM');
+        await waitForProcessExit(runningPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('instance restart 대상 키가 active 인스턴스와 다르면 오류를 반환한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let runningPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const started = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      runningPid = started.pid;
+
+      await expect(
+        controller.restart({
+          instanceKey: 'another-instance',
+          fresh: false,
+          stateRoot: fixture.stateRoot,
+        }),
+      ).rejects.toThrow(/활성 오케스트레이터 인스턴스와 일치하지 않습니다/);
+    } finally {
+      if (runningPid && isProcessAlive(runningPid)) {
+        process.kill(runningPid, 'SIGTERM');
+        await waitForProcessExit(runningPid);
       }
       await rm(fixture.rootDir, { recursive: true, force: true });
     }

@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { Console } from 'node:console';
-import { access, readFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { fork } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { closeSync, constants as fsConstants, openSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   BundleLoader,
@@ -136,6 +138,8 @@ interface RuntimeEngineState {
   initializedInstances: Set<string>;
   storage: FileWorkspaceStorage;
   workdir: string;
+  runnerArgs: RunnerArguments;
+  restartPromise?: Promise<void>;
 }
 
 interface ToolUseBlock {
@@ -148,6 +152,262 @@ interface AnthropicResponseParseResult {
   assistantContent: unknown[];
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
+}
+
+interface TurnExecutionResult {
+  responseText: string;
+  restartRequested: boolean;
+  restartReason?: string;
+}
+
+const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
+const REPLACEMENT_STARTUP_TIMEOUT_MS = 5000;
+const RESTART_FLAG_KEYS = ['restartRequested', 'runtimeRestart', '__goondanRestart'] as const;
+
+function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
+  if (!isJsonObject(message)) {
+    return false;
+  }
+
+  return message.type === 'ready' && typeof message.instanceKey === 'string' && typeof message.pid === 'number';
+}
+
+function isRunnerStartErrorMessage(message: unknown): message is RunnerStartErrorMessage {
+  if (!isJsonObject(message)) {
+    return false;
+  }
+
+  return message.type === 'start_error' && typeof message.message === 'string';
+}
+
+function hasChangedFiles(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+
+  return value.every((item) => typeof item === 'string' && item.length > 0);
+}
+
+function readRuntimeRestartSignal(value: unknown, toolName?: string): { requested: boolean; reason?: string } | undefined {
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+
+  for (const key of RESTART_FLAG_KEYS) {
+    if (value[key] === true) {
+      const reasonValue = value.restartReason;
+      return {
+        requested: true,
+        reason: typeof reasonValue === 'string' && reasonValue.trim().length > 0 ? reasonValue.trim() : undefined,
+      };
+    }
+  }
+
+  if (typeof toolName === 'string' && toolName.endsWith('__evolve')) {
+    const changedFiles = value.changedFiles;
+    const backupDir = value.backupDir;
+    if (hasChangedFiles(changedFiles) && typeof backupDir === 'string' && backupDir.trim().length > 0) {
+      return {
+        requested: true,
+        reason: 'tool:evolve',
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function resolveProcessLogPaths(stateRoot: string, instanceKey: string, processName: string): { stdoutPath: string; stderrPath: string } {
+  const logDir = path.join(stateRoot, 'runtime', 'logs', instanceKey);
+  return {
+    stdoutPath: path.join(logDir, `${processName}.stdout.log`),
+    stderrPath: path.join(logDir, `${processName}.stderr.log`),
+  };
+}
+
+function closeFd(fd: number): void {
+  try {
+    closeSync(fd);
+  } catch {
+    // 이미 닫힌 fd는 무시한다.
+  }
+}
+
+function killIfRunning(pid: number | undefined): void {
+  if (!pid || pid <= 0) {
+    return;
+  }
+
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // 이미 종료된 프로세스는 무시한다.
+  }
+}
+
+async function waitForReplacementRunnerReady(
+  child: ChildProcess,
+  instanceKey: string,
+  startupTimeoutMs: number,
+  logPaths: { stdoutPath: string; stderrPath: string },
+): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      child.off('message', onMessage);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+
+    const fail = (message: string): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(new Error(`${message} (logs: ${logPaths.stdoutPath}, ${logPaths.stderrPath})`));
+    };
+
+    const succeed = (pid: number): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(pid);
+    };
+
+    const timeout = setTimeout(() => {
+      killIfRunning(child.pid);
+      fail('replacement Orchestrator 시작 확인이 시간 내에 완료되지 않았습니다.');
+    }, startupTimeoutMs);
+
+    const onMessage = (message: unknown): void => {
+      if (isRunnerReadyMessage(message)) {
+        if (message.instanceKey !== instanceKey) {
+          fail(`replacement Orchestrator instanceKey 불일치: expected=${instanceKey}, actual=${message.instanceKey}`);
+          return;
+        }
+
+        succeed(message.pid);
+        return;
+      }
+
+      if (isRunnerStartErrorMessage(message)) {
+        fail(`replacement Orchestrator 시작 실패: ${message.message}`);
+      }
+    };
+
+    const onError = (error: Error): void => {
+      fail(`replacement Orchestrator 프로세스 오류: ${error.message}`);
+    };
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      const cause = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'unknown reason';
+      fail(`replacement Orchestrator가 초기화 중 종료되었습니다 (${cause}).`);
+    };
+
+    child.on('message', onMessage);
+    child.on('error', onError);
+    child.on('exit', onExit);
+  });
+}
+
+async function writeActiveRuntimeState(input: {
+  stateRoot: string;
+  instanceKey: string;
+  bundlePath: string;
+  watch: boolean;
+  swarmName?: string;
+  pid: number;
+  logPaths: { stdoutPath: string; stderrPath: string };
+}): Promise<void> {
+  const runtimeDir = path.join(input.stateRoot, 'runtime');
+  await mkdir(runtimeDir, { recursive: true });
+
+  const state = {
+    instanceKey: input.instanceKey,
+    bundlePath: input.bundlePath,
+    startedAt: new Date().toISOString(),
+    watch: input.watch,
+    swarm: input.swarmName,
+    pid: input.pid,
+    logs: [
+      {
+        process: ORCHESTRATOR_PROCESS_NAME,
+        stdout: input.logPaths.stdoutPath,
+        stderr: input.logPaths.stderrPath,
+      },
+    ],
+  };
+
+  await writeFile(path.join(runtimeDir, 'active.json'), JSON.stringify(state, null, 2), 'utf8');
+}
+
+async function spawnReplacementRunner(input: {
+  runnerModulePath: string;
+  runnerArgs: string[];
+  stateRoot: string;
+  instanceKey: string;
+  bundlePath: string;
+  watch: boolean;
+  swarmName?: string;
+  env: NodeJS.ProcessEnv;
+  startupTimeoutMs?: number;
+}): Promise<number> {
+  const logPaths = resolveProcessLogPaths(input.stateRoot, input.instanceKey, ORCHESTRATOR_PROCESS_NAME);
+  await mkdir(path.dirname(logPaths.stdoutPath), { recursive: true });
+  const stdoutFd = openSync(logPaths.stdoutPath, 'a');
+  const stderrFd = openSync(logPaths.stderrPath, 'a');
+
+  let child: ChildProcess;
+  try {
+    child = fork(input.runnerModulePath, input.runnerArgs, {
+      cwd: path.dirname(input.bundlePath),
+      detached: true,
+      env: {
+        ...input.env,
+        GOONDAN_STATE_ROOT: input.stateRoot,
+      },
+      stdio: ['ignore', stdoutFd, stderrFd, 'ipc'],
+    });
+  } finally {
+    closeFd(stdoutFd);
+    closeFd(stderrFd);
+  }
+
+  if (!child.pid || child.pid <= 0) {
+    throw new Error('replacement Orchestrator 프로세스를 시작하지 못했습니다.');
+  }
+
+  const pid = await waitForReplacementRunnerReady(
+    child,
+    input.instanceKey,
+    input.startupTimeoutMs ?? REPLACEMENT_STARTUP_TIMEOUT_MS,
+    logPaths,
+  ).catch((error: unknown) => {
+    killIfRunning(child.pid);
+    throw error;
+  });
+
+  if (child.connected) {
+    child.disconnect();
+  }
+  child.unref();
+
+  await writeActiveRuntimeState({
+    stateRoot: input.stateRoot,
+    instanceKey: input.instanceKey,
+    bundlePath: input.bundlePath,
+    watch: input.watch,
+    swarmName: input.swarmName,
+    pid,
+    logPaths,
+  });
+
+  return pid;
 }
 
 function parseRunnerArguments(argv: string[]): RunnerArguments {
@@ -1652,7 +1912,7 @@ async function runAgentTurn(input: {
   toolExecutor: ToolExecutor;
   workdir: string;
   logger: Console;
-}): Promise<string> {
+}): Promise<TurnExecutionResult> {
   if (input.plan.provider !== 'anthropic') {
     throw new Error(`지원하지 않는 model provider입니다: ${input.plan.provider}`);
   }
@@ -1668,6 +1928,8 @@ async function runAgentTurn(input: {
   messages.push(createAnthropicUserMessage(input.event.messageText));
 
   let lastText = '';
+  let restartRequested = false;
+  let restartReason: string | undefined;
 
   for (let step = 0; step < input.plan.maxSteps; step += 1) {
     const response = await requestAnthropicMessage({
@@ -1687,10 +1949,11 @@ async function runAgentTurn(input: {
     }
 
     if (response.toolUseBlocks.length === 0) {
-      if (lastText.length > 0) {
-        return lastText;
-      }
-      return '응답 텍스트를 생성하지 못했습니다.';
+      return {
+        responseText: lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.',
+        restartRequested,
+        restartReason,
+      };
     }
 
     const toolResultBlocks: unknown[] = [];
@@ -1715,6 +1978,14 @@ async function runAgentTurn(input: {
       });
 
       if (result.status === 'ok') {
+        const restartSignal = readRuntimeRestartSignal(result.output, toolUse.name);
+        if (restartSignal?.requested) {
+          restartRequested = true;
+          if (!restartReason && restartSignal.reason) {
+            restartReason = restartSignal.reason;
+          }
+        }
+
         toolResultBlocks.push({
           type: 'tool_result',
           tool_use_id: toolUse.id,
@@ -1734,11 +2005,11 @@ async function runAgentTurn(input: {
     messages.push(createAnthropicToolResultMessage(toolResultBlocks));
   }
 
-  if (lastText.length > 0) {
-    return lastText;
-  }
-
-  return '최대 step에 도달하여 응답을 마무리했습니다.';
+  return {
+    responseText: lastText.length > 0 ? lastText : '최대 step에 도달하여 응답을 마무리했습니다.',
+    restartRequested,
+    restartReason,
+  };
 }
 
 function splitTelegramMessage(text: string, chunkSize: number): string[] {
@@ -1829,9 +2100,48 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
     initializedInstances: new Set<string>(),
     storage: new FileWorkspaceStorage(workspacePaths),
     workdir: path.dirname(args.bundlePath),
+    runnerArgs: args,
   };
 }
 
+async function requestRuntimeRestart(runtime: RuntimeEngineState, reason: string): Promise<void> {
+  if (runtime.restartPromise) {
+    await runtime.restartPromise;
+    return;
+  }
+
+  runtime.restartPromise = (async () => {
+    const runnerModulePath = process.argv[1];
+    if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
+      throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
+    }
+
+    const replacementPid = await spawnReplacementRunner({
+      runnerModulePath,
+      runnerArgs: process.argv.slice(2),
+      stateRoot: runtime.runnerArgs.stateRoot,
+      instanceKey: runtime.runnerArgs.instanceKey,
+      bundlePath: runtime.runnerArgs.bundlePath,
+      watch: runtime.runnerArgs.watch,
+      swarmName: runtime.runnerArgs.swarmName,
+      env: process.env,
+    });
+
+    console.info(
+      `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
+    );
+
+    process.kill(process.pid, 'SIGTERM');
+  })()
+    .catch((error) => {
+      console.error(`[goondan-runtime] replacement orchestrator restart failed: ${unknownToErrorMessage(error)}`);
+    })
+    .finally(() => {
+      runtime.restartPromise = undefined;
+    });
+
+  await runtime.restartPromise;
+}
 async function handleConnectorEvent(
   runtime: RuntimeEngineState,
   runnerPlan: RunnerPlan,
@@ -1871,9 +2181,9 @@ async function handleConnectorEvent(
         agentPlan.maxConversationTurns,
       );
 
-      let responseText: string;
+      let turnResult: TurnExecutionResult;
       try {
-        responseText = await runAgentTurn({
+        turnResult = await runAgentTurn({
           plan: agentPlan,
           event,
           instanceKey: event.instanceKey,
@@ -1886,8 +2196,13 @@ async function handleConnectorEvent(
         });
       } catch (error) {
         const message = unknownToErrorMessage(error);
-        responseText = `오류: ${message}`;
+        turnResult = {
+          responseText: `오류: ${message}`,
+          restartRequested: false,
+        };
       }
+
+      const responseText = turnResult.responseText;
 
       const nextConversation = trimConversation(
         history.concat([
@@ -1911,6 +2226,11 @@ async function handleConnectorEvent(
         console.warn(
           `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] deliver response failed: ${unknownToErrorMessage(error)}`,
         );
+      }
+
+      if (turnResult.restartRequested) {
+        const reason = turnResult.restartReason ?? 'tool:evolve';
+        await requestRuntimeRestart(runtime, reason);
       }
     } catch (error) {
       console.warn(

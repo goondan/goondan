@@ -5,7 +5,7 @@ import type { GdnArgs } from './parser.js';
 import type { CliDependencies, ExitCode } from './types.js';
 import { handleDoctor } from './commands/doctor.js';
 import { handleInit } from './commands/init.js';
-import { handleInstanceList, handleInstanceDelete } from './commands/instance.js';
+import { handleInstanceList, handleInstanceDelete, handleInstanceRestart } from './commands/instance.js';
 import { handleInstanceInteractive } from './commands/instance-interactive.js';
 import type { InstanceInteractiveGlobals } from './commands/instance-interactive.js';
 import { handleLogs } from './commands/logs.js';
@@ -110,6 +110,8 @@ async function dispatchCommand(
       return handleInstanceList({ cmd, deps, globals });
     case 'instance.delete':
       return handleInstanceDelete({ cmd, deps, globals });
+    case 'instance.restart':
+      return handleInstanceRestart({ cmd, deps, globals });
     case 'package.add':
       return handlePackageAdd({ cmd, deps, globals });
     case 'package.install':

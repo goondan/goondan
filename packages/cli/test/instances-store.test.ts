@@ -19,7 +19,7 @@ async function pathExists(targetPath: string): Promise<boolean> {
 }
 
 describe('FileInstanceStore.list', () => {
-  it('workspaces가 없어도 runtime active 인스턴스를 반환한다', async () => {
+  it('runtime active 인스턴스를 오케스트레이터 레코드로 반환한다', async () => {
     const stateRoot = await createTempStateRoot();
 
     try {
@@ -33,7 +33,7 @@ describe('FileInstanceStore.list', () => {
             bundlePath: '/tmp/goondan.yaml',
             startedAt: '2026-02-13T00:00:00.000Z',
             watch: false,
-            pid: 12345,
+            pid: process.pid,
           },
           null,
           2,
@@ -57,17 +57,17 @@ describe('FileInstanceStore.list', () => {
     }
   });
 
-  it('동일 키가 있으면 workspace 메타를 유지하면서 running 상태로 병합한다', async () => {
+  it('workspace 인스턴스 메타가 있어도 list에는 반영하지 않는다', async () => {
     const stateRoot = await createTempStateRoot();
 
     try {
-      const workspaceDir = path.join(stateRoot, 'workspaces', 'instance-live');
+      const workspaceDir = path.join(stateRoot, 'workspaces', 'instance-live', 'instances', 'instance-live');
       await mkdir(workspaceDir, { recursive: true });
       await writeFile(
-        path.join(workspaceDir, 'meta.json'),
+        path.join(workspaceDir, 'metadata.json'),
         JSON.stringify(
           {
-            agent: 'telegram-evolver',
+            agentName: 'telegram-evolver',
             status: 'idle',
             createdAt: '2026-02-12 10:00:00',
             updatedAt: '2026-02-12 10:00:00',
@@ -104,18 +104,21 @@ describe('FileInstanceStore.list', () => {
 
       expect(rows.length).toBe(1);
       expect(rows[0]?.key).toBe('instance-live');
-      expect(rows[0]?.agent).toBe('telegram-evolver');
+      expect(rows[0]?.agent).toBe('orchestrator');
       expect(rows[0]?.status).toBe('running');
-      expect(rows[0]?.createdAt).toBe('2026-02-12 10:00:00');
     } finally {
       await rm(stateRoot, { recursive: true, force: true });
     }
   });
 
-  it('legacy instances 루트(~/.goondan/instances)는 list 기본 조회에서 제외한다', async () => {
+  it('runtime active가 없으면 legacy/workspace 인스턴스가 있어도 빈 목록을 반환한다', async () => {
     const stateRoot = await createTempStateRoot();
 
     try {
+      const workspaceInstanceDir = path.join(stateRoot, 'workspaces', 'workspace-a', 'instances', 'instance-z');
+      await mkdir(workspaceInstanceDir, { recursive: true });
+      await writeFile(path.join(workspaceInstanceDir, 'metadata.json'), JSON.stringify({ agentName: 'workspace' }), 'utf8');
+
       const legacyInstanceDir = path.join(stateRoot, 'instances', 'legacy-workspace', 'legacy-instance');
       await mkdir(legacyInstanceDir, { recursive: true });
       await writeFile(path.join(legacyInstanceDir, 'meta.json'), JSON.stringify({ agent: 'legacy' }), 'utf8');
@@ -128,6 +131,43 @@ describe('FileInstanceStore.list', () => {
       });
 
       expect(rows.length).toBe(0);
+    } finally {
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('active pid가 살아있지 않으면 terminated 상태를 반환한다', async () => {
+    const stateRoot = await createTempStateRoot();
+
+    try {
+      const runtimeDir = path.join(stateRoot, 'runtime');
+      await mkdir(runtimeDir, { recursive: true });
+      await writeFile(
+        path.join(runtimeDir, 'active.json'),
+        JSON.stringify(
+          {
+            instanceKey: 'instance-live',
+            bundlePath: '/tmp/goondan.yaml',
+            startedAt: '2026-02-13T00:00:00.000Z',
+            watch: false,
+            pid: 999999,
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      );
+
+      const store = new FileInstanceStore({});
+      const rows = await store.list({
+        limit: 20,
+        all: true,
+        stateRoot,
+      });
+
+      expect(rows.length).toBe(1);
+      expect(rows[0]?.status).toBe('terminated');
+      expect(rows[0]?.agent).toBe('orchestrator');
     } finally {
       await rm(stateRoot, { recursive: true, force: true });
     }

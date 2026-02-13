@@ -19,7 +19,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `pipeline.md` - 라이프사이클 파이프라인 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
 - `tool.md` - Tool 시스템 스펙 v2.0 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델)
 - `workspace.md` - **[v2.0]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
-- `cli.md` - **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: 재시작 신호, validate, instance list/delete, package add/install/publish, doctor)
+- `cli.md` - **[v2.0]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor)
 
 ## 문서 작성 규칙
 

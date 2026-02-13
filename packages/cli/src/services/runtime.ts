@@ -6,6 +6,7 @@ import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseYamlDocuments, WorkspacePaths } from '@goondan/runtime';
 import { configError } from '../errors.js';
+import { loadRuntimeEnv } from './env.js';
 import type {
   RuntimeController,
   RuntimeRestartRequest,
@@ -29,6 +30,7 @@ interface RuntimeStateFile {
   bundlePath: string;
   startedAt: string;
   watch: boolean;
+  swarm?: string;
   pid?: number;
   logs?: ProcessLogFile[];
 }
@@ -44,6 +46,8 @@ function parseRuntimeState(raw: string): RuntimeStateFile | undefined {
     const bundlePath = parsed['bundlePath'];
     const startedAt = parsed['startedAt'];
     const watch = parsed['watch'];
+    const swarmValue = parsed['swarm'];
+    const swarm = typeof swarmValue === 'string' && swarmValue.length > 0 ? swarmValue : undefined;
     const pid = parsed['pid'];
     const logs = parseProcessLogs(parsed['logs']);
     const normalizedPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0 ? pid : undefined;
@@ -59,6 +63,7 @@ function parseRuntimeState(raw: string): RuntimeStateFile | undefined {
         bundlePath,
         startedAt,
         watch,
+        swarm,
         pid: normalizedPid,
         logs,
       };
@@ -105,6 +110,7 @@ function parseProcessLogs(value: unknown): ProcessLogFile[] | undefined {
 interface RunnerStartInput {
   manifestPath: string;
   stateRoot: string;
+  env: NodeJS.ProcessEnv;
   instanceKey: string;
   swarm?: string;
   watch: boolean;
@@ -148,6 +154,39 @@ function isProcessAlive(pid: number | undefined): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function terminatePreviousProcess(previousPid: number | undefined, replacementPid: number): Promise<void> {
+  if (!previousPid || previousPid <= 0 || previousPid === replacementPid) {
+    return;
+  }
+
+  if (!isProcessAlive(previousPid)) {
+    return;
+  }
+
+  try {
+    process.kill(previousPid, 'SIGTERM');
+  } catch {
+    return;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await sleep(50);
+    if (!isProcessAlive(previousPid)) {
+      return;
+    }
+  }
+
+  try {
+    process.kill(previousPid, 'SIGKILL');
+  } catch {
+    // 이미 종료된 경우 무시한다.
   }
 }
 
@@ -253,7 +292,12 @@ export class LocalRuntimeController implements RuntimeController {
       throw configError(`Bundle 파일을 찾을 수 없습니다: ${manifestPath}`, '올바른 bundle 경로를 지정하세요.');
     }
 
-    const stateRoot = resolveStateRoot(request.stateRoot, this.env);
+    const runtimeEnv = await loadRuntimeEnv(this.env, {
+      projectRoot: path.dirname(manifestPath),
+      envFile: request.envFile,
+    });
+
+    const stateRoot = resolveStateRoot(request.stateRoot, runtimeEnv);
     const runtimeDir = path.join(stateRoot, 'runtime');
     await mkdir(runtimeDir, { recursive: true });
 
@@ -273,6 +317,7 @@ export class LocalRuntimeController implements RuntimeController {
     const runner = await this.startDetachedRunner({
       manifestPath,
       stateRoot,
+      env: runtimeEnv,
       instanceKey,
       swarm: request.swarm,
       watch: request.watch,
@@ -282,6 +327,7 @@ export class LocalRuntimeController implements RuntimeController {
       bundlePath: manifestPath,
       startedAt: new Date().toISOString(),
       watch: request.watch,
+      swarm: request.swarm,
       pid: runner.pid,
       logs: [
         {
@@ -315,15 +361,57 @@ export class LocalRuntimeController implements RuntimeController {
       throw configError('런타임 상태 파일이 손상되었습니다.', 'state-root/runtime/active.json을 정리한 뒤 다시 실행하세요.');
     }
 
-    const restarted = request.agent ? [request.agent] : ['all'];
+    if (request.instanceKey && request.instanceKey !== state.instanceKey) {
+      throw configError(
+        `활성 오케스트레이터 인스턴스와 일치하지 않습니다: ${request.instanceKey}`,
+        `현재 활성 인스턴스(${state.instanceKey})를 확인하고 다시 시도하세요.`,
+      );
+    }
+
+    const manifestPath = state.bundlePath;
+    const runtimeEnv = await loadRuntimeEnv(this.env, {
+      projectRoot: path.dirname(manifestPath),
+    });
+
+    const runner = await this.startDetachedRunner({
+      manifestPath,
+      stateRoot,
+      env: runtimeEnv,
+      instanceKey: state.instanceKey,
+      swarm: state.swarm,
+      watch: state.watch,
+    });
+
     const refreshedState: RuntimeStateFile = {
-      ...state,
+      instanceKey: state.instanceKey,
+      bundlePath: state.bundlePath,
       startedAt: new Date().toISOString(),
+      watch: state.watch,
+      swarm: state.swarm,
+      pid: runner.pid,
+      logs: [
+        {
+          process: runner.process,
+          stdout: runner.stdoutLogPath,
+          stderr: runner.stderrLogPath,
+        },
+      ],
     };
 
     await writeFile(activePath, JSON.stringify(refreshedState, null, 2), 'utf8');
+    await terminatePreviousProcess(state.pid, runner.pid);
 
-    return { restarted };
+    const restarted = request.instanceKey
+      ? [request.instanceKey]
+      : request.agent
+        ? [request.agent]
+        : [state.instanceKey];
+
+    return {
+      restarted,
+      instanceKey: state.instanceKey,
+      pid: runner.pid,
+    };
   }
 
   private async startDetachedRunner(input: RunnerStartInput): Promise<RunnerReadyResult> {
@@ -340,7 +428,7 @@ export class LocalRuntimeController implements RuntimeController {
         cwd: path.dirname(input.manifestPath),
         detached: true,
         env: {
-          ...this.env,
+          ...input.env,
           GOONDAN_STATE_ROOT: input.stateRoot,
         },
         stdio: ['ignore', stdoutFd, stderrFd, 'ipc'],
@@ -401,6 +489,10 @@ export class LocalRuntimeController implements RuntimeController {
 
       const onMessage = (message: unknown): void => {
         if (isRunnerReadyMessage(message)) {
+          if (message.instanceKey !== input.instanceKey) {
+            fail(`Orchestrator instanceKey 불일치: expected=${input.instanceKey}, actual=${message.instanceKey}`);
+            return;
+          }
           succeed(message.pid);
           return;
         }

@@ -6,9 +6,9 @@
 
 ## 1. 개요
 
-`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞춰, Orchestrator 운영(`run`, `restart`)과 인스턴스 운영(`instance list/delete`), 패키지 운영(`package`) 중심의 명령 체계를 제공한다.
+`gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞춰, Orchestrator 운영(`run`, `restart`)과 인스턴스 운영(`instance list/restart/delete`), 패키지 운영(`package`) 중심의 명령 체계를 제공한다.
 
-CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/restart/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
 `gdn package` 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
@@ -50,9 +50,9 @@ gdn <command> [subcommand] [options]
 |--------|------|
 | `gdn init` | 새 Swarm 프로젝트 초기화 |
 | `gdn run` | Orchestrator 기동 (상주 프로세스) |
-| `gdn restart` | 실행 중인 Orchestrator에 재시작 신호 전송 |
+| `gdn restart` | 실행 중인 Orchestrator 재기동 |
 | `gdn validate` | Bundle 구성 검증 |
-| `gdn instance` | 인스턴스 관리 (list, delete) |
+| `gdn instance` | 인스턴스 관리 (list, restart, delete) |
 | `gdn logs` | 프로세스 로그 조회 |
 | `gdn package` | 패키지 관리 (add, install, publish) |
 | `gdn doctor` | 환경 진단 및 문제 확인 |
@@ -264,7 +264,7 @@ gdn run --input-file ./request.txt
 
 ## 5. gdn restart
 
-실행 중인 Orchestrator에 재시작 신호를 전송한다. Orchestrator가 해당 에이전트 프로세스를 kill한 뒤 새 설정으로 re-spawn한다.
+실행 중인 Orchestrator 인스턴스를 최신 runner 바이너리로 재기동한다. active 인스턴스의 bundle/instanceKey를 유지한 채 새 프로세스를 시작하고 기존 PID를 종료한다.
 
 ### 5.1 사용법
 
@@ -276,28 +276,28 @@ gdn restart [options]
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--agent <name>` | `-a` | 특정 에이전트만 재시작. 생략 시 전체 | 전체 |
-| `--fresh` | | 대화 히스토리 초기화 후 재시작 | `false` |
+| `--agent <name>` | `-a` | 호환용 필드. 현재 구현은 인스턴스 전체를 재기동 | - |
+| `--fresh` | | 호환용 플래그(현재 구현은 인스턴스 재기동에 전달) | `false` |
 
 ### 5.3 동작 방식
 
-1. 실행 중인 Orchestrator 프로세스를 탐지한다.
-2. IPC 또는 시그널을 통해 재시작 명령을 전달한다.
-3. Orchestrator가 해당 AgentProcess를 kill → 새 설정으로 re-spawn한다.
+1. `runtime/active.json`의 active Orchestrator 인스턴스를 읽는다.
+2. 동일 `instanceKey`/bundle로 replacement runner를 먼저 기동한다.
+3. active pid를 새 값으로 갱신하고, 기존 Orchestrator PID를 종료한다.
 
 ### 5.4 예시
 
 ```bash
-# 모든 에이전트 프로세스 재시작
+# active Orchestrator 인스턴스 재기동
 gdn restart
 
-# 특정 에이전트만 재시작
+# agent 지정(호환용)
 gdn restart --agent coder
 
-# 대화 히스토리 초기화 후 재시작
+# fresh 플래그 전달(호환용)
 gdn restart --fresh
 
-# 특정 에이전트를 초기화하며 재시작
+# agent 지정 + fresh(호환용)
 gdn restart --agent coder --fresh
 ```
 
@@ -384,18 +384,19 @@ Errors: 1, Warnings: 1
 
 ## 7. gdn instance
 
-인스턴스를 관리한다. 표준 하위 명령은 `list`와 `delete`다.
+인스턴스를 관리한다. 표준 하위 명령은 `list`, `restart`, `delete`다.
 
 ### 7.1 하위 명령어
 
 | 명령어 | 설명 |
 |--------|------|
 | `gdn instance list` | 인스턴스 목록 |
+| `gdn instance restart <key>` | 인스턴스 재시작 |
 | `gdn instance delete <key>` | 인스턴스 삭제 |
 
 ### 7.2 gdn instance list
 
-인스턴스 목록을 출력한다.
+오케스트레이터 인스턴스 목록을 출력한다. 기본 구현은 `runtime/active.json`의 현재 active runtime만 노출해야 하며(SHOULD), Agent 대화 단위 인스턴스(`workspaces/*/instances/*`)는 표시하지 않는다.
 
 **사용법:**
 
@@ -407,20 +408,46 @@ gdn instance list [options]
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--agent <name>` | `-a` | Agent 이름으로 필터 | - |
-| `--limit <n>` | `-n` | 최대 개수 | `20` |
-| `--all` | | 모든 인스턴스 | `false` |
+| `--agent <name>` | `-a` | Agent 이름 필터 (`orchestrator`만 매칭) | - |
+| `--limit <n>` | `-n` | 최대 개수 (active runtime 1개 기준) | `20` |
+| `--all` | | 모든 인스턴스 (active runtime 1개 기준) | `false` |
 
 **출력 예시:**
 
 ```
-INSTANCE KEY         AGENT       STATUS      CREATED              UPDATED
-user:123             coder       idle        2026-02-05 10:30:00  2026-02-05 10:45:00
-user:456             coder       processing  2026-02-05 11:00:00  2026-02-05 11:02:00
-telegram:789         handler     idle        2026-02-04 15:20:00  2026-02-04 15:35:00
+INSTANCE KEY                     AGENT         STATUS    CREATED              UPDATED
+allied-gray-antelope-darrelle   orchestrator  running   2026-02-13 09:30:00  2026-02-13 09:30:00
 ```
 
-### 7.3 gdn instance delete
+### 7.3 gdn instance restart
+
+특정 오케스트레이터 인스턴스를 최신 runner 바이너리로 재시작한다. 재시작 시 동일 `instanceKey`와 bundle 경로를 유지하고, 새 프로세스 PID를 `runtime/active.json`에 반영한다. 인터랙티브 `gdn instance` 화면은 각 행에 `started=<timestamp>`를 표시해 재시작 여부를 눈으로 확인할 수 있어야 한다(SHOULD).
+
+**사용법:**
+
+```bash
+gdn instance restart <key> [options]
+```
+
+**인자:**
+
+| 인자 | 설명 |
+|------|------|
+| `key` | 재시작할 인스턴스 키 |
+
+**옵션:**
+
+| 옵션 | 설명 | 기본값 |
+|------|------|--------|
+| `--fresh` | fresh restart 플래그 전달 | `false` |
+
+**예시:**
+
+```bash
+gdn instance restart allied-gray-antelope-darrelle
+```
+
+### 7.4 gdn instance delete
 
 인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다.
 

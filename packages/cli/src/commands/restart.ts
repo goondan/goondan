@@ -16,6 +16,11 @@ export async function handleRestart({ cmd, deps, globals }: RestartContext): Pro
     stateRoot: globals.stateRoot ?? undefined,
   });
 
+  if (result.instanceKey && typeof result.pid === 'number') {
+    deps.io.out(`Orchestrator restarted: ${result.instanceKey} (pid: ${result.pid})`);
+    return 0;
+  }
+
   deps.io.out(`Restart requested for: ${result.restarted.join(', ')}`);
   return 0;
 }

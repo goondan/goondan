@@ -10,7 +10,7 @@ import { handleInit } from './commands/init.js';
 import { handleRun } from './commands/run.js';
 import { handleRestart } from './commands/restart.js';
 import { handleValidate } from './commands/validate.js';
-import { handleInstanceList, handleInstanceDelete } from './commands/instance.js';
+import { handleInstanceList, handleInstanceDelete, handleInstanceRestart } from './commands/instance.js';
 import { handleInstanceInteractive } from './commands/instance-interactive.js';
 import type { InstanceInteractiveGlobals } from './commands/instance-interactive.js';
 import { handlePackageAdd, handlePackageInstall, handlePackagePublish } from './commands/package.js';
@@ -112,6 +112,9 @@ async function main(): Promise<void> {
         break;
       case 'instance.delete':
         exitCode = await handleInstanceDelete({ cmd, deps, globals });
+        break;
+      case 'instance.restart':
+        exitCode = await handleInstanceRestart({ cmd, deps, globals });
         break;
       case 'package.add':
         exitCode = await handlePackageAdd({ cmd, deps, globals });

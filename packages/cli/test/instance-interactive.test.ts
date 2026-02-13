@@ -98,6 +98,8 @@ describe('handleInstanceInteractive', () => {
     expect(output).toContain('inst-1');
     expect(output).toContain('inst-2');
     expect(output).toContain('나가기');
+    expect(output).toContain('r 재시작');
+    expect(output).toContain('started=2025-01-01T00:00:00Z');
     expect(output).toContain('2 instance(s)');
 
     simulateKey(termState, 'q');
@@ -197,6 +199,76 @@ describe('handleInstanceInteractive', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     simulateKey(termState, '\r');
+    const code = await promise;
+    expect(code).toBe(0);
+  });
+
+  it('r 키로 선택 인스턴스를 재시작하고 시작 시각 변화를 다시 렌더링한다', async () => {
+    const { terminal, state: termState } = createMockTerminal(true);
+    let listCallCount = 0;
+    const { deps, state } = createMockDeps({
+      terminal,
+      listResult: makeInstances('inst-1', 'inst-2'),
+    });
+
+    deps.instances.list = vi.fn(async () => {
+      listCallCount += 1;
+      if (listCallCount <= 1) {
+        return [
+          {
+            key: 'inst-1',
+            agent: 'agent-inst-1',
+            status: 'running',
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+          {
+            key: 'inst-2',
+            agent: 'agent-inst-2',
+            status: 'running',
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'inst-1',
+          agent: 'agent-inst-1',
+          status: 'running',
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:01Z',
+        },
+        {
+          key: 'inst-2',
+          agent: 'agent-inst-2',
+          status: 'running',
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+    });
+
+    const promise = handleInstanceInteractive({
+      cmd: makeCmd(),
+      deps,
+      globals: makeGlobals(),
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    simulateKey(termState, 'r');
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(state.restartRequests.length).toBe(1);
+    expect(state.restartRequests[0].instanceKey).toBe('inst-1');
+    expect(state.restartRequests[0].fresh).toBe(false);
+
+    const output = termState.writes.join('');
+    expect(output).toContain('started=2025-01-01T00:00:01Z');
+
+    simulateKey(termState, 'q');
     const code = await promise;
     expect(code).toBe(0);
   });

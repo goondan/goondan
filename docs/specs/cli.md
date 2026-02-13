@@ -174,7 +174,7 @@ gdn run [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--swarm <name>` | `-s` | 실행할 Swarm 이름. 미지정 시 `default`를 찾고, 없으면 Swarm이 1개일 때 자동 선택 | `default` |
-| `--instance-key <key>` | `-i` | 인스턴스 키 | 자동 생성 |
+| `--instance-key <key>` | `-i` | 인스턴스 키 | Project Root + Package 기반 human-readable 해시 키 |
 | `--watch` | `-w` | 파일 변경 감시 모드 (변경 시 자동 재시작) | `false` |
 | `--input <text>` | | 초기 입력 메시지 | - |
 | `--input-file <path>` | | 입력 파일 경로 | - |
@@ -187,10 +187,12 @@ gdn run [options]
 `gdn run`은 다음 순서로 동작한다:
 
 1. `goondan.yaml` 및 관련 리소스 파일을 파싱
-2. Orchestrator 상주 프로세스 기동
-3. 정의된 Connector에 대해 ConnectorProcess 스폰
-4. CLI Connector(기본)인 경우 대화형 루프 시작
-5. 이벤트 수신 시 필요한 AgentProcess 스폰
+2. `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 인스턴스 키(예: `allied-gray-antelope-darrelle`)를 계산
+3. 동일 키의 Orchestrator가 이미 실행 중이면 해당 프로세스를 재사용(resume)하고 새 프로세스는 스폰하지 않음
+4. Orchestrator 상주 프로세스 기동 (필요 시)
+5. 정의된 Connector에 대해 ConnectorProcess 스폰
+6. CLI Connector(기본)인 경우 대화형 루프 시작
+7. 이벤트 수신 시 필요한 AgentProcess 스폰
 
 **Orchestrator는 에이전트가 모두 종료되어도 살아 있으며**, 새로운 이벤트가 오면 필요한 AgentProcess를 다시 스폰한다.
 

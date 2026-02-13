@@ -2,6 +2,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { WorkspacePaths } from '@goondan/runtime';
 import { LocalRuntimeController } from '../src/services/runtime.js';
 
 interface RuntimeFixture {
@@ -181,6 +182,56 @@ export default async function run(ctx) {
 `;
 
 describe('LocalRuntimeController.startOrchestrator', () => {
+  it('instance-key를 생략하면 폴더+패키지명 기반 키를 사용하고 동일 키 런타임을 재사용한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const first = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!first.pid) {
+        throw new Error('첫 실행 pid가 없습니다.');
+      }
+      startedPid = first.pid;
+
+      const expectedKey = new WorkspacePaths({
+        stateRoot: fixture.stateRoot,
+        projectRoot: fixture.bundleDir,
+        packageName: '@goondan/test-runtime',
+      }).workspaceId;
+
+      expect(first.instanceKey).toBe(expectedKey);
+      expect(first.instanceKey.includes('/')).toBe(false);
+
+      const second = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      expect(second.instanceKey).toBe(expectedKey);
+      expect(second.pid).toBe(first.pid);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('Orchestrator runner를 백그라운드 프로세스로 기동하고 active.json에 pid를 기록한다', async () => {
     const fixture = await createRuntimeFixture(basicBundle);
     let startedPid: number | undefined;

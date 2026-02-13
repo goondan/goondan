@@ -24,7 +24,7 @@
 | 공통 타입(`ProcessStatus`, `IpcMessage`, `TurnResult`, `ToolContext` 등) | `docs/specs/shared-types.md` | 타입 재정의 대신 링크/요약 |
 | 실행 컨텍스트/이벤트 엔벨로프(ExecutionContext, EventEnvelope) | `docs/specs/shared-types.md` | 런타임/파이프라인 문맥 확장 |
 | 리소스 Kind 스키마(8종) | `docs/specs/resources.md` | 문맥별 사용 규칙/예시 |
-| Config 참조 모델(ObjectRef/Selector/ValueSource) | `docs/specs/resources.md` | 번들/커넥션은 문맥 예시만 제공 |
+| Config 참조 모델(ObjectRef/ValueSource) | `docs/specs/resources.md` | 번들/커넥션은 문맥 예시만 제공 |
 | 로딩/검증/Fail-Fast 계약 | `docs/specs/resources.md` | 번들/패키지/CLI는 진입점별 제약만 추가 |
 | Runtime 실행 모델/프로세스/IPC 흐름 | `docs/specs/runtime.md` | API/확장은 외부 시그니처 중심 설명 |
 | Runtime 표준 이벤트 이름/페이로드 API 표면 | `docs/specs/api.md` | Runtime은 발행 시점/실행 규칙 소유 |

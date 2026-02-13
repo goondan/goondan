@@ -20,15 +20,18 @@ export interface ReplyChannel {
   readonly correlationId: string;
 }
 
-export interface TurnAuth {
-  readonly principal?: TurnAuthPrincipal;
+interface TurnAuthPrincipal {
+  type: string;
+  id: string;
+  [key: string]: JsonValue | undefined;
+}
+
+interface TurnAuthBase {
   readonly [key: string]: JsonValue | undefined;
 }
 
-export interface TurnAuthPrincipal {
-  readonly type: string;
-  readonly id: string;
-  readonly [key: string]: JsonValue;
+export type TurnAuth = TurnAuthBase & {
+  readonly principal?: TurnAuthPrincipal;
 }
 
 export interface AgentEvent extends EventEnvelope {

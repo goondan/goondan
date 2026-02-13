@@ -276,10 +276,11 @@ export default async function (ctx: ConnectorContext): Promise<void> {
     async fetch(req) {
       const url = new URL(req.url);
 
-      // 서명 검증 (Connector가 자체 수행)
-      if (secrets.WEBHOOK_SECRET) {
+      // 서명 검증 (권장: secrets에서 시크릿 읽어 자체 수행)
+      const signingSecret = secrets.SIGNING_SECRET || secrets.WEBHOOK_SECRET;
+      if (signingSecret) {
         const signature = req.headers.get('x-telegram-bot-api-secret-token');
-        if (signature !== secrets.WEBHOOK_SECRET) {
+        if (signature !== signingSecret) {
           logger.warn('Telegram 서명 검증 실패');
           return new Response('Unauthorized', { status: 401 });
         }
@@ -330,7 +331,7 @@ spec:
     PORT:
       valueFrom:
         env: TELEGRAM_WEBHOOK_PORT
-    WEBHOOK_SECRET:
+    SIGNING_SECRET:
       valueFrom:
         env: TELEGRAM_WEBHOOK_SECRET
   ingress:

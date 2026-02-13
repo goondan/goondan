@@ -167,11 +167,38 @@ export interface ToolCallResult {
   readonly error?: ToolError;
 }
 
+export interface AgentRuntimeRequestOptions {
+  timeoutMs?: number;
+}
+
+export interface AgentRuntimeRequestResult {
+  eventId: string;
+  target: string;
+  response?: JsonValue;
+  correlationId: string;
+}
+
+export interface AgentRuntimeSendResult {
+  eventId: string;
+  target: string;
+  accepted: boolean;
+}
+
+export interface AgentToolRuntime {
+  request(
+    target: string,
+    event: AgentEvent,
+    options?: AgentRuntimeRequestOptions
+  ): Promise<AgentRuntimeRequestResult>;
+  send(target: string, event: AgentEvent): Promise<AgentRuntimeSendResult>;
+}
+
 export interface ToolContext extends ExecutionContext {
   readonly toolCallId: string;
   readonly message: Message;
   readonly workdir: string;
-  readonly logger: Pick<Console, "debug" | "info" | "warn" | "error">;
+  readonly logger: Console;
+  readonly runtime?: AgentToolRuntime;
 }
 
 export type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> | JsonValue;

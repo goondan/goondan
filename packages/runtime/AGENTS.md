@@ -20,4 +20,5 @@
 2. 타입 단언(`as`, `as unknown as`) 없이 타입 가드로 안전성을 유지한다.
 3. 공개 API는 `src/index.ts`에서만 export 한다.
 4. 워크스페이스 메시지 저장은 JSONL append/fold 규칙을 준수한다.
-5. Tool 호출은 기본적으로 Step Tool Catalog에 포함된 항목만 허용한다.
+5. `WorkspacePaths.workspaceId`는 Project Root + Package 이름을 입력으로 한 human-readable 해시 slug(예: `allied-gray-antelope-darrelle`)를 사용한다.
+6. Tool 호출은 기본적으로 Step Tool Catalog에 포함된 항목만 허용한다.

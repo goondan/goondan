@@ -22,3 +22,5 @@ export * from "./orchestrator/orchestrator.js";
 export * from "./orchestrator/event-queue.js";
 
 export * from "./events/runtime-events.js";
+
+export * from "./extension/index.js";

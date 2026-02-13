@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { Console } from 'node:console';
 import { access, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -8,8 +9,10 @@ import {
   createMinimalToolContext,
   isJsonObject,
   normalizeObjectRef,
+  FileWorkspaceStorage,
   ToolExecutor,
   ToolRegistryImpl,
+  WorkspacePaths,
   type ConnectorContext,
   type JsonObject,
   type JsonSchemaProperty,
@@ -105,6 +108,7 @@ interface RunnerPlan {
   connectors: ConnectorRunPlan[];
   agents: Map<string, AgentRuntimePlan>;
   toolExecutor: ToolExecutor;
+  localPackageName?: string;
 }
 
 interface ParsedConnectorEvent {
@@ -129,7 +133,8 @@ interface ConversationTurn {
 
 interface RuntimeEngineState {
   executionQueue: Map<string, Promise<void>>;
-  conversations: Map<string, ConversationTurn[]>;
+  initializedInstances: Set<string>;
+  storage: FileWorkspaceStorage;
   workdir: string;
 }
 
@@ -1137,6 +1142,9 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
   if (loaded.errors.length > 0) {
     throw new Error(formatValidationErrors(loaded.errors));
   }
+  const localPackageName = loaded.resources.find(
+    (resource) => resource.kind === 'Package' && resource.__file === 'goondan.yaml',
+  )?.metadata.name;
 
   const { swarmResource, selectedSwarm } = parseSwarmSelection(loaded.resources, args.swarmName);
 
@@ -1262,25 +1270,26 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     connectors,
     agents: agentPlans,
     toolExecutor,
+    localPackageName,
   };
 }
 
-function createConnectorLogger(plan: ConnectorRunPlan): Pick<Console, 'debug' | 'info' | 'warn' | 'error'> {
+function createConnectorLogger(plan: ConnectorRunPlan): Console {
   const prefix = `[goondan-runtime][${plan.connectionName}/${plan.connectorName}]`;
-  return {
-    debug: (...args: unknown[]): void => {
-      console.debug(prefix, ...args);
-    },
-    info: (...args: unknown[]): void => {
-      console.info(prefix, ...args);
-    },
-    warn: (...args: unknown[]): void => {
-      console.warn(prefix, ...args);
-    },
-    error: (...args: unknown[]): void => {
-      console.error(prefix, ...args);
-    },
+  const logger = new Console({ stdout: process.stdout, stderr: process.stderr });
+  logger.debug = (...args: unknown[]): void => {
+    console.debug(prefix, ...args);
   };
+  logger.info = (...args: unknown[]): void => {
+    console.info(prefix, ...args);
+  };
+  logger.warn = (...args: unknown[]): void => {
+    console.warn(prefix, ...args);
+  };
+  logger.error = (...args: unknown[]): void => {
+    console.error(prefix, ...args);
+  };
+  return logger;
 }
 
 function parseConnectorEvent(event: unknown): ParsedConnectorEvent | undefined {
@@ -1390,29 +1399,104 @@ function trimConversation(turns: ConversationTurn[], maxTurns: number): Conversa
   return turns.slice(turns.length - limit);
 }
 
-function appendConversation(
-  state: RuntimeEngineState,
-  key: string,
-  maxTurns: number,
-  userText: string,
-  assistantText: string,
-): void {
-  const existing = state.conversations.get(key) ?? [];
-  const next = trimConversation(
-    existing.concat([
-      {
-        role: 'user',
-        content: userText,
-      },
-      {
-        role: 'assistant',
-        content: assistantText,
-      },
-    ]),
-    maxTurns,
-  );
+function toConversationTurns(messages: Message[]): ConversationTurn[] {
+  const turns: ConversationTurn[] = [];
+  for (const message of messages) {
+    const role = message.data.role;
+    if (role !== 'user' && role !== 'assistant') {
+      continue;
+    }
 
-  state.conversations.set(key, next);
+    const content = message.data.content;
+    if (typeof content === 'string') {
+      turns.push({ role, content });
+      continue;
+    }
+
+    turns.push({ role, content: safeJsonStringify(content) });
+  }
+  return turns;
+}
+
+function toPersistentMessages(turns: ConversationTurn[]): Message[] {
+  const messages: Message[] = [];
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index];
+    if (!turn) {
+      continue;
+    }
+
+    if (turn.role === 'assistant') {
+      messages.push({
+        id: `persist-${index}`,
+        data: {
+          role: 'assistant',
+          content: turn.content,
+        },
+        metadata: {},
+        createdAt: new Date(),
+        source: {
+          type: 'assistant',
+          stepId: `persist-step-${index}`,
+        },
+      });
+      continue;
+    }
+
+    messages.push({
+      id: `persist-${index}`,
+      data: {
+        role: 'user',
+        content: turn.content,
+      },
+      metadata: {},
+      createdAt: new Date(),
+      source: {
+        type: 'user',
+      },
+    });
+  }
+  return messages;
+}
+
+async function ensureInstanceStorage(
+  runtime: RuntimeEngineState,
+  queueKey: string,
+  agentName: string,
+): Promise<void> {
+  if (runtime.initializedInstances.has(queueKey)) {
+    return;
+  }
+
+  await runtime.storage.initializeSystemRoot();
+  const metadata = await runtime.storage.readMetadata(queueKey);
+  if (!metadata) {
+    await runtime.storage.initializeInstanceState(queueKey, agentName);
+  }
+  runtime.initializedInstances.add(queueKey);
+}
+
+async function loadConversationFromStorage(
+  runtime: RuntimeEngineState,
+  queueKey: string,
+  agentName: string,
+  maxTurns: number,
+): Promise<ConversationTurn[]> {
+  await ensureInstanceStorage(runtime, queueKey, agentName);
+  const loaded = await runtime.storage.loadConversation(queueKey);
+  return trimConversation(toConversationTurns(loaded.nextMessages), maxTurns);
+}
+
+async function persistConversationToStorage(
+  runtime: RuntimeEngineState,
+  queueKey: string,
+  agentName: string,
+  turns: ConversationTurn[],
+): Promise<void> {
+  await ensureInstanceStorage(runtime, queueKey, agentName);
+  const messages = toPersistentMessages(turns);
+  await runtime.storage.writeBaseMessages(queueKey, messages);
+  await runtime.storage.clearEvents(queueKey);
 }
 
 function createId(prefix: string): string {
@@ -1567,7 +1651,7 @@ async function runAgentTurn(input: {
   conversation: ConversationTurn[];
   toolExecutor: ToolExecutor;
   workdir: string;
-  logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  logger: Console;
 }): Promise<string> {
   if (input.plan.provider !== 'anthropic') {
     throw new Error(`지원하지 않는 model provider입니다: ${input.plan.provider}`);
@@ -1734,11 +1818,17 @@ function logConnectorEvent(plan: ConnectorRunPlan, event: ParsedConnectorEvent):
   );
 }
 
-function buildRuntimeEngine(workdir: string): RuntimeEngineState {
+function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEngineState {
+  const workspacePaths = new WorkspacePaths({
+    stateRoot: args.stateRoot,
+    projectRoot: path.dirname(args.bundlePath),
+    packageName: plan.localPackageName,
+  });
   return {
     executionQueue: new Map<string, Promise<void>>(),
-    conversations: new Map<string, ConversationTurn[]>(),
-    workdir,
+    initializedInstances: new Set<string>(),
+    storage: new FileWorkspaceStorage(workspacePaths),
+    workdir: path.dirname(args.bundlePath),
   };
 }
 
@@ -1769,37 +1859,65 @@ async function handleConnectorEvent(
 
   const queueKey = createConversationKey(targetAgentName, event.instanceKey);
   await queueAgentEvent(runtime, queueKey, async () => {
-    const turnId = createId('turn');
-    const traceId = createId('trace');
-    const history = runtime.conversations.get(queueKey) ?? [];
-    const trimmedHistory = trimConversation(history, agentPlan.maxConversationTurns);
-
-    let responseText: string;
+    await ensureInstanceStorage(runtime, queueKey, targetAgentName);
+    await runtime.storage.updateMetadataStatus(queueKey, 'processing');
     try {
-      responseText = await runAgentTurn({
-        plan: agentPlan,
-        event,
-        instanceKey: event.instanceKey,
-        turnId,
-        traceId,
-        conversation: trimmedHistory,
-        toolExecutor: runnerPlan.toolExecutor,
-        workdir: runtime.workdir,
-        logger: createConnectorLogger(connectorPlan),
-      });
-    } catch (error) {
-      const message = unknownToErrorMessage(error);
-      responseText = `오류: ${message}`;
-    }
+      const turnId = createId('turn');
+      const traceId = createId('trace');
+      const history = await loadConversationFromStorage(
+        runtime,
+        queueKey,
+        targetAgentName,
+        agentPlan.maxConversationTurns,
+      );
 
-    appendConversation(runtime, queueKey, agentPlan.maxConversationTurns, event.messageText, responseText);
+      let responseText: string;
+      try {
+        responseText = await runAgentTurn({
+          plan: agentPlan,
+          event,
+          instanceKey: event.instanceKey,
+          turnId,
+          traceId,
+          conversation: history,
+          toolExecutor: runnerPlan.toolExecutor,
+          workdir: runtime.workdir,
+          logger: createConnectorLogger(connectorPlan),
+        });
+      } catch (error) {
+        const message = unknownToErrorMessage(error);
+        responseText = `오류: ${message}`;
+      }
 
-    try {
-      await deliverConnectorResponse(connectorPlan, event, responseText);
+      const nextConversation = trimConversation(
+        history.concat([
+          {
+            role: 'user',
+            content: event.messageText,
+          },
+          {
+            role: 'assistant',
+            content: responseText,
+          },
+        ]),
+        agentPlan.maxConversationTurns,
+      );
+
+      await persistConversationToStorage(runtime, queueKey, targetAgentName, nextConversation);
+
+      try {
+        await deliverConnectorResponse(connectorPlan, event, responseText);
+      } catch (error) {
+        console.warn(
+          `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] deliver response failed: ${unknownToErrorMessage(error)}`,
+        );
+      }
     } catch (error) {
       console.warn(
-        `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] deliver response failed: ${unknownToErrorMessage(error)}`,
+        `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] event turn failed: ${unknownToErrorMessage(error)}`,
       );
+    } finally {
+      await runtime.storage.updateMetadataStatus(queueKey, 'idle');
     }
   });
 }
@@ -1919,7 +2037,13 @@ function monitorConnectors(connectors: RunningConnector[]): Promise<void> {
 
 function waitForShutdownSignal(): Promise<void> {
   return new Promise((resolve) => {
+    const keepAlive = setInterval(() => {
+      // keep orchestrator event loop alive while waiting for shutdown signal
+    }, 60_000);
     const shutdown = (): void => {
+      clearInterval(keepAlive);
+      process.off('SIGINT', shutdown);
+      process.off('SIGTERM', shutdown);
       resolve();
     };
     process.once('SIGINT', shutdown);
@@ -1971,7 +2095,7 @@ async function preflight(args: RunnerArguments): Promise<RunnerPlan> {
 async function main(): Promise<void> {
   const args = parseRunnerArguments(process.argv.slice(2));
   const plan = await preflight(args);
-  const runtime = buildRuntimeEngine(path.dirname(args.bundlePath));
+  const runtime = buildRuntimeEngine(args, plan);
   const runningConnectors = await startConnectors(plan, runtime);
 
   console.info(

@@ -17,7 +17,7 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. **프로�
 - **정의와 상태의 물리적 분리**: 프로젝트 정의(`goondan.yaml` + 코드)는 Git으로 버전 관리되고, 실행 상태(메시지 히스토리, Extension 상태)는 시스템 영역에 저장된다. 이를 통해 프로젝트 디렉터리가 깨끗하게 유지되며, 실행 상태가 Git 커밋에 혼입되는 것을 방지한다.
 - **인스턴스 독립성**: 각 인스턴스의 상태는 서로 격리되어 있어 한 인스턴스의 오류가 다른 인스턴스에 영향을 주지 않는다.
 - **전역 상태 보존**: 패키지 캐시, CLI 설정 등은 인스턴스 수명과 무관하게 유지된다.
-- **결정론적 매핑**: Project Root의 절대 경로에서 workspaceId를 결정론적으로 생성하여, 동일 프로젝트는 항상 동일한 상태 디렉터리를 참조한다.
+- **결정론적 매핑**: Project Root + Package 이름을 해시 입력으로 사용해 workspaceId를 결정론적으로 생성하여, 동일 프로젝트/패키지는 항상 동일한 상태 디렉터리를 참조한다.
 
 ### 1.2 워크스페이스 구성 요약
 
@@ -47,7 +47,7 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. **프로�
 
 1. `~/.goondan/`을 System Root 기본 경로로 사용해야 한다(SHOULD). 환경 변수 또는 설정으로 변경 가능해야 한다(MAY).
 2. System Root는 `config.json`, `packages/`, `workspaces/`를 포함해야 한다(MUST).
-3. `workspaceId`는 프로젝트 디렉터리 경로로부터 결정론적으로 생성되어야 한다(MUST).
+3. `workspaceId`는 Project Root + Package 이름 조합을 입력으로 한 결정론적 human-readable 해시여야 한다(MUST).
 4. 인스턴스 상태는 `workspaces/<workspaceId>/instances/<instanceKey>/` 하위에 저장되어야 한다(MUST).
 
 ### 2.4 메시지 영속화 규칙
@@ -108,33 +108,58 @@ function resolveGoondanHome(options: GoondanHomeOptions = {}): string {
 
 ### 3.2 workspaceId
 
-`workspaceId`는 서로 다른 Project Root(프로젝트) 간 인스턴스 충돌을 방지하는 네임스페이스이다.
+`workspaceId`는 서로 다른 Project Root/Package 조합 간 인스턴스 충돌을 방지하는 네임스페이스이며, 사람이 읽을 수 있는 slug 형태를 사용한다.
 
 **생성 규칙**:
 
-1. Project Root의 **절대 경로**를 정규화한다.
-2. 정규화된 경로의 **SHA-256 해시**를 계산한다.
-3. 해시의 **처음 12자(hex)**를 workspaceId로 사용한다.
+1. Project Root의 **절대 경로**와 Package 이름(`kind: Package`, `metadata.name`)을 준비한다.
+2. 입력 문자열을 `<normalizedProjectRoot>\n<normalizedPackageName>` 형태로 정규화한다.
+3. 정규화된 문자열을 seed로 사용해 human-readable ID 라이브러리에서 4개 단어를 결정론적으로 선택한다.
+4. 선택된 단어를 `-`로 연결해 workspaceId를 생성한다.
+5. 출력은 `[a-z-]` slug 형식으로 정규화한다.
 
 ```typescript
-import * as crypto from 'crypto';
 import * as path from 'path';
+import { uniqueNamesGenerator, adjectives, colors, animals, names } from 'unique-names-generator';
 
-function generateWorkspaceId(projectRoot: string): string {
-  const normalized = path.resolve(projectRoot);
-  const hash = crypto.createHash('sha256').update(normalized).digest('hex');
-  return hash.slice(0, 12);
+function normalizeWorkspaceSlug(value: string): string {
+  const cleaned = value
+    .toLowerCase()
+    .replace(/[^a-z-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+  const tokens = cleaned.split('-').filter((token) => token.length > 0);
+  while (tokens.length < 4) {
+    tokens.push('stable');
+  }
+  return tokens.slice(0, 4).join('-');
+}
+
+function generateWorkspaceId(projectRoot: string, packageName?: string): string {
+  const normalizedRoot = path.resolve(projectRoot).replaceAll('\\', '/');
+  const normalizedPackage = packageName && packageName.trim().length > 0 ? packageName.trim() : 'no-package';
+  const seed = `${normalizedRoot}\n${normalizedPackage}`;
+  const raw = uniqueNamesGenerator({
+    dictionaries: [adjectives, colors, animals, names],
+    separator: '-',
+    style: 'lowerCase',
+    seed,
+  });
+  return normalizeWorkspaceSlug(raw);
 }
 
 // 예시
 // Project Root: /Users/alice/projects/my-agent
-// workspaceId: "a1b2c3d4e5f6"
+// Package: @goondan/sample-10
+// workspaceId: "allied-gray-antelope-darrelle"
 ```
 
 **규칙**:
 
-- workspaceId는 **결정론적**이어야 한다(MUST). 동일 경로는 항상 동일 workspaceId를 생성한다.
-- workspaceId는 **충돌 가능성이 낮아야** 한다(SHOULD). 12자 hex는 약 48비트 엔트로피를 제공한다.
+- workspaceId는 **결정론적**이어야 한다(MUST). 동일 Project Root/Package 조합은 항상 동일 workspaceId를 생성한다.
+- workspaceId는 `[a-z-]` slug 형태의 사람이 식별 가능한 문자열이어야 한다(SHOULD).
+- workspaceId 생성은 충분한 단어 조합 공간을 사용해 충돌 가능성을 낮춰야 한다(SHOULD).
 
 ---
 
@@ -272,7 +297,7 @@ System Root(`~/.goondan/`)는 CLI 설정, 패키지, 인스턴스 상태를 통�
 
 1. `~/.goondan/`을 System Root 기본 경로로 사용해야 한다(SHOULD). 환경 변수 또는 설정으로 변경 가능해야 한다(MAY).
 2. System Root는 `config.json`, `packages/`, `workspaces/`를 포함해야 한다(MUST).
-3. `workspaceId`는 프로젝트 디렉터리 경로로부터 결정론적으로 생성되어야 한다(MUST).
+3. `workspaceId`는 Project Root + Package 이름 조합을 입력으로 한 결정론적 human-readable 해시여야 한다(MUST).
 4. 인스턴스 상태는 `workspaces/<workspaceId>/instances/<instanceKey>/` 하위에 저장되어야 한다(MUST).
 
 ### 6.3 config.json 스키마
@@ -469,26 +494,30 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 ### 9.1 WorkspacePaths 클래스
 
 ```typescript
-import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
+import { uniqueNamesGenerator, adjectives, colors, animals, names } from 'unique-names-generator';
 
 export interface WorkspacePathsOptions {
   /** CLI에서 전달된 state root 경로 */
   stateRoot?: string;
   /** Project Root 경로 */
   projectRoot: string;
+  /** Package 이름 (kind: Package metadata.name) */
+  packageName?: string;
 }
 
 export class WorkspacePaths {
   readonly goondanHome: string;
   readonly projectRoot: string;
+  readonly packageName?: string;
   readonly workspaceId: string;
 
   constructor(options: WorkspacePathsOptions) {
     this.goondanHome = this.resolveGoondanHome(options.stateRoot);
     this.projectRoot = path.resolve(options.projectRoot);
-    this.workspaceId = this.generateWorkspaceId(this.projectRoot);
+    this.packageName = options.packageName;
+    this.workspaceId = this.generateWorkspaceId(this.projectRoot, this.packageName);
   }
 
   private resolveGoondanHome(stateRoot?: string): string {
@@ -501,9 +530,39 @@ export class WorkspacePaths {
     return path.join(os.homedir(), '.goondan');
   }
 
-  private generateWorkspaceId(projectRoot: string): string {
-    const hash = crypto.createHash('sha256').update(projectRoot).digest('hex');
-    return hash.slice(0, 12);
+  private generateWorkspaceId(projectRoot: string, packageName: string | undefined): string {
+    const normalizedRoot = projectRoot.replaceAll('\\', '/');
+    const normalizedPackage = this.normalizePackageName(packageName);
+    const seed = `${normalizedRoot}\n${normalizedPackage}`;
+    const raw = uniqueNamesGenerator({
+      dictionaries: [adjectives, colors, animals, names],
+      separator: '-',
+      style: 'lowerCase',
+      seed,
+    });
+    return this.normalizeWorkspaceSlug(raw);
+  }
+
+  private normalizePackageName(packageName: string | undefined): string {
+    if (typeof packageName !== 'string') {
+      return 'no-package';
+    }
+    const trimmed = packageName.trim();
+    return trimmed.length > 0 ? trimmed : 'no-package';
+  }
+
+  private normalizeWorkspaceSlug(value: string): string {
+    const cleaned = value
+      .toLowerCase()
+      .replace(/[^a-z-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+    const tokens = cleaned.split('-').filter((token) => token.length > 0);
+    while (tokens.length < 4) {
+      tokens.push('stable');
+    }
+    return tokens.slice(0, 4).join('-');
   }
 
   // === System Root Paths ===
@@ -572,6 +631,7 @@ export class WorkspacePaths {
 const paths = new WorkspacePaths({
   stateRoot: process.env.GOONDAN_STATE_ROOT,
   projectRoot: '/Users/alice/projects/my-agent',
+  packageName: '@goondan/sample-10',
 });
 
 // 경로 조회
@@ -579,13 +639,13 @@ console.log(paths.goondanHome);
 // => "/Users/alice/.goondan"
 
 console.log(paths.workspaceId);
-// => "a1b2c3d4e5f6"
+// => "allied-gray-antelope-darrelle"
 
 console.log(paths.instanceMessageBasePath('user:123'));
-// => "/Users/alice/.goondan/workspaces/a1b2c3d4e5f6/instances/user:123/messages/base.jsonl"
+// => "/Users/alice/.goondan/workspaces/allied-gray-antelope-darrelle/instances/user:123/messages/base.jsonl"
 
 console.log(paths.instanceExtensionStatePath('user:123', 'compaction'));
-// => "/Users/alice/.goondan/workspaces/a1b2c3d4e5f6/instances/user:123/extensions/compaction.json"
+// => "/Users/alice/.goondan/workspaces/allied-gray-antelope-darrelle/instances/user:123/extensions/compaction.json"
 
 console.log(paths.packagePath('@goondan/base', '1.0.0'));
 // => "/Users/alice/.goondan/packages/@goondan/base@1.0.0"
@@ -690,7 +750,7 @@ async function initializeInstanceState(
 6. Extension 상태는 `extensions/<ext-name>.json`에 JSON으로 저장되어야 한다.
 7. 비밀값은 평문 저장이 금지되며, 로그/메트릭에 마스킹 없이 기록해서는 안 된다.
 8. `metadata.json`에는 최소 상태, Agent 이름, instanceKey, 생성/갱신 시각을 포함해야 한다.
-9. workspaceId는 Project Root 절대 경로의 SHA-256 해시로 결정론적으로 생성되어야 한다.
+9. workspaceId는 Project Root + Package 이름 조합을 입력으로 한 human-readable 해시 slug로 결정론적으로 생성되어야 한다.
 10. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다.
 11. Extension state 파일은 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다.
 12. Tool/Extension은 System Root의 비밀값 저장소 구현체(파일/키체인 등)에 직접 접근하거나 수정해서는 안 된다.

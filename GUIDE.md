@@ -519,7 +519,7 @@ v2는 2-root 구조를 사용한다.
                     └── <ext-name>.json
 ```
 
-`workspaceId`는 Project Root 절대 경로의 SHA-256 기반으로 결정론적으로 생성된다.
+`workspaceId`는 Project Root + Package 이름을 입력으로 한 human-readable 해시 slug(예: `allied-gray-antelope-darrelle`)로 결정론적으로 생성된다.
 
 ---
 
@@ -540,6 +540,9 @@ gdn package install [--frozen-lockfile]
 gdn package publish [--dry-run]
 gdn doctor
 ```
+
+`gdn run`에서 `--instance-key`를 생략하면 Project Root + Package 이름 기반의 human-readable 해시 키를 사용한다.  
+동일 폴더 + 동일 Package 이름에서 다시 실행하면 동일 키로 자동 resume된다.
 
 ### 11.2 전역 옵션
 

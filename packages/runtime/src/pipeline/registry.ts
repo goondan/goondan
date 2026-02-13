@@ -11,6 +11,7 @@ import type {
   Turn,
   TurnResult,
 } from "../types.js";
+import type { RuntimeEventBus } from "../events/runtime-events.js";
 
 export type PipelineType = "turn" | "step" | "toolCall";
 
@@ -96,6 +97,8 @@ export class PipelineRegistryImpl implements PipelineRegistry {
   private stepMiddlewares: MiddlewareEntry<StepMiddleware>[] = [];
   private toolCallMiddlewares: MiddlewareEntry<ToolCallMiddleware>[] = [];
 
+  constructor(private readonly eventBus?: RuntimeEventBus) {}
+
   register(...args: ["turn", TurnMiddleware, MiddlewareOptions?]): void;
   register(...args: ["step", StepMiddleware, MiddlewareOptions?]): void;
   register(...args: ["toolCall", ToolCallMiddleware, MiddlewareOptions?]): void;
@@ -146,6 +149,18 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       metadata: ctx.metadata,
     };
 
+    const startTime = Date.now();
+
+    if (this.eventBus !== undefined) {
+      await this.eventBus.emit({
+        type: "turn.started",
+        turnId: ctx.turnId,
+        agentName: ctx.agentName,
+        instanceKey: ctx.instanceKey,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const dispatch = async (index: number): Promise<TurnResult> => {
       if (index >= ordered.length) {
         return core(this.createTurnContext(state, this.createNeverNext("turn")));
@@ -159,7 +174,36 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       return entry.fn(this.createTurnContext(state, next));
     };
 
-    return dispatch(0);
+    try {
+      const result = await dispatch(0);
+
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "turn.completed",
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          stepCount: 0,
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "turn.failed",
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          duration: Date.now() - startTime,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        });
+      }
+      throw error;
+    }
   }
 
   async runStep(ctx: Omit<StepMiddlewareContext, "next">, core: StepMiddleware): Promise<StepResult> {
@@ -177,6 +221,20 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       metadata: ctx.metadata,
     };
 
+    const stepId = `${ctx.turnId}-step-${ctx.stepIndex}`;
+    const startTime = Date.now();
+
+    if (this.eventBus !== undefined) {
+      await this.eventBus.emit({
+        type: "step.started",
+        stepId,
+        stepIndex: ctx.stepIndex,
+        turnId: ctx.turnId,
+        agentName: ctx.agentName,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const dispatch = async (index: number): Promise<StepResult> => {
       if (index >= ordered.length) {
         return core(this.createStepContext(state, this.createNeverNext("step")));
@@ -190,7 +248,38 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       return entry.fn(this.createStepContext(state, next));
     };
 
-    return dispatch(0);
+    try {
+      const result = await dispatch(0);
+
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "step.completed",
+          stepId,
+          stepIndex: ctx.stepIndex,
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          toolCallCount: result.toolCalls.length,
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "step.failed",
+          stepId,
+          stepIndex: ctx.stepIndex,
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          duration: Date.now() - startTime,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        });
+      }
+      throw error;
+    }
   }
 
   async runToolCall(
@@ -210,6 +299,21 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       metadata: ctx.metadata,
     };
 
+    const stepId = `${ctx.turnId}-step-${ctx.stepIndex}`;
+    const startTime = Date.now();
+
+    if (this.eventBus !== undefined) {
+      await this.eventBus.emit({
+        type: "tool.called",
+        toolCallId: ctx.toolCallId,
+        toolName: ctx.toolName,
+        stepId,
+        turnId: ctx.turnId,
+        agentName: ctx.agentName,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const dispatch = async (index: number): Promise<ToolCallResult> => {
       if (index >= ordered.length) {
         return core(this.createToolCallContext(state, this.createNeverNext("toolCall")));
@@ -223,7 +327,40 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       return entry.fn(this.createToolCallContext(state, next));
     };
 
-    return dispatch(0);
+    try {
+      const result = await dispatch(0);
+
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "tool.completed",
+          toolCallId: ctx.toolCallId,
+          toolName: ctx.toolName,
+          status: result.status,
+          duration: Date.now() - startTime,
+          stepId,
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      if (this.eventBus !== undefined) {
+        await this.eventBus.emit({
+          type: "tool.failed",
+          toolCallId: ctx.toolCallId,
+          toolName: ctx.toolName,
+          duration: Date.now() - startTime,
+          stepId,
+          turnId: ctx.turnId,
+          agentName: ctx.agentName,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        });
+      }
+      throw error;
+    }
   }
 
   private sortEntries<T>(entries: MiddlewareEntry<T>[]): MiddlewareEntry<T>[] {

@@ -9,6 +9,8 @@
 
 Connection은 Connector(독립 프로세스)와 Swarm(에이전트 집합) 사이의 **배포 바인딩**을 정의하는 리소스이다. Connector가 프로토콜 구현을 담당한다면, Connection은 "어떤 인증 정보로, 어떤 이벤트를, 어떤 에이전트에게 전달할 것인가"를 정의한다.
 
+**주의:** 라벨 기반 리소스 선택(Selector)은 현재 지원하지 않으며, ObjectRef 직접 참조만 사용한다.
+
 이 분리를 통해:
 - **하나의 Connector를 여러 Connection에서 재사용**할 수 있다. 예를 들어 동일한 Slack Connector를 개발팀과 운영팀이 서로 다른 인증 정보와 라우팅 규칙으로 사용할 수 있다.
 - **Connector 패키지는 순수 프로토콜 로직만** 포함한다. 인증이나 라우팅 세부사항이 섞이지 않으므로 재사용성과 테스트 용이성이 높아진다.
@@ -23,14 +25,15 @@ Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
 2. **Swarm 참조**: 이벤트를 어떤 Swarm으로 라우팅할지 지정
 3. **시크릿 제공**: Connector 프로세스에 필요한 비밀값(API 토큰, 서명 시크릿 등) 전달
 4. **이벤트 라우팅**: ConnectorEvent를 어떤 Agent로 전달할지 정의
-5. **서명 검증 시크릿**: Connector가 inbound 서명 검증에 사용할 시크릿 제공
+
+**서명 검증:** Connector 구현체가 `ctx.secrets`에서 시크릿을 읽어 자체적으로 수행합니다.
 
 ### 1.3 Connector와 Connection의 분리
 
 | 리소스 | 역할 | 비유 |
 |--------|------|------|
-| **Connector** | 프로토콜 구현체. entry(실행 코드), events(이벤트 스키마) 보유. 별도 Bun 프로세스로 실행 | Service (인터페이스) |
-| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `secrets`, `ingress.rules`, `verify`를 설정 | Deployment (인스턴스 설정) |
+| **Connector** | 프로토콜 구현체. entry(실행 코드), events(이벤트 스키마) 보유. 별도 Bun 프로세스로 실행. 서명 검증 자체 수행 | Service (인터페이스) |
+| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `secrets`, `ingress.rules`를 설정 | Deployment (인스턴스 설정) |
 
 ---
 
@@ -63,9 +66,9 @@ Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
 
 ### 2.4 서명 검증 규칙
 
-1. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
-2. 서명 시크릿은 `verify.webhook.signingSecret` ValueSource로 선언해야 한다(MUST).
-3. `verify.webhook.signingSecret`이 지정된 경우 Runtime은 해당 값을 `ctx.secrets.signingSecret`로 노출해야 한다(MUST).
+1. 서명 검증은 Connector 구현체가 자체적으로 수행해야 한다(MUST).
+2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
+3. 서명 시크릿은 `secrets`에 일반 ValueSource로 제공되어야 한다(SHOULD).
 
 ### 2.5 독립 Turn 처리 규칙
 
@@ -91,13 +94,17 @@ spec:
   swarmRef: "Swarm/default"
 
   # 선택: Connector 프로세스에 전달할 시크릿
+  # 서명 검증 시크릿도 여기 포함 (권장 이름: SIGNING_SECRET, WEBHOOK_SECRET)
   secrets:
-    botToken:
+    BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
     PORT:
       valueFrom:
         env: TELEGRAM_WEBHOOK_PORT
+    SIGNING_SECRET:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_SECRET
 
   # 선택: Ingress 라우팅 규칙
   ingress:
@@ -109,13 +116,6 @@ spec:
       - match:
           event: command
         route: {}  # entryAgent로 라우팅
-
-  # 선택: 서명 검증 시크릿 (verify 블록)
-  verify:
-    webhook:
-      signingSecret:
-        valueFrom:
-          env: TELEGRAM_WEBHOOK_SECRET
 ```
 
 ### 3.2 ConnectionSpec TypeScript 인터페이스
@@ -131,25 +131,11 @@ interface ConnectionSpec {
   /** 바인딩할 Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
   swarmRef?: ObjectRefLike;
 
-  /** Connector 프로세스에 전달할 시크릿 */
+  /** Connector 프로세스에 전달할 시크릿 (서명 검증 시크릿 포함) */
   secrets?: Record<string, ValueSource>;
-
-  /** 서명 검증 시크릿 설정 */
-  verify?: ConnectionVerify;
 
   /** Ingress 라우팅 규칙 */
   ingress?: IngressConfig;
-}
-
-/**
- * 서명 검증 설정
- */
-interface ConnectionVerify {
-  /** Webhook 서명 검증 설정 */
-  webhook?: {
-    /** 서명 시크릿 (ValueSource 패턴) */
-    signingSecret: ValueSource;
-  };
 }
 
 /**
@@ -258,11 +244,14 @@ swarmRef: { kind: Swarm, name: default }
 
 ```yaml
 secrets:
-  botToken:
+  BOT_TOKEN:
     valueFrom:
       env: TELEGRAM_BOT_TOKEN
   PORT:
     value: "3000"
+  SIGNING_SECRET:
+    valueFrom:
+      env: TELEGRAM_WEBHOOK_SECRET
 ```
 
 ### 6.3 ValueSource 패턴
@@ -276,6 +265,15 @@ Connection 문맥에서 추가 적용되는 규칙:
 3. `secretRef.ref`는 `Secret/<name>` 형식을 따라야 한다(MUST).
 4. `secrets`에 정의된 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
 5. `valueFrom.env` 해석은 `docs/specs/help.md` 3.2 정책을 따른다(MUST).
+
+### 6.4 권장 시크릿 이름
+
+서명 검증 시크릿은 다음 이름을 권장한다(SHOULD):
+
+- `SIGNING_SECRET`: 일반적인 서명 검증 시크릿
+- `WEBHOOK_SECRET`: 웹훅 전용 서명 시크릿
+
+Connector는 `ctx.secrets`에서 이 이름으로 시크릿을 읽어 자체적으로 서명 검증을 수행한다.
 
 ---
 
@@ -320,48 +318,21 @@ route:
 
 ---
 
-## 8. 서명 검증 (Verify)
+## 8. Runtime 동작 규칙
 
-`verify` 블록은 Connector가 inbound 요청의 서명을 검증할 때 사용할 시크릿을 정의한다.
-
-### 8.1 Webhook 서명 검증
-
-```yaml
-verify:
-  webhook:
-    signingSecret:
-      valueFrom:
-        env: SLACK_WEBHOOK_SECRET
-```
-
-```typescript
-// ConnectionVerify 원형은 3.2 ConnectionSpec 인터페이스를 따른다.
-```
-
-규칙:
-
-1. `verify.webhook.signingSecret`은 ValueSource 패턴을 따른다(MUST).
-2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다(MUST).
-3. `verify.webhook.signingSecret`을 지정한 경우 Runtime은 해당 값을 `ctx.secrets.signingSecret`로도 노출해야 한다(MUST).
-4. 동일 서명 시크릿을 `secrets`와 `verify.webhook.signingSecret`에 중복 선언해서는 안 된다(SHOULD NOT).
-
----
-
-## 9. Runtime 동작 규칙
-
-### 9.1 독립 Turn 처리
+### 8.1 독립 Turn 처리
 
 하나의 이벤트가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다(MUST). 각 Turn은 고유한 `traceId`를 가지며, 서로 다른 Agent에 전달될 수 있다.
 
-### 9.2 instanceKey 기반 라우팅
+### 8.2 instanceKey 기반 라우팅
 
 ConnectorEvent의 `instanceKey`는 Orchestrator가 AgentProcess를 매핑하는 데 사용한다. 동일한 `instanceKey`를 가진 이벤트는 동일한 AgentProcess로 라우팅되어 대화 컨텍스트가 유지된다.
 
 ---
 
-## 10. 예시
+## 9. 예시
 
-### 10.1 CLI Connection (가장 단순한 구성)
+### 9.1 CLI Connection (가장 단순한 구성)
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -387,7 +358,7 @@ spec:
       - route: {}  # entryAgent로 라우팅
 ```
 
-### 10.2 Telegram Connection
+### 9.2 Telegram Connection
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -399,11 +370,14 @@ spec:
   swarmRef: "Swarm/coding-swarm"
 
   secrets:
-    botToken:
+    BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
     PORT:
       value: "3000"
+    SIGNING_SECRET:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_SECRET
 
   ingress:
     rules:
@@ -414,15 +388,9 @@ spec:
       - match:
           event: command
         route: {}  # entryAgent로 라우팅
-
-  verify:
-    webhook:
-      signingSecret:
-        valueFrom:
-          env: TELEGRAM_WEBHOOK_SECRET
 ```
 
-### 10.3 Slack Connection
+### 9.3 Slack Connection
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -439,6 +407,9 @@ spec:
         env: SLACK_BOT_TOKEN
     PORT:
       value: "3001"
+    SIGNING_SECRET:
+      valueFrom:
+        env: SLACK_SIGNING_SECRET
 
   ingress:
     rules:
@@ -449,15 +420,9 @@ spec:
       - match:
           event: message_im
         route: {}  # entryAgent로 라우팅
-
-  verify:
-    webhook:
-      signingSecret:
-        valueFrom:
-          env: SLACK_SIGNING_SECRET
 ```
 
-### 10.4 동일 Connector에 여러 Connection 바인딩
+### 9.4 동일 Connector에 여러 Connection 바인딩
 
 ```yaml
 # 개발팀 Connection
@@ -517,8 +482,7 @@ spec:
 |------|------|------|
 | `spec.connectorRef` | 필수. 유효한 Connector 참조 | MUST |
 | `spec.swarmRef` | 선택. 유효한 Swarm 참조 | MAY |
-| `spec.secrets` | 선택. 각 값은 유효한 ValueSource | MAY |
-| `spec.verify.webhook.signingSecret` | 설정된 경우 유효한 ValueSource | MUST |
+| `spec.secrets` | 선택. 각 값은 유효한 ValueSource (서명 시크릿 포함) | MAY |
 | `spec.ingress.rules` | 선택. 있으면 배열 형식 | MAY |
 | `spec.ingress.rules[].route` | 필수 | MUST |
 | `spec.ingress.rules[].match.event` | Connector의 events[].name에 선언된 이름 | SHOULD |
@@ -538,7 +502,7 @@ spec:
 ## 12. 관련 문서
 
 - `docs/specs/connector.md` - Connector 시스템 스펙 (프로토콜 구현, Entry Function)
-- `docs/specs/resources.md` - Config Plane 리소스 정의 스펙 (ObjectRef, Selector, ValueSource)
+- `docs/specs/resources.md` - Config Plane 리소스 정의 스펙 (ObjectRef, ValueSource)
 - `docs/specs/runtime.md` - Runtime 실행 모델 스펙 (Orchestrator, AgentProcess)
 - `docs/architecture.md` - 아키텍처 개요 (핵심 개념, 설계 패턴)
 

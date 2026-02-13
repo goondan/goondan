@@ -58,6 +58,29 @@ export async function write(ctx: ToolContext, input: JsonObject): Promise<JsonVa
   };
 }
 
+export async function remove(ctx: ToolContext, input: JsonObject): Promise<JsonValue> {
+  const filePath = requireString(input.path, "path");
+
+  const resolved = resolveSafePath(ctx.workdir, filePath);
+
+  try {
+    const stats = await fs.stat(resolved);
+    await fs.rm(resolved, { recursive: stats.isDirectory(), force: true });
+
+    return {
+      ok: true,
+      path: resolved,
+      deleted: true,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      path: resolved,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function evolve(ctx: ToolContext, input: JsonObject): Promise<JsonValue> {
   const plan = parseEvolutionPlanFromUnknown(input);
   if (!plan) {
@@ -73,15 +96,26 @@ export async function evolve(ctx: ToolContext, input: JsonObject): Promise<JsonV
     plan,
   });
 
+  // 파일 업데이트 후 프로세스 재시작 트리거
+  ctx.logger.info(`[evolve] 파일 업데이트 완료. 에이전트 재시작 요청: ${plan.summary}`);
+  
+  // 프로세스 종료 시그널 전송 (Goondan Runtime이 자동으로 재시작)
+  setTimeout(() => {
+    process.exit(0);
+  }, 1000);
+
   return {
     ok: true,
     summary: plan.summary,
     changedFiles: result.changedFiles,
     backupDir: result.backupDir,
+    restartRequested: true,
+    restartReason: "tool:evolve",
   };
 }
 
 export const handlers = {
   write,
+  remove,
   evolve,
 };

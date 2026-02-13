@@ -36,6 +36,14 @@ spec:
           content:
             type: string
         required: [path, content]
+    - name: remove
+      description: "delete file or directory in sample workspace"
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+        required: [path]
     - name: evolve
       description: "apply safe evolution updates with backup/rollback"
       parameters:

@@ -93,7 +93,16 @@ const instanceDeleteCommand = command(
   }),
 );
 
-const instanceCommand = command('instance', or(instanceListCommand, instanceDeleteCommand));
+const instanceRestartCommand = command(
+  'restart',
+  object({
+    action: constant('instance.restart' as const),
+    key: argument(string({ metavar: 'KEY' })),
+    fresh: optional(option('--fresh')),
+  }),
+);
+
+const instanceCommand = command('instance', or(instanceListCommand, instanceDeleteCommand, instanceRestartCommand));
 
 const packageAddCommand = command(
   'add',

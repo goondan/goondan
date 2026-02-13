@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir, readFile, rm, stat } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { configError } from '../errors.js';
@@ -15,37 +15,9 @@ interface ActiveRuntimeState {
   pid?: number;
 }
 
-interface InstanceDirectory {
-  key: string;
-  instanceDir: string;
-}
-
 type TerminationStatus = 'not_running' | 'terminated' | 'mismatch' | 'failed';
 
 const execFileAsync = promisify(execFile);
-
-function parseMeta(raw: string): { agent?: string; status?: string; createdAt?: string; updatedAt?: string } {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isObjectRecord(parsed)) {
-      return {};
-    }
-
-    const agentValue = parsed['agent'];
-    const statusValue = parsed['status'];
-    const createdValue = parsed['createdAt'];
-    const updatedValue = parsed['updatedAt'];
-
-    return {
-      agent: typeof agentValue === 'string' ? agentValue : undefined,
-      status: typeof statusValue === 'string' ? statusValue : undefined,
-      createdAt: typeof createdValue === 'string' ? createdValue : undefined,
-      updatedAt: typeof updatedValue === 'string' ? updatedValue : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
 
 function parseActiveRuntimeState(raw: string): ActiveRuntimeState | undefined {
   try {
@@ -163,51 +135,6 @@ async function terminateRuntimeProcess(pid: number, force: boolean, instanceKey:
   return isProcessAlive(pid) ? 'failed' : 'terminated';
 }
 
-async function collectInstanceDirectories(stateRoot: string): Promise<InstanceDirectory[]> {
-  const discovered: InstanceDirectory[] = [];
-  const seen = new Set<string>();
-
-  const push = (key: string, instanceDir: string): void => {
-    const identity = `${key}:${instanceDir}`;
-    if (seen.has(identity)) {
-      return;
-    }
-    seen.add(identity);
-    discovered.push({ key, instanceDir });
-  };
-
-  const workspacesRoot = path.join(stateRoot, 'workspaces');
-  if (await exists(workspacesRoot)) {
-    const workspaces = await readdir(workspacesRoot, { withFileTypes: true });
-    for (const workspace of workspaces) {
-      if (!workspace.isDirectory()) {
-        continue;
-      }
-
-      const workspaceDir = path.join(workspacesRoot, workspace.name);
-      const legacyMetaPath = path.join(workspaceDir, 'meta.json');
-      if (await exists(legacyMetaPath)) {
-        push(workspace.name, workspaceDir);
-      }
-
-      const nestedInstancesRoot = path.join(workspaceDir, 'instances');
-      if (!(await exists(nestedInstancesRoot))) {
-        continue;
-      }
-
-      const nestedInstances = await readdir(nestedInstancesRoot, { withFileTypes: true });
-      for (const instance of nestedInstances) {
-        if (!instance.isDirectory()) {
-          continue;
-        }
-        push(instance.name, path.join(nestedInstancesRoot, instance.name));
-      }
-    }
-  }
-
-  return discovered;
-}
-
 async function collectDeleteTargetsForKey(stateRoot: string, key: string): Promise<string[]> {
   const targets = new Set<string>();
 
@@ -239,6 +166,23 @@ async function collectDeleteTargetsForKey(stateRoot: string, key: string): Promi
   return [...targets];
 }
 
+function buildActiveInstanceRecord(active: ActiveRuntimeState): InstanceRecord {
+  const startedAt = toDisplayDate(active.startedAt) ?? formatDate(new Date());
+
+  let status = 'running';
+  if (active.pid && !isProcessAlive(active.pid)) {
+    status = 'terminated';
+  }
+
+  return {
+    key: active.instanceKey,
+    agent: 'orchestrator',
+    status,
+    createdAt: startedAt,
+    updatedAt: startedAt,
+  };
+}
+
 export class FileInstanceStore implements InstanceStore {
   private readonly env: NodeJS.ProcessEnv;
 
@@ -248,72 +192,27 @@ export class FileInstanceStore implements InstanceStore {
 
   async list(request: ListInstancesRequest): Promise<InstanceRecord[]> {
     const stateRoot = resolveStateRoot(request.stateRoot, this.env);
-    const rowsByKey = new Map<string, InstanceRecord>();
-
-    const discovered = await collectInstanceDirectories(stateRoot);
-    for (const item of discovered) {
-      const metaPath = path.join(item.instanceDir, 'meta.json');
-      const hasMeta = await exists(metaPath);
-
-      let metaAgent: string | undefined;
-      let metaStatus: string | undefined;
-      let metaCreatedAt: string | undefined;
-      let metaUpdatedAt: string | undefined;
-
-      if (hasMeta) {
-        const rawMeta = await readFile(metaPath, 'utf8');
-        const parsed = parseMeta(rawMeta);
-        metaAgent = parsed.agent;
-        metaStatus = parsed.status;
-        metaCreatedAt = parsed.createdAt;
-        metaUpdatedAt = parsed.updatedAt;
-      }
-
-      const stats = await stat(item.instanceDir);
-      const createdAt = metaCreatedAt ?? formatDate(stats.birthtime);
-      const updatedAt = metaUpdatedAt ?? formatDate(stats.mtime);
-
-      rowsByKey.set(item.key, {
-        key: item.key,
-        agent: metaAgent ?? 'unknown',
-        status: metaStatus ?? 'idle',
-        createdAt,
-        updatedAt,
-      });
-    }
-
     const activePath = path.join(stateRoot, 'runtime', 'active.json');
-    const hasActive = await exists(activePath);
-    if (hasActive) {
-      const rawActive = await readFile(activePath, 'utf8');
-      const active = parseActiveRuntimeState(rawActive);
-      if (active) {
-        const startedAt = toDisplayDate(active.startedAt) ?? formatDate(new Date());
-        const previous = rowsByKey.get(active.instanceKey);
-
-        rowsByKey.set(active.instanceKey, {
-          key: active.instanceKey,
-          agent: previous?.agent ?? 'orchestrator',
-          status: 'running',
-          createdAt: previous?.createdAt ?? startedAt,
-          updatedAt: startedAt,
-        });
-      }
+    if (!(await exists(activePath))) {
+      return [];
     }
 
-    const rows = [...rowsByKey.values()];
+    const rawActive = await readFile(activePath, 'utf8');
+    const active = parseActiveRuntimeState(rawActive);
+    if (!active) {
+      return [];
+    }
 
-    const filtered = request.agent
-      ? rows.filter((row) => row.agent.toLowerCase() === request.agent?.toLowerCase())
-      : rows;
-
-    const sorted = filtered.sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1));
+    const record = buildActiveInstanceRecord(active);
+    if (request.agent && record.agent.toLowerCase() !== request.agent.toLowerCase()) {
+      return [];
+    }
 
     if (request.all) {
-      return sorted;
+      return [record];
     }
 
-    return sorted.slice(0, Math.max(0, request.limit));
+    return request.limit > 0 ? [record] : [];
   }
 
   async delete(request: DeleteInstanceRequest): Promise<boolean> {

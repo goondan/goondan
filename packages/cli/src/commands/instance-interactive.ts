@@ -62,16 +62,41 @@ function statusColor(status: string, noColor: boolean): string {
   return status;
 }
 
+function unknownToErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  return '알 수 없는 오류';
+}
+
 interface TuiState {
   items: InstanceRecord[];
   cursor: number;
   renderedLines: number;
 }
 
+function clearFrame(state: TuiState, terminal: TerminalIO): void {
+  if (state.renderedLines <= 0) {
+    return;
+  }
+
+  terminal.write(cursorUp(state.renderedLines));
+  for (let i = 0; i < state.renderedLines; i += 1) {
+    terminal.write(`${CLEAR_LINE}\n`);
+  }
+  terminal.write(cursorUp(state.renderedLines));
+  state.renderedLines = 0;
+}
+
 function renderFrame(state: TuiState, terminal: TerminalIO, noColor: boolean): number {
   const lines: string[] = [];
 
-  lines.push(bold('Instances', noColor) + dim('  (↑↓ 이동, Del 삭제, q/Esc 나가기)', noColor));
+  lines.push(bold('Instances', noColor) + dim('  (↑↓ 이동, r 재시작, Del 삭제, q/Esc 나가기)', noColor));
   lines.push('');
 
   for (let i = 0; i < state.items.length; i++) {
@@ -80,7 +105,9 @@ function renderFrame(state: TuiState, terminal: TerminalIO, noColor: boolean): n
     const selected = i === state.cursor;
     const prefix = selected ? '> ' : '  ';
     const bullet = selected ? '●' : '○';
-    const line = `${prefix}${bullet} ${record.key}   ${record.agent}   ${statusColor(record.status, noColor)}`;
+    const startedAt = record.updatedAt.length > 0 ? record.updatedAt : record.createdAt;
+    const startedLabel = startedAt.length > 0 ? `started=${startedAt}` : 'started=unknown';
+    const line = `${prefix}${bullet} ${record.key}   ${record.agent}   ${statusColor(record.status, noColor)}   ${dim(startedLabel, noColor)}`;
     lines.push(line);
   }
 
@@ -144,6 +171,9 @@ export async function handleInstanceInteractive({ deps, globals }: InstanceInter
   state.renderedLines = renderFrame(state, terminal, noColor);
 
   return new Promise<ExitCode>((resolve) => {
+    let closed = false;
+    let inFlight = false;
+
     function cleanup(): void {
       terminal.write(SHOW_CURSOR);
       terminal.setRawMode(false);
@@ -151,6 +181,10 @@ export async function handleInstanceInteractive({ deps, globals }: InstanceInter
     }
 
     function exit(code: ExitCode): void {
+      if (closed) {
+        return;
+      }
+      closed = true;
       cleanup();
       resolve(code);
     }
@@ -207,47 +241,73 @@ export async function handleInstanceInteractive({ deps, globals }: InstanceInter
         return;
       }
 
+      if (inFlight) {
+        return;
+      }
+
+      const target = state.cursor < state.items.length ? state.items[state.cursor] : undefined;
+      if (!target) {
+        return;
+      }
+
       // Delete key
       if (key === `${ESC}[3~`) {
-        const target = state.cursor < state.items.length ? state.items[state.cursor] : undefined;
-        if (target) {
-          void (async () => {
+        inFlight = true;
+        void (async () => {
+          try {
             await deps.instances.delete({
               key: target.key,
               force: false,
               stateRoot: globals.stateRoot ?? undefined,
             });
 
-            // Reload instances
             const newItems = await loadInstances(deps, globals);
             state.items = newItems;
 
             if (newItems.length === 0) {
               terminal.offData(onData);
-              // Clear old frame and show message
-              if (state.renderedLines > 0) {
-                terminal.write(cursorUp(state.renderedLines));
-                for (let i = 0; i < state.renderedLines; i++) {
-                  terminal.write(`${CLEAR_LINE}\n`);
-                }
-                terminal.write(cursorUp(state.renderedLines));
-              }
-              terminal.write(SHOW_CURSOR);
+              clearFrame(state, terminal);
               deps.io.out('모든 인스턴스가 삭제되었습니다.');
-              terminal.setRawMode(false);
-              terminal.pause();
-              resolve(0);
+              exit(0);
               return;
             }
 
-            // Adjust cursor if it's now out of bounds
             if (state.cursor >= newItems.length) {
               state.cursor = newItems.length - 1;
             }
             state.renderedLines = renderFrame(state, terminal, noColor);
-          })();
-        }
+          } catch (error) {
+            deps.io.err(`인스턴스 삭제 실패: ${unknownToErrorMessage(error)}`);
+          } finally {
+            inFlight = false;
+          }
+        })();
         return;
+      }
+
+      // r key: restart selected instance
+      if (key === 'r' || key === 'R') {
+        inFlight = true;
+        void (async () => {
+          try {
+            await deps.runtime.restart({
+              instanceKey: target.key,
+              fresh: false,
+              stateRoot: globals.stateRoot ?? undefined,
+            });
+
+            const newItems = await loadInstances(deps, globals);
+            state.items = newItems;
+            if (state.cursor >= newItems.length) {
+              state.cursor = Math.max(0, newItems.length - 1);
+            }
+            state.renderedLines = renderFrame(state, terminal, noColor);
+          } catch (error) {
+            deps.io.err(`인스턴스 재시작 실패: ${unknownToErrorMessage(error)}`);
+          } finally {
+            inFlight = false;
+          }
+        })();
       }
     };
 

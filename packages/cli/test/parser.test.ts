@@ -87,6 +87,21 @@ describe('parseArgv', () => {
     }
   });
 
+
+  it('instance restart 명령을 파싱한다', () => {
+    const result = parseArgv(['instance', 'restart', 'my-key', '--fresh']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('instance.restart');
+      const cmd = result.value.command;
+      if (cmd.action === 'instance.restart') {
+        expect(cmd.key).toBe('my-key');
+        expect(cmd.fresh).toBe(true);
+      }
+    }
+  });
+
   it('doctor 명령을 파싱한다', () => {
     const result = parseArgv(['doctor', '--fix']);
 

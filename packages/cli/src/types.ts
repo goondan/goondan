@@ -38,12 +38,15 @@ export interface RuntimeStartResult {
 
 export interface RuntimeRestartRequest {
   agent?: string;
+  instanceKey?: string;
   fresh: boolean;
   stateRoot?: string;
 }
 
 export interface RuntimeRestartResult {
   restarted: string[];
+  instanceKey?: string;
+  pid?: number;
 }
 
 export type LogStream = 'stdout' | 'stderr' | 'both';

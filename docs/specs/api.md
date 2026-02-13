@@ -218,7 +218,7 @@ Connector entry 모듈은 **단일 default export 함수**를 제공해야 한�
 export default async function (ctx: ConnectorContext): Promise<void> {
   // Connector가 직접 HTTP 서버를 열어 웹훅 수신
   Bun.serve({
-    port: Number(ctx.secrets.PORT) || 3000,
+    port: Number(ctx.config.PORT) || 3000,
     async fetch(req) {
       const body = await req.json();
 
@@ -267,9 +267,9 @@ spec:
 
 ```typescript
 export default async function (ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
+  const { emit, config, secrets, logger } = ctx;
   const botToken = secrets.BOT_TOKEN;
-  const port = Number(secrets.PORT) || 3000;
+  const port = Number(config.PORT) || 3000;
 
   Bun.serve({
     port,
@@ -324,13 +324,14 @@ metadata:
 spec:
   connectorRef: "Connector/telegram"
   swarmRef: "Swarm/default"
+  config:
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
   secrets:
     BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
-    PORT:
-      valueFrom:
-        env: TELEGRAM_WEBHOOK_PORT
     SIGNING_SECRET:
       valueFrom:
         env: TELEGRAM_WEBHOOK_SECRET
@@ -349,7 +350,7 @@ spec:
 
 **규칙:**
 
-1. Connection은 Connector가 사용할 시크릿을 제공해야 한다(MUST).
+1. Connection은 Connector가 사용할 일반 설정/시크릿을 제공해야 한다(MUST).
 2. Connection의 ingress 규칙은 ConnectorEvent를 특정 Agent로 라우팅하는 데 사용되어야 한다(MUST).
 3. `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅해야 한다(MUST).
 

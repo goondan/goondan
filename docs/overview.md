@@ -1338,7 +1338,7 @@ spec:
 export default async function(ctx: ConnectorContext): Promise<void> {
   // 프로토콜 수신 구현
   Bun.serve({
-    port: Number(ctx.secrets.PORT),
+    port: Number(ctx.config.PORT),
     async fetch(req) {
       await ctx.emit({
         name: 'event_name',

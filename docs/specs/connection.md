@@ -16,14 +16,15 @@ Connection은 Connector(독립 프로세스)와 Swarm(에이전트 집합) 사�
 - **Connector 패키지는 순수 프로토콜 로직만** 포함한다. 인증이나 라우팅 세부사항이 섞이지 않으므로 재사용성과 테스트 용이성이 높아진다.
 - **Connection만 변경하여** 라우팅 규칙이나 인증 정보를 업데이트할 수 있다. Connector 코드를 수정할 필요가 없다.
 
-Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
+Connection은 `config`(일반 설정)와 `secrets`(민감값)로 구분하여 Connector로 전달한다.
 서명 검증 알고리즘은 Connector가 구현하며, OAuth 인증이 필요한 경우 Extension 내부에서 구현한다.
 
 ### 1.2 핵심 책임
 
 1. **Connector 참조**: 어떤 프로토콜 구현체(Connector)를 사용할지 지정
 2. **Swarm 참조**: 이벤트를 어떤 Swarm으로 라우팅할지 지정
-3. **시크릿 제공**: Connector 프로세스에 필요한 비밀값(API 토큰, 서명 시크릿 등) 전달
+3. **설정 제공**: Connector 프로세스에 기본 동작 설정(config) 전달
+4. **시크릿 제공**: Connector 프로세스에 필요한 비밀값(API 토큰, 서명 시크릿 등) 전달
 4. **이벤트 라우팅**: ConnectorEvent를 어떤 Agent로 전달할지 정의
 
 **서명 검증:** Connector 구현체가 `ctx.secrets`에서 시크릿을 읽어 자체적으로 수행합니다.
@@ -33,7 +34,7 @@ Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
 | 리소스 | 역할 | 비유 |
 |--------|------|------|
 | **Connector** | 프로토콜 구현체. entry(실행 코드), events(이벤트 스키마) 보유. 별도 Bun 프로세스로 실행. 서명 검증 자체 수행 | Service (인터페이스) |
-| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `secrets`, `ingress.rules`를 설정 | Deployment (인스턴스 설정) |
+| **Connection** | 배포 와이어링. Connector를 Swarm에 바인딩하고 `config`, `secrets`, `ingress.rules`를 설정 | Deployment (인스턴스 설정) |
 
 ---
 
@@ -48,12 +49,13 @@ Connection은 `secrets`를 통해 키-값 형태의 비밀값을 전달한다.
 3. `spec.swarmRef`가 생략된 경우, Orchestrator는 Bundle 내 첫 번째(또는 유일한) Swarm을 사용해야 한다(MUST).
 4. `spec.swarmRef`가 지정된 경우, 참조하는 Swarm 리소스가 동일 Bundle 내에 존재해야 한다(MUST).
 
-### 2.2 시크릿 규칙
+### 2.2 설정/시크릿 규칙
 
-1. `spec.secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다(MUST).
-2. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
-3. `valueFrom.env`가 필수 필드에서 미해결되면 구성 로드 단계에서 오류여야 한다(MUST).
-4. `valueFrom.env`가 선택 필드에서 미해결되면 해당 필드를 미설정 상태로 둔다(SHOULD).
+1. `spec.config`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되는 일반 설정이다(MAY).
+2. `spec.secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되는 민감값이다(MAY).
+3. `spec.config`와 `spec.secrets`의 `value`/`valueFrom`은 동시에 존재할 수 없다(MUST).
+4. `valueFrom.env`가 필수 필드에서 미해결되면 구성 로드 단계에서 오류여야 한다(MUST).
+5. `valueFrom.env`가 선택 필드에서 미해결되면 해당 필드를 미설정 상태로 둔다(SHOULD).
 
 ### 2.3 라우팅 규칙
 
@@ -93,15 +95,18 @@ spec:
   # 선택: 바인딩할 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm)
   swarmRef: "Swarm/default"
 
-  # 선택: Connector 프로세스에 전달할 시크릿
+  # 선택: Connector 프로세스에 전달할 일반 설정
+  config:
+    PORT:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_PORT
+
+  # 선택: Connector 프로세스에 전달할 민감값
   # 서명 검증 시크릿도 여기 포함 (권장 이름: SIGNING_SECRET, WEBHOOK_SECRET)
   secrets:
     BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
-    PORT:
-      valueFrom:
-        env: TELEGRAM_WEBHOOK_PORT
     SIGNING_SECRET:
       valueFrom:
         env: TELEGRAM_WEBHOOK_SECRET
@@ -130,6 +135,9 @@ interface ConnectionSpec {
 
   /** 바인딩할 Swarm 참조 (선택, 생략 시 Bundle 내 첫 번째 Swarm) */
   swarmRef?: ObjectRefLike;
+
+  /** Connector에 전달할 일반 설정 */
+  config?: Record<string, ValueSource>;
 
   /** Connector 프로세스에 전달할 시크릿 (서명 검증 시크릿 포함) */
   secrets?: Record<string, ValueSource>;
@@ -234,21 +242,24 @@ swarmRef: { kind: Swarm, name: default }
 
 ---
 
-## 6. Secrets
+## 6. Config & Secrets
 
 ### 6.1 역할
 
-`secrets`는 Connector 프로세스에 전달할 비밀값을 정의한다. Connector의 `ConnectorContext.secrets`에 key-value 형태로 전달된다.
+`config`와 `secrets`는 모두 Connector에 값을 전달한다.
+`config`는 일반 설정값을 `ConnectorContext.config`에 전달하고,
+`secrets`는 비밀값을 `ConnectorContext.secrets`에 전달한다.
 
 ### 6.2 YAML 예시
 
 ```yaml
+config:
+  PORT:
+    value: "3000"
 secrets:
   BOT_TOKEN:
     valueFrom:
       env: TELEGRAM_BOT_TOKEN
-  PORT:
-    value: "3000"
   SIGNING_SECRET:
     valueFrom:
       env: TELEGRAM_WEBHOOK_SECRET
@@ -263,8 +274,9 @@ Connection 문맥에서 추가 적용되는 규칙:
 1. `value`와 `valueFrom`은 동시에 존재할 수 없다(MUST).
 2. `valueFrom.env`와 `valueFrom.secretRef`는 동시에 존재할 수 없다(MUST).
 3. `secretRef.ref`는 `Secret/<name>` 형식을 따라야 한다(MUST).
-4. `secrets`에 정의된 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
-5. `valueFrom.env` 해석은 `docs/specs/help.md` 3.2 정책을 따른다(MUST).
+4. `config`에 정의된 값은 Connector 프로세스의 `ctx.config`에 해석된 문자열로 전달되어야 한다(MUST).
+5. `secrets`에 정의된 값은 Connector 프로세스의 `ctx.secrets`에 해석된 문자열로 전달되어야 한다(MUST).
+6. `valueFrom.env` 해석은 `docs/specs/help.md` 3.2 정책을 따른다(MUST).
 
 ### 6.4 권장 시크릿 이름
 
@@ -369,12 +381,13 @@ spec:
   connectorRef: "Connector/telegram"
   swarmRef: "Swarm/coding-swarm"
 
+  config:
+    PORT:
+      value: "3000"
   secrets:
     BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
-    PORT:
-      value: "3000"
     SIGNING_SECRET:
       valueFrom:
         env: TELEGRAM_WEBHOOK_SECRET
@@ -401,12 +414,13 @@ spec:
   connectorRef: "Connector/slack"
   swarmRef: "Swarm/default"
 
+  config:
+    PORT:
+      value: "3001"
   secrets:
     BOT_TOKEN:
       valueFrom:
         env: SLACK_BOT_TOKEN
-    PORT:
-      value: "3001"
     SIGNING_SECRET:
       valueFrom:
         env: SLACK_SIGNING_SECRET
@@ -437,6 +451,7 @@ spec:
     BOT_TOKEN:
       valueFrom:
         env: SLACK_DEV_BOT_TOKEN
+  config:
     PORT:
       value: "3002"
   ingress:
@@ -462,6 +477,7 @@ spec:
     BOT_TOKEN:
       valueFrom:
         env: SLACK_OPS_BOT_TOKEN
+  config:
     PORT:
       value: "3003"
   ingress:
@@ -482,6 +498,7 @@ spec:
 |------|------|------|
 | `spec.connectorRef` | 필수. 유효한 Connector 참조 | MUST |
 | `spec.swarmRef` | 선택. 유효한 Swarm 참조 | MAY |
+| `spec.config` | 선택. 각 값은 유효한 ValueSource | MAY |
 | `spec.secrets` | 선택. 각 값은 유효한 ValueSource (서명 시크릿 포함) | MAY |
 | `spec.ingress.rules` | 선택. 있으면 배열 형식 | MAY |
 | `spec.ingress.rules[].route` | 필수 | MUST |

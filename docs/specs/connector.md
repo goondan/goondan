@@ -190,6 +190,9 @@ interface ConnectorContext {
   /** ConnectorEvent 발행 (Orchestrator로 전달) */
   emit(event: ConnectorEvent): Promise<void>;
 
+  /** Connection의 config에서 해석된 일반 설정 */
+  config: Record<string, string>;
+
   /** Connection의 secrets에서 해석된 비밀값 */
   secrets: Record<string, string>;
 
@@ -201,7 +204,8 @@ interface ConnectorContext {
 규칙:
 
 1. `emit()`은 ConnectorEvent를 Orchestrator로 전달해야 한다(MUST). Orchestrator는 Connection의 ingress rules에 따라 적절한 AgentProcess로 라우팅한다.
-2. `secrets`는 Connection의 `spec.secrets`에서 해석된 key-value 쌍이다(MUST).
+2. `config`는 Connection의 `spec.config`에서 해석된 key-value 쌍이다(MUST).
+3. `secrets`는 Connection의 `spec.secrets`에서 해석된 key-value 쌍이다(MUST).
 3. `logger`는 구조화된 로깅을 제공해야 한다(SHOULD).
 
 ### 5.3 ConnectorEvent
@@ -312,11 +316,11 @@ spec:
 import type { ConnectorContext } from '@goondan/core';
 
 export default async function(ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
+  const { config, secrets, logger } = ctx;
 
   // Connector가 직접 HTTP 서버를 열어 웹훅 수신
   Bun.serve({
-    port: Number(secrets.PORT) || 3000,
+    port: Number(config.PORT) || 3000,
     async fetch(req) {
       const body = await req.json();
 
@@ -355,7 +359,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
     },
   });
 
-  logger.info('Telegram connector listening on port', Number(secrets.PORT) || 3000);
+  logger.info('Telegram connector listening on port', Number(config.PORT) || 3000);
 }
 ```
 
@@ -391,10 +395,10 @@ spec:
 import type { ConnectorContext } from '@goondan/core';
 
 export default async function(ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
+  const { config, secrets, logger } = ctx;
 
   Bun.serve({
-    port: Number(secrets.PORT) || 3001,
+    port: Number(config.PORT) || 3001,
     async fetch(req) {
       const rawBody = await req.text();
       const body = JSON.parse(rawBody);
@@ -440,7 +444,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
     },
   });
 
-  logger.info('Slack connector listening on port', Number(secrets.PORT) || 3001);
+  logger.info('Slack connector listening on port', Number(config.PORT) || 3001);
 }
 ```
 
@@ -470,8 +474,8 @@ spec:
 import type { ConnectorContext } from '@goondan/core';
 
 export default async function(ctx: ConnectorContext): Promise<void> {
-  const { emit, secrets, logger } = ctx;
-  const schedule = secrets.CRON_SCHEDULE || '0 9 * * MON-FRI';
+  const { config, emit, logger } = ctx;
+  const schedule = config.CRON_SCHEDULE || '0 9 * * MON-FRI';
 
   // Connector가 자체적으로 cron 스케줄러를 관리
   // (Bun 환경에서 cron 라이브러리 사용)
@@ -556,7 +560,7 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ## 11. 관련 문서
 
-- `docs/specs/connection.md` - Connection 리소스 스펙 (secrets, ingress rules, verify)
+- `docs/specs/connection.md` - Connection 리소스 스펙 (config/secrets, ingress rules, verify)
 - `docs/specs/runtime.md` - Runtime 실행 모델 스펙 (Orchestrator, AgentProcess)
 - `docs/specs/resources.md` - Config Plane 리소스 정의 (Connector 리소스 스키마)
 - `docs/architecture.md` - 아키텍처 개요 (핵심 개념, 설계 패턴)

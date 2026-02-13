@@ -103,7 +103,7 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 ### 1.9 Connector와 Connection
 
 - **Connector**: 외부 채널 이벤트를 정규화하는 프로토콜 어댑터. 별도 프로세스로 프로토콜을 자체 관리하므로, 프로토콜 구현과 배포 바인딩을 독립적으로 발전시킬 수 있다.
-- **Connection**: Connector를 특정 배포 환경에 바인딩하는 리소스. 시크릿(API 토큰, 서명 시크릿 등)을 제공하고, ingress 라우팅 규칙을 정의한다. 하나의 Connector를 여러 Connection이 서로 다른 인증/라우팅으로 재사용할 수 있다.
+- **Connection**: Connector를 특정 배포 환경에 바인딩하는 리소스. `config`(동작 설정)와 `secrets`(민감값)를 제공하고, ingress 라우팅 규칙을 정의한다. 하나의 Connector를 여러 Connection이 서로 다른 설정/라우팅으로 재사용할 수 있다.
 
 ### 1.10 Bundle과 Package
 
@@ -464,7 +464,7 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/tool.md` | Tool 시스템 - 더블 언더스코어 네이밍, ToolContext, 통합 이벤트 기반 에이전트 간 통신, Bun-only 실행 |
 | `specs/extension.md` | Extension 시스템 - ExtensionApi(pipeline/tools/state/events/logger), Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴 |
 | `specs/connector.md` | Connector 시스템 - 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행 |
-| `specs/connection.md` | Connection 시스템 - secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증 |
+| `specs/connection.md` | Connection 시스템 - config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 |
 | `specs/bundle.md` | Bundle YAML - goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안 |
 | `specs/bundle_package.md` | Package - 프로젝트 매니페스트, `~/.goondan/packages/`, 레지스트리 API, CLI 명령어 |
 | `specs/workspace.md` | Workspace 및 Storage 모델 - 2루트 분리(Project Root + System Root), Message 영속화, Extension state, 프로세스별 로깅 |

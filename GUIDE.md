@@ -420,7 +420,7 @@ import type { ConnectorContext } from '@goondan/runtime';
 
 export default async function (ctx: ConnectorContext): Promise<void> {
   Bun.serve({
-    port: Number(ctx.secrets.PORT ?? '3000'),
+    port: Number(ctx.config.PORT ?? '3000'),
     async fetch(req) {
       const body = await req.json();
       await ctx.emit({
@@ -445,7 +445,7 @@ metadata:
 spec:
   connectorRef: "Connector/webhook"
   swarmRef: "Swarm/default"
-  secrets:
+  config:
     PORT:
       valueFrom:
         env: WEBHOOK_PORT
@@ -461,7 +461,7 @@ spec:
 
 - `connectorRef`는 필수
 - `route.agentRef` 생략 시 `entryAgent`로 라우팅
-- `secrets`는 Connector에 주입
+- `config`와 `secrets`가 Connector에 주입되며, PORT 등 동작값은 `config`를 권장
 
 ---
 

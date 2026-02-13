@@ -14,8 +14,8 @@ describe("FileInstanceManager", () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gdn-im-test-"));
     paths = new WorkspacePaths({
       projectRoot: tempDir,
-      goondanHome: path.join(tempDir, ".goondan"),
-      bundleId: "test-bundle",
+      stateRoot: path.join(tempDir, ".goondan"),
+      packageName: "test-bundle",
     });
     manager = new FileInstanceManager(paths);
   });

@@ -8,7 +8,7 @@ Telegram polling 기반 self-evolving bot 샘플 패키지다.
 - Connector는 polling + ConnectorEvent emit만 수행한다.
 - 실제 응답 생성(LLM 호출), ingress 라우팅, Tool 실행, Telegram 응답 전송은 `gdn run`의 runtime-runner가 담당한다.
 - `/evolve`는 Agent가 `local-file-system__evolve` Tool을 호출해 안전 경로 내 파일 변경 제안/적용을 수행한다.
-- 적용 전/후 검증, 백업, 롤백 흐름을 제공하고 성공 시 runtime replacement restart 신호를 반환한다.
+- 적용 전/후 검증과 롤백 흐름을 제공하고 성공 시 runtime replacement restart 신호를 반환한다.
 
 ## 파일 구성
 
@@ -30,8 +30,8 @@ Telegram polling 기반 self-evolving bot 샘플 패키지다.
 
 ## 구현 규칙
 
-1. 수정 가능한 경로는 샘플 루트 내 허용 목록(`goondan.yaml`, `src/**/*.ts`, `test/**/*.ts`, `package.json`, `tsconfig.json`, `README.md`, `AGENTS.md`)으로 제한한다.
-2. `evolve` 적용 시 기존 파일은 백업 디렉토리에 저장하고 실패 시 즉시 롤백하며, 성공 시 재시작 신호를 반환해야 한다.
+1. 수정 가능한 경로는 샘플 루트 내 허용 목록(`goondan.yaml`, `src/**/*.ts`, `test/**/*.ts`, `prompts/**/*.md`, `package.json`, `tsconfig.json`, `README.md`, `AGENTS.md`)으로 제한한다.
+2. `evolve` 적용 시 변경 전/후 검증을 수행하고, 실패 시 즉시 롤백하며, 성공 시 재시작 신호를 반환해야 한다.
 3. Connector 타입(ConnectorContext, ConnectorEvent, ConnectorEventMessage)은 `@goondan/types`에서 SSOT로 관리하며, 로컬 중복 정의를 금지한다.
 4. goondan.yaml Connector events의 properties 키와 connector-entry.ts의 emit properties 키가 반드시 일치해야 한다.
 5. 테스트는 핵심 파서/적용 로직을 우선 검증한다.

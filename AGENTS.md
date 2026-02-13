@@ -35,7 +35,7 @@
 - docs/specs/tool.md : Tool 시스템 스펙 v2.0 (더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, Bun-only)
 - docs/specs/extension.md : Extension 시스템 스펙 v2.0 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - docs/specs/connector.md : Connector 시스템 스펙 v2.0 (별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
-- docs/specs/connection.md : Connection 시스템 스펙 v2.0 (secrets 기반 시크릿 전달, Ingress 라우팅 규칙, 서명 검증)
+- docs/specs/connection.md : Connection 시스템 스펙 v2.0 (config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증)
 - docs/specs/oauth.md : OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - docs/specs/workspace.md : **[v2.0]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
 - mise.local.toml : 로컬 전용 환경 변수/툴 오버라이드 (gitignore)

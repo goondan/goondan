@@ -76,6 +76,7 @@ interface ConnectorRunPlan {
   connectionName: string;
   connectorName: string;
   connectorEntryPath: string;
+  config: Record<string, string>;
   secrets: Record<string, string>;
   routeRules: IngressRouteRule[];
   defaultAgent: SwarmAgentRef;
@@ -205,8 +206,7 @@ function readRuntimeRestartSignal(value: unknown, toolName?: string): { requeste
 
   if (typeof toolName === 'string' && toolName.endsWith('__evolve')) {
     const changedFiles = value.changedFiles;
-    const backupDir = value.backupDir;
-    if (hasChangedFiles(changedFiles) && typeof backupDir === 'string' && backupDir.trim().length > 0) {
+    if (hasChangedFiles(changedFiles)) {
       return {
         requested: true,
         reason: 'tool:evolve',
@@ -872,6 +872,29 @@ function resolveConnectionSecrets(resource: RuntimeResource, env: NodeJS.Process
   return secrets;
 }
 
+function resolveConnectionConfig(resource: RuntimeResource, env: NodeJS.ProcessEnv): Record<string, string> {
+  const spec = readSpecRecord(resource);
+  const value = spec.config;
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isJsonObject(value)) {
+    throw new Error(`Connection/${resource.metadata.name} spec.config 형식이 올바르지 않습니다.`);
+  }
+
+  const config: Record<string, string> = {};
+  for (const [secretName, source] of Object.entries(value)) {
+    const resolved = resolveSecretValue(source, env);
+    if (!resolved) {
+      throw new Error(`Connection/${resource.metadata.name} config '${secretName}' 값을 해석할 수 없습니다.`);
+    }
+    config[secretName] = resolved;
+  }
+
+  return config;
+}
+
 function parseIngressRouteRules(
   connection: RuntimeResource,
   selectedSwarm: SelectedSwarm,
@@ -1511,6 +1534,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     );
 
     const connectorEntryPath = await resolveEntryPath(connectorResource, 'entry');
+    const config = resolveConnectionConfig(connection, process.env);
     const secrets = resolveConnectionSecrets(connection, process.env);
     const routeRules = parseIngressRouteRules(connection, selectedSwarm);
 
@@ -1519,6 +1543,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       connectionName: connection.metadata.name,
       connectorName: connectorResource.metadata.name,
       connectorEntryPath,
+      config,
       secrets,
       routeRules,
       defaultAgent: selectedSwarm.entryAgent,
@@ -2306,6 +2331,7 @@ async function startConnector(
         logger.warn(`event handling failed: ${unknownToErrorMessage(error)}`);
       });
     },
+    config: plan.config,
     secrets: plan.secrets,
     logger,
   };

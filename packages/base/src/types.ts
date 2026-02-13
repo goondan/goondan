@@ -244,6 +244,7 @@ export interface ConnectorEvent {
 
 export interface ConnectorContext {
   emit(event: ConnectorEvent): Promise<void>;
+  config: Record<string, string>;
   secrets: Record<string, string>;
   logger: Console;
 }
@@ -292,6 +293,7 @@ export type ValueSource =
 export interface ConnectionManifestSpec {
   connectorRef: string;
   swarmRef?: string;
+  config?: Record<string, ValueSource>;
   secrets?: Record<string, ValueSource>;
   verify?: {
     webhook?: {

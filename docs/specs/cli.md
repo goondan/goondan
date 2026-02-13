@@ -400,7 +400,7 @@ Errors: 1, Warnings: 1
 
 ### 7.2 gdn instance list
 
-오케스트레이터 인스턴스 목록을 출력한다. 기본 구현은 `runtime/active.json`의 현재 active runtime만 노출해야 하며(SHOULD), Agent 대화 단위 인스턴스(`workspaces/*/instances/*`)는 표시하지 않는다.
+오케스트레이터 인스턴스 목록을 출력한다. 구현은 `runtime/active.json`의 active runtime과, 동일 `state-root`에서 실행 중인 managed runtime-runner PID를 함께 집계해야 한다(SHOULD). Agent 대화 단위 인스턴스(`workspaces/*/instances/*`)는 표시하지 않는다.
 
 **사용법:**
 
@@ -413,8 +413,8 @@ gdn instance list [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--agent <name>` | `-a` | Agent 이름 필터 (`orchestrator`만 매칭) | - |
-| `--limit <n>` | `-n` | 최대 개수 (active runtime 1개 기준) | `20` |
-| `--all` | | 모든 인스턴스 (active runtime 1개 기준) | `false` |
+| `--limit <n>` | `-n` | 최대 개수 | `20` |
+| `--all` | | 감지된 모든 인스턴스 표시 | `false` |
 
 **출력 예시:**
 
@@ -453,7 +453,7 @@ gdn instance restart allied-gray-antelope-darrelle
 
 ### 7.4 gdn instance delete
 
-인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다.
+인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다. 대상 key가 active가 아니어도 동일 `state-root`에서 실행 중인 managed runtime-runner PID를 찾아 종료해야 한다(SHOULD).
 
 **사용법:**
 

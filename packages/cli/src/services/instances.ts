@@ -15,6 +15,13 @@ interface ActiveRuntimeState {
   pid?: number;
 }
 
+interface ManagedRuntimeProcess {
+  pid: number;
+  instanceKey: string;
+  stateRoot: string;
+  command: string;
+}
+
 type TerminationStatus = 'not_running' | 'terminated' | 'mismatch' | 'failed';
 
 const execFileAsync = promisify(execFile);
@@ -90,6 +97,166 @@ function isManagedRuntimeCommand(command: string, instanceKey: string): boolean 
   const hasInstanceFlag = command.includes('--instance-key');
   const hasInstanceKey = command.includes(instanceKey);
   return hasRunnerName && hasInstanceFlag && hasInstanceKey;
+}
+
+function tokenizeCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (quote) {
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) {
+        quote = undefined;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/u.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function readOptionFromTokens(tokens: string[], option: string): string | undefined {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+
+    if (token === option) {
+      const value = tokens[index + 1];
+      if (value && value.length > 0) {
+        return value;
+      }
+      continue;
+    }
+
+    const prefixed = `${option}=`;
+    if (token.startsWith(prefixed)) {
+      const value = token.slice(prefixed.length);
+      if (value.length > 0) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function parseManagedRuntimeProcess(line: string): ManagedRuntimeProcess | undefined {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const separator = trimmed.indexOf(' ');
+  if (separator < 0) {
+    return undefined;
+  }
+
+  const pidRaw = trimmed.slice(0, separator).trim();
+  const command = trimmed.slice(separator + 1).trim();
+
+  const pid = Number.parseInt(pidRaw, 10);
+  if (!Number.isInteger(pid) || pid <= 0 || command.length === 0) {
+    return undefined;
+  }
+
+  const tokens = tokenizeCommand(command);
+  if (tokens.length < 2) {
+    return undefined;
+  }
+
+  const runtimeExec = tokens[0] ? path.basename(tokens[0]) : '';
+  const runnerEntry = tokens[1] ?? '';
+  const hasRuntimeExec = runtimeExec === 'node' || runtimeExec === 'bun';
+  const hasRunnerName = runnerEntry.endsWith('runtime-runner.js') || runnerEntry.endsWith('runtime-runner.ts');
+  if (!hasRuntimeExec || !hasRunnerName) {
+    return undefined;
+  }
+
+  const instanceKey = readOptionFromTokens(tokens, '--instance-key');
+  const stateRoot = readOptionFromTokens(tokens, '--state-root');
+  if (!instanceKey || !stateRoot) {
+    return undefined;
+  }
+
+  if (instanceKey.trim().length === 0 || stateRoot.trim().length === 0) {
+    return undefined;
+  }
+
+  return {
+    pid,
+    instanceKey,
+    stateRoot: path.resolve(stateRoot),
+    command,
+  };
+}
+
+async function listManagedRuntimeProcesses(stateRoot: string): Promise<ManagedRuntimeProcess[]> {
+  let stdout = '';
+  try {
+    const result = await execFileAsync('ps', ['-ax', '-o', 'pid=,command=']);
+    stdout = typeof result.stdout === 'string' ? result.stdout : '';
+  } catch {
+    return [];
+  }
+
+  const normalizedStateRoot = path.resolve(stateRoot);
+  const lines = stdout.split('\n');
+  const result: ManagedRuntimeProcess[] = [];
+  const seen = new Set<string>();
+
+  for (const line of lines) {
+    const processInfo = parseManagedRuntimeProcess(line);
+    if (!processInfo) {
+      continue;
+    }
+    if (processInfo.stateRoot !== normalizedStateRoot) {
+      continue;
+    }
+
+    const key = `${processInfo.instanceKey}:${String(processInfo.pid)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(processInfo);
+  }
+
+  return result;
 }
 
 async function terminateRuntimeProcess(pid: number, force: boolean, instanceKey: string): Promise<TerminationStatus> {
@@ -183,6 +350,17 @@ function buildActiveInstanceRecord(active: ActiveRuntimeState): InstanceRecord {
   };
 }
 
+function buildProcessInstanceRecord(processInfo: ManagedRuntimeProcess): InstanceRecord {
+  const now = formatDate(new Date());
+  return {
+    key: processInfo.instanceKey,
+    agent: 'orchestrator',
+    status: isProcessAlive(processInfo.pid) ? 'running' : 'terminated',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export class FileInstanceStore implements InstanceStore {
   private readonly env: NodeJS.ProcessEnv;
 
@@ -192,38 +370,58 @@ export class FileInstanceStore implements InstanceStore {
 
   async list(request: ListInstancesRequest): Promise<InstanceRecord[]> {
     const stateRoot = resolveStateRoot(request.stateRoot, this.env);
+    const recordsByKey = new Map<string, InstanceRecord>();
+
     const activePath = path.join(stateRoot, 'runtime', 'active.json');
-    if (!(await exists(activePath))) {
-      return [];
+    if (await exists(activePath)) {
+      const rawActive = await readFile(activePath, 'utf8');
+      const active = parseActiveRuntimeState(rawActive);
+      if (active) {
+        recordsByKey.set(active.instanceKey, buildActiveInstanceRecord(active));
+      }
     }
 
-    const rawActive = await readFile(activePath, 'utf8');
-    const active = parseActiveRuntimeState(rawActive);
-    if (!active) {
-      return [];
+    const managedProcesses = await listManagedRuntimeProcesses(stateRoot);
+    for (const processInfo of managedProcesses) {
+      const candidate = buildProcessInstanceRecord(processInfo);
+      const existing = recordsByKey.get(processInfo.instanceKey);
+      if (!existing) {
+        recordsByKey.set(processInfo.instanceKey, candidate);
+        continue;
+      }
+
+      if (existing.status !== 'running' && candidate.status === 'running') {
+        existing.status = 'running';
+      }
     }
 
-    const record = buildActiveInstanceRecord(active);
-    if (request.agent && record.agent.toLowerCase() !== request.agent.toLowerCase()) {
-      return [];
+    let rows = [...recordsByKey.values()];
+    if (request.agent) {
+      const agent = request.agent.toLowerCase();
+      rows = rows.filter((row) => row.agent.toLowerCase() === agent);
     }
 
     if (request.all) {
-      return [record];
+      return rows;
+    }
+    if (request.limit <= 0) {
+      return [];
     }
 
-    return request.limit > 0 ? [record] : [];
+    return rows.slice(0, request.limit);
   }
 
   async delete(request: DeleteInstanceRequest): Promise<boolean> {
     const stateRoot = resolveStateRoot(request.stateRoot, this.env);
     let deleted = false;
+    let activePid: number | undefined;
 
     const activePath = path.join(stateRoot, 'runtime', 'active.json');
     if (await exists(activePath)) {
       const rawActive = await readFile(activePath, 'utf8');
       const active = parseActiveRuntimeState(rawActive);
       if (active && active.instanceKey === request.key) {
+        activePid = active.pid;
         if (active.pid) {
           const termination = await terminateRuntimeProcess(active.pid, request.force, request.key);
           if (termination === 'mismatch') {
@@ -241,6 +439,33 @@ export class FileInstanceStore implements InstanceStore {
         }
         await rm(activePath, { force: true });
         await rm(path.join(stateRoot, 'runtime', 'logs', request.key), { recursive: true, force: true });
+        deleted = true;
+      }
+    }
+
+    const managedProcesses = await listManagedRuntimeProcesses(stateRoot);
+    for (const processInfo of managedProcesses) {
+      if (processInfo.instanceKey !== request.key) {
+        continue;
+      }
+      if (activePid && processInfo.pid === activePid) {
+        continue;
+      }
+
+      const termination = await terminateRuntimeProcess(processInfo.pid, request.force, request.key);
+      if (termination === 'mismatch') {
+        throw configError(
+          `PID ${processInfo.pid} 프로세스가 대상 인스턴스(${request.key})와 일치하지 않아 삭제를 중단했습니다.`,
+          `ps -p ${processInfo.pid} -o pid,ppid,stat,etime,command 로 확인하세요.`,
+        );
+      }
+      if (termination === 'failed') {
+        throw configError(
+          `PID ${processInfo.pid} 프로세스를 종료하지 못해 삭제를 중단했습니다.`,
+          '--force 옵션으로 재시도하거나 프로세스를 수동 종료 후 다시 실행하세요.',
+        );
+      }
+      if (termination === 'terminated' || termination === 'not_running') {
         deleted = true;
       }
     }

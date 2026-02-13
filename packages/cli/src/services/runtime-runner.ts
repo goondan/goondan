@@ -181,15 +181,7 @@ function isRunnerStartErrorMessage(message: unknown): message is RunnerStartErro
   return message.type === 'start_error' && typeof message.message === 'string';
 }
 
-function hasChangedFiles(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length === 0) {
-    return false;
-  }
-
-  return value.every((item) => typeof item === 'string' && item.length > 0);
-}
-
-function readRuntimeRestartSignal(value: unknown, toolName?: string): { requested: boolean; reason?: string } | undefined {
+function readRuntimeRestartSignal(value: unknown): { requested: boolean; reason?: string } | undefined {
   if (!isJsonObject(value)) {
     return undefined;
   }
@@ -200,16 +192,6 @@ function readRuntimeRestartSignal(value: unknown, toolName?: string): { requeste
       return {
         requested: true,
         reason: typeof reasonValue === 'string' && reasonValue.trim().length > 0 ? reasonValue.trim() : undefined,
-      };
-    }
-  }
-
-  if (typeof toolName === 'string' && toolName.endsWith('__evolve')) {
-    const changedFiles = value.changedFiles;
-    if (hasChangedFiles(changedFiles)) {
-      return {
-        requested: true,
-        reason: 'tool:evolve',
       };
     }
   }
@@ -2003,7 +1985,7 @@ async function runAgentTurn(input: {
       });
 
       if (result.status === 'ok') {
-        const restartSignal = readRuntimeRestartSignal(result.output, toolUse.name);
+        const restartSignal = readRuntimeRestartSignal(result.output);
         if (restartSignal?.requested) {
           restartRequested = true;
           if (!restartReason && restartSignal.reason) {
@@ -2254,7 +2236,7 @@ async function handleConnectorEvent(
       }
 
       if (turnResult.restartRequested) {
-        const reason = turnResult.restartReason ?? 'tool:evolve';
+        const reason = turnResult.restartReason ?? 'tool:restart-signal';
         await requestRuntimeRestart(runtime, reason);
       }
     } catch (error) {

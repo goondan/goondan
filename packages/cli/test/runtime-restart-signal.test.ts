@@ -14,24 +14,19 @@ describe('readRuntimeRestartSignal', () => {
     });
   });
 
-  it('evolve tool 출력 패턴(changedFiles+backupDir)도 restart로 해석한다', () => {
-    const signal = readRuntimeRestartSignal(
-      {
-        ok: true,
-        changedFiles: ['src/local-tools.ts'],
-        backupDir: '/tmp/backup',
-      },
-      'local-file-system__evolve',
-    );
+  it('runtimeRestart 플래그를 restart 신호로 해석한다', () => {
+    const signal = readRuntimeRestartSignal({
+      runtimeRestart: true,
+    });
 
     expect(signal).toEqual({
       requested: true,
-      reason: 'tool:evolve',
+      reason: undefined,
     });
   });
 
   it('관련 없는 출력은 restart 신호로 해석하지 않는다', () => {
-    expect(readRuntimeRestartSignal({ ok: true }, 'local-file-system__write')).toBeUndefined();
-    expect(readRuntimeRestartSignal('not-object', 'local-file-system__evolve')).toBeUndefined();
+    expect(readRuntimeRestartSignal({ ok: true })).toBeUndefined();
+    expect(readRuntimeRestartSignal('not-object')).toBeUndefined();
   });
 });

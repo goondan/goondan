@@ -327,6 +327,15 @@ export const handlers: Record<string, ToolHandler> = {
 
 `ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
 
+**핵심 필드:**
+- `workdir`: 인스턴스 워크스페이스 경로 (bash, file-system 등이 기본 CWD로 사용)
+- `logger`: Console 인터페이스 (로깅용)
+- `runtime`: AgentToolRuntime (선택) - 에이전트 간 통신(request/send) 인터페이스 제공
+- `message`: 현재 Tool call을 포함하는 assistant Message
+- `toolCallId`: 현재 Tool call의 고유 ID
+
+`runtime` 필드는 에이전트 간 통신 도구(agents tool)에서 사용되며, Orchestrator와의 IPC를 통해 다른 AgentProcess와 통신한다.
+
 ---
 
 ## 8. Tool 실행 흐름

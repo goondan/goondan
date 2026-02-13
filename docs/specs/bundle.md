@@ -242,13 +242,13 @@ spec:
 metadata:
   name: bash
   labels:
-    tier: base           # Selector에서 matchLabels로 선택 가능
+    tier: base           # 미래 확장을 위해 예약 (현재는 문서화 목적)
     category: shell
   annotations:
     description: "셸 명령 실행 도구"
 ```
 
-- **labels**: Selector의 `matchLabels`에서 선택 기준으로 사용된다.
+- **labels**: 미래 확장을 위해 예약되어 있으며, 현재는 문서화 목적으로만 사용된다.
 - **annotations**: 메타 정보 저장용으로, 런타임 동작에 영향을 주지 않는다.
 - 키/값은 모두 문자열이어야 한다(MUST).
 
@@ -279,39 +279,12 @@ spec:
 
 ---
 
-## 5. Selector + Overrides 사용 요약
-
-`Selector`/`SelectorWithOverrides`/`RefOrSelector`의 단일 기준은 `docs/specs/resources.md`의 `Selector + Overrides 조립 문법`이다.
-이 문서는 Agent 구성에서의 대표 사용 패턴만 다룬다.
-
-### 5.1 번들에서의 사용 예시
-
-```yaml
-kind: Agent
-spec:
-  tools:
-    - selector:
-        kind: Tool
-        matchLabels:
-          tier: base
-      overrides:
-        spec:
-          errorMessageLimit: 2000
-```
-
-### 5.2 번들 문맥 규칙
-
-1. Selector 매칭 및 overrides 병합 알고리즘은 `docs/specs/resources.md`를 단일 기준으로 따른다(MUST).
-2. 번들 문서는 알고리즘 상세를 중복 정의하지 않고 사용 위치/예시 중심으로 유지해야 한다(SHOULD).
-
----
-
-## 6. ValueSource 사용 요약
+## 5. ValueSource 사용 요약
 
 `ValueSource`/`ValueFrom`/`SecretRef`의 단일 기준은 `docs/specs/resources.md` 7절과 `docs/specs/shared-types.md` 3절이다.
 환경변수 해석 정책은 `docs/specs/help.md` 3.2절을 따른다.
 
-### 6.1 번들에서의 사용 예시
+### 5.1 번들에서의 사용 예시
 
 ```yaml
 apiKey:
@@ -326,36 +299,36 @@ secrets:
         key: "telegram"
 ```
 
-### 6.2 번들 문맥 규칙
+### 5.2 번들 문맥 규칙
 
 1. `value`/`valueFrom` 상호 배타 및 `valueFrom` 하위 규칙은 `docs/specs/resources.md`를 따른다(MUST).
 2. 번들 문서는 ValueSource 해석 정책을 재정의하지 않아야 한다(MUST NOT).
 
 ---
 
-## 7. 보안: YAML 폭탄 방지
+## 6. 보안: YAML 폭탄 방지
 
 번들 YAML 파싱 시 다음 보안 제한을 적용해야 한다(MUST).
 
-### 7.1 파일 크기 제한
+### 6.1 파일 크기 제한
 
 - 단일 YAML 파일은 **1MB**를 초과할 수 없다(MUST).
 - 1MB를 초과하는 파일은 파싱 전에 거부한다.
 
-### 7.2 문서 수 제한
+### 6.2 문서 수 제한
 
 - 단일 YAML 파일 내 **최대 100개** 문서(`---`)를 허용한다(MUST).
 - 100개를 초과하면 파싱을 중단하고 오류를 반환한다.
 
-### 7.3 앵커/별칭 제한
+### 6.3 앵커/별칭 제한
 
 - YAML 앵커(`&`)와 별칭(`*`)에 의한 확장 결과가 원본 크기의 **10배**를 초과하면 거부한다(SHOULD).
 
 ---
 
-## 8. 경로 해석 규칙
+## 7. 경로 해석 규칙
 
-### 8.1 entry 필드 경로 해석
+### 7.1 entry 필드 경로 해석
 
 Tool, Extension, Connector의 `spec.entry` 경로는 **Bundle Root**(goondan.yaml이 위치한 디렉터리) 기준 상대 경로로 해석한다(MUST).
 
@@ -367,13 +340,13 @@ spec:
   # 실제 경로: /workspace/my-swarm/tools/bash/index.ts
 ```
 
-### 8.2 경로 보안 규칙
+### 7.2 경로 보안 규칙
 
 1. `../`를 포함하는 상위 디렉터리 참조는 거부해야 한다(MUST).
 2. 절대 경로 참조도 거부해야 한다(MUST).
 3. 모든 경로는 Bundle Root 기준 상대 경로여야 한다.
 
-### 8.3 프롬프트 파일 참조
+### 7.3 프롬프트 파일 참조
 
 Agent의 `spec.prompts.systemRef` 경로도 Bundle Root 기준 상대 경로로 해석한다(MUST).
 
@@ -387,9 +360,9 @@ spec:
 
 ---
 
-## 9. 완전한 번들 예시
+## 8. 완전한 번들 예시
 
-### 9.1 최소 프로젝트
+### 8.1 최소 프로젝트
 
 ```
 my-agent/
@@ -397,7 +370,7 @@ my-agent/
 └── (tools/, extensions/, connectors/ - 필요시)
 ```
 
-### 9.2 goondan.yaml 전체 예시
+### 8.2 goondan.yaml 전체 예시
 
 ```yaml
 apiVersion: goondan.ai/v1
@@ -451,7 +424,7 @@ spec:
     - ref: "Agent/coder"
 ```
 
-### 9.3 분할 파일 구성 예시
+### 8.3 분할 파일 구성 예시
 
 ```
 my-swarm/
@@ -474,11 +447,11 @@ my-swarm/
 
 ---
 
-## 10. Validation 규칙 요약
+## 9. Validation 규칙 요약
 
 공통 검증 규칙(참조 무결성, ValueSource 상호배타, Kind별 스키마)은 `docs/specs/resources.md`를 단일 기준으로 한다. 본 섹션은 번들 로더 관점의 추가 제약만 요약한다.
 
-### 10.1 로드 단계 검증
+### 9.1 로드 단계 검증
 
 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행되어야 한다(MUST).
 
@@ -498,7 +471,7 @@ my-swarm/
 }
 ```
 
-### 10.2 공통 검증
+### 9.2 공통 검증
 
 | 규칙 | 수준 |
 |------|------|
@@ -512,7 +485,7 @@ my-swarm/
 | ObjectRef 참조 대상 존재 | MUST |
 | ValueSource에서 value/valueFrom 상호 배타 | MUST |
 
-### 10.3 Kind별 필수 필드 검증
+### 9.3 Kind별 필수 필드 검증
 
 | Kind | 필수 필드 |
 |------|----------|
@@ -525,7 +498,7 @@ my-swarm/
 | Connection | `connectorRef` |
 | Package | `metadata.name`, 첫 번째 YAML 문서에만 위치 |
 
-### 10.4 스키마 엄격 검증
+### 9.4 스키마 엄격 검증
 
 스키마에 정의된 필드 집합만 허용하며, 정의되지 않은 필드는 검증 오류를 반환해야 한다(MUST).
 

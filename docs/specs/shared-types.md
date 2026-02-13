@@ -37,27 +37,6 @@ interface ObjectRef {
 interface RefItem {
   ref: ObjectRefLike;
 }
-
-interface Selector {
-  kind?: string;
-  name?: string;
-  matchLabels?: Record<string, string>;
-}
-
-interface SelectorWithOverrides {
-  selector: Selector;
-  overrides?: {
-    spec?: Record<string, unknown>;
-    metadata?: {
-      name?: string;
-      labels?: Record<string, string>;
-      annotations?: Record<string, string>;
-    };
-  };
-}
-
-/** Agent.tools / Agent.extensions / Swarm.agents 등에서 사용 */
-type RefOrSelector = RefItem | SelectorWithOverrides | ObjectRefLike;
 ```
 
 ---
@@ -206,11 +185,38 @@ interface ToolCallResult {
   };
 }
 
+interface AgentRuntimeRequestOptions {
+  timeoutMs?: number;
+}
+
+interface AgentRuntimeRequestResult {
+  eventId: string;
+  target: string;
+  response?: JsonValue;
+  correlationId: string;
+}
+
+interface AgentRuntimeSendResult {
+  eventId: string;
+  target: string;
+  accepted: boolean;
+}
+
+interface AgentToolRuntime {
+  request(
+    target: string,
+    event: AgentEvent,
+    options?: AgentRuntimeRequestOptions
+  ): Promise<AgentRuntimeRequestResult>;
+  send(target: string, event: AgentEvent): Promise<AgentRuntimeSendResult>;
+}
+
 interface ToolContext extends ExecutionContext {
   readonly toolCallId: string;
   readonly message: Message;
   readonly workdir: string;
   readonly logger: Console;
+  readonly runtime?: AgentToolRuntime;
 }
 ```
 

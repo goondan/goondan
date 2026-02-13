@@ -21,7 +21,7 @@ Connector는 **프로토콜 수신을 직접 구현**하는 구조를 사용한�
 1. **프로토콜 수신 구현**: HTTP 서버, cron 스케줄러, WebSocket, 롱 폴링 등 프로토콜을 자체적으로 구현
 2. **이벤트 스키마 선언**: 커넥터가 발행할 수 있는 이벤트의 이름과 속성 타입을 선언
 3. **이벤트 정규화**: 외부 프로토콜별 페이로드를 ConnectorEvent로 변환
-4. **서명 검증**: Connection이 제공한 서명 시크릿을 사용하여 inbound 요청의 무결성 검증
+4. **서명 검증 (권장)**: secrets에서 읽은 시크릿을 사용하여 inbound 요청의 무결성 검증
 
 ### 1.3 Connector가 하지 않는 것
 
@@ -50,11 +50,12 @@ Connector는 **프로토콜 수신을 직접 구현**하는 구조를 사용한�
 3. `events[].name`은 Connector 내에서 고유해야 한다(MUST).
 4. ConnectorEvent의 `message`는 최소 하나의 콘텐츠 타입을 포함해야 한다(MUST).
 
-### 2.3 서명 검증 규칙
+### 2.3 서명 검증 권장사항
 
-1. Connector는 Connection이 제공한 서명 시크릿(`ctx.secrets`에 포함)을 사용하여 inbound 요청의 서명 검증을 수행해야 한다(MUST).
+1. Connector는 `ctx.secrets`에서 시크릿을 읽어 inbound 요청의 서명 검증을 수행하는 것이 권장된다(SHOULD).
 2. 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않고 처리를 거부해야 한다(MUST).
 3. 서명 검증 실패 시 Connector는 실패 사유를 `ctx.logger`로 기록해야 한다(SHOULD).
+4. 권장 시크릿 이름: `SIGNING_SECRET`, `WEBHOOK_SECRET`
 
 ### 2.4 설계 원칙
 
@@ -235,10 +236,20 @@ type ConnectorEventMessage =
 3. `properties`의 키는 `events[].properties`에 선언된 키와 일치해야 한다(SHOULD).
 4. `instanceKey`는 Orchestrator가 적절한 AgentProcess로 라우팅할 수 있도록 포함해야 한다(MUST).
 
-### 5.4 서명 검증 규칙
+### 5.4 서명 검증 권장사항
 
-Connection이 `verify`를 선언한 경우의 시크릿 전달/호환 규칙은 `docs/specs/connection.md` 8절을 단일 기준으로 따른다.
-Connector는 해당 시크릿을 `ctx.secrets`에서 읽어 검증을 수행하며, 실패 시 emit을 중단해야 한다(MUST).
+Connection은 `secrets`를 통해 시크릿을 제공한다. Connector는 `ctx.secrets`에서 시크릿을 읽어 검증을 수행하는 것이 권장된다(SHOULD).
+
+**권장 시크릿 이름:**
+- `SIGNING_SECRET`: 일반적인 서명 검증 시크릿
+- `WEBHOOK_SECRET`: 웹훅 전용 서명 시크릿
+
+**권장 처리 절차:**
+1. `ctx.secrets`에서 서명 시크릿 읽기
+2. 요청 헤더/바디에서 서명 추출
+3. 서명 검증 알고리즘 실행
+4. 검증 실패 시 ConnectorEvent emit 중단 및 401/403 응답 반환
+5. 실패 사유를 `ctx.logger`로 기록
 
 ---
 
@@ -309,9 +320,10 @@ export default async function(ctx: ConnectorContext): Promise<void> {
     async fetch(req) {
       const body = await req.json();
 
-      // 서명 검증 (Connection의 secrets에서 주입)
-      if (secrets.WEBHOOK_SECRET) {
-        const isValid = verifyTelegramSignature(req, secrets.WEBHOOK_SECRET);
+      // 서명 검증 (권장: secrets에서 시크릿 읽어 자체 수행)
+      const signingSecret = secrets.SIGNING_SECRET || secrets.WEBHOOK_SECRET;
+      if (signingSecret) {
+        const isValid = verifyTelegramSignature(req, signingSecret);
         if (!isValid) {
           logger.warn('Telegram 서명 검증 실패');
           return new Response('Unauthorized', { status: 401 });

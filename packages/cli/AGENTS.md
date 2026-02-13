@@ -8,6 +8,7 @@
 - `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
 - runtime runner가 BundleLoader 기반으로 선택된 Swarm의 Connection/ingress를 해석하고 Connector entry 실행, ConnectorEvent 라우팅, Agent LLM 실행(Anthropic), Tool 실행, Telegram 응답 전송을 처리
+- `run`에서 `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 키를 사용하고, 동일 키 active runtime이 있으면 재사용(resume)한다
 - `run` 시 프로세스 stdout/stderr를 `~/.goondan/runtime/logs/<instanceKey>/` 파일로 기록
 - `instance list` 시 현재 레이아웃(`workspaces/*` + `runtime/active.json`)을 병합하고 legacy `instances/*`는 기본 조회에서 제외
 - `instance delete` 시 active runtime(`runtime/active.json`) + 다중 레이아웃 인스턴스 경로(`workspaces/*/instances/*`, `instances/*/*`)를 함께 정리

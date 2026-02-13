@@ -19,7 +19,7 @@
 Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 **선언적 YAML**로 정의하는 체계이다. Kubernetes의 리소스 모델에서 영감을 받아, 모든 구성 요소를 `apiVersion`, `kind`, `metadata`, `spec`의 4필드 구조로 통일한다. 이를 통해:
 
 - **일관성**: 8종의 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package) 모두 동일한 구조를 따르므로, 도구와 검증기를 범용으로 구현할 수 있다.
-- **참조 무결성**: ObjectRef와 Selector 문법으로 리소스 간 관계를 명확히 선언하고, 로드 단계에서 모든 참조의 유효성을 검증한다.
+- **참조 무결성**: ObjectRef 문법으로 리소스 간 관계를 명확히 선언하고, 로드 단계에서 모든 참조의 유효성을 검증한다.
 - **보안 분리**: 민감값(API 키, 토큰)은 ValueSource/SecretRef 패턴으로 외부 소스에서 주입하여, 구성 파일에 비밀값이 직접 노출되지 않도록 한다.
 - **확장 가능한 버전 관리**: `apiVersion` 필드를 통해 비호환 변경을 명시적으로 구분하고 관리한다.
 
@@ -27,7 +27,7 @@ Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 
 
 1. **단일 식별**: 모든 리소스는 `kind + metadata.name` 조합(동일 package 범위 내)으로 고유하게 식별된다.
 2. **Fail-Fast 검증**: 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행하며, 하나라도 오류가 있으면 부분 로드 없이 전체를 거부한다.
-3. **선언적 참조**: 리소스 간 관계는 ObjectRef(`Kind/name` 또는 `ref`) 또는 Selector로 선언하며, 런타임이 참조를 해석한다.
+3. **선언적 참조**: 리소스 간 관계는 ObjectRef(`Kind/name` 또는 `ref`)로 선언하며, 런타임이 참조를 해석한다.
 4. **Bun 네이티브**: Tool, Extension, Connector 실행 환경은 Bun으로 통일한다.
 
 ---
@@ -55,19 +55,14 @@ Goondan Config Plane은 에이전트 스웜을 구성하는 모든 리소스를 
 3. namespace 개념 대신 `package` 필드로 참조 범위를 명시해야 한다 (SHOULD).
 4. 참조된 리소스가 존재하지 않으면 검증 단계에서 오류로 처리해야 한다 (MUST).
 
-### 2.4 Selector + Overrides
 
-1. 블록에 `selector`가 있으면 선택형 조립으로 해석해야 한다 (MUST).
-2. 선택된 리소스에 `overrides`를 적용할 수 있어야 한다 (MUST).
-3. 기본 병합 규칙은 객체 재귀 병합, 스칼라 덮어쓰기, 배열 교체를 따른다 (SHOULD).
-
-### 2.5 ValueSource
+### 2.4 ValueSource
 
 1. `value`와 `valueFrom`은 동시에 존재할 수 없다 (MUST).
 2. `valueFrom`에서 `env`와 `secretRef`는 동시에 존재할 수 없다 (MUST).
 3. 비밀값(access token, refresh token, client secret 등)은 Base Config에 직접 포함하지 않아야 한다 (SHOULD).
 
-### 2.6 구성 검증
+### 2.5 구성 검증
 
 1. 구성 검증은 Runtime 시작 전 "로드 단계"에서 수행되어야 한다 (MUST).
 2. 오류가 하나라도 있으면 부분 로드 없이 전체 구성을 거부해야 한다 (MUST).
@@ -160,7 +155,7 @@ interface ResourceMetadata {
   /** 리소스 이름 (동일 Kind 내 고유) */
   name: string;
 
-  /** 라벨 (선택) - Selector 매칭에 사용 */
+  /** 라벨 (선택) - 미래 확장을 위해 예약 */
   labels?: Record<string, string>;
 
   /** 어노테이션 (선택) - 임의의 메타데이터 저장 */
@@ -187,7 +182,7 @@ metadata:
 2. `name`은 SHOULD 영문 소문자, 숫자, 하이픈(`-`)으로 구성되며, 영문 소문자로 시작해야 한다.
 3. `name`은 SHOULD 63자를 초과하지 않아야 한다.
 4. `labels`의 키와 값은 MUST 문자열이어야 한다.
-5. `labels`는 MAY Selector에서 리소스 매칭에 사용될 수 있다.
+5. `labels`는 미래 확장을 위해 예약되어 있으며, 현재는 문서화 목적으로만 사용된다.
 6. `annotations`는 런타임 동작에 영향을 주지 않는 메타 정보 저장용이다.
 
 ---
@@ -252,68 +247,7 @@ toolRef:
 
 ---
 
-## 6. Selector + Overrides 조립 문법
-
-Selector는 라벨 기반으로 리소스를 선택하고, Overrides로 선택된 리소스의 일부 설정을 덮어쓸 수 있다.
-
-### TypeScript 인터페이스
-
-```typescript
-import type {
-  Selector,
-  SelectorWithOverrides,
-  RefItem,
-  RefOrSelector,
-} from './shared-types';
-```
-
-`Selector`/`SelectorWithOverrides`/`RefItem`/`RefOrSelector` 원형은 `docs/specs/shared-types.md` 2절을 따른다.
-
-### YAML 예시
-
-```yaml
-# 단일 이름 선택
-tools:
-  - selector:
-      kind: Tool
-      name: bash
-
-# 라벨 기반 선택 + 오버라이드
-tools:
-  - selector:
-      kind: Tool
-      matchLabels:
-        tier: base
-    overrides:
-      spec:
-        errorMessageLimit: 2000
-
-# Agent에서 혼합 사용 (ref + selector)
-tools:
-  - ref: "Tool/bash"
-  - ref: "Tool/file-system"
-  - selector:
-      kind: Tool
-      matchLabels:
-        tier: base
-    overrides:
-      spec:
-        errorMessageLimit: 2000
-```
-
-### 병합 규칙
-
-1. `selector` 블록이 있으면 MUST 선택형으로 해석한다.
-2. `matchLabels`의 모든 키-값 쌍이 일치하는 리소스만 선택된다 (MUST, AND 조건).
-3. 병합 규칙 (SHOULD):
-   - **객체**: 재귀적으로 병합
-   - **스칼라**: 덮어쓰기
-   - **배열**: 전체 교체 (요소 병합 아님)
-4. `selector.name`과 `selector.matchLabels`가 동시에 있으면 AND 조건으로 해석한다 (MUST).
-
----
-
-## 7. ValueSource / SecretRef 타입
+## 6. ValueSource / SecretRef 타입
 
 환경 변수나 비밀 저장소에서 값을 주입하기 위한 패턴을 정의한다.
 
@@ -355,9 +289,9 @@ clientSecret:
 
 ---
 
-## 8. 리소스 Kind별 스키마
+## 7. 리소스 Kind별 스키마
 
-### 8.1 Model
+### 7.1 Model
 
 Model은 LLM 프로바이더 설정을 정의한다. Runtime은 provider 차이를 추상화한 공통 호출 인터페이스를 제공하여, 에이전트가 특정 프로바이더에 종속되지 않도록 한다.
 
@@ -451,7 +385,7 @@ spec:
 
 ---
 
-### 8.2 Tool
+### 7.2 Tool
 
 Tool은 LLM이 호출할 수 있는 함수를 정의한다. Tool 호출은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수 호출로 실행된다.
 
@@ -571,7 +505,7 @@ LLM 도구 이름:  file-system__read,  file-system__write
 
 ---
 
-### 8.3 Extension
+### 7.3 Extension
 
 Extension은 라이프사이클 미들웨어 인터셉터를 정의한다. 모든 Extension은 Bun으로 실행된다 (`runtime` 필드 없음).
 
@@ -683,7 +617,7 @@ export function register(api: ExtensionApi): void {
 
 ---
 
-### 8.4 Agent
+### 7.4 Agent
 
 Agent는 에이전트 실행을 구성하는 중심 리소스이다.
 
@@ -699,9 +633,9 @@ interface AgentSpec {
   /** 프롬프트 설정 */
   prompts: AgentPrompts;
   /** 사용할 Tool 목록 */
-  tools?: RefOrSelector[];
+  tools?: RefItem[];
   /** 사용할 Extension 목록 */
-  extensions?: RefOrSelector[];
+  extensions?: RefItem[];
 }
 
 /**
@@ -759,10 +693,6 @@ spec:
   tools:
     - ref: "Tool/bash"
     - ref: "Tool/file-system"
-    - selector:
-        kind: Tool
-        matchLabels:
-          tier: base
 
   extensions:
     - ref: "Extension/logging"
@@ -802,8 +732,8 @@ spec:
 | `prompts` | MUST | object | `systemPrompt` 또는 `systemRef` 중 하나 이상 |
 | `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
 | `prompts.systemRef` | MAY | string | 파일 경로 |
-| `tools` | MAY | array | ObjectRef/RefItem/Selector 배열 |
-| `extensions` | MAY | array | ObjectRef/RefItem/Selector 배열 |
+| `tools` | MAY | array | RefItem 배열 |
+| `extensions` | MAY | array | RefItem 배열 |
 
 **추가 검증 규칙:**
 - `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
@@ -811,7 +741,7 @@ spec:
 
 ---
 
-### 8.5 Swarm
+### 7.5 Swarm
 
 Swarm은 Agent들의 집합과 실행 정책을 정의한다.
 
@@ -825,7 +755,7 @@ interface SwarmSpec {
   /** 진입점 Agent */
   entryAgent: ObjectRefLike;
   /** 포함된 Agent 목록 */
-  agents: RefOrSelector[];
+  agents: RefItem[];
   /** 실행 정책 */
   policy?: SwarmPolicy;
 }
@@ -903,7 +833,7 @@ spec:
 
 ---
 
-### 8.6 Connector
+### 7.6 Connector
 
 Connector는 외부 프로토콜 이벤트에 반응하여 정규화된 ConnectorEvent를 발행하는 **독립 프로세스**를 정의한다. Connector는 프로토콜 처리(HTTP 서버, cron 스케줄러, WebSocket 등)를 **자체적으로** 관리한다. 모든 Connector는 Bun으로 실행된다 (`runtime` 필드 없음).
 
@@ -987,13 +917,13 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ---
 
-### 8.7 Connection
+### 7.7 Connection
 
-Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙, 서명 검증 시크릿 설정을 담당한다.
+Connection은 Connector를 실제 배포 환경에 바인딩하는 리소스이다. 시크릿 제공, ConnectorEvent 기반 ingress 라우팅 규칙을 담당한다. 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행한다.
 
 #### TypeScript 인터페이스
 
-`ConnectionSpec`, `IngressConfig`, `IngressRule`, `IngressMatch`, `IngressRoute`, `ConnectionVerify` 원형은 `docs/specs/connection.md` 3.2절을 따른다.
+`ConnectionSpec`, `IngressConfig`, `IngressRule`, `IngressMatch`, `IngressRoute` 원형은 `docs/specs/connection.md` 3.2절을 따른다.
 
 #### YAML 예시
 
@@ -1006,12 +936,15 @@ spec:
   connectorRef: "Connector/telegram"
   swarmRef: "Swarm/default"
   secrets:
-    botToken:
+    BOT_TOKEN:
       valueFrom:
         env: TELEGRAM_BOT_TOKEN
     PORT:
       valueFrom:
         env: TELEGRAM_WEBHOOK_PORT
+    SIGNING_SECRET:
+      valueFrom:
+        env: TELEGRAM_WEBHOOK_SECRET
   ingress:
     rules:
       - match:
@@ -1021,11 +954,6 @@ spec:
       - match:
           event: command
         route: {}  # entryAgent로 라우팅
-  verify:
-    webhook:
-      signingSecret:
-        valueFrom:
-          env: TELEGRAM_WEBHOOK_SECRET
 
 ---
 # CLI Connection (가장 단순한 형태)
@@ -1047,24 +975,23 @@ spec:
 |------|------|------|------|
 | `connectorRef` | MUST | ObjectRefLike | 유효한 Connector 참조 |
 | `swarmRef` | MAY | ObjectRefLike | 유효한 Swarm 참조 (생략 시 Bundle 내 첫 번째 Swarm) |
-| `secrets` | MAY | Record<string, ValueSource> | Connector에 전달할 시크릿 |
+| `secrets` | MAY | Record<string, ValueSource> | Connector에 전달할 시크릿 (서명 시크릿 포함) |
 | `ingress.rules` | MAY | array | IngressRule 배열 |
 | `ingress.rules[].match.event` | SHOULD | string | Connector의 events[].name에 선언된 이름 |
 | `ingress.rules[].route.agentRef` | MAY | ObjectRefLike | 유효한 Agent 참조 |
-| `verify.webhook.signingSecret` | MAY | ValueSource | 서명 시크릿 |
 
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
 - `swarmRef`가 지정된 경우, 유효한 Swarm 리소스를 참조해야 한다 (MUST). 생략 시 Bundle 내 첫 번째 Swarm을 사용한다 (MUST).
 - `secrets`는 Connector 프로세스에 환경변수 또는 컨텍스트로 전달되어야 한다 (MUST).
-- 서명 검증 실패 시 Connector는 ConnectorEvent를 emit하지 않아야 한다 (MUST).
+- 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행해야 한다 (SHOULD).
 - 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다 (MUST).
 - `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다 (MUST).
-- OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT). `auth` 필드는 지원하지 않는다.
+- OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT).
 
 ---
 
-### 8.8 Package
+### 7.8 Package
 
 Package는 프로젝트의 최상위 매니페스트 리소스이다. 의존성, 버전, 레지스트리 정보를 포함한다.
 
@@ -1111,12 +1038,12 @@ spec:
 
 ---
 
-## 9. 공통 타입 참조
+## 8. 공통 타입 참조
 
 이 문서에서 사용되는 공통 타입은 `docs/specs/shared-types.md`를 단일 기준(SSOT)으로 사용한다.
 
 - JSON 타입: `JsonPrimitive`, `JsonValue`, `JsonObject`, `JsonArray`
-- 참조 타입: `ObjectRefLike`, `ObjectRef`, `RefItem`, `Selector`, `SelectorWithOverrides`, `RefOrSelector`
+- 참조 타입: `ObjectRefLike`, `ObjectRef`, `RefItem`
 - 비밀값 타입: `ValueSource`, `ValueFrom`, `SecretRef`
 - 메시지/도구 타입: `Message`, `ToolContext`
 
@@ -1124,7 +1051,7 @@ spec:
 
 ---
 
-## 10. Validation 규칙 요약
+## 9. Validation 규칙 요약
 
 ### 공통 규칙
 

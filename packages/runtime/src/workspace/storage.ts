@@ -93,20 +93,54 @@ export class FileWorkspaceStorage {
     const events = await this.readEvents(instanceKey);
     const applied = applyMessageEvents(baseMessages, events);
 
-    await this.writeBaseMessages(instanceKey, applied.messages);
+    await this.writeBaseMessages(instanceKey, applied.messages, baseMessages, events);
     await this.clearEvents(instanceKey);
   }
 
-  async writeBaseMessages(instanceKey: string, messages: Message[]): Promise<void> {
+  /**
+   * Write base messages according to spec (workspace.md §7.3.1, §2.4).
+   *
+   * Strategy:
+   * - Prefer delta append if possible (SHOULD)
+   * - Use full rewrite only on mutation (replace/remove/truncate)
+   *
+   * Delta append condition:
+   * - All events are "append" type
+   * - newMessages = oldMessages + appendedMessages
+   */
+  async writeBaseMessages(
+    instanceKey: string,
+    newMessages: Message[],
+    oldMessages?: Message[],
+    events?: MessageEvent[],
+  ): Promise<void> {
     const basePath = this.paths.instanceMessageBasePath(instanceKey);
     await ensureParentDir(basePath);
 
-    const lines = messages.map((message) => JSON.stringify(serializeMessage(message)));
-    const content = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+    // Check if we can use delta append
+    const canDeltaAppend =
+      oldMessages !== undefined &&
+      events !== undefined &&
+      events.length > 0 &&
+      events.every((e) => e.type === "append") &&
+      newMessages.length === oldMessages.length + events.length;
 
-    const tempPath = `${basePath}.tmp`;
-    await fs.writeFile(tempPath, content, "utf8");
-    await fs.rename(tempPath, basePath);
+    if (canDeltaAppend) {
+      // Delta append: only write new messages
+      const appendCount = events.length;
+      const appendedMessages = newMessages.slice(-appendCount);
+      const lines = appendedMessages.map((message) => JSON.stringify(serializeMessage(message)));
+      const content = `${lines.join("\n")}\n`;
+      await fs.appendFile(basePath, content, "utf8");
+    } else {
+      // Full rewrite (mutation detected or no optimization possible)
+      const lines = newMessages.map((message) => JSON.stringify(serializeMessage(message)));
+      const content = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+
+      const tempPath = `${basePath}.tmp`;
+      await fs.writeFile(tempPath, content, "utf8");
+      await fs.rename(tempPath, basePath);
+    }
   }
 
   async clearEvents(instanceKey: string): Promise<void> {

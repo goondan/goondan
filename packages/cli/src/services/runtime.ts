@@ -4,6 +4,7 @@ import { closeSync, existsSync, openSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parseYamlDocuments, WorkspacePaths } from '@goondan/runtime';
 import { configError } from '../errors.js';
 import type {
   RuntimeController,
@@ -137,6 +138,63 @@ function resolveProcessLogPaths(stateRoot: string, instanceKey: string, processN
   };
 }
 
+function isProcessAlive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readPackageNameFromManifest(manifestPath: string): Promise<string | undefined> {
+  try {
+    const raw = await readFile(manifestPath, 'utf8');
+    const docs = parseYamlDocuments(raw);
+    for (const doc of docs) {
+      if (!isObjectRecord(doc)) {
+        continue;
+      }
+
+      if (doc['kind'] !== 'Package') {
+        continue;
+      }
+
+      const metadata = doc['metadata'];
+      if (!isObjectRecord(metadata)) {
+        continue;
+      }
+
+      const name = metadata['name'];
+      if (typeof name === 'string' && name.trim().length > 0) {
+        return name.trim();
+      }
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveDefaultInstanceKey(
+  manifestPath: string,
+  stateRoot: string,
+): Promise<string> {
+  const packageName = await readPackageNameFromManifest(manifestPath);
+  const projectRoot = path.dirname(manifestPath);
+  const workspace = new WorkspacePaths({
+    stateRoot,
+    projectRoot,
+    packageName,
+  });
+  return workspace.workspaceId;
+}
+
 function buildRunnerArgs(input: RunnerStartInput): string[] {
   const args = [
     '--bundle-path',
@@ -199,7 +257,19 @@ export class LocalRuntimeController implements RuntimeController {
     const runtimeDir = path.join(stateRoot, 'runtime');
     await mkdir(runtimeDir, { recursive: true });
 
-    const instanceKey = request.instanceKey ?? `instance-${Date.now()}`;
+    const instanceKey = request.instanceKey ?? (await resolveDefaultInstanceKey(manifestPath, stateRoot));
+    const activePath = path.join(runtimeDir, 'active.json');
+    if (await exists(activePath)) {
+      const rawActive = await readFile(activePath, 'utf8');
+      const active = parseRuntimeState(rawActive);
+      if (active && active.instanceKey === instanceKey && isProcessAlive(active.pid)) {
+        return {
+          instanceKey,
+          pid: active.pid,
+        };
+      }
+    }
+
     const runner = await this.startDetachedRunner({
       manifestPath,
       stateRoot,
@@ -222,7 +292,7 @@ export class LocalRuntimeController implements RuntimeController {
       ],
     };
 
-    await writeFile(path.join(runtimeDir, 'active.json'), JSON.stringify(state, null, 2), 'utf8');
+    await writeFile(activePath, JSON.stringify(state, null, 2), 'utf8');
 
     return {
       instanceKey,

@@ -165,7 +165,8 @@ export function createMinimalToolContext(input: {
   toolCallId: string;
   message: Message;
   workdir: string;
-  logger?: Pick<Console, "debug" | "info" | "warn" | "error">;
+  logger?: Console;
+  runtime?: import("../types.js").AgentToolRuntime;
 }): ToolContext {
   return {
     agentName: input.agentName,
@@ -176,5 +177,6 @@ export function createMinimalToolContext(input: {
     message: input.message,
     workdir: input.workdir,
     logger: input.logger ?? console,
+    runtime: input.runtime,
   };
 }

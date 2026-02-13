@@ -1,7 +1,5 @@
-import type { JsonObject, JsonValue, ToolCatalogItem, ToolContext } from "../types.js";
+import type { ToolCatalogItem, ToolHandler } from "../types.js";
 import { parseToolName } from "./naming.js";
-
-export type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue>;
 
 interface ToolEntry {
   item: ToolCatalogItem;

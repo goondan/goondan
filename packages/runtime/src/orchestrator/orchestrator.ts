@@ -141,11 +141,42 @@ export class OrchestratorImpl implements Orchestrator {
       toRespawn: [],
     };
 
+    for (const agentName of this.desiredAgents) {
+      if (this.hasStateForAgent(agentName)) {
+        continue;
+      }
+
+      const instanceKey = "default";
+      this.spawn(agentName, instanceKey);
+      result.toSpawn.push({
+        agentName,
+        instanceKey,
+      });
+    }
+
     for (const connectorName of this.desiredConnectors) {
       const connector = this.connectorState.get(connectorName);
       if (connector === undefined || connector.process === null) {
         this.spawnConnector(connectorName);
       }
+    }
+
+    for (const [connectorName, state] of this.connectorState.entries()) {
+      if (this.desiredConnectors.has(connectorName)) {
+        continue;
+      }
+
+      result.toTerminate.push({
+        agentName: connectorName,
+        reason: "connector_not_in_desired_state",
+      });
+
+      if (state.process !== null) {
+        state.process.kill("SIGTERM");
+        state.process = null;
+      }
+
+      this.connectorState.delete(connectorName);
     }
 
     for (const [key, state] of this.agentState.entries()) {
@@ -268,6 +299,7 @@ export class OrchestratorImpl implements Orchestrator {
     state.process = process;
     state.pid = process.pid;
     state.status = "spawning";
+    state.nextSpawnAllowedAt = undefined;
 
     process.onMessage((message) => {
       this.route(message);
@@ -276,8 +308,15 @@ export class OrchestratorImpl implements Orchestrator {
     process.onExit((code) => {
       state.process = null;
 
+      if (state.status === "draining" || state.status === "terminated") {
+        state.status = "terminated";
+        this.resetCrashTracking(state);
+        return;
+      }
+
       if (code === 0) {
         state.status = "terminated";
+        this.resetCrashTracking(state);
         return;
       }
 
@@ -288,6 +327,7 @@ export class OrchestratorImpl implements Orchestrator {
         const backoffMs = this.calculateBackoffMs(state.consecutiveCrashes);
         state.status = "crashLoopBackOff";
         state.nextSpawnAllowedAt = new Date(this.now().getTime() + backoffMs);
+        this.logCrashLoopBackOff(state, backoffMs);
       }
     });
 
@@ -321,6 +361,7 @@ export class OrchestratorImpl implements Orchestrator {
   private async gracefulShutdown(state: AgentRuntimeState, options: ShutdownOptions = {}): Promise<void> {
     if (state.process === null) {
       state.status = "terminated";
+      this.resetCrashTracking(state);
       return;
     }
 
@@ -381,6 +422,7 @@ export class OrchestratorImpl implements Orchestrator {
           state.process = null;
         }
         state.status = "terminated";
+        this.resetCrashTracking(state);
         state.shutdownRequest = undefined;
 
         if (resolvePromise !== undefined) {
@@ -416,6 +458,35 @@ export class OrchestratorImpl implements Orchestrator {
     );
 
     return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  private hasStateForAgent(agentName: string): boolean {
+    for (const state of this.agentState.values()) {
+      if (state.agentName === agentName) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private resetCrashTracking(state: AgentRuntimeState): void {
+    state.consecutiveCrashes = 0;
+    state.nextSpawnAllowedAt = undefined;
+  }
+
+  private logCrashLoopBackOff(state: AgentRuntimeState, backoffMs: number): void {
+    console.warn("[orchestrator] crashLoopBackOff", {
+      event: "orchestrator.crashLoopBackOff",
+      swarmName: this.swarmName,
+      agentName: state.agentName,
+      instanceKey: state.instanceKey,
+      status: state.status,
+      consecutiveCrashes: state.consecutiveCrashes,
+      crashThreshold: this.crashThreshold,
+      backoffMs,
+      nextSpawnAllowedAt: state.nextSpawnAllowedAt?.toISOString(),
+    });
   }
 }
 

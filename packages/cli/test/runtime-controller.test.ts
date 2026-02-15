@@ -71,6 +71,24 @@ async function waitForFile(filePath: string, timeoutMs = 5000): Promise<string> 
   throw new Error(`파일 생성 대기 시간 초과: ${filePath}`);
 }
 
+function parseConnectorPidMarker(raw: string): { pid: number; ppid: number } {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('connector marker 형식이 객체가 아닙니다.');
+  }
+  if (!('pid' in parsed) || typeof parsed.pid !== 'number') {
+    throw new Error('connector marker에 pid가 없습니다.');
+  }
+  if (!('ppid' in parsed) || typeof parsed.ppid !== 'number') {
+    throw new Error('connector marker에 ppid가 없습니다.');
+  }
+
+  return {
+    pid: parsed.pid,
+    ppid: parsed.ppid,
+  };
+}
+
 const basicBundle = `
 apiVersion: goondan.ai/v1
 kind: Package
@@ -97,6 +115,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
+  prompts:
+    systemPrompt: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -169,6 +189,67 @@ spec:
 
 const connectorConfigBundle = connectorBundle.replace('  secrets:', '  config:');
 
+const connectorSecretRefBundle = `
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/test-runtime"
+spec:
+  version: "0.1.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: dummy-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    value: "dummy"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: bot
+spec:
+  modelConfig:
+    modelRef: "Model/dummy-model"
+  prompts:
+    systemPrompt: "test"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/bot"
+  agents:
+    - ref: "Agent/bot"
+---
+apiVersion: goondan.ai/v1
+kind: Connector
+metadata:
+  name: sample-connector
+spec:
+  entry: "./connector.js"
+  events:
+    - name: sample_event
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: sample-connection
+spec:
+  connectorRef: "Connector/sample-connector"
+  swarmRef: "Swarm/default"
+  secrets:
+    MARKER_PATH:
+      valueFrom:
+        secretRef:
+          ref: "Secret/runtime-marker"
+          key: "path"
+`;
+
 const connectorSource = `
 import { writeFile } from 'node:fs/promises';
 
@@ -178,7 +259,7 @@ export default async function run(ctx) {
     throw new Error('MARKER_PATH secret is required');
   }
 
-  await writeFile(markerPath, 'started\\n', 'utf8');
+  await writeFile(markerPath, JSON.stringify({ pid: process.pid, ppid: process.ppid }) + '\\n', 'utf8');
   await new Promise(() => {});
 }
 `;
@@ -391,7 +472,7 @@ describe('LocalRuntimeController.startOrchestrator', () => {
     }
   });
 
-  it('connection으로 참조된 connector entry를 실제로 실행한다', async () => {
+  it('connection으로 참조된 connector entry를 child process에서 실행한다', async () => {
     const fixture = await createRuntimeFixtureWithConnector(connectorBundle, connectorSource);
     const markerPath = path.join(fixture.rootDir, 'connector.marker');
     let startedPid: number | undefined;
@@ -415,7 +496,10 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       startedPid = result.pid;
 
       const marker = await waitForFile(markerPath);
-      expect(marker.trim()).toBe('started');
+      const pidMarker = parseConnectorPidMarker(marker);
+      expect(pidMarker.pid).toBeGreaterThan(0);
+      expect(pidMarker.pid).not.toBe(result.pid);
+      expect(pidMarker.ppid).toBe(result.pid);
       expect(isProcessAlive(result.pid)).toBe(true);
     } finally {
       if (startedPid && isProcessAlive(startedPid)) {
@@ -451,6 +535,43 @@ describe('LocalRuntimeController.startOrchestrator', () => {
 
       const marker = await waitForFile(markerPath);
       expect(marker.trim()).toBe('started');
+      expect(isProcessAlive(result.pid)).toBe(true);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('connection의 valueFrom.secretRef 값을 env 컨벤션으로 해석해 connector에 전달한다', async () => {
+    const fixture = await createRuntimeFixtureWithConnector(connectorSecretRefBundle, connectorSource);
+    const markerPath = path.join(fixture.rootDir, 'connector.marker');
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        GOONDAN_SECRET_RUNTIME_MARKER_PATH: markerPath,
+      });
+
+      const result = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!result.pid) {
+        throw new Error('pid가 반환되지 않았습니다.');
+      }
+      startedPid = result.pid;
+
+      const marker = await waitForFile(markerPath);
+      const pidMarker = parseConnectorPidMarker(marker);
+      expect(pidMarker.pid).toBeGreaterThan(0);
+      expect(pidMarker.ppid).toBe(result.pid);
       expect(isProcessAlive(result.pid)).toBe(true);
     } finally {
       if (startedPid && isProcessAlive(startedPid)) {

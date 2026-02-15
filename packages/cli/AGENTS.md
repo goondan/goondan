@@ -7,6 +7,9 @@
 - 명령 파싱/라우팅 (`init`, `run`, `restart`, `validate`, `instance`, `logs`, `package`, `doctor`)
 - `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
+- `run --watch` 시 bundle/리소스 YAML 및 Tool/Connector entry 변경 감지 후 replacement orchestrator 재기동
+- runtime runner는 Connection별 Connector를 별도 child process로 실행하고 IPC(event/start/shutdown)로 연동
+- Connection `config`/`secrets`는 `value`, `valueFrom.env`, `valueFrom.secretRef(Secret/<name>)`를 해석해 Connector context로 전달
 - `run` 시 프로젝트 루트 기준으로 `.env`/`.env.local`/`--env-file`을 우선순위대로 로딩하고, 기존 시스템 env 값을 우선 유지
 - runtime-runner는 Tool 결과의 재시작 신호(`restartRequested`, `runtimeRestart`, `__goondanRestart`)를 감지하면 replacement orchestrator를 기동하고 active runtime pid를 갱신한 뒤 self-shutdown 한다
 - runtime runner가 BundleLoader 기반으로 선택된 Swarm의 Connection/ingress를 해석하고 Connector entry 실행, ConnectorEvent 라우팅, Agent LLM 실행(Anthropic), Tool 실행, Telegram 응답 전송을 처리
@@ -20,6 +23,7 @@
 - `logs` 명령으로 인스턴스/프로세스별 로그 파일 tail 조회 지원
 - CLI 빌드 시 `dist/bin.js` 실행 권한 유지(`chmod +x`)
 - 출력 포맷(구조화 오류, suggestion/helpUrl 포함)
+- `validate`는 runtime BundleLoader 기반 fail-fast 검증(참조/Kind/Package 문서 위치 포함)을 수행
 - 런타임/레지스트리/검증 계층과의 연동 인터페이스
 - `package publish` 시 `pnpm pack` 기반 tarball 생성 및 레지스트리 publish payload 구성
 - `package install` 시 tarball 다운로드/무결성 검증/압축 해제 및 lockfile 갱신

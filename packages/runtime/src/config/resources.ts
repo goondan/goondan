@@ -68,6 +68,8 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
     seenNames.add(identity);
   });
 
+  errors.push(...validatePackageDocumentPlacement(resources));
+
   const existing = new Set(
     resources.map((resource) =>
       toScopedResourceIdentity(resourcePackageScope(resource), resource.kind, resource.metadata.name),
@@ -125,6 +127,77 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
         path: `${pathPrefix}.entry`,
       });
     }
+
+    if (resource.metadata.name.includes("__")) {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Tool metadata.name must not contain '__'.",
+        path: `${resource.__file}#${resource.__docIndex}.metadata.name`,
+      });
+    }
+
+    if (!isJsonObject(resource.spec) || !Array.isArray(resource.spec.exports) || resource.spec.exports.length === 0) {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Tool.spec.exports must have at least one item.",
+        path: `${pathPrefix}.exports`,
+      });
+    } else {
+      const seenExportNames = new Set<string>();
+      resource.spec.exports.forEach((value, index) => {
+        if (!isJsonObject(value)) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Tool.spec.exports[] must be an object.",
+            path: `${pathPrefix}.exports[${index}]`,
+          });
+          return;
+        }
+
+        const exportName = value.name;
+        if (typeof exportName !== "string" || exportName.trim().length === 0) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Tool.spec.exports[].name is required.",
+            path: `${pathPrefix}.exports[${index}].name`,
+          });
+          return;
+        }
+
+        if (exportName.includes("__")) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Tool export name must not contain '__'.",
+            path: `${pathPrefix}.exports[${index}].name`,
+          });
+        }
+
+        if (seenExportNames.has(exportName)) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: `Duplicate Tool export name '${exportName}'.`,
+            path: `${pathPrefix}.exports[${index}].name`,
+          });
+        }
+        seenExportNames.add(exportName);
+
+        if (typeof value.description !== "string" || value.description.trim().length === 0) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Tool.spec.exports[].description is required.",
+            path: `${pathPrefix}.exports[${index}].description`,
+          });
+        }
+
+        if (!isJsonObject(value.parameters)) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Tool.spec.exports[].parameters must be an object schema.",
+            path: `${pathPrefix}.exports[${index}].parameters`,
+          });
+        }
+      });
+    }
   }
 
   if (resource.kind === "Agent") {
@@ -144,6 +217,25 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
         message: "Agent.spec.modelConfig.modelRef is required.",
         path: `${pathPrefix}.modelConfig.modelRef`,
       });
+    }
+
+    const prompts = resource.spec.prompts;
+    if (!isJsonObject(prompts)) {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Agent.spec.prompts is required.",
+        path: `${pathPrefix}.prompts`,
+      });
+    } else {
+      const hasSystemPrompt = typeof prompts.systemPrompt === "string" && prompts.systemPrompt.trim().length > 0;
+      const hasSystemRef = typeof prompts.systemRef === "string" && prompts.systemRef.trim().length > 0;
+      if (!hasSystemPrompt && !hasSystemRef) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Agent.spec.prompts.systemPrompt or systemRef is required.",
+          path: `${pathPrefix}.prompts`,
+        });
+      }
     }
   }
 
@@ -171,8 +263,138 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
         message: "Swarm.spec.agents must have at least one item.",
         path: `${pathPrefix}.agents`,
       });
+      return errors;
+    }
+
+    const entryAgentRef = extractNormalizedObjectRef(resource.spec.entryAgent);
+    const agentRefs = resource.spec.agents.map((value, index) => ({
+      ref: extractNormalizedObjectRef(value),
+      path: `${pathPrefix}.agents[${index}]`,
+    }));
+
+    agentRefs.forEach((value) => {
+      if (!value.ref) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Swarm.spec.agents[] must be an ObjectRef-like value.",
+          path: value.path,
+        });
+      }
+    });
+
+    if (entryAgentRef?.kind === "Agent") {
+      const included = agentRefs.some((value) =>
+        value.ref ? isSameAgentRef(entryAgentRef, value.ref) : false,
+      );
+      if (!included) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Swarm.spec.entryAgent must be included in Swarm.spec.agents.",
+          path: `${pathPrefix}.entryAgent`,
+        });
+      }
     }
   }
+
+  if (resource.kind === "Extension") {
+    if (!isJsonObject(resource.spec) || typeof resource.spec.entry !== "string") {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Extension.spec.entry is required.",
+        path: `${pathPrefix}.entry`,
+      });
+    }
+  }
+
+  if (resource.kind === "Connector") {
+    if (!isJsonObject(resource.spec) || typeof resource.spec.entry !== "string") {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Connector.spec.entry is required.",
+        path: `${pathPrefix}.entry`,
+      });
+    }
+
+    if (!isJsonObject(resource.spec) || !Array.isArray(resource.spec.events) || resource.spec.events.length === 0) {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Connector.spec.events must have at least one item.",
+        path: `${pathPrefix}.events`,
+      });
+    } else {
+      const seenEventNames = new Set<string>();
+      resource.spec.events.forEach((value, index) => {
+        if (!isJsonObject(value) || typeof value.name !== "string" || value.name.trim().length === 0) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: "Connector.spec.events[].name is required.",
+            path: `${pathPrefix}.events[${index}].name`,
+          });
+          return;
+        }
+
+        if (seenEventNames.has(value.name)) {
+          errors.push({
+            code: "E_CONFIG_SCHEMA_INVALID",
+            message: `Duplicate Connector event name '${value.name}'.`,
+            path: `${pathPrefix}.events[${index}].name`,
+          });
+        }
+        seenEventNames.add(value.name);
+      });
+    }
+  }
+
+  if (resource.kind === "Connection") {
+    if (!isJsonObject(resource.spec) || !hasObjectRefLike(resource.spec.connectorRef)) {
+      errors.push({
+        code: "E_CONFIG_SCHEMA_INVALID",
+        message: "Connection.spec.connectorRef is required.",
+        path: `${pathPrefix}.connectorRef`,
+      });
+    }
+  }
+
+  return errors;
+}
+
+function validatePackageDocumentPlacement(resources: RuntimeResource[]): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const grouped = new Map<string, RuntimeResource[]>();
+
+  resources
+    .filter((resource) => resource.kind === "Package")
+    .forEach((resource) => {
+      const scopeKey = resourcePackageScope(resource);
+      const groupKey = `${scopeKey}::${resource.__file}`;
+      const list = grouped.get(groupKey) ?? [];
+      list.push(resource);
+      grouped.set(groupKey, list);
+    });
+
+  grouped.forEach((group) => {
+    if (group.length > 1) {
+      group.forEach((resource) => {
+        errors.push({
+          code: "E_CONFIG_PACKAGE_DOC_DUPLICATED",
+          message: "Package document must appear at most once per file.",
+          path: `${resource.__file}#${resource.__docIndex}.kind`,
+          suggestion: "kind: Package 문서를 하나만 유지하세요.",
+        });
+      });
+    }
+
+    group.forEach((resource) => {
+      if (resource.__docIndex !== 0) {
+        errors.push({
+          code: "E_CONFIG_PACKAGE_DOC_POSITION",
+          message: "Package document must be the first YAML document in goondan.yaml.",
+          path: `${resource.__file}#${resource.__docIndex}.kind`,
+          suggestion: "kind: Package 문서를 첫 번째 문서로 이동하세요.",
+        });
+      }
+    });
+  });
 
   return errors;
 }
@@ -187,6 +409,61 @@ function hasObjectRefLike(value: unknown): boolean {
   }
 
   return typeof value.kind === "string" && typeof value.name === "string";
+}
+
+function extractNormalizedObjectRef(value: unknown): { kind: string; name: string; package?: string } | null {
+  if (typeof value === "string") {
+    if (!isObjectRefLikeString(value)) {
+      return null;
+    }
+
+    try {
+      return normalizeObjectRef(value);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  if ("ref" in value) {
+    return extractNormalizedObjectRef(value.ref);
+  }
+
+  if (typeof value.kind === "string" && typeof value.name === "string") {
+    try {
+      return normalizeObjectRef({
+        kind: value.kind,
+        name: value.name,
+        package: typeof value.package === "string" ? value.package : undefined,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isSameAgentRef(
+  left: { kind: string; name: string; package?: string },
+  right: { kind: string; name: string; package?: string },
+): boolean {
+  if (left.kind !== "Agent" || right.kind !== "Agent") {
+    return false;
+  }
+
+  if (left.name !== right.name) {
+    return false;
+  }
+
+  if (left.package && right.package) {
+    return left.package === right.package;
+  }
+
+  return true;
 }
 
 function collectObjectRefCandidates(value: unknown, path: string, parentKey = ""): RefCandidate[] {

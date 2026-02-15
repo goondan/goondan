@@ -27,6 +27,21 @@ describe("OrchestratorImpl graceful shutdown", () => {
       throw new Error("agent process missing");
     }
 
+    const agentStateValue = Reflect.get(orchestrator, "agentState");
+    expect(agentStateValue instanceof Map).toBe(true);
+    if (!(agentStateValue instanceof Map)) {
+      throw new Error("agentState map missing");
+    }
+
+    const runtimeState = agentStateValue.get("coder:default");
+    expect(runtimeState).toBeDefined();
+    if (runtimeState === undefined || runtimeState === null || typeof runtimeState !== "object") {
+      throw new Error("runtime state missing");
+    }
+
+    Reflect.set(runtimeState, "consecutiveCrashes", 3);
+    Reflect.set(runtimeState, "nextSpawnAllowedAt", new Date("2026-02-11T00:00:00.000Z"));
+
     const shutdownPromise = handle.shutdown({
       gracePeriodMs: 200,
       reason: "config_change",
@@ -48,5 +63,7 @@ describe("OrchestratorImpl graceful shutdown", () => {
 
     expect(agentProcess.killSignals).toContain("SIGTERM");
     expect(handle.status).toBe("terminated");
+    expect(handle.consecutiveCrashes).toBe(0);
+    expect(handle.nextSpawnAllowedAt).toBeUndefined();
   });
 });

@@ -3,8 +3,8 @@ import { Console } from 'node:console';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { closeSync, constants as fsConstants, openSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { closeSync, constants as fsConstants, existsSync, openSync, watch as watchFs, type FSWatcher } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   BundleLoader,
   buildToolName,
@@ -15,7 +15,6 @@ import {
   ToolExecutor,
   ToolRegistryImpl,
   WorkspacePaths,
-  type ConnectorContext,
   type JsonObject,
   type JsonSchemaProperty,
   type JsonSchemaObject,
@@ -39,6 +38,35 @@ interface RunnerStartErrorMessage {
 }
 
 type RunnerMessage = RunnerReadyMessage | RunnerStartErrorMessage;
+
+interface ConnectorChildStartMessage {
+  type: 'connector_start';
+  connectorEntryPath: string;
+  connectionName: string;
+  connectorName: string;
+  config: Record<string, string>;
+  secrets: Record<string, string>;
+}
+
+interface ConnectorChildShutdownMessage {
+  type: 'connector_shutdown';
+}
+
+type ConnectorChildCommandMessage = ConnectorChildStartMessage | ConnectorChildShutdownMessage;
+
+interface ConnectorChildStartedMessage {
+  type: 'connector_started';
+}
+
+interface ConnectorChildStartErrorMessage {
+  type: 'connector_start_error';
+  message: string;
+}
+
+interface ConnectorChildEventMessage {
+  type: 'connector_event';
+  event: unknown;
+}
 
 interface RunnerArguments {
   bundlePath: string;
@@ -111,6 +139,7 @@ interface RunnerPlan {
   connectors: ConnectorRunPlan[];
   agents: Map<string, AgentRuntimePlan>;
   toolExecutor: ToolExecutor;
+  watchTargets: string[];
   localPackageName?: string;
 }
 
@@ -124,10 +153,9 @@ interface ParsedConnectorEvent {
 interface RunningConnector {
   connectionName: string;
   connectorName: string;
-  promise: Promise<void>;
+  wait: Promise<void>;
+  terminate: () => Promise<void>;
 }
-
-type StartupProbe = { state: 'pending' } | { state: 'resolved' } | { state: 'rejected'; error: unknown };
 
 interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -141,6 +169,11 @@ interface RuntimeEngineState {
   workdir: string;
   runnerArgs: RunnerArguments;
   restartPromise?: Promise<void>;
+}
+
+interface ToolRegistrationResult {
+  entryPath: string;
+  catalogItems: ToolCatalogItem[];
 }
 
 interface ToolUseBlock {
@@ -163,6 +196,8 @@ interface TurnExecutionResult {
 
 const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
 const REPLACEMENT_STARTUP_TIMEOUT_MS = 5000;
+const CONNECTOR_CHILD_STARTUP_TIMEOUT_MS = 5000;
+const CONNECTOR_CHILD_SHUTDOWN_TIMEOUT_MS = 2000;
 const RESTART_FLAG_KEYS = ['restartRequested', 'runtimeRestart', '__goondanRestart'] as const;
 
 function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
@@ -179,6 +214,30 @@ function isRunnerStartErrorMessage(message: unknown): message is RunnerStartErro
   }
 
   return message.type === 'start_error' && typeof message.message === 'string';
+}
+
+function isConnectorChildStartedMessage(message: unknown): message is ConnectorChildStartedMessage {
+  if (!isJsonObject(message)) {
+    return false;
+  }
+
+  return message.type === 'connector_started';
+}
+
+function isConnectorChildStartErrorMessage(message: unknown): message is ConnectorChildStartErrorMessage {
+  if (!isJsonObject(message)) {
+    return false;
+  }
+
+  return message.type === 'connector_start_error' && typeof message.message === 'string';
+}
+
+function isConnectorChildEventMessage(message: unknown): message is ConnectorChildEventMessage {
+  if (!isJsonObject(message)) {
+    return false;
+  }
+
+  return message.type === 'connector_event' && Object.hasOwn(message, 'event');
 }
 
 function readRuntimeRestartSignal(value: unknown): { requested: boolean; reason?: string } | undefined {
@@ -809,26 +868,186 @@ function hasMatchingSwarm(resource: RuntimeResource, selectedSwarm: SelectedSwar
   return normalized.name === selectedSwarm.name;
 }
 
-function resolveSecretValue(source: unknown, env: NodeJS.ProcessEnv): string | undefined {
+function normalizeEnvToken(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+$/, '')
+    .toUpperCase();
+}
+
+function parseSecretRefName(refValue: string): string | undefined {
+  const trimmedRef = refValue.trim();
+  const match = /^Secret\/([^/]+)$/.exec(trimmedRef);
+  if (!match) {
+    return undefined;
+  }
+
+  const secretName = match[1];
+  if (!secretName) {
+    return undefined;
+  }
+
+  const trimmedName = secretName.trim();
+  if (trimmedName.length === 0) {
+    return undefined;
+  }
+
+  return trimmedName;
+}
+
+function buildSecretRefEnvCandidates(secretName: string, fieldName: string, keyName: string): string[] {
+  const secretToken = normalizeEnvToken(secretName);
+  const fieldToken = normalizeEnvToken(fieldName);
+  const keyToken = normalizeEnvToken(keyName);
+
+  const candidates = [
+    `GOONDAN_SECRET_${secretToken}_${keyToken}`,
+    `GOONDAN_SECRET_${secretToken}_${fieldToken}`,
+    `GOONDAN_SECRET_${secretToken}`,
+    `SECRET_${secretToken}_${keyToken}`,
+    `SECRET_${secretToken}_${fieldToken}`,
+    `SECRET_${secretToken}`,
+  ];
+
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    deduped.push(candidate);
+  }
+  return deduped;
+}
+
+function resolveSecretRefValue(
+  connectionName: string,
+  sectionName: 'config' | 'secret',
+  fieldName: string,
+  secretRef: unknown,
+  env: NodeJS.ProcessEnv,
+): string {
+  if (!isJsonObject(secretRef)) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}' valueFrom.secretRef 형식이 올바르지 않습니다.`,
+    );
+  }
+
+  const refValue = secretRef.ref;
+  if (typeof refValue !== 'string' || refValue.trim().length === 0) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}' valueFrom.secretRef.ref 형식이 올바르지 않습니다.`,
+    );
+  }
+
+  const secretName = parseSecretRefName(refValue);
+  if (!secretName) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}' valueFrom.secretRef.ref(${refValue})는 Secret/<name> 형식이어야 합니다.`,
+    );
+  }
+
+  const keyValue = secretRef.key;
+  let keyName = fieldName;
+  if (keyValue !== undefined) {
+    if (typeof keyValue !== 'string' || keyValue.trim().length === 0) {
+      throw new Error(
+        `Connection/${connectionName} ${sectionName} '${fieldName}' valueFrom.secretRef.key 형식이 올바르지 않습니다.`,
+      );
+    }
+    keyName = keyValue.trim();
+  }
+
+  const envCandidates = buildSecretRefEnvCandidates(secretName, fieldName, keyName);
+  if (envCandidates.length === 0) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}' secretRef(ref=${refValue}, key=${keyName}) env 후보를 생성할 수 없습니다.`,
+    );
+  }
+
+  for (const envName of envCandidates) {
+    const envValue = env[envName];
+    if (typeof envValue === 'string' && envValue.trim().length > 0) {
+      return envValue;
+    }
+  }
+
+  throw new Error(
+    `Connection/${connectionName} ${sectionName} '${fieldName}' secretRef(ref=${refValue}, key=${keyName}) 값을 해석할 수 없습니다. env candidates: ${envCandidates.join(', ')}`,
+  );
+}
+
+function resolveConnectionValue(
+  connectionName: string,
+  sectionName: 'config' | 'secret',
+  fieldName: string,
+  source: unknown,
+  env: NodeJS.ProcessEnv,
+): string {
   if (!isJsonObject(source)) {
-    return undefined;
+    throw new Error(`Connection/${connectionName} ${sectionName} '${fieldName}' 형식이 올바르지 않습니다.`);
   }
 
-  if (typeof source.value === 'string') {
-    return source.value;
-  }
-
+  const inlineValue = source.value;
   const valueFrom = source.valueFrom;
-  if (!isJsonObject(valueFrom) || typeof valueFrom.env !== 'string') {
-    return undefined;
+  const hasInlineValue = typeof inlineValue === 'string';
+  const hasValueFrom = isJsonObject(valueFrom);
+
+  if (hasInlineValue && hasValueFrom) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}'는 value와 valueFrom을 동시에 가질 수 없습니다.`,
+    );
   }
 
-  const envValue = env[valueFrom.env];
-  if (typeof envValue !== 'string' || envValue.trim().length === 0) {
-    return undefined;
+  if (hasInlineValue) {
+    return inlineValue;
   }
 
-  return envValue;
+  if (!hasValueFrom) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}'는 value 또는 valueFrom이 필요합니다.`,
+    );
+  }
+
+  const envNameValue = valueFrom.env;
+  const secretRefValue = valueFrom.secretRef;
+  const hasEnv = typeof envNameValue === 'string';
+  const hasSecretRef = secretRefValue !== undefined;
+
+  if (hasEnv && hasSecretRef) {
+    throw new Error(
+      `Connection/${connectionName} ${sectionName} '${fieldName}'는 valueFrom.env와 valueFrom.secretRef를 동시에 가질 수 없습니다.`,
+    );
+  }
+
+  if (hasEnv) {
+    const envName = envNameValue.trim();
+    if (envName.length === 0) {
+      throw new Error(
+        `Connection/${connectionName} ${sectionName} '${fieldName}' valueFrom.env 형식이 올바르지 않습니다.`,
+      );
+    }
+
+    const envValue = env[envName];
+    if (typeof envValue !== 'string' || envValue.trim().length === 0) {
+      throw new Error(
+        `Connection/${connectionName} ${sectionName} '${fieldName}' env(${envName}) 값을 찾을 수 없습니다.`,
+      );
+    }
+
+    return envValue;
+  }
+
+  if (hasSecretRef) {
+    return resolveSecretRefValue(connectionName, sectionName, fieldName, secretRefValue, env);
+  }
+
+  throw new Error(
+    `Connection/${connectionName} ${sectionName} '${fieldName}'는 valueFrom.env 또는 valueFrom.secretRef가 필요합니다.`,
+  );
 }
 
 function resolveConnectionSecrets(resource: RuntimeResource, env: NodeJS.ProcessEnv): Record<string, string> {
@@ -844,11 +1063,7 @@ function resolveConnectionSecrets(resource: RuntimeResource, env: NodeJS.Process
 
   const secrets: Record<string, string> = {};
   for (const [secretName, source] of Object.entries(value)) {
-    const resolved = resolveSecretValue(source, env);
-    if (!resolved) {
-      throw new Error(`Connection/${resource.metadata.name} secret '${secretName}' 값을 해석할 수 없습니다.`);
-    }
-    secrets[secretName] = resolved;
+    secrets[secretName] = resolveConnectionValue(resource.metadata.name, 'secret', secretName, source, env);
   }
 
   return secrets;
@@ -867,11 +1082,7 @@ function resolveConnectionConfig(resource: RuntimeResource, env: NodeJS.ProcessE
 
   const config: Record<string, string> = {};
   for (const [secretName, source] of Object.entries(value)) {
-    const resolved = resolveSecretValue(source, env);
-    if (!resolved) {
-      throw new Error(`Connection/${resource.metadata.name} config '${secretName}' 값을 해석할 수 없습니다.`);
-    }
-    config[secretName] = resolved;
+    config[secretName] = resolveConnectionValue(resource.metadata.name, 'config', secretName, source, env);
   }
 
   return config;
@@ -1256,7 +1467,7 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
 async function registerToolResource(
   resource: RuntimeResource,
   toolRegistry: ToolRegistryImpl,
-): Promise<ToolCatalogItem[]> {
+): Promise<ToolRegistrationResult> {
   const entryPath = await resolveEntryPath(resource, 'entry');
   const moduleValue: unknown = await import(pathToFileURL(entryPath).href);
   const handlers = readToolHandlers(moduleValue);
@@ -1309,7 +1520,10 @@ async function registerToolResource(
     catalogItems.push(catalogItem);
   }
 
-  return catalogItems;
+  return {
+    entryPath,
+    catalogItems,
+  };
 }
 
 function toAnthropicToolDefinitions(catalog: ToolCatalogItem[]): AnthropicToolDefinition[] {
@@ -1398,8 +1612,17 @@ function inferBotMaxConversationTurns(): number {
   return parsed;
 }
 
+function isPathInside(baseDir: string, targetPath: string): boolean {
+  const relative = path.relative(baseDir, targetPath);
+  if (relative.length === 0) {
+    return true;
+  }
+
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
 async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
-  const bundleDir = path.dirname(args.bundlePath);
+  const bundleDir = path.resolve(path.dirname(args.bundlePath));
   const loader = new BundleLoader({
     stateRoot: args.stateRoot,
   });
@@ -1419,10 +1642,19 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     throw new Error(missingSummary);
   }
   const maxStepsPerTurn = parseSwarmMaxStepsPerTurn(swarmResource);
+  const watchTargets = new Set<string>();
+  watchTargets.add(path.resolve(args.bundlePath));
+  for (const scannedFile of loaded.scannedFiles) {
+    const absolutePath = path.resolve(scannedFile);
+    if (isPathInside(bundleDir, absolutePath)) {
+      watchTargets.add(absolutePath);
+    }
+  }
 
   const toolRegistry = new ToolRegistryImpl();
   const toolExecutor = new ToolExecutor(toolRegistry);
   const registeredToolResources = new Map<string, ToolCatalogItem[]>();
+  const registeredToolEntryPaths = new Map<string, string>();
   const agentPlans = new Map<string, AgentRuntimePlan>();
 
   for (const agentRef of selectedSwarm.agents) {
@@ -1472,8 +1704,15 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       const identity = `${toolResource.__package ?? '__local__'}|${toolResource.metadata.name}`;
       let catalogForResource = registeredToolResources.get(identity);
       if (!catalogForResource) {
-        catalogForResource = await registerToolResource(toolResource, toolRegistry);
+        const registration = await registerToolResource(toolResource, toolRegistry);
+        catalogForResource = registration.catalogItems;
         registeredToolResources.set(identity, catalogForResource);
+        registeredToolEntryPaths.set(identity, registration.entryPath);
+      }
+
+      const registeredToolEntryPath = registeredToolEntryPaths.get(identity);
+      if (registeredToolEntryPath) {
+        watchTargets.add(registeredToolEntryPath);
       }
 
       for (const item of catalogForResource) {
@@ -1519,6 +1758,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     const config = resolveConnectionConfig(connection, process.env);
     const secrets = resolveConnectionSecrets(connection, process.env);
     const routeRules = parseIngressRouteRules(connection, selectedSwarm);
+    watchTargets.add(connectorEntryPath);
 
     connectors.push({
       swarmName: selectedSwarm.name,
@@ -1537,6 +1777,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     connectors,
     agents: agentPlans,
     toolExecutor,
+    watchTargets: [...watchTargets].sort((left, right) => left.localeCompare(right)),
     localPackageName,
   };
 }
@@ -2249,55 +2490,20 @@ async function handleConnectorEvent(
   });
 }
 
-type ConnectorRunner = (ctx: ConnectorContext) => Promise<void>;
-
-function isConnectorRunner(value: unknown): value is ConnectorRunner {
-  return typeof value === 'function';
-}
-
-async function importConnectorRunner(entryPath: string): Promise<ConnectorRunner> {
-  const loaded: unknown = await import(pathToFileURL(entryPath).href);
-  if (!isJsonObject(loaded)) {
-    throw new Error(`Connector 모듈 로드 결과가 객체가 아닙니다: ${entryPath}`);
+function connectorChildRunnerPath(): string {
+  const jsPath = fileURLToPath(new URL('./runtime-runner-connector-child.js', import.meta.url));
+  if (existsSync(jsPath)) {
+    return jsPath;
   }
 
-  const defaultExport = loaded.default;
-  if (!isConnectorRunner(defaultExport)) {
-    throw new Error(`Connector 모듈 default export가 함수가 아닙니다: ${entryPath}`);
+  return fileURLToPath(new URL('./runtime-runner-connector-child.ts', import.meta.url));
+}
+
+function sendConnectorChildCommand(child: ChildProcess, message: ConnectorChildCommandMessage): void {
+  if (!child.connected || typeof child.send !== 'function') {
+    throw new Error('Connector child IPC 채널이 연결되어 있지 않습니다.');
   }
-
-  return defaultExport;
-}
-
-function pendingProbe(): StartupProbe {
-  return { state: 'pending' };
-}
-
-function resolvedProbe(): StartupProbe {
-  return { state: 'resolved' };
-}
-
-function rejectedProbe(error: unknown): StartupProbe {
-  return { state: 'rejected', error };
-}
-
-async function probeConnectorStartup(plan: ConnectorRunPlan, promise: Promise<void>): Promise<void> {
-  const outcome = await Promise.race([
-    promise.then(() => resolvedProbe()).catch((error: unknown) => rejectedProbe(error)),
-    new Promise<StartupProbe>((resolve) => {
-      setTimeout(() => resolve(pendingProbe()), 0);
-    }),
-  ]);
-
-  if (outcome.state === 'pending') {
-    return;
-  }
-
-  if (outcome.state === 'resolved') {
-    throw new Error(`Connector/${plan.connectorName}가 시작 직후 종료되었습니다.`);
-  }
-
-  throw new Error(`Connector/${plan.connectorName} 시작 실패: ${unknownToErrorMessage(outcome.error)}`);
+  child.send(message);
 }
 
 async function startConnector(
@@ -2305,26 +2511,212 @@ async function startConnector(
   runnerPlan: RunnerPlan,
   runtime: RuntimeEngineState,
 ): Promise<RunningConnector> {
-  const runConnector = await importConnectorRunner(plan.connectorEntryPath);
   const logger = createConnectorLogger(plan);
-  const context: ConnectorContext = {
-    emit: async (event): Promise<void> => {
-      void handleConnectorEvent(runtime, runnerPlan, plan, event).catch((error) => {
-        logger.warn(`event handling failed: ${unknownToErrorMessage(error)}`);
-      });
-    },
-    config: plan.config,
-    secrets: plan.secrets,
-    logger,
+  const child = fork(connectorChildRunnerPath(), [], {
+    cwd: path.dirname(plan.connectorEntryPath),
+    env: process.env,
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+  });
+
+  if (!child.pid || child.pid <= 0) {
+    throw new Error(`Connector/${plan.connectorName} child process를 시작하지 못했습니다.`);
+  }
+
+  let startupSettled = false;
+  let exitSettled = false;
+  let expectedTermination = false;
+  let terminatePromise: Promise<void> | undefined;
+
+  let resolveStartup: (() => void) | undefined;
+  let rejectStartup: ((error: unknown) => void) | undefined;
+  const startupPromise = new Promise<void>((resolve, reject) => {
+    resolveStartup = resolve;
+    rejectStartup = reject;
+  });
+
+  let resolveExit: (() => void) | undefined;
+  let rejectExit: ((error: unknown) => void) | undefined;
+  const exitPromise = new Promise<void>((resolve, reject) => {
+    resolveExit = resolve;
+    rejectExit = reject;
+  });
+
+  const startupTimeout = setTimeout(() => {
+    if (startupSettled) {
+      return;
+    }
+    startupSettled = true;
+    rejectStartup?.(new Error(`Connector/${plan.connectorName} 시작 확인이 시간 내에 완료되지 않았습니다.`));
+  }, CONNECTOR_CHILD_STARTUP_TIMEOUT_MS);
+
+  const cleanup = (): void => {
+    clearTimeout(startupTimeout);
+    child.off('message', onMessage);
+    child.off('error', onError);
+    child.off('exit', onExit);
   };
 
-  const execution = runConnector(context);
-  await probeConnectorStartup(plan, execution);
+  const settleStartupSuccess = (): void => {
+    if (startupSettled) {
+      return;
+    }
+    startupSettled = true;
+    clearTimeout(startupTimeout);
+    resolveStartup?.();
+  };
+
+  const settleStartupFailure = (error: Error): void => {
+    if (startupSettled) {
+      return;
+    }
+    startupSettled = true;
+    clearTimeout(startupTimeout);
+    rejectStartup?.(error);
+  };
+
+  const settleExitSuccess = (): void => {
+    if (exitSettled) {
+      return;
+    }
+    exitSettled = true;
+    cleanup();
+    resolveExit?.();
+  };
+
+  const settleExitFailure = (error: Error): void => {
+    if (exitSettled) {
+      return;
+    }
+    exitSettled = true;
+    cleanup();
+    rejectExit?.(error);
+  };
+
+  const onMessage = (message: unknown): void => {
+    if (isConnectorChildEventMessage(message)) {
+      void handleConnectorEvent(runtime, runnerPlan, plan, message.event).catch((error) => {
+        logger.warn(`event handling failed: ${unknownToErrorMessage(error)}`);
+      });
+      return;
+    }
+
+    if (isConnectorChildStartedMessage(message)) {
+      settleStartupSuccess();
+      return;
+    }
+
+    if (isConnectorChildStartErrorMessage(message)) {
+      settleStartupFailure(new Error(`Connector/${plan.connectorName} 시작 실패: ${message.message}`));
+    }
+  };
+
+  const onError = (error: Error): void => {
+    const wrapped = new Error(`Connector/${plan.connectorName} child process 오류: ${error.message}`);
+    settleStartupFailure(wrapped);
+    if (expectedTermination) {
+      settleExitSuccess();
+      return;
+    }
+    settleExitFailure(wrapped);
+  };
+
+  const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+    const cause = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'unknown reason';
+    if (!startupSettled) {
+      settleStartupFailure(new Error(`Connector/${plan.connectorName} 초기화 중 종료되었습니다 (${cause}).`));
+    }
+
+    if (expectedTermination) {
+      settleExitSuccess();
+      return;
+    }
+
+    if (code === 0) {
+      settleExitFailure(new Error(`Connector/${plan.connectorName} (connection=${plan.connectionName})가 예기치 않게 종료되었습니다.`));
+      return;
+    }
+
+    settleExitFailure(new Error(`Connector/${plan.connectorName} (connection=${plan.connectionName}) 실패: ${cause}`));
+  };
+
+  child.on('message', onMessage);
+  child.on('error', onError);
+  child.on('exit', onExit);
+
+  const terminate = async (): Promise<void> => {
+    if (terminatePromise) {
+      return terminatePromise;
+    }
+
+    terminatePromise = (async () => {
+      expectedTermination = true;
+      const shutdownMessage: ConnectorChildShutdownMessage = {
+        type: 'connector_shutdown',
+      };
+
+      try {
+        sendConnectorChildCommand(child, shutdownMessage);
+      } catch {
+        // IPC 채널이 이미 닫힌 경우는 무시한다.
+      }
+
+      if (child.pid && child.pid > 0) {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // 이미 종료된 경우 무시한다.
+        }
+      }
+
+      await Promise.race([
+        exitPromise.catch(() => {
+          // 종료 과정의 에러는 종료 루틴에서 무시한다.
+        }),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, CONNECTOR_CHILD_SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
+
+      if (!exitSettled && child.pid && child.pid > 0) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // 이미 종료된 경우 무시한다.
+        }
+        await exitPromise.catch(() => {
+          // 종료 과정의 에러는 종료 루틴에서 무시한다.
+        });
+      }
+    })();
+
+    return terminatePromise;
+  };
+
+  const startMessage: ConnectorChildStartMessage = {
+    type: 'connector_start',
+    connectorEntryPath: plan.connectorEntryPath,
+    connectionName: plan.connectionName,
+    connectorName: plan.connectorName,
+    config: plan.config,
+    secrets: plan.secrets,
+  };
+  try {
+    sendConnectorChildCommand(child, startMessage);
+  } catch (error) {
+    await terminate();
+    throw new Error(`Connector/${plan.connectorName} 시작 요청을 전달하지 못했습니다: ${unknownToErrorMessage(error)}`);
+  }
+
+  await startupPromise.catch(async (error) => {
+    await terminate();
+    throw error;
+  });
 
   return {
     connectionName: plan.connectionName,
     connectorName: plan.connectorName,
-    promise: execution,
+    wait: exitPromise,
+    terminate,
   };
 }
 
@@ -2333,10 +2725,16 @@ async function startConnectors(
   runtime: RuntimeEngineState,
 ): Promise<RunningConnector[]> {
   const running: RunningConnector[] = [];
-  for (const connectorPlan of plan.connectors) {
-    const started = await startConnector(connectorPlan, plan, runtime);
-    running.push(started);
+  try {
+    for (const connectorPlan of plan.connectors) {
+      const started = await startConnector(connectorPlan, plan, runtime);
+      running.push(started);
+    }
+  } catch (error) {
+    await stopConnectors(running);
+    throw error;
   }
+
   return running;
 }
 
@@ -2347,20 +2745,21 @@ function monitorConnectors(connectors: RunningConnector[]): Promise<void> {
     });
   }
 
-  const watchers = connectors.map(async (connector) => {
-    try {
-      await connector.promise;
-      throw new Error(
-        `Connector/${connector.connectorName} (connection=${connector.connectionName})가 예기치 않게 종료되었습니다.`,
-      );
-    } catch (error) {
-      throw new Error(
-        `Connector/${connector.connectorName} (connection=${connector.connectionName}) 실패: ${unknownToErrorMessage(error)}`,
-      );
-    }
-  });
+  return Promise.race(connectors.map((connector) => connector.wait));
+}
 
-  return Promise.race(watchers);
+async function stopConnectors(connectors: RunningConnector[]): Promise<void> {
+  await Promise.all(
+    connectors.map(async (connector) => {
+      try {
+        await connector.terminate();
+      } catch (error) {
+        console.warn(
+          `[goondan-runtime] Connector/${connector.connectorName} (connection=${connector.connectionName}) 종료 실패: ${unknownToErrorMessage(error)}`,
+        );
+      }
+    }),
+  );
 }
 
 function waitForShutdownSignal(): Promise<void> {
@@ -2377,6 +2776,54 @@ function waitForShutdownSignal(): Promise<void> {
     process.once('SIGINT', shutdown);
     process.once('SIGTERM', shutdown);
   });
+}
+
+function startWatchMode(runtime: RuntimeEngineState, plan: RunnerPlan): () => void {
+  const watchers: FSWatcher[] = [];
+  let restartInProgress = false;
+
+  const triggerRestart = (reason: string): void => {
+    if (restartInProgress) {
+      return;
+    }
+    restartInProgress = true;
+    void requestRuntimeRestart(runtime, reason).finally(() => {
+      restartInProgress = false;
+    });
+  };
+
+  const uniqueTargets = [...new Set(plan.watchTargets)].sort((left, right) => left.localeCompare(right));
+  for (const target of uniqueTargets) {
+    try {
+      const watcher = watchFs(target, (eventType, fileName) => {
+        const changedPath = typeof fileName === 'string' && fileName.length > 0
+          ? path.resolve(path.dirname(target), fileName)
+          : target;
+        console.info(`[goondan-runtime] watch change detected type=${eventType} path=${changedPath}`);
+        triggerRestart(`watch:${changedPath}`);
+      });
+      watcher.on('error', (error: unknown) => {
+        console.warn(
+          `[goondan-runtime] watch error path=${target}: ${unknownToErrorMessage(error)}`,
+        );
+      });
+      watchers.push(watcher);
+    } catch (error) {
+      console.warn(`[goondan-runtime] watch registration skipped path=${target}: ${unknownToErrorMessage(error)}`);
+    }
+  }
+
+  if (watchers.length > 0) {
+    console.info(`[goondan-runtime] watch mode enabled targets=${watchers.length}`);
+  } else {
+    console.warn('[goondan-runtime] watch mode enabled but no files are currently watchable.');
+  }
+
+  return () => {
+    watchers.forEach((watcher) => {
+      watcher.close();
+    });
+  };
 }
 
 function summarizeConnectorPlans(connectors: ConnectorRunPlan[]): string {
@@ -2413,17 +2860,16 @@ async function preflight(args: RunnerArguments): Promise<RunnerPlan> {
     throw new Error(`Bundle 파일을 찾을 수 없습니다: ${args.bundlePath}`);
   }
 
-  const plan = await buildRunnerPlan(args);
-  if (args.watch) {
-    console.warn('[goondan-runtime] watch mode requested; file watcher is not enabled in this runtime yet.');
-  }
-  return plan;
+  return await buildRunnerPlan(args);
 }
 
 async function main(): Promise<void> {
   const args = parseRunnerArguments(process.argv.slice(2));
   const plan = await preflight(args);
   const runtime = buildRuntimeEngine(args, plan);
+  const stopWatching = args.watch ? startWatchMode(runtime, plan) : () => {
+    // no-op
+  };
   const runningConnectors = await startConnectors(plan, runtime);
 
   console.info(
@@ -2439,7 +2885,12 @@ async function main(): Promise<void> {
   };
   sendMessage(readyMessage);
 
-  await runLifecycle(runningConnectors);
+  try {
+    await runLifecycle(runningConnectors);
+  } finally {
+    stopWatching();
+    await stopConnectors(runningConnectors);
+  }
   process.exit(0);
 }
 

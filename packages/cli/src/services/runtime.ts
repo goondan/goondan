@@ -134,6 +134,13 @@ function runtimeRunnerPath(): string {
     return jsPath;
   }
 
+  const sourceDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageRoot = path.resolve(sourceDir, '..', '..');
+  const distJsPath = path.join(packageRoot, 'dist', 'services', 'runtime-runner.js');
+  if (existsSync(distJsPath)) {
+    return distJsPath;
+  }
+
   const tsPath = fileURLToPath(new URL('./runtime-runner.ts', import.meta.url));
   return tsPath;
 }

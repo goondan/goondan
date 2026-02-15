@@ -129,6 +129,7 @@ interface TurnAuth {
 
 interface AgentEvent extends EventEnvelope {
   readonly input?: string;
+  readonly instanceKey?: string;
   readonly source: EventSource;
   readonly auth?: TurnAuth;
   readonly replyTo?: ReplyChannel;
@@ -202,6 +203,35 @@ interface AgentRuntimeSendResult {
   accepted: boolean;
 }
 
+interface AgentRuntimeSpawnOptions {
+  instanceKey?: string;
+  cwd?: string;
+}
+
+interface AgentRuntimeSpawnResult {
+  target: string;
+  instanceKey: string;
+  spawned: boolean;
+  cwd?: string;
+}
+
+interface AgentRuntimeListOptions {
+  includeAll?: boolean;
+}
+
+interface SpawnedAgentInfo {
+  target: string;
+  instanceKey: string;
+  ownerAgent: string;
+  ownerInstanceKey: string;
+  createdAt: string;
+  cwd?: string;
+}
+
+interface AgentRuntimeListResult {
+  agents: SpawnedAgentInfo[];
+}
+
 interface AgentToolRuntime {
   request(
     target: string,
@@ -209,6 +239,8 @@ interface AgentToolRuntime {
     options?: AgentRuntimeRequestOptions
   ): Promise<AgentRuntimeRequestResult>;
   send(target: string, event: AgentEvent): Promise<AgentRuntimeSendResult>;
+  spawn(target: string, options?: AgentRuntimeSpawnOptions): Promise<AgentRuntimeSpawnResult>;
+  list(options?: AgentRuntimeListOptions): Promise<AgentRuntimeListResult>;
 }
 
 interface ToolContext extends ExecutionContext {

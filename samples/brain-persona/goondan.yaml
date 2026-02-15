@@ -1,0 +1,219 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@samples/brain-persona"
+spec:
+  version: "0.1.0"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^1.0.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: fast-model
+spec:
+  provider: anthropic
+  model: claude-haiku-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: channel-dispatch
+spec:
+  entry: "./tools/channel-dispatch.mjs"
+  exports:
+    - name: send
+      description: "Send message to Telegram or Slack based on selected channel"
+      parameters:
+        type: object
+        properties:
+          channel:
+            type: string
+            enum: ["telegram", "slack"]
+          text:
+            type: string
+          telegramChatId:
+            type: string
+          telegramToken:
+            type: string
+          slackChannelId:
+            type: string
+          slackThreadTs:
+            type: string
+          slackBotToken:
+            type: string
+        required: ["channel", "text"]
+---
+apiVersion: goondan.ai/v1
+kind: Connector
+metadata:
+  name: slack-webhook
+spec:
+  entry: "./connectors/slack-webhook.mjs"
+  events:
+    - name: slack_message
+      properties:
+        channel_id:
+          type: string
+        ts:
+          type: string
+        thread_ts:
+          type: string
+          optional: true
+        user_id:
+          type: string
+          optional: true
+    - name: slack_app_mention
+      properties:
+        channel_id:
+          type: string
+        ts:
+          type: string
+        thread_ts:
+          type: string
+          optional: true
+        user_id:
+          type: string
+          optional: true
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: coordinator
+spec:
+  modelConfig:
+    modelRef: "Model/fast-model"
+  prompts:
+    systemRef: "./prompts/coordinator.system.md"
+  requiredTools:
+    - "channel-dispatch__send"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+    - ref: "Tool/channel-dispatch"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: researcher
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemRef: "./prompts/researcher.system.md"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: builder
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemRef: "./prompts/builder.system.md"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: bash
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: reviewer
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemRef: "./prompts/reviewer.system.md"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: brain
+spec:
+  entryAgent: "Agent/coordinator"
+  agents:
+    - ref: "Agent/coordinator"
+    - ref: "Agent/researcher"
+    - ref: "Agent/builder"
+    - ref: "Agent/reviewer"
+  policy:
+    maxStepsPerTurn: 24
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: telegram-to-brain
+spec:
+  connectorRef:
+    kind: Connector
+    name: telegram-polling
+    package: "@goondan/base"
+  swarmRef: "Swarm/brain"
+  secrets:
+    TELEGRAM_BOT_TOKEN:
+      valueFrom:
+        env: TELEGRAM_BOT_TOKEN
+  ingress:
+    rules:
+      - match:
+          event: telegram_message
+        route:
+          instanceKey: "brain-persona-shared"
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: slack-to-brain
+spec:
+  connectorRef: "Connector/slack-webhook"
+  swarmRef: "Swarm/brain"
+  config:
+    SLACK_WEBHOOK_PORT:
+      value: "8787"
+  ingress:
+    rules:
+      - match:
+          event: slack_message
+        route:
+          instanceKey: "brain-persona-shared"
+      - match:
+          event: slack_app_mention
+        route:
+          instanceKey: "brain-persona-shared"

@@ -180,6 +180,7 @@ export function createBaseToolManifests(): BaseToolManifest[] {
             properties: {
               target: { type: 'string' },
               input: { type: 'string' },
+              instanceKey: { type: 'string' },
               eventType: { type: 'string' },
               timeoutMs: { type: 'number' },
               metadata: { type: 'object' },
@@ -195,10 +196,35 @@ export function createBaseToolManifests(): BaseToolManifest[] {
             properties: {
               target: { type: 'string' },
               input: { type: 'string' },
+              instanceKey: { type: 'string' },
               eventType: { type: 'string' },
               metadata: { type: 'object' },
             },
             required: ['target'],
+          },
+        },
+        {
+          name: 'spawn',
+          description:
+            'Spawn or prepare an instance of an already-defined agent resource in the current swarm',
+          parameters: {
+            type: 'object',
+            properties: {
+              target: { type: 'string' },
+              instanceKey: { type: 'string' },
+              cwd: { type: 'string' },
+            },
+            required: ['target'],
+          },
+        },
+        {
+          name: 'list',
+          description: 'List spawned agent instances in this runtime',
+          parameters: {
+            type: 'object',
+            properties: {
+              includeAll: { type: 'boolean' },
+            },
           },
         },
       ],

@@ -634,6 +634,8 @@ interface AgentSpec {
   prompts: AgentPrompts;
   /** 사용할 Tool 목록 */
   tools?: RefItem[];
+  /** Turn 종료 전에 반드시 호출되어야 하는 Tool 이름 목록 */
+  requiredTools?: string[];
   /** 사용할 Extension 목록 */
   extensions?: RefItem[];
 }
@@ -694,6 +696,9 @@ spec:
     - ref: "Tool/bash"
     - ref: "Tool/file-system"
 
+  requiredTools:
+    - "channel-dispatch__send"
+
   extensions:
     - ref: "Extension/logging"
     - ref: "Extension/skills"
@@ -733,10 +738,13 @@ spec:
 | `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
 | `prompts.systemRef` | MAY | string | 파일 경로 |
 | `tools` | MAY | array | RefItem 배열 |
+| `requiredTools` | MAY | array | 비어있지 않은 Tool 이름 문자열 배열 |
 | `extensions` | MAY | array | RefItem 배열 |
 
 **추가 검증 규칙:**
 - `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
+- `requiredTools`가 지정되면 Runtime은 `policy.maxStepsPerTurn` 범위 내에서 Turn 종료 전 해당 목록 중 최소 1개 도구의 **성공 결과**가 나오도록 호출을 강제해야 한다 (MUST).
+- `policy.maxStepsPerTurn`은 `requiredTools`보다 우선하며, 필수 도구가 미충족이어도 step 한도에 도달하면 Turn을 종료해야 한다 (MUST).
 - Agent 리소스에는 `hooks` 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다 (MUST).
 
 ---
@@ -981,6 +989,9 @@ spec:
 | `ingress.rules` | MAY | array | IngressRule 배열 |
 | `ingress.rules[].match.event` | SHOULD | string | Connector의 events[].name에 선언된 이름 |
 | `ingress.rules[].route.agentRef` | MAY | ObjectRefLike | 유효한 Agent 참조 |
+| `ingress.rules[].route.instanceKey` | MAY | string | 매칭 이벤트에 강제할 conversation instanceKey |
+| `ingress.rules[].route.instanceKeyProperty` | MAY | string | 이벤트 properties에서 읽을 instanceKey source key |
+| `ingress.rules[].route.instanceKeyPrefix` | MAY | string | `instanceKeyProperty` 사용 시 접두어 |
 
 **추가 검증 규칙:**
 - `connectorRef`는 유효한 Connector 리소스를 참조해야 한다 (MUST).
@@ -990,6 +1001,9 @@ spec:
 - 서명 검증은 Connector 구현체가 secrets에서 시크릿을 읽어 자체적으로 수행해야 한다 (SHOULD).
 - 하나의 trigger가 여러 ConnectorEvent를 emit하면 각 event는 독립 Turn으로 처리되어야 한다 (MUST).
 - `ingress.rules[].route.agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다 (MUST).
+- `ingress.rules[].route.instanceKey`가 지정되면 Runtime은 ConnectorEvent.instanceKey 대신 해당 값을 사용해야 한다 (MUST).
+- `ingress.rules[].route.instanceKeyProperty`가 지정되면 Runtime은 ConnectorEvent.properties에서 해당 키의 값을 읽어 instanceKey로 사용해야 한다 (MUST).
+- `ingress.rules[].route.instanceKey`와 `ingress.rules[].route.instanceKeyProperty`는 동시에 지정할 수 없다 (MUST NOT).
 - OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다 (MUST NOT).
 
 ---

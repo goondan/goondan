@@ -530,12 +530,14 @@ AgentA → Orchestrator:
 
 **규칙:**
 
-1. 에이전트 간 통신은 표준 Tool API(`agents__request`, `agents__send`)를 통해 요청되어야 한다(MUST).
+1. 에이전트 간 통신/인스턴스 준비는 표준 Tool API(`agents__request`, `agents__send`, `agents__spawn`, `agents__list`)를 통해 요청되어야 한다(MUST).
 2. `replyTo`가 있는 이벤트를 수신한 AgentProcess는 Turn 완료 후 응답 이벤트를 전송해야 한다(MUST).
 3. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
-4. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
-5. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
-6. 요청 실패는 구조화된 ToolCallResult(`status="error"`)로 반환해야 한다(MUST).
+4. `agents__spawn`의 target은 현재 Swarm에 정의된 Agent 리소스여야 한다(MUST).
+5. `agents__spawn`은 리소스 정의(`goondan.yaml`)를 수정하지 않고 인스턴스 상태만 준비해야 한다(MUST).
+6. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+7. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
+8. 요청 실패는 구조화된 ToolCallResult(`status="error"`)로 반환해야 한다(MUST).
 
 ### 6.3 IPC 전송 메커니즘
 
@@ -664,18 +666,34 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
   state.emitMessageEvent({ type: 'append', message: createUserMessage(event.input) });
 
   let stepIndex = 0;
+  const requiredTools = process.agent.requiredTools ?? [];
+  const calledTools = new Set<string>();
   while (true) {
     // Step 미들웨어 실행 (tool catalog 조작 등)
     const step = await runStep(stepIndex, state);
     turn.steps.push(step);
+    for (const result of step.toolResults) {
+      if (result.status === 'ok') {
+        calledTools.add(result.toolName);
+      }
+    }
 
-    // LLM 응답이 텍스트만이면 Turn 종료
+    // LLM 응답이 텍스트만이면 Turn 종료 (requiredTools 미충족 시 종료 금지)
     if (step.toolCalls.length === 0) {
+      const requiredSatisfied = requiredTools.length === 0
+        || requiredTools.some((name) => calledTools.has(name));
+      if (!requiredSatisfied) {
+        state.emitMessageEvent({
+          type: 'append',
+          message: createUserMessage('필수 Tool 호출이 필요합니다. requiredTools 중 하나를 호출하세요.'),
+        });
+        continue;
+      }
       turn.status = 'completed';
       break;
     }
 
-    // maxStepsPerTurn 검사
+    // maxStepsPerTurn 검사 (requiredTools보다 우선)
     stepIndex++;
     if (stepIndex >= maxStepsPerTurn) {
       turn.status = 'completed';

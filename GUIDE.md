@@ -562,17 +562,9 @@ gdn doctor
 
 ## 12. 샘플 프로젝트 가이드
 
-`packages/sample/`의 주요 샘플:
+`samples/`의 주요 샘플:
 
-1. `sample-1-coding-swarm`: Planner/Coder/Reviewer 협업
-2. `sample-2-telegram-coder`: Telegram 연동
-3. `sample-3-self-evolving`: Edit & Restart 패턴
-4. `sample-4-compaction`: 대화 압축 Extension
-5. `sample-5-package-consumer`: 패키지 소비
-6. `sample-6-cli-chatbot`: 가장 단순한 시작점
-7. `sample-7-multi-model`: 다중 모델 라우팅
-8. `sample-8-web-researcher`: 웹 수집/요약 분리
-9. `sample-9-devops-assistant`: 계획/실행 분리 DevOps 보조
+1. `brain-persona`: 단일 인격체 멀티 전문 에이전트 (coordinator + 동적 인스턴스 spawn + Telegram polling + Slack webhook + Tool 기반 채널 출력)
 
 ---
 

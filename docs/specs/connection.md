@@ -319,7 +319,10 @@ ingress:
 
 ```yaml
 route:
-  agentRef: "Agent/planner"   # 선택
+  agentRef: "Agent/planner"          # 선택
+  instanceKey: "brain-shared"        # 선택 (고정 키)
+  instanceKeyProperty: "from_id"     # 선택 (event.properties 키)
+  instanceKeyPrefix: "user:"         # 선택 (property 기반 키 prefix)
 ```
 
 규칙:
@@ -327,6 +330,9 @@ route:
 1. `agentRef`가 지정되면 해당 Agent로 직접 라우팅한다(MUST).
 2. `agentRef`가 생략되면 Swarm의 `entryAgent`로 라우팅한다(MUST).
 3. `agentRef`가 지정된 경우, 해당 Agent가 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
+4. `instanceKey`가 지정되면 Runtime은 ConnectorEvent.instanceKey 대신 해당 값을 사용해야 한다(MUST).
+5. `instanceKeyProperty`가 지정되면 Runtime은 ConnectorEvent.properties에서 해당 키의 값을 instanceKey로 사용해야 한다(MUST).
+6. `instanceKey`와 `instanceKeyProperty`는 동시에 지정할 수 없다(MUST NOT).
 
 ---
 
@@ -504,6 +510,9 @@ spec:
 | `spec.ingress.rules[].route` | 필수 | MUST |
 | `spec.ingress.rules[].match.event` | Connector의 events[].name에 선언된 이름 | SHOULD |
 | `spec.ingress.rules[].route.agentRef` | 유효한 Agent 참조 (선택) | SHOULD |
+| `spec.ingress.rules[].route.instanceKey` | 고정 instanceKey (선택) | MAY |
+| `spec.ingress.rules[].route.instanceKeyProperty` | event.properties에서 읽을 키 (선택) | MAY |
+| `spec.ingress.rules[].route.instanceKeyPrefix` | property 기반 키 접두어 (선택) | MAY |
 
 ### 추가 검증 규칙
 
@@ -511,8 +520,9 @@ spec:
 2. `swarmRef`가 지정된 경우, 참조하는 Swarm 리소스가 Bundle 내에 존재해야 한다(MUST).
 3. `swarmRef`가 생략된 경우, Orchestrator는 Bundle 내 첫 번째(또는 유일한) Swarm을 사용한다(MUST).
 4. `ingress.rules[].route.agentRef`가 지정된 경우, 해당 Agent가 `swarmRef`가 가리키는 Swarm의 `agents` 배열에 포함되어야 한다(SHOULD).
-5. 하나의 ConnectorEvent가 emit되면 독립 Turn으로 처리되어야 한다(MUST).
-6. OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다(MUST NOT).
+5. `ingress.rules[].route.instanceKey`와 `ingress.rules[].route.instanceKeyProperty`가 동시에 지정되면 검증 오류여야 한다(MUST).
+6. 하나의 ConnectorEvent가 emit되면 독립 Turn으로 처리되어야 한다(MUST).
+7. OAuth 인증이 필요한 경우 Extension 내부에서 구현해야 한다. Connection은 OAuth를 직접 관리하지 않는다(MUST NOT).
 
 ---
 

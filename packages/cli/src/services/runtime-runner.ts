@@ -15,6 +15,14 @@ import {
   ToolExecutor,
   ToolRegistryImpl,
   WorkspacePaths,
+  type AgentEvent,
+  type AgentToolRuntime,
+  type AgentRuntimeListOptions,
+  type AgentRuntimeRequestOptions,
+  type AgentRuntimeRequestResult,
+  type AgentRuntimeSendResult,
+  type AgentRuntimeSpawnOptions,
+  type AgentRuntimeSpawnResult,
   type JsonObject,
   type JsonSchemaProperty,
   type JsonSchemaObject,
@@ -25,6 +33,25 @@ import {
   type JsonValue,
   type ValidationError,
 } from '@goondan/runtime';
+import {
+  formatRuntimeInboundUserText,
+  parseAgentToolEventPayload,
+  parseConnectorEventPayload,
+  selectMatchingIngressRule,
+  resolveInboundInstanceKey,
+  resolveRuntimeWorkdir,
+  type IngressRouteRule as ParsedIngressRouteRule,
+  type ParsedConnectorEvent,
+} from './runtime-routing.js';
+import { buildStepLimitResponse } from './turn-policy.js';
+import {
+  toAnthropicMessages,
+  toConversationTurns,
+  toConversationTurnsFromAnthropicMessages,
+  toPersistentMessages,
+  trimConversation,
+  type ConversationTurn,
+} from './conversation-state.js';
 
 interface RunnerReadyMessage {
   type: 'ready';
@@ -97,6 +124,9 @@ interface IngressRouteRule {
   eventName?: string;
   properties?: Record<string, string>;
   agent?: SwarmAgentRef;
+  instanceKey?: string;
+  instanceKeyProperty?: string;
+  instanceKeyPrefix?: string;
 }
 
 interface ConnectorRunPlan {
@@ -130,6 +160,7 @@ interface AgentRuntimePlan {
   temperature: number;
   maxSteps: number;
   maxConversationTurns: number;
+  requiredToolNames: string[];
   toolCatalog: ToolCatalogItem[];
   anthropicTools: AnthropicToolDefinition[];
 }
@@ -143,11 +174,23 @@ interface RunnerPlan {
   localPackageName?: string;
 }
 
-interface ParsedConnectorEvent {
-  name: string;
+interface RuntimeInboundEvent {
+  sourceKind: 'connector' | 'agent';
+  sourceName: string;
+  eventName: string;
   instanceKey: string;
   messageText: string;
   properties: Record<string, string>;
+  metadata?: JsonObject;
+}
+
+interface SpawnedAgentRecord {
+  target: string;
+  instanceKey: string;
+  ownerAgent: string;
+  ownerInstanceKey: string;
+  createdAt: string;
+  cwd?: string;
 }
 
 interface RunningConnector {
@@ -157,17 +200,14 @@ interface RunningConnector {
   terminate: () => Promise<void>;
 }
 
-interface ConversationTurn {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
 interface RuntimeEngineState {
   executionQueue: Map<string, Promise<void>>;
   initializedInstances: Set<string>;
   storage: FileWorkspaceStorage;
   workdir: string;
   runnerArgs: RunnerArguments;
+  spawnedAgentsByOwner: Map<string, Map<string, SpawnedAgentRecord>>;
+  instanceWorkdirs: Map<string, string>;
   restartPromise?: Promise<void>;
 }
 
@@ -192,6 +232,7 @@ interface TurnExecutionResult {
   responseText: string;
   restartRequested: boolean;
   restartReason?: string;
+  nextConversation: ConversationTurn[];
 }
 
 const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
@@ -1172,10 +1213,50 @@ function parseIngressRouteRules(
       };
     }
 
+    let instanceKey: string | undefined;
+    if (routeValue.instanceKey !== undefined) {
+      const value = readStringValue(routeValue, 'instanceKey');
+      if (!value || value.trim().length === 0) {
+        throw new Error(`Connection/${connection.metadata.name} ingress.route.instanceKey 형식이 올바르지 않습니다.`);
+      }
+      instanceKey = value.trim();
+    }
+
+    let instanceKeyProperty: string | undefined;
+    if (routeValue.instanceKeyProperty !== undefined) {
+      const value = readStringValue(routeValue, 'instanceKeyProperty');
+      if (!value || value.trim().length === 0) {
+        throw new Error(
+          `Connection/${connection.metadata.name} ingress.route.instanceKeyProperty 형식이 올바르지 않습니다.`,
+        );
+      }
+      instanceKeyProperty = value.trim();
+    }
+
+    let instanceKeyPrefix: string | undefined;
+    if (routeValue.instanceKeyPrefix !== undefined) {
+      const value = readStringValue(routeValue, 'instanceKeyPrefix');
+      if (value === undefined) {
+        throw new Error(
+          `Connection/${connection.metadata.name} ingress.route.instanceKeyPrefix 형식이 올바르지 않습니다.`,
+        );
+      }
+      instanceKeyPrefix = value;
+    }
+
+    if (instanceKey && instanceKeyProperty) {
+      throw new Error(
+        `Connection/${connection.metadata.name} ingress.route.instanceKey와 instanceKeyProperty는 동시에 지정할 수 없습니다.`,
+      );
+    }
+
     rules.push({
       eventName,
       properties,
       agent,
+      instanceKey,
+      instanceKeyProperty,
+      instanceKeyPrefix,
     });
   }
 
@@ -1464,6 +1545,28 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
+function parseAgentRequiredTools(agent: RuntimeResource): string[] {
+  const spec = readSpecRecord(agent);
+  const requiredToolsValue = spec.requiredTools;
+  if (requiredToolsValue === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(requiredToolsValue)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.requiredTools 형식이 올바르지 않습니다.`);
+  }
+
+  const names: string[] = [];
+  for (const value of requiredToolsValue) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`Agent/${agent.metadata.name} spec.requiredTools에는 비어있지 않은 문자열만 허용됩니다.`);
+    }
+    names.push(value.trim());
+  }
+
+  return [...new Set(names)];
+}
+
 async function registerToolResource(
   resource: RuntimeResource,
   toolRegistry: ToolRegistryImpl,
@@ -1690,6 +1793,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     const prompt = await readAgentSystemPrompt(agentResource);
     const modelParams = parseAgentModelParams(agentResource);
     const toolRefs = parseAgentToolRefs(agentResource);
+    const requiredToolNames = parseAgentRequiredTools(agentResource);
 
     const agentToolCatalog: ToolCatalogItem[] = [];
     for (const toolRef of toolRefs) {
@@ -1732,9 +1836,19 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       temperature: modelParams.temperature,
       maxSteps: maxStepsPerTurn,
       maxConversationTurns: inferBotMaxConversationTurns(),
+      requiredToolNames,
       toolCatalog: agentToolCatalog,
       anthropicTools: toAnthropicToolDefinitions(agentToolCatalog),
     };
+
+    for (const requiredToolName of requiredToolNames) {
+      const existsInCatalog = agentToolCatalog.some((item) => item.name === requiredToolName);
+      if (!existsInCatalog) {
+        throw new Error(
+          `Agent/${agentResource.metadata.name} spec.requiredTools(${requiredToolName})가 toolCatalog에 없습니다.`,
+        );
+      }
+    }
 
     agentPlans.set(agentResource.metadata.name, plan);
   }
@@ -1800,78 +1914,6 @@ function createConnectorLogger(plan: ConnectorRunPlan): Console {
   return logger;
 }
 
-function parseConnectorEvent(event: unknown): ParsedConnectorEvent | undefined {
-  if (!isJsonObject(event)) {
-    return undefined;
-  }
-
-  const name = typeof event.name === 'string' ? event.name : undefined;
-  const instanceKey = typeof event.instanceKey === 'string' ? event.instanceKey : undefined;
-  if (!name || !instanceKey) {
-    return undefined;
-  }
-
-  let messageText = '';
-  const message = event.message;
-  if (isJsonObject(message)) {
-    const messageType = message.type;
-    if (messageType === 'text' && typeof message.text === 'string') {
-      messageText = message.text;
-    } else if (messageType === 'image' && typeof message.url === 'string') {
-      messageText = `[image] ${message.url}`;
-    } else if (messageType === 'file' && typeof message.url === 'string') {
-      const fileName = typeof message.name === 'string' ? message.name : 'file';
-      messageText = `[file:${fileName}] ${message.url}`;
-    }
-  }
-
-  const properties: Record<string, string> = {};
-  if (isJsonObject(event.properties)) {
-    for (const [key, value] of Object.entries(event.properties)) {
-      if (typeof value === 'string') {
-        properties[key] = value;
-      }
-    }
-  }
-
-  return {
-    name,
-    instanceKey,
-    messageText,
-    properties,
-  };
-}
-
-function pickTargetAgent(plan: ConnectorRunPlan, event: ParsedConnectorEvent): string {
-  for (const rule of plan.routeRules) {
-    if (rule.eventName && rule.eventName !== event.name) {
-      continue;
-    }
-
-    if (rule.properties) {
-      let matched = true;
-      for (const [key, expected] of Object.entries(rule.properties)) {
-        if (event.properties[key] !== expected) {
-          matched = false;
-          break;
-        }
-      }
-
-      if (!matched) {
-        continue;
-      }
-    }
-
-    if (rule.agent) {
-      return rule.agent.name;
-    }
-
-    return plan.defaultAgent.name;
-  }
-
-  return plan.defaultAgent.name;
-}
-
 function queueAgentEvent(
   state: RuntimeEngineState,
   key: string,
@@ -1898,73 +1940,57 @@ function createConversationKey(agentName: string, instanceKey: string): string {
   return `${agentName}:${instanceKey}`;
 }
 
-function trimConversation(turns: ConversationTurn[], maxTurns: number): ConversationTurn[] {
-  const limit = Math.max(1, maxTurns) * 2;
-  if (turns.length <= limit) {
-    return turns;
-  }
-
-  return turns.slice(turns.length - limit);
+function createSpawnOwnerKey(agentName: string, instanceKey: string): string {
+  return `${agentName}:${instanceKey}`;
 }
 
-function toConversationTurns(messages: Message[]): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
-  for (const message of messages) {
-    const role = message.data.role;
-    if (role !== 'user' && role !== 'assistant') {
-      continue;
-    }
-
-    const content = message.data.content;
-    if (typeof content === 'string') {
-      turns.push({ role, content });
-      continue;
-    }
-
-    turns.push({ role, content: safeJsonStringify(content) });
+function trackSpawnedAgent(
+  runtime: RuntimeEngineState,
+  ownerAgent: string,
+  ownerInstanceKey: string,
+  record: SpawnedAgentRecord,
+): void {
+  const ownerKey = createSpawnOwnerKey(ownerAgent, ownerInstanceKey);
+  let registry = runtime.spawnedAgentsByOwner.get(ownerKey);
+  if (!registry) {
+    registry = new Map<string, SpawnedAgentRecord>();
+    runtime.spawnedAgentsByOwner.set(ownerKey, registry);
   }
-  return turns;
+
+  const spawnKey = createConversationKey(record.target, record.instanceKey);
+  registry.set(spawnKey, record);
 }
 
-function toPersistentMessages(turns: ConversationTurn[]): Message[] {
-  const messages: Message[] = [];
-  for (let index = 0; index < turns.length; index += 1) {
-    const turn = turns[index];
-    if (!turn) {
-      continue;
+function listSpawnedAgents(
+  runtime: RuntimeEngineState,
+  ownerAgent: string,
+  ownerInstanceKey: string,
+  includeAll: boolean,
+): SpawnedAgentRecord[] {
+  if (includeAll) {
+    const records: SpawnedAgentRecord[] = [];
+    for (const registry of runtime.spawnedAgentsByOwner.values()) {
+      for (const record of registry.values()) {
+        records.push(record);
+      }
     }
-
-    if (turn.role === 'assistant') {
-      messages.push({
-        id: `persist-${index}`,
-        data: {
-          role: 'assistant',
-          content: turn.content,
-        },
-        metadata: {},
-        createdAt: new Date(),
-        source: {
-          type: 'assistant',
-          stepId: `persist-step-${index}`,
-        },
-      });
-      continue;
-    }
-
-    messages.push({
-      id: `persist-${index}`,
-      data: {
-        role: 'user',
-        content: turn.content,
-      },
-      metadata: {},
-      createdAt: new Date(),
-      source: {
-        type: 'user',
-      },
-    });
+    return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
-  return messages;
+
+  const ownerKey = createSpawnOwnerKey(ownerAgent, ownerInstanceKey);
+  const registry = runtime.spawnedAgentsByOwner.get(ownerKey);
+  if (!registry) {
+    return [];
+  }
+  return [...registry.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function resolveAgentWorkdir(runtime: RuntimeEngineState, queueKey: string): string {
+  const workdir = runtime.instanceWorkdirs.get(queueKey);
+  if (workdir) {
+    return workdir;
+  }
+  return runtime.workdir;
 }
 
 async function ensureInstanceStorage(
@@ -2135,6 +2161,13 @@ function createAnthropicAssistantMessage(content: unknown[]): Record<string, unk
   };
 }
 
+function createAnthropicAssistantTextMessage(content: string): Record<string, unknown> {
+  return {
+    role: 'assistant',
+    content,
+  };
+}
+
 function createAnthropicToolResultMessage(results: unknown[]): Record<string, unknown> {
   return {
     role: 'user',
@@ -2150,14 +2183,299 @@ function formatToolResultOutput(value: unknown): string {
   return safeJsonStringify(value);
 }
 
+async function withOptionalTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  timeoutMessage: string,
+): Promise<T> {
+  if (timeoutMs === undefined || timeoutMs <= 0) {
+    return promise;
+  }
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function executeInboundTurn(input: {
+  runtime: RuntimeEngineState;
+  runnerPlan: RunnerPlan;
+  targetAgentName: string;
+  event: RuntimeInboundEvent;
+  logger: Console;
+}): Promise<TurnExecutionResult> {
+  const agentPlan = input.runnerPlan.agents.get(input.targetAgentName);
+  if (!agentPlan) {
+    throw new Error(`target agent not found: ${input.targetAgentName}`);
+  }
+
+  const queueKey = createConversationKey(input.targetAgentName, input.event.instanceKey);
+  const userInputText = formatRuntimeInboundUserText({
+    sourceKind: input.event.sourceKind,
+    sourceName: input.event.sourceName,
+    eventName: input.event.eventName,
+    instanceKey: input.event.instanceKey,
+    messageText: input.event.messageText,
+    properties: input.event.properties,
+    metadata: input.event.metadata,
+  });
+
+  let turnResult: TurnExecutionResult | undefined;
+  await queueAgentEvent(input.runtime, queueKey, async () => {
+    await ensureInstanceStorage(input.runtime, queueKey, input.targetAgentName);
+    await input.runtime.storage.updateMetadataStatus(queueKey, 'processing');
+    try {
+      const turnId = createId('turn');
+      const traceId = createId('trace');
+      const history = await loadConversationFromStorage(
+        input.runtime,
+        queueKey,
+        input.targetAgentName,
+        agentPlan.maxConversationTurns,
+      );
+
+      try {
+        turnResult = await runAgentTurn({
+          plan: agentPlan,
+          userInputText,
+          instanceKey: input.event.instanceKey,
+          turnId,
+          traceId,
+          conversation: history,
+          toolExecutor: input.runnerPlan.toolExecutor,
+          runtime: input.runtime,
+          runnerPlan: input.runnerPlan,
+          workdir: resolveAgentWorkdir(input.runtime, queueKey),
+          logger: input.logger,
+        });
+      } catch (error) {
+        const message = unknownToErrorMessage(error);
+        const responseText = `오류: ${message}`;
+        turnResult = {
+          responseText,
+          restartRequested: false,
+          nextConversation: trimConversation(
+            history.concat([
+              {
+                role: 'user',
+                content: userInputText,
+              },
+              {
+                role: 'assistant',
+                content: responseText,
+              },
+            ]),
+            agentPlan.maxConversationTurns,
+          ),
+        };
+      }
+
+      await persistConversationToStorage(
+        input.runtime,
+        queueKey,
+        input.targetAgentName,
+        turnResult.nextConversation,
+      );
+
+      if (turnResult.restartRequested) {
+        const reason = turnResult.restartReason ?? 'tool:restart-signal';
+        await requestRuntimeRestart(input.runtime, reason);
+      }
+    } finally {
+      await input.runtime.storage.updateMetadataStatus(queueKey, 'idle');
+    }
+  });
+
+  if (!turnResult) {
+    throw new Error('turn result was not produced');
+  }
+
+  return turnResult;
+}
+
+function createAgentToolRuntime(input: {
+  runtime: RuntimeEngineState;
+  runnerPlan: RunnerPlan;
+  callerAgentName: string;
+  callerInstanceKey: string;
+  logger: Console;
+}): AgentToolRuntime {
+  const resolveTargetPlan = (target: string): AgentRuntimePlan => {
+    const targetPlan = input.runnerPlan.agents.get(target);
+    if (!targetPlan) {
+      throw new Error(`target agent not found in selected swarm: ${target}`);
+    }
+    return targetPlan;
+  };
+
+  return {
+    request: async (
+      target: string,
+      event: AgentEvent,
+      options?: AgentRuntimeRequestOptions,
+    ): Promise<AgentRuntimeRequestResult> => {
+      resolveTargetPlan(target);
+      const parsed = parseAgentToolEventPayload(event, input.callerInstanceKey, input.callerAgentName);
+      if (!parsed) {
+        throw new Error('agents__request 입력 이벤트 형식이 올바르지 않습니다.');
+      }
+
+      const inboundEvent: RuntimeInboundEvent = {
+        sourceKind: 'agent',
+        sourceName: parsed.sourceName,
+        eventName: parsed.type,
+        instanceKey: parsed.instanceKey,
+        messageText: parsed.messageText,
+        properties: {
+          from_agent: input.callerAgentName,
+          from_instance: input.callerInstanceKey,
+        },
+        metadata: parsed.metadata,
+      };
+
+      if (target === input.callerAgentName && inboundEvent.instanceKey === input.callerInstanceKey) {
+        throw new Error('agents__request는 동일 agent+instance를 대상으로 호출할 수 없습니다.');
+      }
+
+      const timeoutMs = options?.timeoutMs;
+      const turnResult = await withOptionalTimeout(
+        executeInboundTurn({
+          runtime: input.runtime,
+          runnerPlan: input.runnerPlan,
+          targetAgentName: target,
+          event: inboundEvent,
+          logger: input.logger,
+        }),
+        timeoutMs,
+        `agent request timeout (${timeoutMs}ms): target=${target}`,
+      );
+
+      return {
+        eventId: parsed.id,
+        target,
+        response: turnResult.responseText,
+        correlationId: parsed.correlationId ?? createId('corr'),
+      };
+    },
+    send: async (target: string, event: AgentEvent): Promise<AgentRuntimeSendResult> => {
+      resolveTargetPlan(target);
+      const parsed = parseAgentToolEventPayload(event, input.callerInstanceKey, input.callerAgentName);
+      if (!parsed) {
+        throw new Error('agents__send 입력 이벤트 형식이 올바르지 않습니다.');
+      }
+
+      const inboundEvent: RuntimeInboundEvent = {
+        sourceKind: 'agent',
+        sourceName: parsed.sourceName,
+        eventName: parsed.type,
+        instanceKey: parsed.instanceKey,
+        messageText: parsed.messageText,
+        properties: {
+          from_agent: input.callerAgentName,
+          from_instance: input.callerInstanceKey,
+        },
+        metadata: parsed.metadata,
+      };
+
+      void executeInboundTurn({
+        runtime: input.runtime,
+        runnerPlan: input.runnerPlan,
+        targetAgentName: target,
+        event: inboundEvent,
+        logger: input.logger,
+      }).catch((error) => {
+        input.logger.warn(`agents__send target=${target} failed: ${unknownToErrorMessage(error)}`);
+      });
+
+      return {
+        eventId: parsed.id,
+        target,
+        accepted: true,
+      };
+    },
+    spawn: async (
+      target: string,
+      options?: AgentRuntimeSpawnOptions,
+    ): Promise<AgentRuntimeSpawnResult> => {
+      resolveTargetPlan(target);
+      const instanceKey = options?.instanceKey && options.instanceKey.trim().length > 0
+        ? options.instanceKey.trim()
+        : createId(`${target}-instance`);
+      const queueKey = createConversationKey(target, instanceKey);
+      await ensureInstanceStorage(input.runtime, queueKey, target);
+      await input.runtime.storage.updateMetadataStatus(queueKey, 'idle');
+
+      const ownerKey = createSpawnOwnerKey(input.callerAgentName, input.callerInstanceKey);
+      const registry = input.runtime.spawnedAgentsByOwner.get(ownerKey);
+      const existing = registry?.get(queueKey);
+      const resolvedCwd = options?.cwd ? resolveRuntimeWorkdir(input.runtime.workdir, options.cwd) : existing?.cwd;
+      if (resolvedCwd) {
+        input.runtime.instanceWorkdirs.set(queueKey, resolvedCwd);
+      }
+
+      const createdAt = existing?.createdAt ?? new Date().toISOString();
+      const record: SpawnedAgentRecord = {
+        target,
+        instanceKey,
+        ownerAgent: input.callerAgentName,
+        ownerInstanceKey: input.callerInstanceKey,
+        createdAt,
+        cwd: resolvedCwd,
+      };
+      trackSpawnedAgent(input.runtime, input.callerAgentName, input.callerInstanceKey, record);
+
+      return {
+        target,
+        instanceKey,
+        spawned: existing === undefined,
+        cwd: resolvedCwd,
+      };
+    },
+    list: async (options?: AgentRuntimeListOptions) => {
+      const includeAll = options?.includeAll === true;
+      const records = listSpawnedAgents(
+        input.runtime,
+        input.callerAgentName,
+        input.callerInstanceKey,
+        includeAll,
+      );
+
+      return {
+        agents: records.map((record) => ({
+          target: record.target,
+          instanceKey: record.instanceKey,
+          ownerAgent: record.ownerAgent,
+          ownerInstanceKey: record.ownerInstanceKey,
+          createdAt: record.createdAt,
+          cwd: record.cwd,
+        })),
+      };
+    },
+  };
+}
+
 async function runAgentTurn(input: {
   plan: AgentRuntimePlan;
-  event: ParsedConnectorEvent;
+  userInputText: string;
   instanceKey: string;
   turnId: string;
   traceId: string;
   conversation: ConversationTurn[];
   toolExecutor: ToolExecutor;
+  runtime: RuntimeEngineState;
+  runnerPlan: RunnerPlan;
   workdir: string;
   logger: Console;
 }): Promise<TurnExecutionResult> {
@@ -2165,21 +2483,48 @@ async function runAgentTurn(input: {
     throw new Error(`지원하지 않는 model provider입니다: ${input.plan.provider}`);
   }
 
-  const messages: unknown[] = [];
-  for (const turn of input.conversation) {
-    messages.push({
-      role: turn.role,
-      content: turn.content,
-    });
-  }
+  const messages = toAnthropicMessages(input.conversation);
 
-  messages.push(createAnthropicUserMessage(input.event.messageText));
+  messages.push(createAnthropicUserMessage(input.userInputText));
 
   let lastText = '';
   let restartRequested = false;
   let restartReason: string | undefined;
+  const calledToolNames = new Set<string>();
+  const requiredToolNames = input.plan.requiredToolNames;
+  const enforceRequiredTools = requiredToolNames.length > 0;
+  const agentRuntime = createAgentToolRuntime({
+    runtime: input.runtime,
+    runnerPlan: input.runnerPlan,
+    callerAgentName: input.plan.name,
+    callerInstanceKey: input.instanceKey,
+    logger: input.logger,
+  });
 
-  for (let step = 0; step < input.plan.maxSteps; step += 1) {
+  let step = 0;
+  while (true) {
+    if (step >= input.plan.maxSteps) {
+      const responseText = buildStepLimitResponse({
+        maxSteps: input.plan.maxSteps,
+        requiredToolNames,
+        calledToolNames,
+        lastText,
+      });
+      if (responseText !== lastText) {
+        messages.push(createAnthropicAssistantTextMessage(responseText));
+      }
+      return {
+        responseText,
+        restartRequested,
+        restartReason,
+        nextConversation: trimConversation(
+          toConversationTurnsFromAnthropicMessages(messages),
+          input.plan.maxConversationTurns,
+        ),
+      };
+    }
+
+    step += 1;
     const response = await requestAnthropicMessage({
       apiKey: input.plan.apiKey,
       model: input.plan.modelName,
@@ -2197,10 +2542,31 @@ async function runAgentTurn(input: {
     }
 
     if (response.toolUseBlocks.length === 0) {
+      if (enforceRequiredTools) {
+        const missingRequiredTools = requiredToolNames.filter((name) => !calledToolNames.has(name));
+        if (missingRequiredTools.length > 0) {
+          const enforcementMessage = [
+            '필수 도구 호출 규칙 위반: 최종 답변 전에 아래 도구 중 최소 하나를 반드시 호출해야 합니다.',
+            ...missingRequiredTools.map((name) => `- ${name}`),
+            '텍스트 답변을 종료하지 말고, 지금 즉시 위 도구 중 하나를 tool call로 호출하세요.',
+          ].join('\n');
+          messages.push(createAnthropicUserMessage(enforcementMessage));
+          continue;
+        }
+      }
+
+      const responseText = lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.';
+      if (lastText.length === 0) {
+        messages.push(createAnthropicAssistantTextMessage(responseText));
+      }
       return {
-        responseText: lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.',
+        responseText,
         restartRequested,
         restartReason,
+        nextConversation: trimConversation(
+          toConversationTurnsFromAnthropicMessages(messages),
+          input.plan.maxConversationTurns,
+        ),
       };
     }
 
@@ -2212,9 +2578,10 @@ async function runAgentTurn(input: {
         turnId: input.turnId,
         traceId: input.traceId,
         toolCallId: toolUse.id,
-        message: createToolContextMessage(input.event.messageText),
+        message: createToolContextMessage(input.userInputText),
         workdir: input.workdir,
         logger: input.logger,
+        runtime: agentRuntime,
       });
 
       const result = await input.toolExecutor.execute({
@@ -2226,6 +2593,7 @@ async function runAgentTurn(input: {
       });
 
       if (result.status === 'ok') {
+        calledToolNames.add(toolUse.name);
         const restartSignal = readRuntimeRestartSignal(result.output);
         if (restartSignal?.requested) {
           restartRequested = true;
@@ -2252,83 +2620,6 @@ async function runAgentTurn(input: {
 
     messages.push(createAnthropicToolResultMessage(toolResultBlocks));
   }
-
-  return {
-    responseText: lastText.length > 0 ? lastText : '최대 step에 도달하여 응답을 마무리했습니다.',
-    restartRequested,
-    restartReason,
-  };
-}
-
-function splitTelegramMessage(text: string, chunkSize: number): string[] {
-  if (text.length <= chunkSize) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > chunkSize) {
-    chunks.push(remaining.slice(0, chunkSize));
-    remaining = remaining.slice(chunkSize);
-  }
-  if (remaining.length > 0) {
-    chunks.push(remaining);
-  }
-  return chunks;
-}
-
-function pickTelegramToken(secrets: Record<string, string>): string | undefined {
-  const keys = ['TELEGRAM_BOT_TOKEN', 'BOT_TOKEN', 'TELEGRAM_TOKEN'];
-  for (const key of keys) {
-    const value = secrets[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-async function sendTelegramReply(token: string, chatId: string, text: string): Promise<void> {
-  const chunks = splitTelegramMessage(text, 3900);
-  for (const chunk of chunks) {
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: chunk,
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Telegram sendMessage 실패 (${response.status}): ${body}`);
-    }
-  }
-}
-
-async function deliverConnectorResponse(
-  connector: ConnectorRunPlan,
-  event: ParsedConnectorEvent,
-  text: string,
-): Promise<void> {
-  if (event.name !== 'telegram_message') {
-    return;
-  }
-
-  const chatId = event.properties.chat_id;
-  if (!chatId) {
-    return;
-  }
-
-  const token = pickTelegramToken(connector.secrets);
-  if (!token) {
-    return;
-  }
-
-  await sendTelegramReply(token, chatId, text);
 }
 
 function logConnectorEvent(plan: ConnectorRunPlan, event: ParsedConnectorEvent): void {
@@ -2349,6 +2640,8 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
     storage: new FileWorkspaceStorage(workspacePaths),
     workdir: path.dirname(args.bundlePath),
     runnerArgs: args,
+    spawnedAgentsByOwner: new Map<string, Map<string, SpawnedAgentRecord>>(),
+    instanceWorkdirs: new Map<string, string>(),
   };
 }
 
@@ -2396,7 +2689,7 @@ async function handleConnectorEvent(
   connectorPlan: ConnectorRunPlan,
   rawEvent: unknown,
 ): Promise<void> {
-  const event = parseConnectorEvent(rawEvent);
+  const event = parseConnectorEventPayload(rawEvent);
   if (!event) {
     console.warn(
       `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] invalid event payload received from connector.`,
@@ -2406,88 +2699,46 @@ async function handleConnectorEvent(
 
   logConnectorEvent(connectorPlan, event);
 
-  const targetAgentName = pickTargetAgent(connectorPlan, event);
-  const agentPlan = runnerPlan.agents.get(targetAgentName);
-  if (!agentPlan) {
+  const routingRules: ParsedIngressRouteRule[] = connectorPlan.routeRules.map((rule) => ({
+    eventName: rule.eventName,
+    properties: rule.properties,
+    agentName: rule.agent?.name,
+    instanceKey: rule.instanceKey,
+    instanceKeyProperty: rule.instanceKeyProperty,
+    instanceKeyPrefix: rule.instanceKeyPrefix,
+  }));
+  const matchedRule = selectMatchingIngressRule(routingRules, event);
+  const targetAgentName = matchedRule?.agentName ?? connectorPlan.defaultAgent.name;
+  const logger = createConnectorLogger(connectorPlan);
+  const routedInstanceKey = resolveInboundInstanceKey(matchedRule, event);
+  const inboundEvent: RuntimeInboundEvent = {
+    sourceKind: 'connector',
+    sourceName: connectorPlan.connectorName,
+    eventName: event.name,
+    instanceKey: routedInstanceKey,
+    messageText: event.messageText,
+    properties: {
+      ...event.properties,
+      connection_name: connectorPlan.connectionName,
+      connector_name: connectorPlan.connectorName,
+    },
+  };
+
+  try {
+    await executeInboundTurn({
+      runtime,
+      runnerPlan,
+      targetAgentName,
+      event: inboundEvent,
+      logger,
+    });
+  } catch (error) {
     console.warn(
-      `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] target agent not found: ${targetAgentName}`,
+      `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] event turn failed: ${unknownToErrorMessage(error)}`,
     );
     return;
   }
 
-  const queueKey = createConversationKey(targetAgentName, event.instanceKey);
-  await queueAgentEvent(runtime, queueKey, async () => {
-    await ensureInstanceStorage(runtime, queueKey, targetAgentName);
-    await runtime.storage.updateMetadataStatus(queueKey, 'processing');
-    try {
-      const turnId = createId('turn');
-      const traceId = createId('trace');
-      const history = await loadConversationFromStorage(
-        runtime,
-        queueKey,
-        targetAgentName,
-        agentPlan.maxConversationTurns,
-      );
-
-      let turnResult: TurnExecutionResult;
-      try {
-        turnResult = await runAgentTurn({
-          plan: agentPlan,
-          event,
-          instanceKey: event.instanceKey,
-          turnId,
-          traceId,
-          conversation: history,
-          toolExecutor: runnerPlan.toolExecutor,
-          workdir: runtime.workdir,
-          logger: createConnectorLogger(connectorPlan),
-        });
-      } catch (error) {
-        const message = unknownToErrorMessage(error);
-        turnResult = {
-          responseText: `오류: ${message}`,
-          restartRequested: false,
-        };
-      }
-
-      const responseText = turnResult.responseText;
-
-      const nextConversation = trimConversation(
-        history.concat([
-          {
-            role: 'user',
-            content: event.messageText,
-          },
-          {
-            role: 'assistant',
-            content: responseText,
-          },
-        ]),
-        agentPlan.maxConversationTurns,
-      );
-
-      await persistConversationToStorage(runtime, queueKey, targetAgentName, nextConversation);
-
-      try {
-        await deliverConnectorResponse(connectorPlan, event, responseText);
-      } catch (error) {
-        console.warn(
-          `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] deliver response failed: ${unknownToErrorMessage(error)}`,
-        );
-      }
-
-      if (turnResult.restartRequested) {
-        const reason = turnResult.restartReason ?? 'tool:restart-signal';
-        await requestRuntimeRestart(runtime, reason);
-      }
-    } catch (error) {
-      console.warn(
-        `[goondan-runtime][${connectorPlan.connectionName}/${connectorPlan.connectorName}] event turn failed: ${unknownToErrorMessage(error)}`,
-      );
-    } finally {
-      await runtime.storage.updateMetadataStatus(queueKey, 'idle');
-    }
-  });
 }
 
 function connectorChildRunnerPath(): string {

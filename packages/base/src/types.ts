@@ -94,6 +94,7 @@ export interface AgentEvent {
   readonly traceId?: string;
   readonly metadata?: JsonObject;
   readonly input?: string;
+  readonly instanceKey?: string;
   readonly source: EventSource;
   readonly auth?: TurnAuth;
   readonly replyTo?: ReplyChannel;
@@ -116,6 +117,35 @@ export interface AgentRuntimeSendResult {
   accepted: boolean;
 }
 
+export interface AgentRuntimeSpawnOptions {
+  instanceKey?: string;
+  cwd?: string;
+}
+
+export interface AgentRuntimeSpawnResult {
+  target: string;
+  instanceKey: string;
+  spawned: boolean;
+  cwd?: string;
+}
+
+export interface AgentRuntimeListOptions {
+  includeAll?: boolean;
+}
+
+export interface SpawnedAgentInfo {
+  target: string;
+  instanceKey: string;
+  ownerAgent: string;
+  ownerInstanceKey: string;
+  createdAt: string;
+  cwd?: string;
+}
+
+export interface AgentRuntimeListResult {
+  agents: SpawnedAgentInfo[];
+}
+
 export interface AgentToolRuntime {
   request(
     target: string,
@@ -123,6 +153,8 @@ export interface AgentToolRuntime {
     options?: AgentRuntimeRequestOptions
   ): Promise<AgentRuntimeRequestResult>;
   send(target: string, event: AgentEvent): Promise<AgentRuntimeSendResult>;
+  spawn(target: string, options?: AgentRuntimeSpawnOptions): Promise<AgentRuntimeSpawnResult>;
+  list(options?: AgentRuntimeListOptions): Promise<AgentRuntimeListResult>;
 }
 
 export interface ToolContext extends ExecutionContext {

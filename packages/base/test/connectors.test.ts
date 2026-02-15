@@ -156,6 +156,56 @@ describe('telegram polling connector', () => {
     expect(secondRequest.searchParams.get('offset')).toBe('102');
   });
 
+  it('ignores bot-originated messages to prevent self-feedback loops', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    let calls = 0;
+
+    const fetchMock = async (): Promise<Response> => {
+      calls += 1;
+      if (calls === 1) {
+        return createJsonResponse(200, {
+          ok: true,
+          result: [
+            {
+              update_id: 501,
+              message: {
+                message_id: 12,
+                date: 1700000001,
+                text: 'bot echo',
+                chat: {
+                  id: 12345,
+                  type: 'private',
+                },
+                from: {
+                  id: 999,
+                  is_bot: true,
+                  username: 'mybot',
+                },
+              },
+            },
+          ],
+        });
+      }
+
+      return createJsonResponse(200, {
+        ok: true,
+        result: [],
+      });
+    };
+
+    await pollTelegramUpdates(ctx, {
+      token: 'bot-token',
+      fetchImpl: fetchMock,
+      timeoutSeconds: 0,
+      requestTimeoutMs: 100,
+      retryDelayMs: 0,
+      maxRequests: 2,
+    });
+
+    expect(events.length).toBe(0);
+  });
+
   it('handles 429 responses by retrying', async () => {
     const events: ConnectorEvent[] = [];
     const ctx = createConnectorContext(events);

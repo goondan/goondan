@@ -45,22 +45,13 @@
 - .gitignore : 저장소 공통 ignore 규칙 (`/test/`는 루트 테스트 산출물만 무시, 패키지 테스트 소스는 추적)
 - packages/runtime/src/* : 오케스트레이터 런타임/Config/LiveConfig
 - packages/types/src/* : 공통 타입 계약(SSOT) 구현
-- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, `run --watch` 파일 변경 감지 기반 replacement orchestrator 재기동, Connection별 Connector child process 실행+IPC 이벤트 라우팅, `config`/`secrets`의 `valueFrom.secretRef` 해석 지원, `.env`/`.env.local`/`--env-file` 우선순위 로딩(기존 env 우선 유지), `--instance-key` 미지정 시 Project Root+Package 기반 human-readable 해시 키 사용/동일 키 active runtime resume, runtime runner의 Swarm/Connection/ingress 해석 + Connector 실행 + Agent LLM(Tool 포함) 처리 + Telegram 응답 전송, Tool 기반 self-evolution 재시작 신호 감지 시 replacement orchestrator 기동 + active pid 갱신 + self-shutdown 수행, `validate`의 runtime BundleLoader 기반 fail-fast 검증, `instance list`는 active orchestrator(`runtime/active.json`) + 동일 state-root의 managed runtime-runner를 함께 표시(Agent 대화 인스턴스/legacy 제외), `instance restart`는 최신 runner 바이너리 재기동 + active pid 교체, `instance delete`는 active 여부와 무관하게 동일 state-root의 managed runtime-runner pid 종료 + workspace 정리 + pid 안전 검증, bare `instance` 인터랙티브 TUI 모드(TerminalIO 래퍼, ANSI TUI, non-TTY 폴백, `r` 재시작, started 시각 표시), `logs` 명령 포함)
-- packages/base/src/* : 기본 Extension/Connector/Tool 묶음
+- packages/cli/src/* : CLI 도구(gdn) 구현 (Optique 기반 type-safe 파서, discriminated union 라우팅, `dist/bin.js` shebang + 실행 권한 보장, `run` startup handshake/오류 표면화/로그 파일 기록, `run --watch` 파일 변경 감지 기반 replacement orchestrator 재기동, Connection별 Connector child process 실행+IPC 이벤트 라우팅, `config`/`secrets`의 `valueFrom.secretRef` 해석 지원, `.env`/`.env.local`/`--env-file` 우선순위 로딩(기존 env 우선 유지), `--instance-key` 미지정 시 Project Root+Package 기반 human-readable 해시 키 사용/동일 키 active runtime resume, runtime runner의 Swarm/Connection/ingress 해석 + Connector 실행 + Agent LLM(Tool 포함) 처리 + `ToolContext.runtime`(agents request/send/spawn/list) 연결 + inbound context 주입 + `Agent.spec.requiredTools` 기반 필수 Tool 호출 강제 + ingress route 기반 inbound instanceKey 오버라이드(`route.instanceKey`/`route.instanceKeyProperty`/`route.instanceKeyPrefix`) + Turn 종료 시 `base.jsonl`에 CoreMessage content(assistant tool_use/user tool_result 포함) 보존, Tool 기반 self-evolution 재시작 신호 감지 시 replacement orchestrator 기동 + active pid 갱신 + self-shutdown 수행, `validate`의 runtime BundleLoader 기반 fail-fast 검증, `instance list`는 active orchestrator(`runtime/active.json`) + 동일 state-root의 managed runtime-runner를 함께 표시(Agent 대화 인스턴스/legacy 제외), `instance restart`는 최신 runner 바이너리 재기동 + active pid 교체, `instance delete`는 active 여부와 무관하게 동일 state-root의 managed runtime-runner pid 종료 + workspace 정리 + pid 안전 검증, bare `instance` 인터랙티브 TUI 모드(TerminalIO 래퍼, ANSI TUI, non-TTY 폴백, `r` 재시작, started 시각 표시), `logs` 명령 포함)
+- packages/base/src/* : 기본 Extension/Connector/Tool 묶음 (`telegram-polling` bot-origin self-feedback 필터 포함)
 - packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (CLI publish 입력)
 - packages/base/build-manifest.mjs : `dist/goondan.yaml` 생성 스크립트 (`files: ["dist"]` 배포 대응, Package name/version은 `packages/base/goondan.yaml` 기준)
 - packages/registry/src/* : 패키지 레지스트리 API 서버/클라이언트 구현 (HTTP + 파일시스템 저장소 기본 구현)
-- packages/sample/* : 에이전트 샘플 모음
-  - sample-1-coding-swarm: 코딩 에이전트 스웜 (Planner/Coder/Reviewer) - **Package로 배포 가능**
-  - sample-2-telegram-coder: Telegram 봇 코딩 에이전트
-  - sample-3-self-evolving: Edit & Restart 기반 자기 진화 에이전트 (파일 수정 + 재시작)
-  - sample-4-compaction: LLM 대화 Compaction Extension (Token/Turn/Sliding Window 전략)
-  - sample-5-package-consumer: sample-1 패키지를 의존성으로 참조하는 예제
-  - sample-6-cli-chatbot: CLI 채팅봇 (초보자용 가장 단순한 구성)
-  - sample-7-multi-model: 여러 LLM 모델 조합 (라우터 + 창작/분석 에이전트)
-  - sample-8-web-researcher: 웹 리서치 에이전트 (http-fetch + json-query 활용, 수집/요약 분리)
-  - sample-9-devops-assistant: DevOps 지원 에이전트 (bash + logging, 계획/실행 분리)
-  - sample-10-telegram-evolving-bot: Telegram polling self-evolving bot (Connector polling+emit + runtime-runner의 ingress/Agent/Tool 처리 + `/evolve` Tool 적용)
+- samples/* : 에이전트 샘플 모음
+  - brain-persona: 단일 인격체 멀티 전문 에이전트 샘플 (coordinator + 동적 인스턴스 spawn + Telegram polling + Slack webhook + Tool 기반 채널 출력)
 
 ## 작업 규칙
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것

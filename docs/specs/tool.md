@@ -78,6 +78,7 @@ LLM tool call
 5. 통신 실패는 구조화된 `ToolCallResult`(`status="error"`)로 반환해야 한다(MUST).
 6. 기본 에이전트 간 통신 구현체는 `packages/base`에 제공하는 것을 권장한다(SHOULD).
 7. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+8. `spawn`은 이미 정의된 Agent 리소스의 인스턴스를 준비하는 연산이며, 런타임 중 리소스 정의를 수정해서는 안 된다(MUST NOT).
 
 ### 2.7 리소스 스키마 규칙
 
@@ -484,7 +485,7 @@ function truncateErrorMessage(message: string, limit: number): string {
 
 ## 11. 에이전트 간 통신 도구 패턴
 
-Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기)와 `send`(fire-and-forget) 두 가지 패턴을 지원한다.
+Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기), `send`(fire-and-forget), `spawn`(정의된 Agent 인스턴스 준비), `list`(spawn 목록 조회) 패턴을 지원한다.
 
 > 통합 이벤트 모델 상세는 `docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션, IPC 규격은 `docs/specs/runtime.md`의 `IPC 메시지 타입` 섹션을 참조한다.
 
@@ -509,6 +510,22 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 4. Tool은 즉시 { status: 'ok', output: { sent: true } }를 반환
 ```
 
+#### spawn (정의된 Agent 인스턴스 준비)
+
+```
+1. Agent A가 agents__spawn 도구를 호출 (target: 'AgentB', instanceKey?: '...', cwd?: '...')
+2. Runtime은 현재 Swarm에 정의된 Agent 리소스인지 검증
+3. 해당 target+instanceKey 인스턴스 상태를 준비(없으면 초기화, 있으면 재사용)
+4. 이후 agents__request/send에서 같은 instanceKey로 라우팅 가능
+```
+
+#### list (spawn 목록 조회)
+
+```
+1. Agent가 agents__list 도구를 호출
+2. Runtime이 현재 에이전트가 spawn한 인스턴스(또는 includeAll=true 시 전체)를 반환
+```
+
 ### 11.2 IPC 메시지 형식
 
 IPC 메시지 타입/필드/전송 규칙의 단일 기준은 `docs/specs/runtime.md` 6절과 `docs/specs/shared-types.md` 5절이다.
@@ -521,6 +538,9 @@ Tool 문맥에서는 에이전트 간 통신이 `event` 기반 `AgentEvent`로 �
 | 통합 이벤트 모델 | MUST | 에이전트 간 통신은 `AgentEvent` + `replyTo` 패턴을 사용해야 한다 |
 | request 패턴 | MUST | 요청-응답 통신은 `replyTo`를 설정하고, `correlationId`로 매칭해야 한다 |
 | send 패턴 | MUST | fire-and-forget 통신은 `replyTo`를 생략해야 한다 |
+| spawn 대상 제약 | MUST | `agents__spawn`의 `target`은 현재 Swarm에 정의된 Agent 리소스여야 한다 |
+| 리소스 불변성 | MUST | `agents__spawn`은 `goondan.yaml`의 Agent 리소스를 런타임에 생성/수정하지 않는다 |
+| list 패턴 | SHOULD | `agents__list`는 기본적으로 호출 Agent가 spawn한 인스턴스 목록을 반환한다 |
 | 실패 시 에러 반환 | MUST | 통신 실패는 구조화된 `ToolCallResult`(`status="error"`)로 반환해야 한다 |
 | 기본 구현체 | SHOULD | 기본 에이전트 간 통신 구현체를 `packages/base`에 제공하는 것이 권장된다 |
 | 자동 스폰 | MUST | Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다 |

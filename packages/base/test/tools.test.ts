@@ -89,6 +89,7 @@ describe('base tools', () => {
 
   it('agents__request/send call runtime abstraction', async () => {
     const captured: AgentEvent[] = [];
+    const capturedSpawns: Array<{ target: string; instanceKey?: string; cwd?: string }> = [];
 
     const runtime: AgentToolRuntime = {
       async request(target, event) {
@@ -107,6 +108,32 @@ describe('base tools', () => {
           eventId: event.id,
           target,
           accepted: true,
+        };
+      },
+      async spawn(target, options) {
+        capturedSpawns.push({
+          target,
+          instanceKey: options?.instanceKey,
+          cwd: options?.cwd,
+        });
+        return {
+          target,
+          instanceKey: options?.instanceKey ?? 'spawned-instance',
+          spawned: true,
+          cwd: options?.cwd,
+        };
+      },
+      async list() {
+        return {
+          agents: [
+            {
+              target: 'reviewer',
+              instanceKey: 'spawned-instance',
+              ownerAgent: 'planner',
+              ownerInstanceKey: 'instance',
+              createdAt: '2026-02-15T00:00:00.000Z',
+            },
+          ],
         };
       },
     };
@@ -137,6 +164,28 @@ describe('base tools', () => {
       }
       expect(firstCaptured.replyTo).toBeDefined();
       expect(secondCaptured.replyTo).toBeUndefined();
+      expect(firstCaptured.instanceKey).toBe('instance-1');
+      expect(secondCaptured.instanceKey).toBe('instance-1');
+
+      const spawnResult = await agentsHandlers.spawn(ctx, {
+        target: 'reviewer',
+        instanceKey: 'reviewer:1',
+        cwd: './apps/reviewer',
+      });
+      const spawnOutput = assertJsonObject(spawnResult);
+      expect(spawnOutput.instanceKey).toBe('reviewer:1');
+      expect(capturedSpawns.length).toBe(1);
+      const firstSpawn = capturedSpawns[0];
+      if (!firstSpawn) {
+        throw new Error('Expected one captured spawn request');
+      }
+      expect(firstSpawn.cwd).toBe('./apps/reviewer');
+
+      const listResult = await agentsHandlers.list(ctx, {
+        includeAll: true,
+      });
+      const listOutput = assertJsonObject(listResult);
+      expect(listOutput.count).toBe(1);
     } finally {
       await workspace.cleanup();
     }

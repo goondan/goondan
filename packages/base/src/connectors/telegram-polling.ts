@@ -28,6 +28,7 @@ interface TelegramParsedMessage {
   chatType?: string;
   chatTitle?: string;
   chatUsername?: string;
+  fromIsBot?: boolean;
   fromId?: string;
   fromUsername?: string;
   fromFirstName?: string;
@@ -151,6 +152,7 @@ function parseTelegramMessage(value: unknown): TelegramParsedMessage | null {
     chatType: readString(chatValue.type),
     chatTitle: readString(chatValue.title),
     chatUsername: readString(chatValue.username),
+    fromIsBot: from ? from.is_bot === true : undefined,
     fromId: from ? toIdentifier(from.id) : undefined,
     fromUsername: from ? readString(from.username) : undefined,
     fromFirstName: from ? readString(from.first_name) : undefined,
@@ -290,6 +292,9 @@ async function fetchWithTimeout(
 function toTelegramConnectorEvent(update: TelegramParsedUpdate): ConnectorEvent | null {
   const message = update.message;
   if (!message) {
+    return null;
+  }
+  if (message.fromIsBot === true) {
     return null;
   }
 

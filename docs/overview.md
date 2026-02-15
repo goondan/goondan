@@ -1424,7 +1424,7 @@ gdn logs --stream stderr
 1. `GUIDE.md` - 실전 가이드
 2. 이 문서 (`overview.md`) - 시스템 개요
 3. `docs/architecture.md` - 아키텍처 개념
-4. Sample 프로젝트 실행 (`packages/sample/sample-6-cli-chatbot`)
+4. Sample 프로젝트 실행 (`samples/brain-persona`)
 
 **개발자:**
 1. `docs/specs/resources.md` - 리소스 스키마

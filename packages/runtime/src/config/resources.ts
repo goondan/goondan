@@ -237,6 +237,40 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
         });
       }
     }
+
+    const requiredTools = resource.spec.requiredTools;
+    if (requiredTools !== undefined) {
+      if (!Array.isArray(requiredTools)) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Agent.spec.requiredTools must be an array of tool names.",
+          path: `${pathPrefix}.requiredTools`,
+        });
+      } else {
+        const seenRequired = new Set<string>();
+        requiredTools.forEach((value, index) => {
+          if (typeof value !== "string" || value.trim().length === 0) {
+            errors.push({
+              code: "E_CONFIG_SCHEMA_INVALID",
+              message: "Agent.spec.requiredTools[] must be a non-empty string.",
+              path: `${pathPrefix}.requiredTools[${index}]`,
+            });
+            return;
+          }
+
+          const normalized = value.trim();
+          if (seenRequired.has(normalized)) {
+            errors.push({
+              code: "E_CONFIG_SCHEMA_INVALID",
+              message: `Duplicate Agent.spec.requiredTools item '${normalized}'.`,
+              path: `${pathPrefix}.requiredTools[${index}]`,
+            });
+            return;
+          }
+          seenRequired.add(normalized);
+        });
+      }
+    }
   }
 
   if (resource.kind === "Swarm") {

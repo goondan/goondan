@@ -1,6 +1,7 @@
 import type { AgentEvent, JsonObject, JsonValue, ToolContext, ToolHandler } from '../types.js';
 import {
   createId,
+  optionalBoolean,
   optionalJsonObject,
   optionalNumber,
   optionalString,
@@ -11,6 +12,7 @@ function createBaseEvent(
   ctx: ToolContext,
   eventType: string,
   input: string | undefined,
+  instanceKey: string,
   metadata: JsonObject | undefined
 ): AgentEvent {
   return {
@@ -23,6 +25,7 @@ function createBaseEvent(
       name: ctx.agentName,
     },
     input,
+    instanceKey,
     metadata,
   };
 }
@@ -38,13 +41,14 @@ export const request: ToolHandler = async (ctx: ToolContext, input: JsonObject):
   const runtime = requireRuntime(ctx);
   const target = requireString(input, 'target');
   const message = optionalString(input, 'input');
+  const instanceKey = optionalString(input, 'instanceKey') ?? ctx.instanceKey;
   const eventType = optionalString(input, 'eventType') ?? 'agent.request';
   const metadata = optionalJsonObject(input, 'metadata');
   const timeoutMs = optionalNumber(input, 'timeoutMs', 15_000) ?? 15_000;
 
   const correlationId = createId('corr');
   const event = {
-    ...createBaseEvent(ctx, eventType, message, metadata),
+    ...createBaseEvent(ctx, eventType, message, instanceKey, metadata),
     replyTo: {
       target: ctx.agentName,
       correlationId,
@@ -65,10 +69,11 @@ export const send: ToolHandler = async (ctx: ToolContext, input: JsonObject): Pr
   const runtime = requireRuntime(ctx);
   const target = requireString(input, 'target');
   const message = optionalString(input, 'input');
+  const instanceKey = optionalString(input, 'instanceKey') ?? ctx.instanceKey;
   const eventType = optionalString(input, 'eventType') ?? 'agent.send';
   const metadata = optionalJsonObject(input, 'metadata');
 
-  const event = createBaseEvent(ctx, eventType, message, metadata);
+  const event = createBaseEvent(ctx, eventType, message, instanceKey, metadata);
   const result = await runtime.send(target, event);
 
   return {
@@ -78,7 +83,49 @@ export const send: ToolHandler = async (ctx: ToolContext, input: JsonObject): Pr
   };
 };
 
+export const spawn: ToolHandler = async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
+  const runtime = requireRuntime(ctx);
+  const target = requireString(input, 'target');
+  const instanceKey = optionalString(input, 'instanceKey');
+  const cwd = optionalString(input, 'cwd');
+
+  const result = await runtime.spawn(target, {
+    instanceKey,
+    cwd,
+  });
+
+  return {
+    target: result.target,
+    instanceKey: result.instanceKey,
+    spawned: result.spawned,
+    cwd: result.cwd ?? null,
+  };
+};
+
+export const list: ToolHandler = async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
+  const runtime = requireRuntime(ctx);
+  const includeAll = optionalBoolean(input, 'includeAll', false) ?? false;
+
+  const result = await runtime.list({
+    includeAll,
+  });
+
+  return {
+    count: result.agents.length,
+    agents: result.agents.map((agent) => ({
+      target: agent.target,
+      instanceKey: agent.instanceKey,
+      ownerAgent: agent.ownerAgent,
+      ownerInstanceKey: agent.ownerInstanceKey,
+      createdAt: agent.createdAt,
+      cwd: agent.cwd ?? null,
+    })),
+  };
+};
+
 export const handlers = {
   request,
   send,
+  spawn,
+  list,
 } satisfies Record<string, ToolHandler>;

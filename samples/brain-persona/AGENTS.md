@@ -17,6 +17,23 @@
 - `extensions/*`: 샘플 전용 runtime middleware (context 주입/정책 실험)
 - Slack 입력은 로컬 connector 파일 대신 `goondan.yaml`의 `@goondan/base` `Connector/slack` 연결을 사용한다.
 
+## 버전 구분 규칙
+
+1. `@goondan/base` 버전 질문은 반드시 `npm 패키지`와 `goondan 패키지`로 분리해 답한다.
+2. `npm 패키지`는 `package.json` 기준이다.
+3. 예: `goondan/packages/base/package.json`의 `"version"`.
+4. `goondan 패키지`는 `goondan.yaml`/`goondan.lock.yaml` 기준이다.
+5. 예: `goondan/packages/base/goondan.yaml`의 `Package.spec.version`, 소비자 번들의 `goondan.yaml dependencies`, `goondan.lock.yaml`의 resolved 버전.
+6. "base 업데이트 됐어?" 질문에는 아래 2가지를 항상 함께 답한다.
+7. `npm 패키지 업데이트 여부` (소스/배포 모듈 버전)
+8. `goondan 패키지 업데이트 여부` (리소스 패키지 버전 + dependency/lock 반영 여부)
+9. 답변은 짧고 친절하게 작성하고, 두 축을 섞어 표현하지 않는다.
+
+### 질문/답변 예시
+
+- 질문 예시: `base 업데이트 됐어?`
+- 답변 예시: `네. npm 패키지는 <version>으로 업데이트됐고, goondan 패키지는 <goondan package version> 기준입니다. 이 번들의 goondan 의존성/lock 반영 상태는 <dependency range>/<resolved version>입니다.`
+
 ## 수정 시 체크
 
 1. 채널 라우팅 키(`chat_id`, `channel_id`, `thread_ts`)를 깨지지 않게 유지한다.

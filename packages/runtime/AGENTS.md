@@ -9,9 +9,10 @@
 - `src/tools/*`: Tool 이름 파싱, ToolRegistry, ToolExecutor(errorMessageLimit 잘라내기, suggestion/helpUrl 추출), catalog 허용 범위 검증
 - `src/types.ts`: Runtime/Tool 공통 타입 계약(AgentEvent.instanceKey, AgentToolRuntime request/send/spawn/list/catalog 등)
 - `src/config/*`: Bundle/Resource 로딩, ObjectRef 파싱, 기본 검증(apiVersion/kind/ref), Kind별 최소 스키마 검증(Tool/Agent/Swarm/Extension/Connector/Connection), Package 문서 위치 규칙 검증
-- `src/config/bundle-loader.ts`: 로컬 번들 + 설치된 dependency 패키지(`~/.goondan/packages`) 리소스 병합 로딩 (manifest는 `dist/goondan.yaml` 우선, 경로 기준은 Package Root)
+- `src/config/bundle-loader.ts`: 로컬 번들 + 설치된 dependency 패키지(`~/.goondan/packages`) 리소스 병합 로딩 (manifest는 `dist/goondan.yaml` 우선, 경로 기준은 Package Root, 로컬 스캔 시 `dist/node_modules/.git` 제외)
 - `src/workspace/*`: `messages/base.jsonl`, `messages/events.jsonl`, extension state 저장소, FileInstanceManager(list/delete)
 - `src/orchestrator/*`: spawn/restart/reconcile/shutdown, process status, crash backoff, graceful shutdown ack 모델, desired state reconcile(누락 agent 자동 spawn/불필요 connector 정리), crashLoopBackOff 구조화 로그, AgentEventQueue(FIFO)
+- `src/runner/runtime-runner.ts`: watch/tool 신호 기반 self-restart 시 shutdown(Connector 종료) 이후 replacement runner 기동으로 포트 충돌을 회피
 - `src/events/*`: Runtime 표준 이벤트 버스 인터페이스
 - `test/*`: Node 환경(vitest) 테스트
 

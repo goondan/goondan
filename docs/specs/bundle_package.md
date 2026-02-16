@@ -174,7 +174,7 @@ spec:
 | **Package Root** | `goondan.yaml`이 위치한 폴더 |
 | **Package Ref** | Package를 가리키는 식별자 (예: `@goondan/base`, `@goondan/base@1.2.0`) |
 | **Dependency** | 다른 Package를 참조하는 의존성 목록 |
-| **Registry** | Package를 호스팅하는 서버 (예: `https://registry.goondan.ai`) |
+| **Registry** | Package를 호스팅하는 서버 (예: `https://goondan-registry.yechanny.workers.dev`) |
 | **System Root** | `~/.goondan/` -- 시스템 전역 설정, 패키지 캐시, 워크스페이스 저장 |
 
 ---
@@ -232,7 +232,7 @@ spec:
     - name: "@myorg/toolkit"
       version: "^2.0.0"
   registry:                # MAY -- 레지스트리 설정
-    url: "https://registry.goondan.ai"
+    url: "https://goondan-registry.yechanny.workers.dev"
 ```
 
 ### 5.3 필드 규칙
@@ -351,7 +351,7 @@ Goondan 패키지 레지스트리는 Package의 메타데이터와 tarball을 �
 
 기본 레지스트리:
 ```
-https://registry.goondan.ai
+https://goondan-registry.yechanny.workers.dev
 ```
 
 사용자는 `~/.goondan/config.json` 또는 환경 변수로 커스텀 레지스트리를 지정할 수 있다(MAY).
@@ -379,7 +379,7 @@ GET /<scope>/<name>
       },
       "deprecated": "",
       "dist": {
-        "tarball": "https://registry.goondan.ai/@goondan/base/-/base-1.0.0.tgz",
+        "tarball": "https://goondan-registry.yechanny.workers.dev/@goondan/base/-/base-1.0.0.tgz",
         "shasum": "abc123...",
         "integrity": "sha512-..."
       }
@@ -464,7 +464,7 @@ Authorization: Bearer <token>
 ```json
 {
   "registries": {
-    "https://registry.goondan.ai": {
+    "https://goondan-registry.yechanny.workers.dev": {
       "token": "${GOONDAN_REGISTRY_TOKEN}"
     }
   }
@@ -541,13 +541,13 @@ lockfileVersion: 1
 packages:
   "@goondan/base@1.0.0":
     version: "1.0.0"
-    resolved: "https://registry.goondan.ai/@goondan/base/-/base-1.0.0.tgz"
+    resolved: "https://goondan-registry.yechanny.workers.dev/@goondan/base/-/base-1.0.0.tgz"
     integrity: "sha512-AAAA..."
     dependencies:
       "@goondan/core-utils": "0.5.2"
   "@goondan/core-utils@0.5.2":
     version: "0.5.2"
-    resolved: "https://registry.goondan.ai/@goondan/core-utils/-/core-utils-0.5.2.tgz"
+    resolved: "https://goondan-registry.yechanny.workers.dev/@goondan/core-utils/-/core-utils-0.5.2.tgz"
     integrity: "sha512-BBBB..."
 ```
 
@@ -676,7 +676,7 @@ spec:
   version: "1.0.0"
   description: "Goondan 기본 Tool, Extension, Connector 번들"
   registry:
-    url: "https://registry.goondan.ai"
+    url: "https://goondan-registry.yechanny.workers.dev"
 ```
 
 디렉터리 구조:

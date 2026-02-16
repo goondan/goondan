@@ -1,5 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
+import { createServer } from 'node:net';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { WorkspacePaths } from '@goondan/runtime';
@@ -66,6 +67,31 @@ async function waitForProcessExit(pid: number, timeoutMs = 5000): Promise<void> 
   }
 }
 
+async function findAvailablePort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (typeof address !== 'object' || address === null || typeof address.port !== 'number') {
+        server.close(() => {
+          reject(new Error('사용 가능한 포트를 확인할 수 없습니다.'));
+        });
+        return;
+      }
+
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
 async function waitForFile(filePath: string, timeoutMs = 5000): Promise<string> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -95,6 +121,28 @@ async function waitForFileContains(filePath: string, needle: string, timeoutMs =
   }
 
   throw new Error(`파일 내용 대기 시간 초과: ${filePath} needle=${needle}`);
+}
+
+async function waitForConnectorParentPid(
+  filePath: string,
+  expectedParentPid: number,
+  timeoutMs = 5000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const marker = await readFile(filePath, 'utf8');
+      const parsed = parseConnectorPidMarker(marker);
+      if (parsed.ppid === expectedParentPid) {
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+
+  throw new Error(`connector marker 대기 시간 초과: expected parent pid=${expectedParentPid}`);
 }
 
 function parseConnectorPidMarker(raw: string): { pid: number; ppid: number } {
@@ -214,6 +262,69 @@ spec:
 `;
 
 const connectorConfigBundle = connectorBundle.replace('  secrets:', '  config:');
+
+const connectorPortBindingBundle = `
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/test-runtime"
+spec:
+  version: "0.1.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: dummy-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    value: "dummy"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: bot
+spec:
+  modelConfig:
+    modelRef: "Model/dummy-model"
+  prompts:
+    systemPrompt: "test"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/bot"
+  agents:
+    - ref: "Agent/bot"
+---
+apiVersion: goondan.ai/v1
+kind: Connector
+metadata:
+  name: sample-connector
+spec:
+  entry: "./connector.js"
+  events:
+    - name: sample_event
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: sample-connection
+spec:
+  connectorRef: "Connector/sample-connector"
+  swarmRef: "Swarm/default"
+  config:
+    LISTEN_PORT:
+      valueFrom:
+        env: SAMPLE_LISTEN_PORT
+  secrets:
+    MARKER_PATH:
+      valueFrom:
+        env: SAMPLE_MARKER_PATH
+`;
 
 const extensionBundle = `
 apiVersion: goondan.ai/v1
@@ -347,6 +458,45 @@ export default async function run(ctx) {
   }
 
   await writeFile(markerPath, 'started\\n', 'utf8');
+  await new Promise(() => {});
+}
+`;
+
+const connectorPortBindingSource = `
+import { createServer } from 'node:net';
+import { writeFile } from 'node:fs/promises';
+
+function parsePort(raw) {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    throw new Error('LISTEN_PORT config is required');
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+    throw new Error('LISTEN_PORT must be a valid TCP port number');
+  }
+
+  return parsed;
+}
+
+export default async function run(ctx) {
+  const markerPath = ctx.secrets.MARKER_PATH;
+  if (typeof markerPath !== 'string' || markerPath.length === 0) {
+    throw new Error('MARKER_PATH secret is required');
+  }
+
+  const port = parsePort(ctx.config.LISTEN_PORT);
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+
+  await writeFile(
+    markerPath,
+    JSON.stringify({ pid: process.pid, ppid: process.ppid, port }) + '\\n',
+    'utf8',
+  );
   await new Promise(() => {});
 }
 `;
@@ -817,6 +967,62 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       await rm(fixture.rootDir, { recursive: true, force: true });
     }
   });
+
+  it('instance restart는 포트 점유 connector가 있어도 기존 pid 종료 후 재기동한다', async () => {
+    const fixture = await createRuntimeFixtureWithConnector(
+      connectorPortBindingBundle,
+      connectorPortBindingSource,
+    );
+    const markerPath = path.join(fixture.rootDir, 'connector-port.marker');
+    const listenPort = await findAvailablePort();
+    let runningPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        SAMPLE_MARKER_PATH: markerPath,
+        SAMPLE_LISTEN_PORT: String(listenPort),
+      });
+
+      const started = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!started.pid) {
+        throw new Error('start pid가 없습니다.');
+      }
+
+      const previousPid = started.pid;
+      runningPid = previousPid;
+      await waitForConnectorParentPid(markerPath, previousPid, 10_000);
+
+      const restarted = await controller.restart({
+        instanceKey: started.instanceKey,
+        fresh: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!restarted.pid) {
+        throw new Error('restart pid가 없습니다.');
+      }
+
+      runningPid = restarted.pid;
+      expect(restarted.pid).not.toBe(previousPid);
+      expect(isProcessAlive(restarted.pid)).toBe(true);
+      await waitForProcessExit(previousPid, 10_000);
+      expect(isProcessAlive(previousPid)).toBe(false);
+      await waitForConnectorParentPid(markerPath, restarted.pid, 10_000);
+    } finally {
+      if (runningPid && isProcessAlive(runningPid)) {
+        process.kill(runningPid, 'SIGTERM');
+        await waitForProcessExit(runningPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   it('instance restart 대상 키가 active 인스턴스와 다르면 오류를 반환한다', async () => {
     const fixture = await createRuntimeFixture(basicBundle);

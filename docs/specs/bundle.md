@@ -44,6 +44,7 @@ Goondan Bundle(`goondan.yaml`)은 에이전트 스웜을 구성하는 모든 리
 2. 모든 리소스의 `apiVersion`은 `goondan.ai/v1`이어야 한다 (MUST).
 3. Runtime은 지원하지 않는 `apiVersion`을 로드 단계에서 명시적 오류로 거부해야 한다 (MUST).
 4. `kind` 필드가 없는 문서는 Goondan 리소스가 아닌 것으로 간주하여 무시해야 한다 (SHOULD).
+5. 로컬 번들 스캔 시 빌드/의존성 산출물 디렉터리(`dist`, `node_modules`, `.git`)는 재귀 검색 대상에서 제외해야 한다 (SHOULD).
 
 ### 2.3 구성 검증
 
@@ -155,6 +156,7 @@ metadata:
 | `resources` | 여러 종류를 담는 범용 파일 |
 
 확장자는 `.yaml` 또는 `.yml` 모두 허용. 하위 디렉토리 포함 재귀 검색.
+단, `dist`, `node_modules`, `.git` 디렉토리는 로더가 기본적으로 제외한다.
 
 ### 3.6 다중 YAML 문서 (---) 처리
 

@@ -514,6 +514,7 @@ gdn package publish
 - lockfile: `goondan.lock.yaml`
 - 설치 경로: `~/.goondan/packages/<scope>/<name>/<version>/`
 - 배포 tarball 내부 manifest: `goondan.yaml` 또는 `dist/goondan.yaml`
+- 로컬 번들 스캔 제외 디렉토리: `dist`, `node_modules`, `.git`
 
 `package.json`의 `files`를 `["dist"]`로 운영하는 패키지는, 빌드 단계에서 `dist/goondan.yaml`을 생성해야 한다.
 

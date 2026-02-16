@@ -369,7 +369,7 @@ kind: Agent
 spec:
   extensions:
     - ref: "Extension/logging"      # 1번째: 가장 바깥 레이어
-    - ref: "Extension/compaction"   # 2번째
+    - ref: "Extension/message-compaction"   # 2번째
     - ref: "Extension/skills"       # 3번째: 가장 안쪽 레이어
 ```
 

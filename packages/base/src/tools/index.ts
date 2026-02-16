@@ -44,3 +44,26 @@ export {
   trim as textTransformTrim,
   caseTransform as textTransformCase,
 } from './text-transform.js';
+
+export {
+  handlers as telegramHandlers,
+  send as telegramSend,
+  edit as telegramEdit,
+  remove as telegramDelete,
+  react as telegramReact,
+  setChatAction as telegramSetChatAction,
+} from './telegram.js';
+
+export {
+  handlers as slackHandlers,
+  send as slackSend,
+  read as slackRead,
+  edit as slackEdit,
+  remove as slackDelete,
+  react as slackReact,
+} from './slack.js';
+
+export {
+  handlers as selfRestartHandlers,
+  request as selfRestartRequest,
+} from './self-restart.js';

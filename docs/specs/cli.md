@@ -761,10 +761,10 @@ Summary
 
 ```json
 {
-  "registry": "https://registry.goondan.ai",
+  "registry": "https://goondan-registry.yechanny.workers.dev",
   "logLevel": "info",
   "registries": {
-    "https://registry.goondan.ai": {
+    "https://goondan-registry.yechanny.workers.dev": {
       "token": "xxx..."
     }
   },

@@ -16,7 +16,7 @@
 - `run`에서 `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 키를 사용하고, 동일 키 active runtime이 있으면 재사용(resume)한다
 - `run` 시 프로세스 stdout/stderr를 `~/.goondan/runtime/logs/<instanceKey>/` 파일로 기록
 - `instance list` 시 `runtime/active.json`의 active orchestrator + 동일 state-root의 managed runtime-runner를 함께 노출하고, Agent 대화 인스턴스(`workspaces/*/instances/*`)와 legacy `instances/*`는 표시하지 않음
-- `instance restart` 시 active runtime 인스턴스를 최신 runner 바이너리로 재기동하고 active pid를 교체
+- `instance restart` 시 기존 active pid 종료를 확인한 뒤 최신 runner 바이너리로 재기동하고 active pid를 교체(Connector 포트 충돌 방지)
 - `instance delete` 시 active 여부와 무관하게 동일 state-root의 managed runtime-runner PID 종료 + 다중 레이아웃 인스턴스 경로(`workspaces/*/instances/*`, `instances/*/*`)를 함께 정리
 - `instance` (bare) 시 인터랙티브 TUI 모드 — non-TTY/`--json` 환경에서는 `instance list`로 자동 폴백, TTY에서는 `r` 키로 선택 인스턴스 재시작 + started 시각 확인
 - active pid 종료 전 `runtime-runner + instance-key` 일치 여부를 검증해 오탐 종료를 방지

@@ -1,11 +1,10 @@
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { closeSync, existsSync, openSync } from 'node:fs';
+import { closeSync, openSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { parseYamlDocuments, WorkspacePaths } from '@goondan/runtime';
+import { resolveRuntimeRunnerPath } from '@goondan/runtime/runner';
 import { configError } from '../errors.js';
 import { loadRuntimeEnv } from './env.js';
 import type {
@@ -155,63 +154,8 @@ interface RunnerReadyResult {
 const STARTUP_TIMEOUT_MS = 5000;
 const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
 
-function resolveRuntimePackageRootFromModule(): string | undefined {
-  try {
-    const require = createRequire(import.meta.url);
-    const packageJsonPath = require.resolve('@goondan/runtime/package.json');
-    return path.dirname(packageJsonPath);
-  } catch {
-    return undefined;
-  }
-}
-
-function uniqueNonEmptyPaths(values: Array<string | undefined>): string[] {
-  const seen = new Set<string>();
-  const results: string[] = [];
-
-  for (const value of values) {
-    if (typeof value !== 'string' || value.length === 0 || seen.has(value)) {
-      continue;
-    }
-    seen.add(value);
-    results.push(value);
-  }
-
-  return results;
-}
-
 function runtimeRunnerPath(): string {
-  const sourceDir = path.dirname(fileURLToPath(import.meta.url));
-  const candidateRoots = uniqueNonEmptyPaths([
-    resolveRuntimePackageRootFromModule(),
-    path.resolve(sourceDir, '..', '..', 'node_modules', '@goondan', 'runtime'),
-    path.resolve(sourceDir, '..', '..', '..', '@goondan', 'runtime'),
-    path.resolve(sourceDir, '..', '..', '..', '..', 'node_modules', '@goondan', 'runtime'),
-  ]);
-
-  let runtimePackageRoot: string | undefined;
-  for (const candidate of candidateRoots) {
-    if (existsSync(candidate)) {
-      runtimePackageRoot = candidate;
-      break;
-    }
-  }
-
-  if (!runtimePackageRoot) {
-    throw new Error(`@goondan/runtime 패키지 경로를 찾을 수 없습니다. candidates=${candidateRoots.join(',')}`);
-  }
-
-  const distRunnerPath = path.join(runtimePackageRoot, 'dist', 'runner', 'runtime-runner.js');
-  if (existsSync(distRunnerPath)) {
-    return distRunnerPath;
-  }
-
-  const sourceRunnerPath = path.join(runtimePackageRoot, 'src', 'runner', 'runtime-runner.ts');
-  if (existsSync(sourceRunnerPath)) {
-    return sourceRunnerPath;
-  }
-
-  throw new Error(`@goondan/runtime runner 경로를 찾을 수 없습니다: ${runtimePackageRoot}`);
+  return resolveRuntimeRunnerPath();
 }
 
 function resolveProcessLogPaths(stateRoot: string, instanceKey: string, processName: string): { stdoutPath: string; stderrPath: string } {

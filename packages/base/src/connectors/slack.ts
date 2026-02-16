@@ -4,11 +4,14 @@ import type { ConnectorContext, ConnectorEvent } from '../types.js';
 
 export interface SlackConnectorConfig {
   port?: number;
+  webhookPath?: string;
 }
 
 export interface SlackRequestOptions {
   headers?: Headers | Record<string, string | string[] | undefined>;
   nowSeconds?: number;
+  requestPath?: string;
+  webhookPath?: string;
 }
 
 function readString(value: unknown): string | undefined {
@@ -46,6 +49,41 @@ function readPort(value: unknown): number | undefined {
 
 function resolveSlackPort(config: Record<string, string>): number {
   return readPort(config.SLACK_WEBHOOK_PORT) ?? readPort(config.PORT) ?? 8787;
+}
+
+function normalizeWebhookPath(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '/';
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return '/';
+  }
+
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const normalized = withLeadingSlash.length > 1
+    ? withLeadingSlash.replace(/\/+$/, '')
+    : withLeadingSlash;
+
+  return normalized.length > 0 ? normalized : '/';
+}
+
+function resolveSlackWebhookPath(config: Record<string, string>): string {
+  return normalizeWebhookPath(config.SLACK_WEBHOOK_PATH);
+}
+
+function parseRequestPath(requestPath: string | undefined): string {
+  if (typeof requestPath !== 'string' || requestPath.length === 0) {
+    return '/';
+  }
+
+  try {
+    const url = new URL(requestPath, 'http://localhost');
+    return normalizeWebhookPath(url.pathname);
+  } catch {
+    return normalizeWebhookPath(requestPath);
+  }
 }
 
 function readSigningSecret(ctx: ConnectorContext): string | undefined {
@@ -180,6 +218,14 @@ export async function handleSlackRequest(
   rawBody: string,
   options: SlackRequestOptions = {}
 ): Promise<Response> {
+  const webhookPath = normalizeWebhookPath(options.webhookPath);
+  if (options.requestPath !== undefined) {
+    const requestPath = parseRequestPath(options.requestPath);
+    if (requestPath !== webhookPath) {
+      return new Response('Not Found', { status: 404 });
+    }
+  }
+
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
@@ -261,6 +307,7 @@ async function writeNodeResponse(
 
 export default async function run(ctx: ConnectorContext): Promise<void> {
   const port = resolveSlackPort(ctx.config);
+  const webhookPath = resolveSlackWebhookPath(ctx.config);
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') {
       res.statusCode = 405;
@@ -273,6 +320,8 @@ export default async function run(ctx: ConnectorContext): Promise<void> {
       const rawBody = await readRequestBody(req);
       const response = await handleSlackRequest(ctx, rawBody, {
         headers: req.headers,
+        requestPath: req.url,
+        webhookPath,
       });
       await writeNodeResponse(res, response);
     } catch (error) {
@@ -332,7 +381,7 @@ export default async function run(ctx: ConnectorContext): Promise<void> {
     server.once('error', onError);
 
     server.listen(port, () => {
-      ctx.logger.info(`[slack] listening on port ${port}`);
+      ctx.logger.info(`[slack] listening on port ${port} path=${webhookPath}`);
     });
   });
 }

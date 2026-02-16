@@ -64,6 +64,50 @@ describe('slack connector', () => {
     expect(events.length).toBe(0);
   });
 
+  it('returns 404 when request path does not match configured webhook path', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event: {
+        type: 'message',
+        text: 'hello',
+        channel: 'D123',
+        ts: '1234.5678',
+      },
+    });
+
+    const response = await handleSlackRequest(ctx, body, {
+      requestPath: '/wrong/path',
+      webhookPath: '/slack/events',
+    });
+
+    expect(response.status).toBe(404);
+    expect(events.length).toBe(0);
+  });
+
+  it('accepts request when webhook path matches (query/trailing slash normalized)', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event: {
+        type: 'message',
+        text: 'hello',
+        channel: 'D123',
+        ts: '1234.5678',
+      },
+    });
+
+    const response = await handleSlackRequest(ctx, body, {
+      requestPath: '/slack/events/?source=test',
+      webhookPath: '/slack/events',
+    });
+
+    expect(response.status).toBe(200);
+    expect(events.length).toBe(1);
+  });
+
   it('rejects unsigned request when signing secret exists', async () => {
     const events: ConnectorEvent[] = [];
     const ctx = createConnectorContext(events, {

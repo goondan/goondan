@@ -18,12 +18,22 @@ import type {
 import { exists, isObjectRecord } from '../utils.js';
 import { resolveStateRoot } from './config.js';
 import { resolveManifestPath } from './path.js';
-import { isRunnerReadyMessage, isRunnerStartErrorMessage } from './runtime-runner-protocol.js';
 
 interface ProcessLogFile {
   process: string;
   stdout: string;
   stderr: string;
+}
+
+interface RunnerReadyMessage {
+  type: 'ready';
+  instanceKey: string;
+  pid: number;
+}
+
+interface RunnerStartErrorMessage {
+  type: 'start_error';
+  message: string;
 }
 
 interface RuntimeStateFile {
@@ -34,6 +44,22 @@ interface RuntimeStateFile {
   swarm?: string;
   pid?: number;
   logs?: ProcessLogFile[];
+}
+
+function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
+  if (!isObjectRecord(message)) {
+    return false;
+  }
+
+  return message.type === 'ready' && typeof message.instanceKey === 'string' && typeof message.pid === 'number';
+}
+
+function isRunnerStartErrorMessage(message: unknown): message is RunnerStartErrorMessage {
+  if (!isObjectRecord(message)) {
+    return false;
+  }
+
+  return message.type === 'start_error' && typeof message.message === 'string';
 }
 
 function parseRuntimeState(raw: string): RuntimeStateFile | undefined {
@@ -129,20 +155,35 @@ const STARTUP_TIMEOUT_MS = 5000;
 const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
 
 function runtimeRunnerPath(): string {
-  const jsPath = fileURLToPath(new URL('./runtime-runner.js', import.meta.url));
-  if (existsSync(jsPath)) {
-    return jsPath;
-  }
-
   const sourceDir = path.dirname(fileURLToPath(import.meta.url));
-  const packageRoot = path.resolve(sourceDir, '..', '..');
-  const distJsPath = path.join(packageRoot, 'dist', 'services', 'runtime-runner.js');
-  if (existsSync(distJsPath)) {
-    return distJsPath;
+  const candidateRoots = [
+    path.resolve(sourceDir, '..', '..', 'node_modules', '@goondan', 'runtime'),
+    path.resolve(sourceDir, '..', '..', '..', 'node_modules', '@goondan', 'runtime'),
+  ];
+
+  let runtimePackageRoot: string | undefined;
+  for (const candidate of candidateRoots) {
+    if (existsSync(candidate)) {
+      runtimePackageRoot = candidate;
+      break;
+    }
   }
 
-  const tsPath = fileURLToPath(new URL('./runtime-runner.ts', import.meta.url));
-  return tsPath;
+  if (!runtimePackageRoot) {
+    throw new Error(`@goondan/runtime 패키지 경로를 찾을 수 없습니다. candidates=${candidateRoots.join(',')}`);
+  }
+
+  const distRunnerPath = path.join(runtimePackageRoot, 'dist', 'runner', 'runtime-runner.js');
+  if (existsSync(distRunnerPath)) {
+    return distRunnerPath;
+  }
+
+  const sourceRunnerPath = path.join(runtimePackageRoot, 'src', 'runner', 'runtime-runner.ts');
+  if (existsSync(sourceRunnerPath)) {
+    return sourceRunnerPath;
+  }
+
+  throw new Error(`@goondan/runtime runner 경로를 찾을 수 없습니다: ${runtimePackageRoot}`);
 }
 
 function resolveProcessLogPaths(stateRoot: string, instanceKey: string, processName: string): { stdoutPath: string; stderrPath: string } {

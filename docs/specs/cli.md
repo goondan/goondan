@@ -10,6 +10,8 @@
 
 CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/restart/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
+실행 엔진(런타임 러너, 대화 루프, connector child 실행)은 `@goondan/runtime` 패키지의 `runner` 엔트리가 소유한다. CLI는 해당 엔진 프로세스를 기동/감시/재기동하는 제어면으로 동작해야 한다(MUST).
+
 `gdn package` 명령어 매트릭스와 레지스트리 설정 우선순위는 `docs/specs/help.md`를 단일 기준으로 따른다.
 
 ### 1.1 설치
@@ -190,12 +192,17 @@ gdn run [options]
 1. `goondan.yaml` 및 관련 리소스 파일을 파싱
 2. `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 인스턴스 키(예: `allied-gray-antelope-darrelle`)를 계산
 3. 동일 키의 Orchestrator가 이미 실행 중이면 해당 프로세스를 재사용(resume)하고 새 프로세스는 스폰하지 않음
-4. Orchestrator 상주 프로세스 기동 (필요 시)
-5. 정의된 Connector에 대해 ConnectorProcess 스폰
-6. CLI Connector(기본)인 경우 대화형 루프 시작
-7. 이벤트 수신 시 필요한 AgentProcess 스폰
+4. `@goondan/runtime/runner` 경로를 해석하고 runtime-runner child 프로세스를 기동
+5. startup handshake(`ready` 또는 `start_error`)를 대기하여 초기화 성공/실패를 즉시 판별
+6. Orchestrator 상주 프로세스 상태 파일(`runtime/active.json`) 갱신
+7. 정의된 Connector에 대해 ConnectorProcess 스폰
+8. CLI Connector(기본)인 경우 대화형 루프 시작
+9. 이벤트 수신 시 필요한 AgentProcess 스폰
 
 **Orchestrator는 에이전트가 모두 종료되어도 살아 있으며**, 새로운 이벤트가 오면 필요한 AgentProcess를 다시 스폰한다.
+
+CLI 구현은 provider-specific 대화 정규화, 메시지 트리밍/windowing 정책을 포함해서는 안 되며(MUST NOT), 해당 로직은 runtime runner + extension 조합으로 위임해야 한다.
+CLI와 runtime runner는 startup handshake 및 실행 인자 계약을 공유하므로, `@goondan/cli`와 `@goondan/runtime` 버전이 어긋나지 않도록 dependency를 동기화해야 한다(SHOULD). 버전 불일치 시 기동 실패나 handshake 오류가 발생할 수 있다.
 
 ### 4.4 환경 변수 파일 자동 로딩
 
@@ -791,4 +798,4 @@ Summary
 ---
 
 **문서 버전**: v2.0
-**최종 수정**: 2026-02-12
+**최종 수정**: 2026-02-16

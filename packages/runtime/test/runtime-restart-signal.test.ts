@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readRuntimeRestartSignal } from '../src/services/runtime-restart-signal.js';
+import { readRuntimeRestartSignal } from '../src/runner/runtime-restart-signal.js';
 
 describe('readRuntimeRestartSignal', () => {
   it('명시적 restartRequested 플래그를 읽는다', () => {

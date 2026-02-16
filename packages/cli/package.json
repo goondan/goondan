@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/bin.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "pnpm --filter @goondan/runtime build && vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {

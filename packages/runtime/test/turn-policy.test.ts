@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStepLimitResponse } from '../src/services/turn-policy.js';
+import { buildStepLimitResponse } from '../src/runner/turn-policy.js';
 
 describe('buildStepLimitResponse', () => {
   it('requiredTools가 없으면 기존 응답 텍스트를 우선 사용한다', () => {

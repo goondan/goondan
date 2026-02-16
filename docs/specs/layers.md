@@ -24,8 +24,10 @@
 - Orchestrator/AgentProcess/ConnectorProcess 실행 모델
 - Turn/Step/ToolCall 실행 파이프라인
 - Config 로딩/검증, IPC/이벤트 흐름, 상태/저장소 연동 규칙
+- 실행 엔진 엔트리(`@goondan/runtime/runner`)와 runtime-runner 유틸리티(`runtime-routing`, `turn-policy`, `runtime-restart-signal`)
 
 즉, 시스템이 "어떻게 실행되는가"를 담당하는 엔진 역할을 맡는다.
+메시지 windowing/compaction 정책이나 provider-specific 대화 정규화는 runtime 코어 책임이 아니다.
 
 ### 2.2 `types`
 
@@ -42,6 +44,7 @@
 `base`는 기본 기능 번들 계층이다.
 
 - 재사용 가능한 Tool/Extension/Connector의 기본 구현 제공
+- 메시지 정책 Extension(`message-window`, `message-compaction`) 같은 선택형 정책 제공
 - 실전에서 바로 사용할 수 있는 표준 빌딩 블록 제공
 - 프로젝트가 빠르게 시작할 수 있는 기본 동작 세트 제공
 
@@ -53,6 +56,7 @@
 
 - 프로젝트 초기화, 실행, 재시작, 검증, 진단 등 운영 명령 제공
 - 런타임 동작을 사람이 제어 가능한 명령 형태로 노출
+- `@goondan/runtime/runner`를 기동하고 startup handshake/active pid 관리 수행
 - 로컬 개발 흐름(초기화/검증/운영)을 일관된 UX로 제공
 
 즉, 시스템의 "조작면(control plane entrypoint)" 역할을 맡는다.
@@ -124,6 +128,8 @@ Package Registry (@goondan/registry)
 ### 5.1 `runtime`에 둘 내용
 
 - 실행 모델, 상태 전이, 런타임 정책, 실행 흐름 제어
+- runtime-runner, connector child 프로세스 orchestration, ingress 라우팅, Tool 런타임 연결
+- 메시지 정책(windowing/compaction)이나 provider 전용 포맷 보정 로직은 두지 않음
 
 ### 5.2 `types`에 둘 내용
 
@@ -136,6 +142,7 @@ Package Registry (@goondan/registry)
 ### 5.4 `cli`에 둘 내용
 
 - 사용자 명령 UX, 출력 포맷, 운영 워크플로우
+- runtime runner 프로세스 기동/재기동/목록/로그 제어, startup 오류 표면화
 
 ### 5.5 `registry`에 둘 내용
 

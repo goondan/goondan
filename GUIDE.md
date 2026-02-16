@@ -27,8 +27,11 @@ v2는 “설정은 파일에서, 실행은 Orchestrator가”라는 원칙으로
 
 - Runtime: Process-per-Agent
 - 상주 프로세스: `gdn run`이 Orchestrator를 띄우고 Agent/Connector를 개별 Bun 프로세스로 관리
+- 실행엔진 경계: runtime runner는 `@goondan/runtime/runner`가 소유하고, CLI는 기동/재기동/운영 제어를 담당
+- 버전 동기화: `@goondan/cli`와 `@goondan/runtime`는 startup handshake 계약을 공유하므로 버전을 함께 맞춰 운영
 - 재구성 방식: **Edit & Restart** 채택
 - 파이프라인: Middleware(`turn`/`step`/`toolCall`) 3종 사용
+- 메시지 정책 분리: 메시지 windowing/compaction은 Runtime 코어가 아닌 Extension(`message-window`, `message-compaction`)으로 적용
 - 메시지 상태: 이벤트 소싱 유지
   - `NextMessages = BaseMessages + SUM(Events)`
 - 구성 모델: `apiVersion: goondan.ai/v1`, 지원 Kind 8종
@@ -391,6 +394,30 @@ export function register(api: ExtensionApi): void {
 - `logger`
 
 상태는 인스턴스별로 `extensions/<ext-name>.json`에 저장된다.
+
+### 7.4 message-window / message-compaction 적용
+
+메시지 길이/개수 정책은 Agent의 `spec.extensions`로 명시적으로 연결한다.
+
+```yaml
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: assistant
+spec:
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: message-compaction
+        package: "@goondan/base"
+```
+
+`message-window`는 오래된 메시지를 고정 개수로 제거하고, `message-compaction`은 요약/제거 전략으로 컨텍스트를 최적화한다. 둘 다 선택 적용이며, 강제 기본값이 아니다.
+다만 장기 실행 인스턴스에서는 둘 중 최소 하나를 적용하는 것을 강력히 권장한다. 미적용 시 메시지 히스토리 누적으로 token limit 초과/비용 증가가 발생할 수 있다.
 
 ---
 

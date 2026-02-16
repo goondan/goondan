@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { isJsonObject, type JsonObject } from '@goondan/runtime';
+import { isJsonObject, type JsonObject } from '../index.js';
 
 export interface ParsedConnectorEvent {
   name: string;

@@ -7,6 +7,19 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { closeSync, constants as fsConstants, existsSync, openSync, watch as watchFs, type FSWatcher } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  generateText,
+  jsonSchema,
+  stepCountIs,
+  tool,
+  type AssistantModelMessage,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from 'ai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
+import {
   BundleLoader,
   ConversationStateImpl,
   ExtensionApiImpl,
@@ -43,7 +56,7 @@ import {
   type TurnResult,
   type JsonValue,
   type ValidationError,
-} from '@goondan/runtime';
+} from '../index.js';
 import {
   formatRuntimeInboundUserText,
   parseAgentToolEventPayload,
@@ -56,10 +69,8 @@ import {
 } from './runtime-routing.js';
 import { buildStepLimitResponse } from './turn-policy.js';
 import {
-  prepareAnthropicConversation,
   toConversationTurns,
   toPersistentMessages,
-  trimConversation,
   type ConversationTurn,
 } from './conversation-state.js';
 
@@ -154,12 +165,6 @@ interface ToolHandlerMap {
   [exportName: string]: (ctx: unknown, input: unknown) => unknown;
 }
 
-interface AnthropicToolDefinition {
-  name: string;
-  description?: string;
-  input_schema: JsonSchemaObject;
-}
-
 interface RuntimeExtensionSpec {
   entry: string;
   config?: Record<string, unknown>;
@@ -174,10 +179,8 @@ interface AgentRuntimePlan {
   maxTokens: number;
   temperature: number;
   maxSteps: number;
-  maxConversationTurns: number;
   requiredToolNames: string[];
   toolCatalog: ToolCatalogItem[];
-  anthropicTools: AnthropicToolDefinition[];
   extensionResources: RuntimeResource<RuntimeExtensionSpec>[];
 }
 
@@ -247,7 +250,11 @@ interface ToolUseBlock {
   input: JsonObject;
 }
 
-interface AnthropicResponseParseResult {
+type RunnerToolResultOutput =
+  | { type: 'text'; value: string }
+  | { type: 'json'; value: JsonValue };
+
+interface ModelStepParseResult {
   assistantContent: unknown[];
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
@@ -1702,14 +1709,6 @@ async function registerToolResource(
   };
 }
 
-function toAnthropicToolDefinitions(catalog: ToolCatalogItem[]): AnthropicToolDefinition[] {
-  return catalog.map((item) => ({
-    name: item.name,
-    description: item.description,
-    input_schema: item.parameters ?? createDefaultObjectSchema(),
-  }));
-}
-
 function parseConnectionConnectorRef(connection: RuntimeResource): ObjectRefLike {
   const spec = readSpecRecord(connection);
   const connectorRef = spec.connectorRef;
@@ -1772,20 +1771,6 @@ function parseSwarmMaxStepsPerTurn(swarm: RuntimeResource): number {
   }
 
   return 24;
-}
-
-function inferBotMaxConversationTurns(): number {
-  const raw = process.env.BOT_MAX_CONVERSATION_TURNS;
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    return 10;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 10;
-  }
-
-  return parsed;
 }
 
 function buildRuntimeAgentCatalog(
@@ -1963,10 +1948,8 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       maxTokens: modelParams.maxTokens,
       temperature: modelParams.temperature,
       maxSteps: maxStepsPerTurn,
-      maxConversationTurns: inferBotMaxConversationTurns(),
       requiredToolNames,
       toolCatalog: agentToolCatalog,
-      anthropicTools: toAnthropicToolDefinitions(agentToolCatalog),
       extensionResources,
     };
 
@@ -2143,11 +2126,10 @@ async function loadConversationFromStorage(
   runtime: RuntimeEngineState,
   queueKey: string,
   agentName: string,
-  maxTurns: number,
 ): Promise<ConversationTurn[]> {
   await ensureInstanceStorage(runtime, queueKey, agentName);
   const loaded = await runtime.storage.loadConversation(queueKey);
-  return trimConversation(toConversationTurns(loaded.nextMessages), maxTurns);
+  return toConversationTurns(loaded.nextMessages);
 }
 
 async function persistConversationToStorage(
@@ -2233,110 +2215,301 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
-function mergeSystemPrompt(basePrompt: string, addendum: string): string {
-  if (addendum.trim().length === 0) {
-    return basePrompt;
+function createLanguageModel(provider: string, model: string, apiKey: string): LanguageModel {
+  const normalizedProvider = provider.trim().toLowerCase();
+
+  if (normalizedProvider === 'anthropic') {
+    return createAnthropic({ apiKey }).languageModel(model);
   }
 
-  if (basePrompt.trim().length === 0) {
-    return addendum;
+  if (normalizedProvider === 'openai') {
+    return createOpenAI({ apiKey }).languageModel(model);
   }
 
-  return `${basePrompt}\n\n${addendum}`;
+  if (normalizedProvider === 'google') {
+    return createGoogleGenerativeAI({ apiKey }).languageModel(model);
+  }
+
+  throw new Error(`지원하지 않는 model provider입니다: ${provider}`);
 }
 
-function parseAnthropicResponse(payload: unknown): AnthropicResponseParseResult {
-  if (!isJsonObject(payload)) {
-    throw new Error('Anthropic 응답 형식이 잘못되었습니다.');
+function toToolResultOutput(value: unknown): RunnerToolResultOutput {
+  if (isJsonObject(value) && value.type === 'text' && typeof value.value === 'string') {
+    return {
+      type: 'text',
+      value: value.value,
+    };
   }
 
-  const contentValue = payload.content;
-  if (!Array.isArray(contentValue)) {
-    throw new Error('Anthropic content 배열이 없습니다.');
+  if (isJsonObject(value) && value.type === 'json' && Object.hasOwn(value, 'value')) {
+    return {
+      type: 'json',
+      value: toJsonValue(value.value),
+    };
   }
 
-  const assistantContent: unknown[] = [];
-  const textBlocks: string[] = [];
-  const toolUseBlocks: ToolUseBlock[] = [];
-
-  for (const block of contentValue) {
-    assistantContent.push(block);
-    if (!isJsonObject(block)) {
-      continue;
-    }
-
-    const type = block.type;
-    if (type === 'text' && typeof block.text === 'string') {
-      textBlocks.push(block.text);
-      continue;
-    }
-
-    if (type === 'tool_use') {
-      const id = typeof block.id === 'string' ? block.id : '';
-      const name = typeof block.name === 'string' ? block.name : '';
-      const input = ensureJsonObject(block.input);
-      if (id.length > 0 && name.length > 0) {
-        toolUseBlocks.push({
-          id,
-          name,
-          input,
-        });
-      }
-    }
+  if (typeof value === 'string') {
+    return {
+      type: 'text',
+      value,
+    };
   }
 
   return {
-    assistantContent,
-    textBlocks,
-    toolUseBlocks,
+    type: 'json',
+    value: toJsonValue(value),
   };
 }
 
-async function requestAnthropicMessage(input: {
+function parseToolCallPart(block: JsonObject): { toolCallId: string; toolName: string; input: JsonObject } | undefined {
+  const type = typeof block.type === 'string' ? block.type : '';
+  if (type !== 'tool-call' && type !== 'tool_call' && type !== 'tool_use') {
+    return undefined;
+  }
+
+  const toolCallId = readStringValue(block, 'toolCallId') ?? readStringValue(block, 'id');
+  const toolName = readStringValue(block, 'toolName') ?? readStringValue(block, 'name');
+  if (!toolCallId || !toolName) {
+    return undefined;
+  }
+
+  return {
+    toolCallId,
+    toolName,
+    input: ensureJsonObject(block.input),
+  };
+}
+
+function parseToolResultPart(block: JsonObject): { toolCallId: string; toolName: string; output: RunnerToolResultOutput } | undefined {
+  const type = typeof block.type === 'string' ? block.type : '';
+  if (type !== 'tool-result' && type !== 'tool_result') {
+    return undefined;
+  }
+
+  const toolCallId = readStringValue(block, 'toolCallId') ?? readStringValue(block, 'tool_use_id');
+  if (!toolCallId) {
+    return undefined;
+  }
+
+  const toolName = readStringValue(block, 'toolName') ?? readStringValue(block, 'tool_name') ?? 'unknown-tool';
+  const hasOutput = Object.hasOwn(block, 'output');
+  const rawOutput = hasOutput ? block.output : block.content;
+  const isError = block.is_error === true;
+  if (isError) {
+    return {
+      toolCallId,
+      toolName,
+      output: {
+        type: 'text',
+        value: `ERROR: ${typeof rawOutput === 'string' ? rawOutput : safeJsonStringify(rawOutput)}`,
+      },
+    };
+  }
+
+  return {
+    toolCallId,
+    toolName,
+    output: toToolResultOutput(rawOutput),
+  };
+}
+
+function normalizeAssistantContent(content: unknown): AssistantModelMessage['content'] {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return safeJsonStringify(content);
+  }
+
+  const parts: Array<
+    | { type: 'text'; text: string }
+    | { type: 'tool-call'; toolCallId: string; toolName: string; input: JsonObject }
+    | { type: 'tool-result'; toolCallId: string; toolName: string; output: RunnerToolResultOutput }
+  > = [];
+
+  for (const item of content) {
+    if (isJsonObject(item)) {
+      const toolCallPart = parseToolCallPart(item);
+      if (toolCallPart) {
+        parts.push({
+          type: 'tool-call',
+          toolCallId: toolCallPart.toolCallId,
+          toolName: toolCallPart.toolName,
+          input: toolCallPart.input,
+        });
+        continue;
+      }
+
+      const toolResultPart = parseToolResultPart(item);
+      if (toolResultPart) {
+        parts.push({
+          type: 'tool-result',
+          toolCallId: toolResultPart.toolCallId,
+          toolName: toolResultPart.toolName,
+          output: toolResultPart.output,
+        });
+        continue;
+      }
+
+      if (item.type === 'text' && typeof item.text === 'string') {
+        parts.push({ type: 'text', text: item.text });
+        continue;
+      }
+    }
+
+    parts.push({
+      type: 'text',
+      text: safeJsonStringify(item),
+    });
+  }
+
+  return parts;
+}
+
+function normalizeUserMessages(content: unknown): ModelMessage[] {
+  if (typeof content === 'string') {
+    return [{ role: 'user', content }];
+  }
+
+  if (!Array.isArray(content)) {
+    return [{ role: 'user', content: safeJsonStringify(content) }];
+  }
+
+  const textParts: Array<{ type: 'text'; text: string }> = [];
+  const toolParts: Array<{ type: 'tool-result'; toolCallId: string; toolName: string; output: RunnerToolResultOutput }> = [];
+
+  for (const item of content) {
+    if (isJsonObject(item)) {
+      const toolPart = parseToolResultPart(item);
+      if (toolPart) {
+        toolParts.push({
+          type: 'tool-result',
+          toolCallId: toolPart.toolCallId,
+          toolName: toolPart.toolName,
+          output: toolPart.output,
+        });
+        continue;
+      }
+
+      if (item.type === 'text' && typeof item.text === 'string') {
+        textParts.push({ type: 'text', text: item.text });
+        continue;
+      }
+    }
+
+    textParts.push({
+      type: 'text',
+      text: safeJsonStringify(item),
+    });
+  }
+
+  const messages: ModelMessage[] = [];
+  if (toolParts.length > 0) {
+    messages.push({
+      role: 'tool',
+      content: toolParts,
+    });
+  }
+
+  if (textParts.length === 1) {
+    const onlyText = textParts[0];
+    if (onlyText) {
+      messages.push({
+        role: 'user',
+        content: onlyText.text,
+      });
+    }
+  } else if (textParts.length > 1) {
+    messages.push({
+      role: 'user',
+      content: textParts,
+    });
+  }
+
+  return messages;
+}
+
+function toModelMessages(turns: ConversationTurn[]): ModelMessage[] {
+  const messages: ModelMessage[] = [];
+
+  for (const turn of turns) {
+    if (turn.role === 'assistant') {
+      messages.push({
+        role: 'assistant',
+        content: normalizeAssistantContent(turn.content),
+      });
+      continue;
+    }
+
+    messages.push(...normalizeUserMessages(turn.content));
+  }
+
+  return messages;
+}
+
+function toRunnerToolSet(catalog: ToolCatalogItem[]): ToolSet {
+  const tools: ToolSet = {};
+  for (const item of catalog) {
+    tools[item.name] = tool({
+      description: item.description,
+      inputSchema: jsonSchema(item.parameters ?? createDefaultObjectSchema()),
+    });
+  }
+
+  return tools;
+}
+
+function toAssistantContent(messages: readonly ModelMessage[], fallbackText: string): unknown[] {
+  const assistantMessage = messages.find((message): message is AssistantModelMessage => message.role === 'assistant');
+  if (!assistantMessage) {
+    return fallbackText.trim().length > 0 ? [{ type: 'text', text: fallbackText }] : [];
+  }
+
+  if (typeof assistantMessage.content === 'string') {
+    return [{ type: 'text', text: assistantMessage.content }];
+  }
+
+  return assistantMessage.content;
+}
+
+async function requestModelMessage(input: {
+  provider: string;
   apiKey: string;
   model: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
-  tools: AnthropicToolDefinition[];
-  messages: unknown[];
-}): Promise<AnthropicResponseParseResult> {
-  const body: Record<string, unknown> = {
-    model: input.model,
-    max_tokens: input.maxTokens,
+  toolCatalog: ToolCatalogItem[];
+  turns: ConversationTurn[];
+}): Promise<ModelStepParseResult> {
+  const model = createLanguageModel(input.provider, input.model, input.apiKey);
+  const result = await generateText({
+    model,
     system: input.systemPrompt,
-    messages: input.messages,
+    messages: toModelMessages(input.turns),
+    tools: toRunnerToolSet(input.toolCatalog),
+    stopWhen: stepCountIs(1),
     temperature: input.temperature,
-  };
-
-  if (input.tools.length > 0) {
-    body.tools = input.tools;
-  }
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': input.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
+    maxOutputTokens: input.maxTokens,
   });
 
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(`Anthropic 호출 실패 (${response.status}): ${safeJsonStringify(payload)}`);
+  const toolUseBlocks: ToolUseBlock[] = [];
+  for (const toolCall of result.toolCalls) {
+    toolUseBlocks.push({
+      id: toolCall.toolCallId,
+      name: toolCall.toolName,
+      input: ensureJsonObject(toolCall.input),
+    });
   }
 
-  return parseAnthropicResponse(payload);
-}
+  const textBlocks = result.text.trim().length > 0 ? [result.text.trim()] : [];
 
-function formatToolResultOutput(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  return safeJsonStringify(value);
+  return {
+    assistantContent: toAssistantContent(result.response.messages, result.text),
+    textBlocks,
+    toolUseBlocks,
+  };
 }
 
 async function withOptionalTimeout<T>(
@@ -2399,7 +2572,6 @@ async function executeInboundTurn(input: {
         input.runtime,
         queueKey,
         input.targetAgentName,
-        agentPlan.maxConversationTurns,
       );
 
       try {
@@ -2437,19 +2609,16 @@ async function executeInboundTurn(input: {
         turnResult = {
           responseText,
           restartRequested: false,
-          nextConversation: trimConversation(
-            history.concat([
-              {
-                role: 'user',
-                content: userInputText,
-              },
-              {
-                role: 'assistant',
-                content: responseText,
-              },
-            ]),
-            agentPlan.maxConversationTurns,
-          ),
+          nextConversation: history.concat([
+            {
+              role: 'user',
+              content: userInputText,
+            },
+            {
+              role: 'assistant',
+              content: responseText,
+            },
+          ]),
         };
       }
 
@@ -2710,10 +2879,6 @@ async function runAgentTurn(input: {
   workdir: string;
   logger: Console;
 }): Promise<TurnExecutionResult> {
-  if (input.plan.provider !== 'anthropic') {
-    throw new Error(`지원하지 않는 model provider입니다: ${input.plan.provider}`);
-  }
-
   const conversationState = createConversationStateFromTurns(input.conversation);
   conversationState.emitMessageEvent({
     type: 'append',
@@ -2821,19 +2986,15 @@ async function runAgentTurn(input: {
             metadata: stepMetadata,
           },
           async (stepCtx): Promise<StepResult> => {
-            const preparedConversation = prepareAnthropicConversation(conversationState.toLlmMessages());
-            const effectiveSystemPrompt = mergeSystemPrompt(
-              input.plan.systemPrompt,
-              preparedConversation.systemAddendum,
-            );
-            const response = await requestAnthropicMessage({
+            const response = await requestModelMessage({
+              provider: input.plan.provider,
               apiKey: input.plan.apiKey,
               model: input.plan.modelName,
-              systemPrompt: effectiveSystemPrompt,
+              systemPrompt: input.plan.systemPrompt,
               temperature: input.plan.temperature,
               maxTokens: input.plan.maxTokens,
-              tools: toAnthropicToolDefinitions(stepCtx.toolCatalog),
-              messages: preparedConversation.messages,
+              toolCatalog: stepCtx.toolCatalog,
+              turns: toConversationTurns(conversationState.nextMessages),
             });
 
             conversationState.emitMessageEvent({
@@ -2921,19 +3082,23 @@ async function runAgentTurn(input: {
                 }
 
                 toolResultBlocks.push({
-                  type: 'tool_result',
-                  tool_use_id: toolUse.id,
-                  content: formatToolResultOutput(toolResult.output),
+                  type: 'tool-result',
+                  toolCallId: toolUse.id,
+                  toolName: toolUse.name,
+                  output: toToolResultOutput(toolResult.output),
                 });
                 continue;
               }
 
               const errorMessage = toolResult.error?.message ?? 'unknown tool error';
               toolResultBlocks.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                is_error: true,
-                content: errorMessage,
+                type: 'tool-result',
+                toolCallId: toolUse.id,
+                toolName: toolUse.name,
+                output: {
+                  type: 'text',
+                  value: `ERROR: ${errorMessage}`,
+                },
               });
             }
 
@@ -3011,10 +3176,7 @@ async function runAgentTurn(input: {
     responseText: finalResponseText,
     restartRequested,
     restartReason,
-    nextConversation: trimConversation(
-      toConversationTurns(conversationState.nextMessages),
-      input.plan.maxConversationTurns,
-    ),
+    nextConversation: toConversationTurns(conversationState.nextMessages),
   };
 }
 

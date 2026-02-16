@@ -11,6 +11,7 @@
 Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
 `ExtensionApi` 표면은 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 구성된다. OAuth/설정 갱신 같은 도메인 기능은 Extension 내부에서 구현하며, 파이프라인 훅은 Middleware 형태(`docs/specs/pipeline.md`)를 따른다.
+메시지 windowing/compaction 같은 정책은 Runtime 코어가 아닌 Extension에서 선택적으로 제공한다.
 
 ## 2. 핵심 규칙
 
@@ -46,6 +47,13 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 2. 에러에는 가능한 경우 `suggestion`, `helpUrl`을 포함하는 것을 권장한다(SHOULD).
 3. AgentProcess는 Extension 호환성 검증(`apiVersion: goondan.ai/v1`)을 로드 단계에서 수행해야 한다(SHOULD).
 4. Extension이 필요한 API가 없어 초기화 실패하는 경우 명확한 에러 메시지와 함께 AgentProcess 기동을 중단해야 한다(MUST).
+
+### 2.5 메시지 정책 책임 분리 규칙
+
+1. 메시지 길이/개수 제한(windowing), 요약(compaction), 핀 보존 정책은 Extension 미들웨어로 구현해야 한다(MUST).
+2. Extension은 메시지 조작 시 `emitMessageEvent`를 사용해야 하며, `conversationState.nextMessages`를 직접 변경해서는 안 된다(MUST NOT).
+3. Runtime 코어가 강제하지 않는 정책(예: message-window, message-compaction)은 Agent `spec.extensions` 구성으로 선택적으로 적용해야 한다(SHOULD).
+4. 장기 세션/고빈도 이벤트를 처리하는 Agent는 메시지 정책 Extension을 최소 1개 이상 등록하는 것을 권장한다(SHOULD). 미적용 시 메시지 히스토리 누적으로 token limit 초과 또는 비용 급증이 발생할 수 있다.
 
 ---
 
@@ -93,16 +101,26 @@ interface ExtensionSpec<TConfig = JsonObject> {
 ### 3.3 예시
 
 ```yaml
-# Compaction Extension
+# Message Compaction Extension
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
-  name: compaction
+  name: message-compaction
 spec:
   entry: "./extensions/compaction/index.ts"
   config:
-    maxTokens: 8000
     maxMessages: 50
+    maxCharacters: 12000
+---
+# Message Window Extension
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: message-window
+spec:
+  entry: "./extensions/message-window/index.ts"
+  config:
+    maxMessages: 80
 ---
 # Logging Extension
 apiVersion: goondan.ai/v1
@@ -382,8 +400,8 @@ AgentProcess는 초기화 시점에 다음 순서로 Extension을 로드한다.
 kind: Agent
 spec:
   extensions:
-    - ref: "Extension/compaction"    # 1번째
-    - ref: "Extension/skills"        # 2번째
+    - ref: "Extension/message-window"      # 1번째
+    - ref: "Extension/message-compaction"  # 2번째
     - ref: "Extension/logging"       # 3번째
 ```
 
@@ -550,9 +568,9 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 8.3 Compaction 패턴
+### 8.3 Message Compaction 패턴
 
-컨텍스트 윈도우 관리는 `turn` 미들웨어에서 `emitMessageEvent()`로 MessageEvent를 발행하여 구현한다.
+요약 기반 컨텍스트 최적화는 `turn` 미들웨어에서 `emitMessageEvent()`로 MessageEvent를 발행하여 구현한다.
 
 ```typescript
 export function register(api: ExtensionApi): void {
@@ -588,7 +606,32 @@ export function register(api: ExtensionApi): void {
 - 중요 메시지 pinning: `metadata`에 `pinned: true` 표시하여 compaction 대상에서 제외
 - Truncate: 전체 메시지 초기화(`truncate`) 후 요약 `append`
 
-### 8.4 Logging 패턴
+### 8.4 Message Window 패턴
+
+고정 크기 대화 윈도우는 오래된 메시지부터 `remove` 이벤트를 발행해 구현한다.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  const maxMessages = 80;
+
+  api.pipeline.register('turn', async (ctx) => {
+    const { nextMessages } = ctx.conversationState;
+    const removeCount = Math.max(0, nextMessages.length - maxMessages);
+
+    for (let index = 0; index < removeCount; index += 1) {
+      const message = nextMessages[index];
+      if (!message) {
+        continue;
+      }
+      ctx.emitMessageEvent({ type: 'remove', targetId: message.id });
+    }
+
+    return ctx.next();
+  });
+}
+```
+
+### 8.5 Logging 패턴
 
 Step/ToolCall 미들웨어를 활용한 관찰 패턴.
 
@@ -622,7 +665,7 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
-### 8.5 MCP Extension 패턴
+### 8.6 MCP Extension 패턴
 
 MCP 연동은 Extension의 `tools.register`를 통해 동적으로 도구를 등록하는 방식으로 구현한다(MAY). MCP 서버와의 연결/통신은 Extension이 자체적으로 관리한다.
 

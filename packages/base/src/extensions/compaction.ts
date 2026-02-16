@@ -27,7 +27,7 @@ const DEFAULT_CONFIG: Required<CompactionExtensionConfig> = {
   retainLastMessages: 8,
   mode: 'remove',
   appendSummary: true,
-  summaryPrefix: '[compaction]',
+  summaryPrefix: '[message-compaction]',
 };
 
 function isPinned(message: Message): boolean {
@@ -51,7 +51,7 @@ function createSummaryMessage(config: Required<CompactionExtensionConfig>, resul
     createdAt: new Date(),
     source: {
       type: 'extension',
-      extensionName: 'compaction',
+      extensionName: 'message-compaction',
     },
   };
 }

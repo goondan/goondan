@@ -8,7 +8,7 @@ import {
   resolveRuntimeWorkdir,
   selectTargetAgentName,
   type IngressRouteRule,
-} from '../src/services/runtime-routing.js';
+} from '../src/runner/runtime-routing.js';
 
 describe('parseConnectorEventPayload', () => {
   it('parses text connector event payload', () => {

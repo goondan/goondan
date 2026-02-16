@@ -11,6 +11,12 @@ export {
 export type { CompactionExtensionConfig } from './compaction.js';
 
 export {
+  register as registerMessageWindowExtension,
+  registerMessageWindowExtension as createMessageWindowExtension,
+} from './message-window.js';
+export type { MessageWindowExtensionConfig } from './message-window.js';
+
+export {
   register as registerToolSearchExtension,
   registerToolSearchExtension as createToolSearchExtension,
 } from './tool-search.js';

@@ -31,6 +31,8 @@ Goondan v2는 세 개의 핵심 축으로 구성된다.
 
 `gdn run`으로 기동되는 **상주 프로세스**다. Swarm 전체의 생명주기를 관리하며, 다음 역할을 수행한다.
 
+실제 실행 엔진 엔트리(`runtime-runner`)는 `@goondan/runtime` 패키지가 소유하며, CLI는 이 엔진을 기동/재기동/관측하는 제어면으로 동작한다.
+
 - `goondan.yaml` 파싱 및 리소스 로딩
 - AgentProcess와 ConnectorProcess의 스폰, 감시, 재시작
 - IPC 메시지 브로커: 통합 이벤트(`AgentEvent`) 기반 에이전트 간 라우팅
@@ -94,7 +96,7 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 
 | 미들웨어 | 감싸는 범위 | 전처리(next 전) | 후처리(next 후) |
 |----------|-----------|----------------|----------------|
-| `turn` | Turn 전체 | 메시지 히스토리 조작, compaction | 결과 후처리 |
+| `turn` | Turn 전체 | 메시지 히스토리 조작, message-window/message-compaction | 결과 후처리 |
 | `step` | Step(LLM 호출 + 도구 실행) | 도구 카탈로그 조작, 메시지 이벤트 발행 | 결과 변환, 로깅, 재시도 |
 | `toolCall` | 개별 도구 호출 | 입력 검증/변환 | 결과 변환/로깅 |
 
@@ -305,9 +307,10 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 
 도구 수가 많은 Swarm에서 과도한 도구 노출을 줄여 LLM의 도구 선택 정확도를 높이는 데 유용하다.
 
-### 3.3 컨텍스트 윈도우 최적화 패턴 (Compaction)
+### 3.3 컨텍스트 윈도우 최적화 패턴 (Message Window + Compaction)
 
 컨텍스트 윈도우 관리는 코어 런타임의 강제 책임이 아니며, Extension의 `turn` 미들웨어로 구현한다. `emitMessageEvent`로 MessageEvent를 발행하여 메시지를 조작한다.
+`@goondan/base`는 이 패턴의 기본 구현으로 `message-window`, `message-compaction` Extension을 제공한다.
 
 권장 전략:
 - **Sliding window**: 오래된 메시지 `remove` 이벤트 발행
@@ -460,10 +463,10 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/help.md` | 스펙 운영 도움말 - 문서 소유권 매트릭스, 공통 계약(ObjectRef/ValueSource/env 해석), 레지스트리 설정 우선순위, `gdn package` 도움말 기준, 문서 링크 자동 점검 체크리스트 |
 | `specs/shared-types.md` | 공통 타입 SSOT - Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult |
 | `specs/resources.md` | Config Plane 리소스 정의 - 8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package), ObjectRef, Selector+Overrides, ValueSource |
-| `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
+| `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, `@goondan/runtime/runner` 실행 엔진, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
 | `specs/pipeline.md` | 라이프사이클 파이프라인 - Middleware 3종(turn/step/toolCall), Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry |
 | `specs/tool.md` | Tool 시스템 - 더블 언더스코어 네이밍, ToolContext, 통합 이벤트 기반 에이전트 간 통신, Bun-only 실행 |
-| `specs/extension.md` | Extension 시스템 - ExtensionApi(pipeline/tools/state/events/logger), Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴 |
+| `specs/extension.md` | Extension 시스템 - ExtensionApi(pipeline/tools/state/events/logger), Middleware 파이프라인, Skill/ToolSearch/MessageWindow/Compaction/Logging/MCP 패턴 |
 | `specs/connector.md` | Connector 시스템 - 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행 |
 | `specs/connection.md` | Connection 시스템 - config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 |
 | `specs/bundle.md` | Bundle YAML - goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안 |
@@ -476,4 +479,4 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 ---
 
 **문서 버전**: v2.0
-**최종 수정**: 2026-02-12
+**최종 수정**: 2026-02-16

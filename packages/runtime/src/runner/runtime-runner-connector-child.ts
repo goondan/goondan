@@ -1,6 +1,6 @@
 import { Console } from 'node:console';
 import { pathToFileURL } from 'node:url';
-import { isJsonObject, type ConnectorContext } from '@goondan/runtime';
+import { isJsonObject, type ConnectorContext } from '../index.js';
 
 interface ConnectorChildStartMessage {
   type: 'connector_start';

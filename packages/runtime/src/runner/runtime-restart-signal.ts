@@ -1,4 +1,4 @@
-import { isObjectRecord } from '../utils.js';
+import { isJsonObject } from '../index.js';
 
 export interface RuntimeRestartSignal {
   requested: boolean;
@@ -8,7 +8,7 @@ export interface RuntimeRestartSignal {
 const RESTART_FLAG_KEYS = ['restartRequested', 'runtimeRestart', '__goondanRestart'] as const;
 
 export function readRuntimeRestartSignal(value: unknown): RuntimeRestartSignal | undefined {
-  if (!isObjectRecord(value)) {
+  if (!isJsonObject(value)) {
     return undefined;
   }
 

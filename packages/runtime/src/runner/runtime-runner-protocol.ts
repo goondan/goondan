@@ -1,4 +1,4 @@
-import { isObjectRecord } from '../utils.js';
+import { isJsonObject } from '../index.js';
 
 export interface RunnerReadyMessage {
   type: 'ready';
@@ -14,7 +14,7 @@ export interface RunnerStartErrorMessage {
 export type RunnerMessage = RunnerReadyMessage | RunnerStartErrorMessage;
 
 export function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
-  if (!isObjectRecord(message)) {
+  if (!isJsonObject(message)) {
     return false;
   }
 
@@ -22,7 +22,7 @@ export function isRunnerReadyMessage(message: unknown): message is RunnerReadyMe
 }
 
 export function isRunnerStartErrorMessage(message: unknown): message is RunnerStartErrorMessage {
-  if (!isObjectRecord(message)) {
+  if (!isJsonObject(message)) {
     return false;
   }
 

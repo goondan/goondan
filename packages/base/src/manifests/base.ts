@@ -415,12 +415,15 @@ export function createBaseExtensionManifests(): BaseExtensionManifest[] {
       level: 'info',
       includeToolArgs: false,
     }),
-    createExtensionManifest('compaction', './src/extensions/compaction.ts', {
+    createExtensionManifest('message-compaction', './src/extensions/compaction.ts', {
       maxMessages: 40,
       maxCharacters: 12000,
       retainLastMessages: 8,
       mode: 'remove',
       appendSummary: true,
+    }),
+    createExtensionManifest('message-window', './src/extensions/message-window.ts', {
+      maxMessages: 80,
     }),
     createExtensionManifest('tool-search', './src/extensions/tool-search.ts', {
       toolName: 'tool-search__search',

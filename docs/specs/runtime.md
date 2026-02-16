@@ -19,6 +19,9 @@ Goondan Runtime은 **Process-per-Agent** 아키텍처를 사용한다. Orchestra
 
 메시지 상태 관리는 **이벤트 소싱**을 유지한다. `NextMessages = BaseMessages + SUM(Events)` 규칙으로 메시지 상태를 결정론적으로 계산하며, 이는 복구, 관찰, Extension 기반 메시지 조작, Compaction을 가능하게 한다.
 
+실행 엔진 엔트리(`runtime-runner`)와 관련 유틸(`runtime-routing`, `turn-policy`, `runtime-restart-signal`)은 `@goondan/runtime` 패키지의 `src/runner/*`가 소유한다. CLI는 해당 엔진을 기동/재기동/상태조회하는 제어면으로 동작한다.
+CLI와 runtime runner는 startup handshake(`ready`/`start_error`) 및 실행 인자 계약을 공유하므로, 배포 시 두 패키지 버전을 동기화해야 한다.
+
 ### 1.2 계층 구조
 
 ```
@@ -40,6 +43,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 | **Edit & Restart** | `goondan.yaml` 수정 후 Orchestrator가 에이전트 프로세스 재시작 |
 | **Message** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 메시지 식별/조작 |
 | **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
+| **Runtime 책임 최소화** | 코어는 실행 루프/이벤트/파이프라인만 담당하고, 메시지 윈도우/컴팩션 정책은 Extension이 담당 |
+| **Provider 중립성** | Runtime 코어는 provider 전용 대화 정규화 로직을 포함하지 않고, 모델 호출 어댑터만 제공 |
 
 ---
 
@@ -116,6 +121,15 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 2. Orchestrator는 설정 변경을 감지하거나 외부 명령을 수신하여 에이전트 프로세스를 재시작해야 한다(MUST).
 3. 재시작 시 Orchestrator는 해당 AgentProcess에 graceful shutdown(`4.6 Graceful Shutdown Protocol`)을 수행한 뒤 새 설정으로 re-spawn해야 한다(MUST).
 4. 기본 동작은 기존 메시지 히스토리를 유지한 채 새 설정으로 계속 실행하는 것이어야 한다(MUST).
+
+### 2.8 Runtime 경계 규칙
+
+1. Runtime 코어는 고정 메시지 트리밍 정책(`maxConversationTurns`, `BOT_MAX_CONVERSATION_TURNS` 등)을 내장해서는 안 된다(MUST NOT).
+2. 메시지 개수/길이 제한, 요약(compaction), windowing 정책은 Extension이 `MessageEvent`로 구현해야 한다(MUST).
+3. Runtime 코어는 provider-specific 대화 정규화(예: 특정 provider 전용 block 변환/삭제)를 수행해서는 안 된다(MUST NOT).
+4. Provider별 차이는 모델 어댑터 선택과 인증정보 해석 수준에서만 처리해야 한다(SHOULD).
+5. CLI 구현은 실행 엔진 로직을 자체 보유하지 않고 `@goondan/runtime` runner 엔트리를 사용해야 한다(MUST).
+6. 장기 실행 Swarm은 메시지 정책 Extension(`message-window`, `message-compaction` 등)을 명시적으로 등록해야 한다(SHOULD). 미등록 시 메시지 히스토리가 무제한 누적되어 token limit 초과/비용 증가 위험이 있다.
 
 ---
 
@@ -816,7 +830,7 @@ Runtime은 해당 저장소 위에서 다음 실행 규칙만 보장한다(MUST)
 Extension은 미들웨어에서 `ConversationState`를 받아 metadata 기반으로 이벤트를 발행하여 조작한다.
 
 ```typescript
-// 예: compaction extension이 turn 시작 전 오래된 메시지를 요약으로 대체
+// 예: message-compaction extension이 turn 시작 전 오래된 메시지를 요약으로 대체
 api.pipeline.register('turn', async (ctx) => {
   const { nextMessages } = ctx.conversationState;
 
@@ -1058,6 +1072,7 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 - IPC 계약: `2.3`, `6.1`, `6.2`
 - Turn/Step 실행 규칙: `2.4`, `7`
 - 메시지 상태 실행 규칙: `2.5`, `8.2`, `8.5`
+- 런타임 경계/정책 분리: `2.8`, `8.8`
 - 편집/재시작 모델: `2.7`, `9`
 - 관찰성/보안: `2.6`, `12`
 
@@ -1078,4 +1093,4 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 ---
 
 **문서 버전**: v2.0
-**최종 수정**: 2026-02-12
+**최종 수정**: 2026-02-16

@@ -9,6 +9,7 @@
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
 - `run --watch` 시 bundle/리소스 YAML 및 Tool/Connector entry 변경 감지 후 replacement orchestrator 재기동
 - runtime runner는 Connection별 Connector를 별도 child process로 실행하고 IPC(event/start/shutdown)로 연동
+- runtime runner 모듈 경로는 `@goondan/runtime/package.json`의 module resolution(`require.resolve`)을 우선 사용하고, 글로벌 설치 레이아웃(Bun/npm) fallback 경로를 함께 지원
 - Connection `config`/`secrets`는 `value`, `valueFrom.env`, `valueFrom.secretRef(Secret/<name>)`를 해석해 Connector context로 전달
 - `run` 시 프로젝트 루트 기준으로 `.env`/`.env.local`/`--env-file`을 우선순위대로 로딩하고, 기존 시스템 env 값을 우선 유지
 - runtime-runner는 Tool 결과의 재시작 신호(`restartRequested`, `runtimeRestart`, `__goondanRestart`)를 감지하면 replacement orchestrator를 기동하고 active runtime pid를 갱신한 뒤 self-shutdown 한다

@@ -31,21 +31,6 @@ spec:
       env: ANTHROPIC_API_KEY
 ---
 apiVersion: goondan.ai/v1
-kind: Tool
-metadata:
-  name: self-restart
-spec:
-  entry: "../../packages/base/dist/tools/self-restart.js"
-  exports:
-    - name: request
-      description: "Request orchestrator self restart"
-      parameters:
-        type: object
-        properties:
-          reason:
-            type: string
----
-apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: context-injector
@@ -87,7 +72,10 @@ spec:
         kind: Tool
         name: slack
         package: "@goondan/base"
-    - ref: "Tool/self-restart"
+    - ref:
+        kind: Tool
+        name: self-restart
+        package: "@goondan/base"
 ---
 apiVersion: goondan.ai/v1
 kind: Agent

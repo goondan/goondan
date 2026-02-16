@@ -16,3 +16,4 @@
 5. 샘플 추가/수정 시 루트 `AGENTS.md`와 `GUIDE.md`의 샘플 목록 동기화를 검토한다.
 6. 샘플이 런타임 정보를 필요로 하면 자동 주입 가정보다 명시 API(예: `agents__catalog`)를 우선 사용하고, README/프롬프트에 호출 기준을 명시한다.
 7. 샘플이 self-evolution(프롬프트/설정 자동 갱신)을 다루면 재기동 트리거 Tool(예: `self-restart__request`)의 호출 조건을 프롬프트에 명시하고, 필요한 turn에서 마지막 Tool call로 1회만 호출되게 유지한다.
+8. 샘플에서 `@goondan/base` 리소스를 사용할 때는 로컬 상대경로(`../../packages/base/...`) 대신 package dependency + package scoped ref를 우선 사용해 환경 독립성을 유지한다.

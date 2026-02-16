@@ -62,4 +62,70 @@ describe('BundleLoader', () => {
     expect(result.scannedFiles.some((entry) => entry.endsWith('/dist/goondan.yaml'))).toBe(false);
     expect(result.resources.filter((resource) => resource.kind === 'Package')).toHaveLength(1);
   });
+
+  it('reports missing entry files for Tool resources', async () => {
+    const root = await createTempBundle();
+
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: test-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: assistant',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/test-model"',
+        '  prompts:',
+        '    systemPrompt: "test"',
+        '  tools:',
+        '    - ref: "Tool/self-restart"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Tool',
+        'metadata:',
+        '  name: self-restart',
+        'spec:',
+        '  entry: "./dist/tools/self-restart.js"',
+        '  exports:',
+        '    - name: request',
+        '      description: "Request runtime restart"',
+        '      parameters:',
+        '        type: object',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: default',
+        'spec:',
+        '  entryAgent: "Agent/assistant"',
+        '  agents:',
+        '    - ref: "Agent/assistant"',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const loader = new BundleLoader({ loadPackageDependencies: false });
+    const result = await loader.load(root);
+
+    const missingEntryError = result.errors.find((error) => error.code === 'E_CONFIG_ENTRY_NOT_FOUND');
+    expect(missingEntryError).toBeDefined();
+    expect(missingEntryError?.path).toContain('goondan.yaml#3.spec.entry');
+    expect(missingEntryError?.message).toContain('Tool/self-restart entry 파일을 찾을 수 없습니다');
+  });
 });

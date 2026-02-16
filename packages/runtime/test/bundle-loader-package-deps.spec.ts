@@ -95,6 +95,8 @@ describe("BundleLoader package dependencies", () => {
 
     const depManifestDir = path.join(stateRoot, "packages", "goondan", "base", "0.1.0", "dist");
     await mkdir(depManifestDir, { recursive: true });
+    await mkdir(path.join(depManifestDir, "tools"), { recursive: true });
+    await writeFile(path.join(depManifestDir, "tools", "bash.js"), "export {};\n", "utf8");
     await writeFile(
       path.join(depManifestDir, "goondan.yaml"),
       [
@@ -216,6 +218,8 @@ describe("BundleLoader package dependencies", () => {
     const depPackageRoot = path.join(stateRoot, "packages", "goondan", "base", "0.1.0");
     const depManifestDir = path.join(depPackageRoot, "dist");
     await mkdir(depManifestDir, { recursive: true });
+    await mkdir(path.join(depManifestDir, "tools"), { recursive: true });
+    await writeFile(path.join(depManifestDir, "tools", "bash.js"), "export {};\n", "utf8");
 
     await writeFile(
       path.join(depPackageRoot, "goondan.yaml"),

@@ -57,6 +57,7 @@
 - TODO.md에 있는 항목을 수행한 뒤 체크 표시를 갱신할 것
 - 모든 요구사항은 docs/specs/*.md 및 docs/architecture.md 수정 필요 여부를 반드시 검토하고 기록할 것
 - 스펙 문서(docs/specs/*.md)가 수정되면 GUIDE.md에 반영이 필요한 항목이 있는지 검토하고 최신 내용을 반영할 것
+- `@goondan/*` npm 패키지의 `package.json` 버전은 단일 버전으로 통일해 관리하고, 버전 변경 시 관련 패키지를 일괄 갱신할 것
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
 - Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함)

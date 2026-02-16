@@ -17,6 +17,7 @@
 3. Tool 이름 규칙은 `{resource}__{export}`를 유지한다.
 4. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 정확한 타입 정의로 구현한다.
 5. 테스트는 네트워크 의존 없이 로컬 재현 가능해야 한다.
+6. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지한다.
 
 ## 디렉토리 가이드
 

@@ -19,6 +19,7 @@ This directory owns the shared type system for Goondan v2.
    - ValueSource resolution: `value`, `valueFrom.env`, `valueFrom.secretRef`
    - Message state fold: `NextMessages = BaseMessages + SUM(Events)`
    - IPC and ProcessStatus guards
+6. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지한다.
 
 ## Source Files
 

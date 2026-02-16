@@ -24,3 +24,4 @@
 4. 워크스페이스 메시지 저장은 JSONL append/fold 규칙을 준수한다.
 5. `WorkspacePaths.workspaceId`는 Project Root + Package 이름을 입력으로 한 human-readable 해시 slug(예: `allied-gray-antelope-darrelle`)를 사용한다.
 6. Tool 호출은 기본적으로 Step Tool Catalog에 포함된 항목만 허용한다.
+7. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지한다.

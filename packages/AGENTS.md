@@ -16,6 +16,7 @@
 5. 공통 타입은 `@goondan/types`를 기준으로 사용하며 중복 정의를 피한다.
 6. 스펙 변경 또는 구현 경계 변경이 있으면 루트 `AGENTS.md`와 이 문서를 함께 갱신한다.
 7. `@goondan/*` npm 패키지의 `package.json` `version`은 동일한 단일 버전 문자열로 통일해 관리한다(버전 변경 시 전 패키지를 함께 갱신).
+8. npm 공개 배포 대상 패키지는 `package.json`에 `publishConfig.access = "public"`을 명시한다(스코프 패키지 publish 시 default access로 인한 402 방지).
 
 ## 패키지별 책임 요약
 

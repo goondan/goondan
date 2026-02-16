@@ -73,3 +73,4 @@
 5. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시 타입으로 구현합니다.
 6. `docs/specs/cli.md`, `docs/specs/bundle_package.md`, `docs/specs/help.md` 변경 시 구현 영향도를 즉시 반영합니다.
 7. 터미널 I/O는 `TerminalIO` 인터페이스를 통해 의존성 주입하여 테스트 가능하게 유지합니다.
+8. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지합니다.

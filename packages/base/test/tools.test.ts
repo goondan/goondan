@@ -136,6 +136,15 @@ describe('base tools', () => {
           ],
         };
       },
+      async catalog() {
+        return {
+          swarmName: 'brain',
+          entryAgent: 'coordinator',
+          selfAgent: 'coordinator',
+          availableAgents: ['builder', 'coordinator', 'researcher', 'reviewer'],
+          callableAgents: ['builder', 'researcher', 'reviewer'],
+        };
+      },
     };
 
     const workspace = await createTempWorkspace();
@@ -186,6 +195,12 @@ describe('base tools', () => {
       });
       const listOutput = assertJsonObject(listResult);
       expect(listOutput.count).toBe(1);
+
+      const catalogResult = await agentsHandlers.catalog(ctx, {});
+      const catalogOutput = assertJsonObject(catalogResult);
+      expect(catalogOutput.swarmName).toBe('brain');
+      expect(catalogOutput.availableCount).toBe(4);
+      expect(catalogOutput.callableCount).toBe(3);
     } finally {
       await workspace.cleanup();
     }

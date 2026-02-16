@@ -123,9 +123,25 @@ export const list: ToolHandler = async (ctx: ToolContext, input: JsonObject): Pr
   };
 };
 
+export const catalog: ToolHandler = async (ctx: ToolContext, _input: JsonObject): Promise<JsonValue> => {
+  const runtime = requireRuntime(ctx);
+  const result = await runtime.catalog();
+
+  return {
+    swarmName: result.swarmName,
+    entryAgent: result.entryAgent,
+    selfAgent: result.selfAgent,
+    availableCount: result.availableAgents.length,
+    callableCount: result.callableAgents.length,
+    availableAgents: result.availableAgents,
+    callableAgents: result.callableAgents,
+  };
+};
+
 export const handlers = {
   request,
   send,
   spawn,
   list,
+  catalog,
 } satisfies Record<string, ToolHandler>;

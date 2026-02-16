@@ -530,7 +530,7 @@ AgentA → Orchestrator:
 
 **규칙:**
 
-1. 에이전트 간 통신/인스턴스 준비는 표준 Tool API(`agents__request`, `agents__send`, `agents__spawn`, `agents__list`)를 통해 요청되어야 한다(MUST).
+1. 에이전트 간 통신/인스턴스 준비/카탈로그 조회는 표준 Tool API(`agents__request`, `agents__send`, `agents__spawn`, `agents__list`, `agents__catalog`)를 통해 요청되어야 한다(MUST).
 2. `replyTo`가 있는 이벤트를 수신한 AgentProcess는 Turn 완료 후 응답 이벤트를 전송해야 한다(MUST).
 3. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
 4. `agents__spawn`의 target은 현재 Swarm에 정의된 Agent 리소스여야 한다(MUST).

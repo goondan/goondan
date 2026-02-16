@@ -323,6 +323,7 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 
 - **request** (응답 대기): `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭한다.
 - **send** (fire-and-forget): `AgentEvent.replyTo`를 생략하여 단방향 알림을 보낸다.
+- **보조 운영 API**: `agents__spawn`(인스턴스 준비), `agents__list`(spawn 목록 복원), `agents__catalog`(호출 가능한 Agent 카탈로그 조회)
 
 request 흐름:
 1. 원 Agent가 `agents__request` 도구를 호출한다.

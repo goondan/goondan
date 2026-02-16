@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@goondan/runtime';
 import {
+  prepareAnthropicConversation,
   toAnthropicMessages,
   type ConversationTurn,
   toConversationTurns,
@@ -86,5 +87,88 @@ describe('conversation-state', () => {
     const trimmed = trimConversation(turns, 2);
     expect(trimmed).toHaveLength(4);
     expect(trimmed.map((turn) => turn.content)).toEqual(['u2', 'a2', 'u3', 'a3']);
+  });
+
+  it('system role 메시지는 Anthropc messages 배열에서 제외하고 system addendum으로 병합한다', () => {
+    const prepared = prepareAnthropicConversation([
+      {
+        role: 'system',
+        content: 'runtime policy 1',
+      },
+      {
+        role: 'user',
+        content: '안녕',
+      },
+      {
+        role: 'assistant',
+        content: '반가워',
+      },
+      {
+        role: 'system',
+        content: [{ type: 'text', text: '[runtime_catalog]\\ncallableAgents=a,b\\n[/runtime_catalog]' }],
+      },
+      {
+        role: 'tool',
+        content: 'ignored tool message',
+      },
+    ]);
+
+    expect(prepared.messages).toEqual([
+      { role: 'user', content: '안녕' },
+      { role: 'assistant', content: '반가워' },
+    ]);
+    expect(prepared.systemAddendum).toContain('runtime policy 1');
+    expect(prepared.systemAddendum).toContain('[runtime_catalog]');
+  });
+
+  it('대화 시작 경계에서 고아가 된 tool_result만 있는 user 메시지는 제거한다', () => {
+    const prepared = prepareAnthropicConversation([
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool-ghost', content: '{"ok":true}' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '다음 질문 주세요.' }],
+      },
+    ]);
+
+    expect(prepared.messages).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '다음 질문 주세요.' }],
+      },
+    ]);
+  });
+
+  it('user 메시지의 tool_result는 직전 assistant tool_use와 매칭되는 블록만 유지한다', () => {
+    const prepared = prepareAnthropicConversation([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tool-1', name: 'agents__request', input: { target: 'builder' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}' },
+          { type: 'tool_result', tool_use_id: 'tool-ghost', content: '{"ok":false}' },
+          { type: 'text', text: '도구 실행 결과 참고 부탁해요.' },
+        ],
+      },
+    ]);
+
+    expect(prepared.messages).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tool-1', name: 'agents__request', input: { target: 'builder' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}' },
+          { type: 'text', text: '도구 실행 결과 참고 부탁해요.' },
+        ],
+      },
+    ]);
   });
 });

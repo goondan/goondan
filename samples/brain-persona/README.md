@@ -8,6 +8,8 @@
 - `coordinator`는 필요 시 `agents__spawn`으로 **이미 정의된 Agent 리소스** 인스턴스를 준비해 위임합니다.
 - `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용합니다 (`agents__request`는 짧은 즉시응답 질의에만 제한 사용).
 - 하위 에이전트는 `agents__send`/`agents__request`를 통해 중간 보고/결과를 보냅니다.
+- `Extension/context-injector`가 turn 시작 시 runtime catalog 힌트(`runtime_catalog` 블록)를 시스템 메시지로 주입합니다.
+- 필요 시 `agents__catalog` 호출로 현재 Swarm에서 호출 가능한 에이전트 목록(`callableAgents`)을 복원합니다.
 - 외부 채널 출력은 Connector가 아니라 Tool(`channel-dispatch__send`)로 수행합니다.
 - `coordinator.spec.requiredTools=["channel-dispatch__send"]`로, `maxStepsPerTurn` 범위 내에서 최종 응답 전 해당 Tool 호출이 강제됩니다.
 - 런타임은 채널별 outbound를 직접 처리하지 않으며, 응답 전달은 Tool 호출 결과로만 수행됩니다.
@@ -58,3 +60,4 @@ gdn run --swarm brain --watch
 
 - `coordinator`는 내부 멀티 에이전트 구조를 사용자에게 노출하지 않습니다.
 - 입력에는 `[goondan_context]` JSON 블록이 포함될 수 있으며, 이 값으로 채널 라우팅 정보를 복원합니다.
+- `context-injector` Extension이 turn마다 `[runtime_catalog]` 힌트를 주입할 수 있으며, coordinator는 이를 위임 판단에 활용합니다.

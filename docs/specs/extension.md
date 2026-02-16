@@ -667,6 +667,7 @@ export function register(api: ExtensionApi): void {
 2. `step` 컨텍스트는 `toolCatalog` 조작을 허용한다.
 3. `toolCall` 컨텍스트는 `args` 조작을 허용한다.
 4. 공통 타입(`ConversationState`, `MessageEvent`, `ToolCallResult`) 원형은 `docs/specs/shared-types.md`를 따른다.
+5. 런타임은 `ctx.metadata`에 실행 힌트(예: `runtimeCatalog`)를 시드할 수 있으며, Extension은 이를 읽어 필요 시 메시지 주입을 수행할 수 있다(SHOULD).
 
 ---
 

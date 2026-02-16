@@ -60,6 +60,13 @@ spec:
         required: ["channel", "text"]
 ---
 apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: context-injector
+spec:
+  entry: "./extensions/context-injector.mjs"
+---
+apiVersion: goondan.ai/v1
 kind: Connector
 metadata:
   name: slack-webhook
@@ -100,6 +107,8 @@ spec:
     modelRef: "Model/fast-model"
   prompts:
     systemRef: "./prompts/coordinator.system.md"
+  extensions:
+    - ref: "Extension/context-injector"
   requiredTools:
     - "channel-dispatch__send"
   tools:

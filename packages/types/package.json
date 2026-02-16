@@ -1,7 +1,6 @@
 {
   "name": "@goondan/types",
   "version": "0.0.3-alpha2",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

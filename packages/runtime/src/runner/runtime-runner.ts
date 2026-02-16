@@ -2891,6 +2891,8 @@ async function runAgentTurn(input: {
   const calledToolNames = new Set<string>();
   const requiredToolNames = input.plan.requiredToolNames;
   const enforceRequiredTools = requiredToolNames.length > 0;
+  const hasSatisfiedRequiredTools = (): boolean =>
+    requiredToolNames.length === 0 || requiredToolNames.some((name) => calledToolNames.has(name));
   const agentRuntime = createAgentToolRuntime({
     runtime: input.runtime,
     runnerPlan: input.runnerPlan,
@@ -3122,11 +3124,10 @@ async function runAgentTurn(input: {
         }
 
         if (enforceRequiredTools) {
-          const missingRequiredTools = requiredToolNames.filter((name) => !calledToolNames.has(name));
-          if (missingRequiredTools.length > 0) {
+          if (!hasSatisfiedRequiredTools()) {
             const enforcementMessage = [
               '필수 도구 호출 규칙 위반: 최종 답변 전에 아래 도구 중 최소 하나를 반드시 호출해야 합니다.',
-              ...missingRequiredTools.map((name) => `- ${name}`),
+              ...requiredToolNames.map((name) => `- ${name}`),
               '텍스트 답변을 종료하지 말고, 지금 즉시 위 도구 중 하나를 tool call로 호출하세요.',
             ].join('\n');
             conversationState.emitMessageEvent({

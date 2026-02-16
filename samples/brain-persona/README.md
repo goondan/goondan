@@ -12,28 +12,25 @@
 - `coordinator`는 장기 실행 컨텍스트 관리를 위해 `message-window` + `message-compaction` Extension을 함께 사용합니다.
 - `researcher`/`builder`/`reviewer`는 `message-window` Extension으로 메시지 윈도우를 제한합니다.
 - 필요 시 `agents__catalog` 호출로 현재 Swarm에서 호출 가능한 에이전트 목록(`callableAgents`)을 복원합니다.
-- 최종 외부 채널 출력은 Connector가 아니라 Tool(`channel-dispatch__send`)로 수행합니다.
+- 최종 외부 채널 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 수행합니다.
 - Telegram 입력에서는 coordinator가 `telegram__send/edit/delete/react/setChatAction`을 함께 사용해 메시지 lifecycle(typing, reaction, 수정/삭제, 추가 안내 메시지)을 제어할 수 있습니다.
 - Slack 입력에서는 coordinator가 `slack__send/read/edit/delete/react`를 함께 사용해 메시지 lifecycle(조회, reaction, 수정/삭제, 추가 안내 메시지)을 제어할 수 있습니다.
 - 설정/프롬프트/툴 파일이 바뀐 turn에서는 coordinator가 `self-restart__request`를 호출해 런타임 self-restart를 요청할 수 있습니다.
-- `coordinator.spec.requiredTools=["channel-dispatch__send"]`로, `maxStepsPerTurn` 범위 내에서 최종 응답 전 해당 Tool 호출이 강제됩니다.
+- `coordinator.spec.requiredTools=["telegram__send","slack__send"]`로, `maxStepsPerTurn` 범위 내에서 둘 중 하나 이상의 성공 호출이 강제됩니다.
 - 런타임은 채널별 outbound를 직접 처리하지 않으며, 응답 전달은 Tool 호출 결과로만 수행됩니다.
 - `Connection.ingress.rules[].route.instanceKey="brain-persona-shared"`를 텔레그램/슬랙에 동일하게 설정해 채널 간 대화 기억을 공유합니다.
 
 ## 입력 채널
 
 - Telegram: `@goondan/base`의 `telegram-polling` Connector 사용
-- Slack: 로컬 `connectors/slack-webhook.mjs` (webhook 서버)
+- Slack: `@goondan/base`의 `Connector/slack` 사용 (webhook 서버)
 
 ## 필수 환경변수
 
 ```bash
 ANTHROPIC_API_KEY=...
 TELEGRAM_BOT_TOKEN=...           # telegram-polling + telegram Tool 기본 토큰
-## 선택: channel-dispatch에서 별도 토큰을 쓰고 싶다면
-BRAIN_TELEGRAM_BOT_TOKEN=...
 SLACK_BOT_TOKEN=...              # Slack 출력용
-BRAIN_SLACK_BOT_TOKEN=...        # 선택(미설정 시 SLACK_BOT_TOKEN 사용)
 # 선택: Slack 서명 검증을 켜려면
 SLACK_SIGNING_SECRET=...
 ```
@@ -62,7 +59,9 @@ gdn instance restart <instanceKey>
 
 ## Slack Webhook
 
+- 입력 커넥터: `Connection/slack-to-brain -> @goondan/base Connector/slack`
 - 기본 포트: `8787` (`Connection/slack-to-brain`의 `SLACK_WEBHOOK_PORT`)
+- ingress 이벤트: `app_mention`, `message_im`
 - Slack Events Request URL 예시:
   - `https://<your-domain>:8787/`
 - `url_verification` challenge를 처리합니다.

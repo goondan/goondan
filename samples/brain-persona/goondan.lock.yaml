@@ -1,7 +1,7 @@
 lockfileVersion: 1
 packages:
-  "@goondan/base@1.0.2":
-    version: "1.0.2"
-    resolved: "https://goondan-registry.yechanny.workers.dev/%40goondan/base/-/base-1.0.2.tgz"
-    integrity: "sha512-jy9HjxmwX5LsI/+g5JfBvrmRqO5aXUb7jW4T5qule9EFzeVG/owAO/J9Pi+leRZ0ESdzvfK50aT4OM2PW/nMpA=="
+  "@goondan/base@1.0.3":
+    version: "1.0.3"
+    resolved: "https://goondan-registry.yechanny.workers.dev/%40goondan/base/-/base-1.0.3.tgz"
+    integrity: "sha512-g3L3g7CyyCh4j4VtnMe0qpq7KVpZm/ymsQECz0iBWQxzo37MDV4AaQFWMKSFUECuCVgZuP45zSGrPsVkbpZfJw=="
     dependencies: {}

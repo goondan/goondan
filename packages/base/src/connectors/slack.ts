@@ -1,8 +1,14 @@
+import http from 'node:http';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { ConnectorContext, ConnectorEvent } from '../types.js';
 
 export interface SlackConnectorConfig {
   port?: number;
+}
+
+export interface SlackRequestOptions {
+  headers?: Headers | Record<string, string | string[] | undefined>;
+  nowSeconds?: number;
 }
 
 function readString(value: unknown): string | undefined {
@@ -16,12 +22,92 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function readPort(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 65_535) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65_535) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function resolveSlackPort(config: Record<string, string>): number {
+  return readPort(config.SLACK_WEBHOOK_PORT) ?? readPort(config.PORT) ?? 8787;
+}
+
+function readSigningSecret(ctx: ConnectorContext): string | undefined {
+  return (
+    readString(ctx.secrets.SLACK_SIGNING_SECRET) ??
+    readString(ctx.secrets.signingSecret) ??
+    readString(ctx.config.SLACK_SIGNING_SECRET)
+  );
+}
+
+function readHeaderCandidate(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') {
+    return readString(value);
+  }
+
+  if (Array.isArray(value)) {
+    for (const candidate of value) {
+      const parsed = readString(candidate);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readHeader(
+  headers: Headers | Record<string, string | string[] | undefined> | undefined,
+  headerName: string
+): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (headers instanceof Headers) {
+    return readString(headers.get(headerName));
+  }
+
+  return (
+    readHeaderCandidate(headers[headerName]) ??
+    readHeaderCandidate(headers[headerName.toLowerCase()]) ??
+    readHeaderCandidate(headers[headerName.toUpperCase()])
+  );
+}
+
 export function verifySlackSignature(
   rawBody: string,
   timestamp: string,
   signature: string,
-  signingSecret: string
+  signingSecret: string,
+  nowSeconds = Math.floor(Date.now() / 1000)
 ): boolean {
+  if (!Number.isFinite(nowSeconds) || !/^\d+$/.test(timestamp)) {
+    return false;
+  }
+
+  const parsedTimestamp = Number.parseInt(timestamp, 10);
+  if (!Number.isFinite(parsedTimestamp) || Math.abs(nowSeconds - parsedTimestamp) > 60 * 5) {
+    return false;
+  }
+
   const baseString = `v0:${timestamp}:${rawBody}`;
   const expected = 'v0=' + createHmac('sha256', signingSecret).update(baseString).digest('hex');
 
@@ -46,6 +132,16 @@ function parseSlackEvent(body: unknown): ConnectorEvent | null {
   }
 
   const eventType = readString(slackEvent.type);
+  if (!eventType || (eventType !== 'app_mention' && eventType !== 'message')) {
+    return null;
+  }
+
+  const subtype = readString(slackEvent.subtype);
+  const botId = readString(slackEvent.bot_id);
+  if (subtype === 'bot_message' || botId) {
+    return null;
+  }
+
   const channelId = readString(slackEvent.channel);
   const ts = readString(slackEvent.ts);
   const threadTs = readString(slackEvent.thread_ts);
@@ -81,7 +177,8 @@ function parseSlackEvent(body: unknown): ConnectorEvent | null {
 
 export async function handleSlackRequest(
   ctx: ConnectorContext,
-  rawBody: string
+  rawBody: string,
+  options: SlackRequestOptions = {}
 ): Promise<Response> {
   let body: unknown;
   try {
@@ -94,12 +191,30 @@ export async function handleSlackRequest(
     return new Response('Bad Request', { status: 400 });
   }
 
-  // Signature verification
-  // Note: In a real webhook scenario, headers are checked.
-  // This helper focuses on body-level processing.
+  const signingSecret = readSigningSecret(ctx);
+  if (signingSecret) {
+    const signature = readHeader(options.headers, 'x-slack-signature');
+    const timestamp = readHeader(options.headers, 'x-slack-request-timestamp');
+
+    if (!signature || !timestamp) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    if (
+      !verifySlackSignature(
+        rawBody,
+        timestamp,
+        signature,
+        signingSecret,
+        options.nowSeconds
+      )
+    ) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+  }
 
   // URL verification challenge
-  if (body.type === 'url_verification') {
+  if (readString(body.type) === 'url_verification') {
     const challenge = readString(body.challenge);
     return new Response(challenge ?? '', {
       headers: { 'Content-Type': 'text/plain' },
@@ -109,13 +224,115 @@ export async function handleSlackRequest(
   // Parse and emit event
   const event = parseSlackEvent(body);
   if (!event) {
-    return new Response('OK');
+    return Response.json({ ok: true, ignored: true });
   }
 
   await ctx.emit(event);
-  return new Response('OK');
+  return Response.json({ ok: true });
+}
+
+function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+
+    req.on('data', (chunk: string | Buffer) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+
+    req.on('error', reject);
+  });
+}
+
+async function writeNodeResponse(
+  res: http.ServerResponse<http.IncomingMessage>,
+  response: Response
+): Promise<void> {
+  res.statusCode = response.status;
+  response.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+  const body = await response.text();
+  res.end(body);
 }
 
 export default async function run(ctx: ConnectorContext): Promise<void> {
-  ctx.logger.info('[slack] connector skeleton initialized');
+  const port = resolveSlackPort(ctx.config);
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST') {
+      res.statusCode = 405;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('Method Not Allowed');
+      return;
+    }
+
+    try {
+      const rawBody = await readRequestBody(req);
+      const response = await handleSlackRequest(ctx, rawBody, {
+        headers: req.headers,
+      });
+      await writeNodeResponse(res, response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.logger.warn(`[slack] request failed: ${message}`);
+
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      }
+      res.end('Internal Server Error');
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    let closing = false;
+
+    const cleanup = () => {
+      process.off('SIGINT', onSigint);
+      process.off('SIGTERM', onSigterm);
+      server.off('error', onError);
+    };
+
+    const shutdown = () => {
+      if (closing) {
+        return;
+      }
+      closing = true;
+      server.close((error) => {
+        cleanup();
+        if (error) {
+          reject(error);
+          return;
+        }
+        ctx.logger.info('[slack] connector stopped');
+        resolve();
+      });
+    };
+
+    const onSigint = () => {
+      ctx.logger.info('[slack] received SIGINT, shutting down');
+      shutdown();
+    };
+
+    const onSigterm = () => {
+      ctx.logger.info('[slack] received SIGTERM, shutting down');
+      shutdown();
+    };
+
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
+    server.once('error', onError);
+
+    server.listen(port, () => {
+      ctx.logger.info(`[slack] listening on port ${port}`);
+    });
+  });
 }

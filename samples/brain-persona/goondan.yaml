@@ -6,7 +6,7 @@ spec:
   version: "0.1.0"
   dependencies:
     - name: "@goondan/base"
-      version: "^1.0.2"
+      version: "^1.0.3"
 ---
 apiVersion: goondan.ai/v1
 kind: Model
@@ -33,35 +33,6 @@ spec:
 apiVersion: goondan.ai/v1
 kind: Tool
 metadata:
-  name: channel-dispatch
-spec:
-  entry: "./tools/channel-dispatch.mjs"
-  exports:
-    - name: send
-      description: "Send message to Telegram or Slack based on selected channel"
-      parameters:
-        type: object
-        properties:
-          channel:
-            type: string
-            enum: ["telegram", "slack"]
-          text:
-            type: string
-          telegramChatId:
-            type: string
-          telegramToken:
-            type: string
-          slackChannelId:
-            type: string
-          slackThreadTs:
-            type: string
-          slackBotToken:
-            type: string
-        required: ["channel", "text"]
----
-apiVersion: goondan.ai/v1
-kind: Tool
-metadata:
   name: self-restart
 spec:
   entry: "../../packages/base/dist/tools/self-restart.js"
@@ -80,38 +51,6 @@ metadata:
   name: context-injector
 spec:
   entry: "./extensions/context-injector.mjs"
----
-apiVersion: goondan.ai/v1
-kind: Connector
-metadata:
-  name: slack-webhook
-spec:
-  entry: "./connectors/slack-webhook.mjs"
-  events:
-    - name: slack_message
-      properties:
-        channel_id:
-          type: string
-        ts:
-          type: string
-        thread_ts:
-          type: string
-          optional: true
-        user_id:
-          type: string
-          optional: true
-    - name: slack_app_mention
-      properties:
-        channel_id:
-          type: string
-        ts:
-          type: string
-        thread_ts:
-          type: string
-          optional: true
-        user_id:
-          type: string
-          optional: true
 ---
 apiVersion: goondan.ai/v1
 kind: Agent
@@ -133,7 +72,8 @@ spec:
         package: "@goondan/base"
     - ref: "Extension/context-injector"
   requiredTools:
-    - "channel-dispatch__send"
+    - "telegram__send"
+    - "slack__send"
   tools:
     - ref:
         kind: Tool
@@ -148,7 +88,6 @@ spec:
         name: slack
         package: "@goondan/base"
     - ref: "Tool/self-restart"
-    - ref: "Tool/channel-dispatch"
 ---
 apiVersion: goondan.ai/v1
 kind: Agent
@@ -258,7 +197,10 @@ kind: Connection
 metadata:
   name: slack-to-brain
 spec:
-  connectorRef: "Connector/slack-webhook"
+  connectorRef:
+    kind: Connector
+    name: slack
+    package: "@goondan/base"
   swarmRef: "Swarm/brain"
   config:
     SLACK_WEBHOOK_PORT:
@@ -266,10 +208,10 @@ spec:
   ingress:
     rules:
       - match:
-          event: slack_message
+          event: message_im
         route:
           instanceKey: "brain-persona-shared"
       - match:
-          event: slack_app_mention
+          event: app_mention
         route:
           instanceKey: "brain-persona-shared"

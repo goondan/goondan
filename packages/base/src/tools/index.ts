@@ -16,6 +16,9 @@ export {
   handlers as agentsHandlers,
   request as agentsRequest,
   send as agentsSend,
+  spawn as agentsSpawn,
+  list as agentsList,
+  catalog as agentsCatalog,
 } from './agents.js';
 
 export {

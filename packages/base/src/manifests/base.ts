@@ -227,6 +227,14 @@ export function createBaseToolManifests(): BaseToolManifest[] {
             },
           },
         },
+        {
+          name: 'catalog',
+          description: 'Describe available and callable agents in the selected swarm',
+          parameters: {
+            type: 'object',
+            properties: {},
+          },
+        },
       ],
     }),
     createToolManifest('http-fetch', {

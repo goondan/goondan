@@ -214,6 +214,14 @@ export interface AgentRuntimeListResult {
   agents: SpawnedAgentInfo[];
 }
 
+export interface AgentRuntimeCatalogResult {
+  swarmName: string;
+  entryAgent: string;
+  selfAgent: string;
+  availableAgents: string[];
+  callableAgents: string[];
+}
+
 export interface AgentToolRuntime {
   request(
     target: string,
@@ -223,6 +231,7 @@ export interface AgentToolRuntime {
   send(target: string, event: AgentEvent): Promise<AgentRuntimeSendResult>;
   spawn(target: string, options?: AgentRuntimeSpawnOptions): Promise<AgentRuntimeSpawnResult>;
   list(options?: AgentRuntimeListOptions): Promise<AgentRuntimeListResult>;
+  catalog(): Promise<AgentRuntimeCatalogResult>;
 }
 
 export interface ToolContext extends ExecutionContext {

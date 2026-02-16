@@ -14,6 +14,7 @@
 - `goondan.yaml`: 샘플 리소스 정의
 - `.env.example`: 실행에 필요한 환경변수 템플릿
 - `prompts/*`: coordinator/전문 에이전트 시스템 프롬프트
+- `extensions/*`: 샘플 전용 runtime middleware (context 주입/정책 실험)
 - `connectors/slack-webhook.mjs`: Slack webhook 입력 수신 커넥터
 - `tools/channel-dispatch.mjs`: Telegram/Slack 출력 전달 Tool
 
@@ -25,3 +26,5 @@
 4. Telegram/Slack Connection의 `ingress.rules[].route.instanceKey`를 동일하게 유지해 채널 간 기억을 공유한다.
 5. `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용하도록 프롬프트를 유지한다.
 6. 프롬프트가 "단일 자아 톤"을 유지하도록 coordinator/하위 에이전트를 함께 점검한다.
+7. `coordinator` 프롬프트는 위임 대상이 불명확할 때 `agents__catalog`를 호출해 `callableAgents`를 확인하도록 유지한다.
+8. `Extension/context-injector`가 `[runtime_catalog]` 힌트를 주입하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.

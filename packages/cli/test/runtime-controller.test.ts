@@ -38,6 +38,15 @@ async function createRuntimeFixtureWithConnector(
   return fixture;
 }
 
+async function createRuntimeFixtureWithExtension(
+  bundleContent: string,
+  extensionSource: string,
+): Promise<RuntimeFixture> {
+  const fixture = await createRuntimeFixture(bundleContent);
+  await writeFile(path.join(fixture.bundleDir, 'ext.js'), extensionSource, 'utf8');
+  return fixture;
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -69,6 +78,23 @@ async function waitForFile(filePath: string, timeoutMs = 5000): Promise<string> 
   }
 
   throw new Error(`파일 생성 대기 시간 초과: ${filePath}`);
+}
+
+async function waitForFileContains(filePath: string, needle: string, timeoutMs = 5000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const raw = await readFile(filePath, 'utf8');
+      if (raw.includes(needle)) {
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+
+  throw new Error(`파일 내용 대기 시간 초과: ${filePath} needle=${needle}`);
 }
 
 function parseConnectorPidMarker(raw: string): { pid: number; ppid: number } {
@@ -189,6 +215,53 @@ spec:
 
 const connectorConfigBundle = connectorBundle.replace('  secrets:', '  config:');
 
+const extensionBundle = `
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/test-runtime"
+spec:
+  version: "0.1.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: dummy-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    value: "dummy"
+---
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: context-injector
+spec:
+  entry: "./ext.js"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: bot
+spec:
+  modelConfig:
+    modelRef: "Model/dummy-model"
+  prompts:
+    systemPrompt: "test"
+  extensions:
+    - ref: "Extension/context-injector"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/bot"
+  agents:
+    - ref: "Agent/bot"
+`;
+
 const connectorSecretRefBundle = `
 apiVersion: goondan.ai/v1
 kind: Package
@@ -275,6 +348,53 @@ export default async function run(ctx) {
 
   await writeFile(markerPath, 'started\\n', 'utf8');
   await new Promise(() => {});
+}
+`;
+
+const extensionTurnOverrideSource = `
+import { writeFile } from 'node:fs/promises';
+
+function createMessage(text, turnId) {
+  return {
+    id: \`ext-msg-\${Date.now()}\`,
+    data: {
+      role: 'assistant',
+      content: text,
+    },
+    metadata: {},
+    createdAt: new Date(),
+    source: {
+      type: 'extension',
+      extensionName: 'context-injector',
+    },
+  };
+}
+
+export function register(api) {
+  const markerPath = process.env.EXT_MARKER_PATH;
+  if (typeof markerPath === 'string' && markerPath.length > 0) {
+    void writeFile(
+      markerPath,
+      JSON.stringify({ phase: 'register' }) + '\\n',
+      'utf8',
+    );
+  }
+
+  api.pipeline.register('turn', async (ctx) => {
+    if (typeof markerPath === 'string' && markerPath.length > 0) {
+      const payload = {
+        phase: 'turn',
+        runtimeCatalog: ctx.metadata.runtimeCatalog ?? null,
+      };
+      await writeFile(markerPath, JSON.stringify(payload) + '\\n', 'utf8');
+    }
+
+    return {
+      turnId: ctx.turnId,
+      finishReason: 'text_response',
+      responseMessage: createMessage('handled by extension', ctx.turnId),
+    };
+  });
 }
 `;
 
@@ -581,6 +701,58 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       await rm(fixture.rootDir, { recursive: true, force: true });
     }
   });
+
+  it('Agent extension가 startup 시 로드되고 middleware를 등록할 수 있다', async () => {
+    const fixture = await createRuntimeFixtureWithExtension(
+      extensionBundle,
+      extensionTurnOverrideSource,
+    );
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {});
+
+      const result = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!result.pid) {
+        throw new Error('pid가 반환되지 않았습니다.');
+      }
+      startedPid = result.pid;
+
+      const activePath = path.join(fixture.stateRoot, 'runtime', 'active.json');
+      const activeRaw = await readFile(activePath, 'utf8');
+      const active: unknown = JSON.parse(activeRaw);
+      if (typeof active !== 'object' || active === null || !('logs' in active) || !Array.isArray(active.logs)) {
+        throw new Error('active.json logs 형식이 올바르지 않습니다.');
+      }
+
+      const firstLog = active.logs[0];
+      if (typeof firstLog !== 'object' || firstLog === null || !('stdout' in firstLog)) {
+        throw new Error('orchestrator stdout 로그 경로를 찾지 못했습니다.');
+      }
+      if (typeof firstLog.stdout !== 'string' || firstLog.stdout.length === 0) {
+        throw new Error('orchestrator stdout 로그 경로가 비어 있습니다.');
+      }
+
+      await waitForFileContains(
+        firstLog.stdout,
+        '[extension.loader] registered context-injector',
+        10_000,
+      );
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  }, 15_000);
 
 
   it('instance restart는 최신 runner를 다시 기동하고 기존 pid를 교체한다', async () => {

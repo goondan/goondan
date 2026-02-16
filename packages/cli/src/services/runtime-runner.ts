@@ -2,14 +2,20 @@ import path from 'node:path';
 import { Console } from 'node:console';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { closeSync, constants as fsConstants, existsSync, openSync, watch as watchFs, type FSWatcher } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   BundleLoader,
+  ConversationStateImpl,
+  ExtensionApiImpl,
+  ExtensionStateManagerImpl,
+  PipelineRegistryImpl,
   buildToolName,
   createMinimalToolContext,
   isJsonObject,
+  loadExtensions,
   normalizeObjectRef,
   FileWorkspaceStorage,
   ToolExecutor,
@@ -26,10 +32,15 @@ import {
   type JsonObject,
   type JsonSchemaProperty,
   type JsonSchemaObject,
+  type MessageEvent,
   type Message,
   type ObjectRefLike,
   type RuntimeResource,
+  type StepResult,
+  type ToolCallResult,
   type ToolCatalogItem,
+  type Turn,
+  type TurnResult,
   type JsonValue,
   type ValidationError,
 } from '@goondan/runtime';
@@ -45,9 +56,8 @@ import {
 } from './runtime-routing.js';
 import { buildStepLimitResponse } from './turn-policy.js';
 import {
-  toAnthropicMessages,
+  prepareAnthropicConversation,
   toConversationTurns,
-  toConversationTurnsFromAnthropicMessages,
   toPersistentMessages,
   trimConversation,
   type ConversationTurn,
@@ -150,6 +160,11 @@ interface AnthropicToolDefinition {
   input_schema: JsonSchemaObject;
 }
 
+interface RuntimeExtensionSpec {
+  entry: string;
+  config?: Record<string, unknown>;
+}
+
 interface AgentRuntimePlan {
   name: string;
   modelName: string;
@@ -163,6 +178,7 @@ interface AgentRuntimePlan {
   requiredToolNames: string[];
   toolCatalog: ToolCatalogItem[];
   anthropicTools: AnthropicToolDefinition[];
+  extensionResources: RuntimeResource<RuntimeExtensionSpec>[];
 }
 
 interface RunnerPlan {
@@ -208,7 +224,16 @@ interface RuntimeEngineState {
   runnerArgs: RunnerArguments;
   spawnedAgentsByOwner: Map<string, Map<string, SpawnedAgentRecord>>;
   instanceWorkdirs: Map<string, string>;
+  extensionEnvironments: Map<string, AgentExtensionEnvironment>;
   restartPromise?: Promise<void>;
+}
+
+interface AgentExtensionEnvironment {
+  readonly pipelineRegistry: PipelineRegistryImpl;
+  readonly extensionToolRegistry: ToolRegistryImpl;
+  readonly extensionToolExecutor: ToolExecutor;
+  readonly extensionStateManager: ExtensionStateManagerImpl;
+  initialized: boolean;
 }
 
 interface ToolRegistrationResult {
@@ -1545,6 +1570,54 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
+function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
+  const spec = readSpecRecord(agent);
+  const extensionsValue = spec.extensions;
+  if (extensionsValue === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(extensionsValue)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.extensions 형식이 올바르지 않습니다.`);
+  }
+
+  const refs: ObjectRefLike[] = [];
+  for (const item of extensionsValue) {
+    const ref = extractRefLike(item);
+    if (!ref) {
+      throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
+    }
+    refs.push(ref);
+  }
+
+  return refs;
+}
+
+function toExtensionResource(resource: RuntimeResource): RuntimeResource<RuntimeExtensionSpec> {
+  const spec = readSpecRecord(resource);
+  const entry = readStringValue(spec, 'entry');
+  if (!entry || entry.trim().length === 0) {
+    throw new Error(`Extension/${resource.metadata.name} spec.entry 형식이 올바르지 않습니다.`);
+  }
+
+  let config: Record<string, unknown> | undefined;
+  const configValue = spec.config;
+  if (configValue !== undefined) {
+    if (!isJsonObject(configValue)) {
+      throw new Error(`Extension/${resource.metadata.name} spec.config 형식이 올바르지 않습니다.`);
+    }
+    config = { ...configValue };
+  }
+
+  return {
+    ...resource,
+    spec: {
+      entry,
+      config,
+    },
+  };
+}
+
 function parseAgentRequiredTools(agent: RuntimeResource): string[] {
   const spec = readSpecRecord(agent);
   const requiredToolsValue = spec.requiredTools;
@@ -1715,6 +1788,45 @@ function inferBotMaxConversationTurns(): number {
   return parsed;
 }
 
+function buildRuntimeAgentCatalog(
+  runnerPlan: RunnerPlan,
+  selfAgent: string,
+): {
+  swarmName: string;
+  entryAgent: string;
+  selfAgent: string;
+  availableAgents: string[];
+  callableAgents: string[];
+} {
+  const availableAgents = [...runnerPlan.agents.keys()].sort((left, right) => left.localeCompare(right));
+  const callableAgents = availableAgents.filter((agentName) => agentName !== selfAgent);
+  return {
+    swarmName: runnerPlan.selectedSwarm.name,
+    entryAgent: runnerPlan.selectedSwarm.entryAgent.name,
+    selfAgent,
+    availableAgents,
+    callableAgents,
+  };
+}
+
+function mergeToolCatalog(
+  baseCatalog: ToolCatalogItem[],
+  extensionCatalog: ToolCatalogItem[],
+): ToolCatalogItem[] {
+  const merged: ToolCatalogItem[] = [];
+  for (const item of baseCatalog) {
+    if (!merged.some((candidate) => candidate.name === item.name)) {
+      merged.push(item);
+    }
+  }
+  for (const item of extensionCatalog) {
+    if (!merged.some((candidate) => candidate.name === item.name)) {
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
 function isPathInside(baseDir: string, targetPath: string): boolean {
   const relative = path.relative(baseDir, targetPath);
   if (relative.length === 0) {
@@ -1793,6 +1905,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     const prompt = await readAgentSystemPrompt(agentResource);
     const modelParams = parseAgentModelParams(agentResource);
     const toolRefs = parseAgentToolRefs(agentResource);
+    const extensionRefs = parseAgentExtensionRefs(agentResource);
     const requiredToolNames = parseAgentRequiredTools(agentResource);
 
     const agentToolCatalog: ToolCatalogItem[] = [];
@@ -1826,6 +1939,21 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       }
     }
 
+    const extensionResources: RuntimeResource<RuntimeExtensionSpec>[] = [];
+    for (const extensionRef of extensionRefs) {
+      const rawExtensionResource = selectReferencedResource(
+        loaded.resources,
+        extensionRef,
+        'Extension',
+        agentResource.__package,
+        selectedSwarm.packageName,
+      );
+      const extensionResource = toExtensionResource(rawExtensionResource);
+      const extensionEntryPath = await resolveEntryPath(extensionResource, 'entry');
+      watchTargets.add(extensionEntryPath);
+      extensionResources.push(extensionResource);
+    }
+
     const plan: AgentRuntimePlan = {
       name: agentResource.metadata.name,
       modelName,
@@ -1839,6 +1967,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       requiredToolNames,
       toolCatalog: agentToolCatalog,
       anthropicTools: toAnthropicToolDefinitions(agentToolCatalog),
+      extensionResources,
     };
 
     for (const requiredToolName of requiredToolNames) {
@@ -2053,12 +2182,67 @@ function createToolContextMessage(content: string): Message {
   };
 }
 
+function createConversationUserMessage(content: unknown): Message {
+  return {
+    id: createId('message'),
+    data: {
+      role: 'user',
+      content,
+    },
+    metadata: {},
+    createdAt: new Date(),
+    source: {
+      type: 'user',
+    },
+  };
+}
+
+function createConversationAssistantMessage(content: unknown, stepId: string): Message {
+  return {
+    id: createId('message'),
+    data: {
+      role: 'assistant',
+      content,
+    },
+    metadata: {},
+    createdAt: new Date(),
+    source: {
+      type: 'assistant',
+      stepId,
+    },
+  };
+}
+
+function createConversationStateFromTurns(turns: ConversationTurn[]): ConversationStateImpl {
+  const messages: Message[] = [];
+  for (const turn of turns) {
+    if (turn.role === 'assistant') {
+      messages.push(createConversationAssistantMessage(turn.content, createId('seed-step')));
+      continue;
+    }
+    messages.push(createConversationUserMessage(turn.content));
+  }
+  return new ConversationStateImpl(messages);
+}
+
 function safeJsonStringify(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
     return String(value);
   }
+}
+
+function mergeSystemPrompt(basePrompt: string, addendum: string): string {
+  if (addendum.trim().length === 0) {
+    return basePrompt;
+  }
+
+  if (basePrompt.trim().length === 0) {
+    return addendum;
+  }
+
+  return `${basePrompt}\n\n${addendum}`;
 }
 
 function parseAnthropicResponse(payload: unknown): AnthropicResponseParseResult {
@@ -2147,34 +2331,6 @@ async function requestAnthropicMessage(input: {
   return parseAnthropicResponse(payload);
 }
 
-function createAnthropicUserMessage(content: string): Record<string, unknown> {
-  return {
-    role: 'user',
-    content,
-  };
-}
-
-function createAnthropicAssistantMessage(content: unknown[]): Record<string, unknown> {
-  return {
-    role: 'assistant',
-    content,
-  };
-}
-
-function createAnthropicAssistantTextMessage(content: string): Record<string, unknown> {
-  return {
-    role: 'assistant',
-    content,
-  };
-}
-
-function createAnthropicToolResultMessage(results: unknown[]): Record<string, unknown> {
-  return {
-    role: 'user',
-    content: results,
-  };
-}
-
 function formatToolResultOutput(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -2247,8 +2403,23 @@ async function executeInboundTurn(input: {
       );
 
       try {
+        const inputAgentEvent: AgentEvent = {
+          id: createId('inbound_event'),
+          type: input.event.eventName,
+          createdAt: new Date(),
+          traceId,
+          source: {
+            kind: input.event.sourceKind,
+            name: input.event.sourceName,
+          },
+          input: input.event.messageText,
+          instanceKey: input.event.instanceKey,
+          metadata: input.event.metadata,
+        };
+
         turnResult = await runAgentTurn({
           plan: agentPlan,
+          inputEvent: inputAgentEvent,
           userInputText,
           instanceKey: input.event.instanceKey,
           turnId,
@@ -2463,11 +2634,71 @@ function createAgentToolRuntime(input: {
         })),
       };
     },
+    catalog: async () => {
+      const selfAgent = input.callerAgentName;
+      return {
+        ...buildRuntimeAgentCatalog(input.runnerPlan, selfAgent),
+      };
+    },
   };
+}
+
+async function getOrCreateAgentExtensionEnvironment(input: {
+  runtime: RuntimeEngineState;
+  plan: AgentRuntimePlan;
+  agentName: string;
+  instanceKey: string;
+  logger: Console;
+}): Promise<AgentExtensionEnvironment> {
+  const queueKey = createConversationKey(input.agentName, input.instanceKey);
+  const existing = input.runtime.extensionEnvironments.get(queueKey);
+  if (existing) {
+    return existing;
+  }
+
+  const extensionNames = input.plan.extensionResources.map((resource) => resource.metadata.name);
+  const extensionStateManager = new ExtensionStateManagerImpl(
+    input.runtime.storage,
+    queueKey,
+    extensionNames,
+  );
+  await extensionStateManager.loadAll();
+
+  const extensionToolRegistry = new ToolRegistryImpl();
+  const environment: AgentExtensionEnvironment = {
+    pipelineRegistry: new PipelineRegistryImpl(),
+    extensionToolRegistry,
+    extensionToolExecutor: new ToolExecutor(extensionToolRegistry),
+    extensionStateManager,
+    initialized: false,
+  };
+
+  if (input.plan.extensionResources.length > 0) {
+    const extensionEventBus = new EventEmitter();
+    await loadExtensions(
+      input.plan.extensionResources,
+      (extensionName) =>
+        new ExtensionApiImpl(
+          extensionName,
+          environment.pipelineRegistry,
+          environment.extensionToolRegistry,
+          environment.extensionStateManager,
+          extensionEventBus,
+          input.logger,
+        ),
+      input.runtime.workdir,
+      input.logger,
+    );
+  }
+
+  environment.initialized = true;
+  input.runtime.extensionEnvironments.set(queueKey, environment);
+  return environment;
 }
 
 async function runAgentTurn(input: {
   plan: AgentRuntimePlan;
+  inputEvent: AgentEvent;
   userInputText: string;
   instanceKey: string;
   turnId: string;
@@ -2483,11 +2714,13 @@ async function runAgentTurn(input: {
     throw new Error(`지원하지 않는 model provider입니다: ${input.plan.provider}`);
   }
 
-  const messages = toAnthropicMessages(input.conversation);
-
-  messages.push(createAnthropicUserMessage(input.userInputText));
-
+  const conversationState = createConversationStateFromTurns(input.conversation);
+  conversationState.emitMessageEvent({
+    type: 'append',
+    message: createConversationUserMessage(input.userInputText),
+  });
   let lastText = '';
+  let finalResponseText = '응답 텍스트를 생성하지 못했습니다.';
   let restartRequested = false;
   let restartReason: string | undefined;
   const calledToolNames = new Set<string>();
@@ -2500,126 +2733,289 @@ async function runAgentTurn(input: {
     callerInstanceKey: input.instanceKey,
     logger: input.logger,
   });
+  const extensionEnvironment = await getOrCreateAgentExtensionEnvironment({
+    runtime: input.runtime,
+    plan: input.plan,
+    agentName: input.plan.name,
+    instanceKey: input.instanceKey,
+    logger: input.logger,
+  });
 
+  const turnMetadata: Record<string, JsonValue> = {
+    runtimeCatalog: buildRuntimeAgentCatalog(input.runnerPlan, input.plan.name),
+  };
   let step = 0;
-  while (true) {
-    if (step >= input.plan.maxSteps) {
-      const responseText = buildStepLimitResponse({
-        maxSteps: input.plan.maxSteps,
-        requiredToolNames,
-        calledToolNames,
-        lastText,
-      });
-      if (responseText !== lastText) {
-        messages.push(createAnthropicAssistantTextMessage(responseText));
-      }
-      return {
-        responseText,
-        restartRequested,
-        restartReason,
-        nextConversation: trimConversation(
-          toConversationTurnsFromAnthropicMessages(messages),
-          input.plan.maxConversationTurns,
-        ),
-      };
-    }
-
-    step += 1;
-    const response = await requestAnthropicMessage({
-      apiKey: input.plan.apiKey,
-      model: input.plan.modelName,
-      systemPrompt: input.plan.systemPrompt,
-      temperature: input.plan.temperature,
-      maxTokens: input.plan.maxTokens,
-      tools: input.plan.anthropicTools,
-      messages,
-    });
-
-    messages.push(createAnthropicAssistantMessage(response.assistantContent));
-
-    if (response.textBlocks.length > 0) {
-      lastText = response.textBlocks.join('\n').trim();
-    }
-
-    if (response.toolUseBlocks.length === 0) {
-      if (enforceRequiredTools) {
-        const missingRequiredTools = requiredToolNames.filter((name) => !calledToolNames.has(name));
-        if (missingRequiredTools.length > 0) {
-          const enforcementMessage = [
-            '필수 도구 호출 규칙 위반: 최종 답변 전에 아래 도구 중 최소 하나를 반드시 호출해야 합니다.',
-            ...missingRequiredTools.map((name) => `- ${name}`),
-            '텍스트 답변을 종료하지 말고, 지금 즉시 위 도구 중 하나를 tool call로 호출하세요.',
-          ].join('\n');
-          messages.push(createAnthropicUserMessage(enforcementMessage));
-          continue;
-        }
-      }
-
-      const responseText = lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.';
-      if (lastText.length === 0) {
-        messages.push(createAnthropicAssistantTextMessage(responseText));
-      }
-      return {
-        responseText,
-        restartRequested,
-        restartReason,
-        nextConversation: trimConversation(
-          toConversationTurnsFromAnthropicMessages(messages),
-          input.plan.maxConversationTurns,
-        ),
-      };
-    }
-
-    const toolResultBlocks: unknown[] = [];
-    for (const toolUse of response.toolUseBlocks) {
-      const toolContext = createMinimalToolContext({
+  let turnResult: TurnResult;
+  try {
+    turnResult = await extensionEnvironment.pipelineRegistry.runTurn(
+      {
         agentName: input.plan.name,
         instanceKey: input.instanceKey,
         turnId: input.turnId,
         traceId: input.traceId,
-        toolCallId: toolUse.id,
-        message: createToolContextMessage(input.userInputText),
-        workdir: input.workdir,
-        logger: input.logger,
-        runtime: agentRuntime,
-      });
+        inputEvent: input.inputEvent,
+        conversationState,
+        emitMessageEvent(event: MessageEvent): void {
+          conversationState.emitMessageEvent(event);
+        },
+        metadata: turnMetadata,
+      },
+      async (): Promise<TurnResult> => {
+        while (true) {
+        if (step >= input.plan.maxSteps) {
+          const responseText = buildStepLimitResponse({
+            maxSteps: input.plan.maxSteps,
+            requiredToolNames,
+            calledToolNames,
+            lastText,
+          });
+          if (responseText !== lastText) {
+            conversationState.emitMessageEvent({
+              type: 'append',
+              message: createConversationAssistantMessage(
+                responseText,
+                `${input.turnId}-step-limit`,
+              ),
+            });
+          }
+          finalResponseText = responseText;
+          return {
+            turnId: input.turnId,
+            finishReason: 'max_steps',
+            responseMessage: createConversationAssistantMessage(
+              responseText,
+              `${input.turnId}-step-limit`,
+            ),
+          };
+        }
 
-      const result = await input.toolExecutor.execute({
-        toolCallId: toolUse.id,
-        toolName: toolUse.name,
-        args: toolUse.input,
-        catalog: input.plan.toolCatalog,
-        context: toolContext,
-      });
+        step += 1;
+        const baseToolCatalog = mergeToolCatalog(
+          input.plan.toolCatalog,
+          extensionEnvironment.extensionToolRegistry.getCatalog(),
+        );
+        const stepMetadata: Record<string, JsonValue> = {};
+        const turnSnapshot: Turn = {
+          id: input.turnId,
+          agentName: input.plan.name,
+          inputEvent: input.inputEvent,
+          messages: conversationState.nextMessages,
+          steps: [],
+          status: 'running',
+          metadata: {},
+        };
 
-      if (result.status === 'ok') {
-        calledToolNames.add(toolUse.name);
-        const restartSignal = readRuntimeRestartSignal(result.output);
-        if (restartSignal?.requested) {
-          restartRequested = true;
-          if (!restartReason && restartSignal.reason) {
-            restartReason = restartSignal.reason;
+        const stepResult = await extensionEnvironment.pipelineRegistry.runStep(
+          {
+            agentName: input.plan.name,
+            instanceKey: input.instanceKey,
+            turnId: input.turnId,
+            traceId: input.traceId,
+            turn: turnSnapshot,
+            stepIndex: step,
+            conversationState,
+            emitMessageEvent(event: MessageEvent): void {
+              conversationState.emitMessageEvent(event);
+            },
+            toolCatalog: baseToolCatalog,
+            metadata: stepMetadata,
+          },
+          async (stepCtx): Promise<StepResult> => {
+            const preparedConversation = prepareAnthropicConversation(conversationState.toLlmMessages());
+            const effectiveSystemPrompt = mergeSystemPrompt(
+              input.plan.systemPrompt,
+              preparedConversation.systemAddendum,
+            );
+            const response = await requestAnthropicMessage({
+              apiKey: input.plan.apiKey,
+              model: input.plan.modelName,
+              systemPrompt: effectiveSystemPrompt,
+              temperature: input.plan.temperature,
+              maxTokens: input.plan.maxTokens,
+              tools: toAnthropicToolDefinitions(stepCtx.toolCatalog),
+              messages: preparedConversation.messages,
+            });
+
+            conversationState.emitMessageEvent({
+              type: 'append',
+              message: createConversationAssistantMessage(
+                response.assistantContent,
+                `${input.turnId}-step-${step}`,
+              ),
+            });
+
+            if (response.textBlocks.length > 0) {
+              lastText = response.textBlocks.join('\n').trim();
+            }
+
+            if (response.toolUseBlocks.length === 0) {
+              return {
+                status: 'completed',
+                hasToolCalls: false,
+                toolCalls: [],
+                toolResults: [],
+                metadata: {},
+              };
+            }
+
+            const toolCalls: Array<{ id: string; name: string; args: JsonObject }> = [];
+            const toolResults: ToolCallResult[] = [];
+            const toolResultBlocks: unknown[] = [];
+
+            for (const toolUse of response.toolUseBlocks) {
+              const toolArgs = ensureJsonObject(toolUse.input);
+              toolCalls.push({
+                id: toolUse.id,
+                name: toolUse.name,
+                args: toolArgs,
+              });
+
+              const toolResult = await extensionEnvironment.pipelineRegistry.runToolCall(
+                {
+                  agentName: input.plan.name,
+                  instanceKey: input.instanceKey,
+                  turnId: input.turnId,
+                  traceId: input.traceId,
+                  stepIndex: step,
+                  toolName: toolUse.name,
+                  toolCallId: toolUse.id,
+                  args: toolArgs,
+                  metadata: {},
+                },
+                async (toolCallCtx): Promise<ToolCallResult> => {
+                  const toolContext = createMinimalToolContext({
+                    agentName: input.plan.name,
+                    instanceKey: input.instanceKey,
+                    turnId: input.turnId,
+                    traceId: input.traceId,
+                    toolCallId: toolCallCtx.toolCallId,
+                    message: createToolContextMessage(input.userInputText),
+                    workdir: input.workdir,
+                    logger: input.logger,
+                    runtime: agentRuntime,
+                  });
+
+                  const executor = extensionEnvironment.extensionToolRegistry.has(toolCallCtx.toolName)
+                    ? extensionEnvironment.extensionToolExecutor
+                    : input.toolExecutor;
+
+                  return executor.execute({
+                    toolCallId: toolCallCtx.toolCallId,
+                    toolName: toolCallCtx.toolName,
+                    args: toolCallCtx.args,
+                    catalog: stepCtx.toolCatalog,
+                    context: toolContext,
+                  });
+                },
+              );
+
+              toolResults.push(toolResult);
+              if (toolResult.status === 'ok') {
+                calledToolNames.add(toolUse.name);
+                const restartSignal = readRuntimeRestartSignal(toolResult.output);
+                if (restartSignal?.requested) {
+                  restartRequested = true;
+                  if (!restartReason && restartSignal.reason) {
+                    restartReason = restartSignal.reason;
+                  }
+                }
+
+                toolResultBlocks.push({
+                  type: 'tool_result',
+                  tool_use_id: toolUse.id,
+                  content: formatToolResultOutput(toolResult.output),
+                });
+                continue;
+              }
+
+              const errorMessage = toolResult.error?.message ?? 'unknown tool error';
+              toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                is_error: true,
+                content: errorMessage,
+              });
+            }
+
+            conversationState.emitMessageEvent({
+              type: 'append',
+              message: createConversationUserMessage(toolResultBlocks),
+            });
+
+            return {
+              status: 'completed',
+              hasToolCalls: true,
+              toolCalls,
+              toolResults,
+              metadata: {},
+            };
+          },
+        );
+
+        if (stepResult.hasToolCalls) {
+          continue;
+        }
+
+        if (enforceRequiredTools) {
+          const missingRequiredTools = requiredToolNames.filter((name) => !calledToolNames.has(name));
+          if (missingRequiredTools.length > 0) {
+            const enforcementMessage = [
+              '필수 도구 호출 규칙 위반: 최종 답변 전에 아래 도구 중 최소 하나를 반드시 호출해야 합니다.',
+              ...missingRequiredTools.map((name) => `- ${name}`),
+              '텍스트 답변을 종료하지 말고, 지금 즉시 위 도구 중 하나를 tool call로 호출하세요.',
+            ].join('\n');
+            conversationState.emitMessageEvent({
+              type: 'append',
+              message: createConversationUserMessage(enforcementMessage),
+            });
+            continue;
           }
         }
 
-        toolResultBlocks.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: formatToolResultOutput(result.output),
-        });
-      } else {
-        const errorMessage = result.error?.message ?? 'unknown tool error';
-        toolResultBlocks.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          is_error: true,
-          content: errorMessage,
-        });
-      }
-    }
-
-    messages.push(createAnthropicToolResultMessage(toolResultBlocks));
+        const responseText = lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.';
+        if (lastText.length === 0) {
+          conversationState.emitMessageEvent({
+            type: 'append',
+            message: createConversationAssistantMessage(
+              responseText,
+              `${input.turnId}-final`,
+            ),
+          });
+        }
+        finalResponseText = responseText;
+        return {
+          turnId: input.turnId,
+          finishReason: 'text_response',
+          responseMessage: createConversationAssistantMessage(
+            responseText,
+            `${input.turnId}-final`,
+          ),
+        };
+        }
+      },
+    );
+  } finally {
+    await extensionEnvironment.extensionStateManager.saveAll();
   }
+
+  if (turnResult.responseMessage) {
+    const responseContent = turnResult.responseMessage.data.content;
+    if (typeof responseContent === 'string' && responseContent.trim().length > 0) {
+      finalResponseText = responseContent.trim();
+    }
+  } else if (turnResult.finishReason === 'error' && turnResult.error?.message) {
+    finalResponseText = `오류: ${turnResult.error.message}`;
+  }
+
+  return {
+    responseText: finalResponseText,
+    restartRequested,
+    restartReason,
+    nextConversation: trimConversation(
+      toConversationTurns(conversationState.nextMessages),
+      input.plan.maxConversationTurns,
+    ),
+  };
 }
 
 function logConnectorEvent(plan: ConnectorRunPlan, event: ParsedConnectorEvent): void {
@@ -2642,6 +3038,7 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
     runnerArgs: args,
     spawnedAgentsByOwner: new Map<string, Map<string, SpawnedAgentRecord>>(),
     instanceWorkdirs: new Map<string, string>(),
+    extensionEnvironments: new Map<string, AgentExtensionEnvironment>(),
   };
 }
 
@@ -3092,6 +3489,26 @@ function summarizeAgentPlans(agents: Map<string, AgentRuntimePlan>): string {
   return names.join(', ');
 }
 
+async function preloadAgentExtensions(
+  runtime: RuntimeEngineState,
+  plan: RunnerPlan,
+  instanceKey: string,
+): Promise<void> {
+  for (const [agentName, agentPlan] of plan.agents.entries()) {
+    if (agentPlan.extensionResources.length === 0) {
+      continue;
+    }
+
+    await getOrCreateAgentExtensionEnvironment({
+      runtime,
+      plan: agentPlan,
+      agentName,
+      instanceKey,
+      logger: console,
+    });
+  }
+}
+
 async function runLifecycle(runningConnectors: RunningConnector[]): Promise<void> {
   const shutdownWait = waitForShutdownSignal();
   const connectorWait = monitorConnectors(runningConnectors);
@@ -3118,6 +3535,7 @@ async function main(): Promise<void> {
   const args = parseRunnerArguments(process.argv.slice(2));
   const plan = await preflight(args);
   const runtime = buildRuntimeEngine(args, plan);
+  await preloadAgentExtensions(runtime, plan, args.instanceKey);
   const stopWatching = args.watch ? startWatchMode(runtime, plan) : () => {
     // no-op
   };

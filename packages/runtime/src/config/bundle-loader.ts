@@ -89,6 +89,8 @@ export class BundleLoader {
     const resources = [...dependencyResult.resources, ...localResources];
     const validationErrors = validateResources(resources);
     errors.push(...validationErrors);
+    const entryValidationErrors = await this.validateEntryFiles(resources);
+    errors.push(...entryValidationErrors);
 
     const scanned = new Set<string>();
     files.forEach((file) => scanned.add(file));
@@ -350,6 +352,43 @@ export class BundleLoader {
       return resources;
     }
   }
+
+  private async validateEntryFiles(resources: RuntimeResource[]): Promise<ValidationError[]> {
+    const errors: ValidationError[] = [];
+    for (const resource of resources) {
+      if (resource.kind !== "Tool" && resource.kind !== "Extension" && resource.kind !== "Connector") {
+        continue;
+      }
+
+      const entry = readResourceEntry(resource);
+      if (!entry) {
+        continue;
+      }
+
+      const rootDir = resource.__rootDir ? path.resolve(resource.__rootDir) : process.cwd();
+      const candidates = resolveEntryCandidates(rootDir, entry);
+      let found = false;
+      for (const candidate of candidates) {
+        if (await existsFile(candidate)) {
+          found = true;
+          break;
+        }
+      }
+
+      if (found) {
+        continue;
+      }
+
+      errors.push({
+        code: "E_CONFIG_ENTRY_NOT_FOUND",
+        message: `${resource.kind}/${resource.metadata.name} entry 파일을 찾을 수 없습니다: ${candidates.join(", ")}`,
+        path: `${resource.__file}#${resource.__docIndex}.spec.entry`,
+        suggestion: "entry 경로를 확인하거나 해당 파일을 생성하세요.",
+      });
+    }
+
+    return errors;
+  }
 }
 
 function toPosix(value: string): string {
@@ -379,6 +418,55 @@ function parsePackageMeta(docs: unknown[]): PackageMeta {
     packageName,
     dependencies,
   };
+}
+
+function readResourceEntry(resource: RuntimeResource): string | undefined {
+  if (!isJsonObject(resource.spec)) {
+    return undefined;
+  }
+
+  const entryValue = resource.spec.entry;
+  if (typeof entryValue !== "string") {
+    return undefined;
+  }
+
+  const trimmed = entryValue.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+function resolveEntryCandidates(baseDir: string, entry: string): string[] {
+  const normalizedEntry = entry.startsWith("./") ? entry.slice(2) : entry;
+  const directPath = path.resolve(baseDir, normalizedEntry);
+  const candidates: string[] = [];
+
+  if (directPath.endsWith(".ts")) {
+    if (normalizedEntry.startsWith("src/")) {
+      const distRelative = normalizedEntry.replace(/^src\//, "dist/src/").replace(/\.ts$/, ".js");
+      candidates.push(path.resolve(baseDir, distRelative));
+    }
+
+    const directJs = directPath.slice(0, -3) + ".js";
+    candidates.push(directJs);
+    candidates.push(directPath);
+  } else {
+    candidates.push(directPath);
+  }
+
+  const deduped = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of candidates) {
+    if (deduped.has(candidate)) {
+      continue;
+    }
+    deduped.add(candidate);
+    result.push(candidate);
+  }
+
+  return result;
 }
 
 function readDependencies(spec: unknown): PackageDependency[] {

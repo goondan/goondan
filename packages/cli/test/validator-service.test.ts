@@ -103,4 +103,68 @@ describe('DefaultBundleValidator', () => {
     const updated = await readFile(manifestPath, 'utf8');
     expect(updated.includes('apiVersion: goondan.ai/v1')).toBe(true);
   });
+
+  it('Tool/Extension/Connector entry 파일이 없으면 오류를 반환한다', async () => {
+    const dir = await createTempDir('goondan-cli-validator-entry-');
+    const manifestPath = path.join(dir, 'goondan.yaml');
+    await writeFile(
+      manifestPath,
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: sample',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: test-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Tool',
+        'metadata:',
+        '  name: self-restart',
+        'spec:',
+        '  entry: "./dist/tools/self-restart.js"',
+        '  exports:',
+        '    - name: request',
+        '      description: "Request runtime restart"',
+        '      parameters:',
+        '        type: object',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: assistant',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/test-model"',
+        '  prompts:',
+        '    systemPrompt: "test"',
+        '  tools:',
+        '    - ref: "Tool/self-restart"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: default',
+        'spec:',
+        '  entryAgent: "Agent/assistant"',
+        '  agents:',
+        '    - ref: "Agent/assistant"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const validator = new DefaultBundleValidator(dir);
+    const result = await validator.validate('.', false, false);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'E_CONFIG_ENTRY_NOT_FOUND')).toBe(true);
+  });
 });

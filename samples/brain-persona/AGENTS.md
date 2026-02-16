@@ -46,6 +46,6 @@
 8. `Extension/context-injector`가 `[runtime_catalog]` 힌트를 주입하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.
 9. 장기 실행 안정성을 위해 `coordinator`에는 `message-window` + `message-compaction`, 하위 전문 에이전트에는 최소 `message-window`를 유지한다.
 10. coordinator의 Extension 선언 순서는 `message-window -> message-compaction -> context-injector`를 유지한다.
-11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack` 및 로컬 `Tool/self-restart`가 포함되어 채널 lifecycle 제어와 self-restart를 수행할 수 있게 유지한다.
+11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack`, `Tool/self-restart`가 포함되어 채널 lifecycle 제어와 self-restart를 수행할 수 있게 유지한다.
 12. self-restart가 필요한 turn에서는 `self-restart__request`를 마지막 Tool call로 1회만 호출하도록 coordinator 프롬프트를 유지한다.
 13. Slack Connection ingress 이벤트는 `app_mention`, `message_im`을 유지한다.

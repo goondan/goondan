@@ -1,7 +1,12 @@
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentsHandlers, bashHandlers, fileSystemHandlers } from '../src/tools/index.js';
+import {
+  agentsHandlers,
+  bashHandlers,
+  fileSystemHandlers,
+  selfRestartHandlers,
+} from '../src/tools/index.js';
 import type { AgentEvent, AgentToolRuntime, JsonObject, JsonValue } from '../src/types.js';
 import { isJsonObject } from '../src/utils.js';
 import { createTempWorkspace, createToolContext } from './helpers.js';
@@ -201,6 +206,23 @@ describe('base tools', () => {
       expect(catalogOutput.swarmName).toBe('brain');
       expect(catalogOutput.availableCount).toBe(4);
       expect(catalogOutput.callableCount).toBe(3);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it('self-restart__request returns runtime restart signal payload', async () => {
+    const workspace = await createTempWorkspace();
+    try {
+      const ctx = createToolContext(workspace.path);
+      const output = await selfRestartHandlers.request(ctx, {
+        reason: 'update:coordinator-prompt',
+      });
+      const result = assertJsonObject(output);
+
+      expect(result.ok).toBe(true);
+      expect(result.restartRequested).toBe(true);
+      expect(result.restartReason).toBe('update:coordinator-prompt');
     } finally {
       await workspace.cleanup();
     }

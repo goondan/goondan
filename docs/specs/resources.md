@@ -568,13 +568,13 @@ spec:
       prompts: true
 
 ---
-# Compaction Extension
+# Message Compaction Extension
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
-  name: compaction
+  name: message-compaction
 spec:
-  entry: "./extensions/compaction/index.ts"
+  entry: "./extensions/message-compaction/index.ts"
   config:
     maxTokens: 8000
     enableLogging: true
@@ -1030,7 +1030,7 @@ spec:
     - name: "@goondan/base"
       version: "^1.0.0"
   registry:
-    url: "https://registry.goondan.ai"
+    url: "https://goondan-registry.yechanny.workers.dev"
 ```
 
 #### Validation 규칙

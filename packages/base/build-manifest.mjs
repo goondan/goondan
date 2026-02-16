@@ -28,6 +28,10 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isEmptyPlainObject(value) {
+  return isPlainObject(value) && Object.keys(value).length === 0;
+}
+
 function toYaml(value, indent = 0) {
   const space = " ".repeat(indent);
 
@@ -56,7 +60,11 @@ function toYaml(value, indent = 0) {
 
     const lines = [];
     for (const [key, entry] of entries) {
-      if (isPlainObject(entry) || Array.isArray(entry)) {
+      if (isEmptyPlainObject(entry)) {
+        lines.push(`${space}${key}: {}`);
+      } else if (Array.isArray(entry) && entry.length === 0) {
+        lines.push(`${space}${key}: []`);
+      } else if (isPlainObject(entry) || Array.isArray(entry)) {
         lines.push(`${space}${key}:`);
         lines.push(toYaml(entry, indent + 2));
       } else {

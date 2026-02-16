@@ -13,7 +13,15 @@ describe("base manifests", () => {
     const connectors = createBaseConnectorManifests();
 
     expect(tools.some((item) => item.metadata.name === "bash")).toBe(true);
+    expect(tools.some((item) => item.metadata.name === "telegram")).toBe(true);
+    expect(tools.some((item) => item.metadata.name === "slack")).toBe(true);
+    expect(tools.some((item) => item.metadata.name === "self-restart")).toBe(true);
     expect(extensions.some((item) => item.metadata.name === "logging")).toBe(true);
     expect(connectors.some((item) => item.metadata.name === "telegram-polling")).toBe(true);
+
+    const telegram = tools.find((item) => item.metadata.name === "telegram");
+    const slack = tools.find((item) => item.metadata.name === "slack");
+    expect(telegram?.spec.exports.some((entry) => entry.name === "read")).toBe(false);
+    expect(slack?.spec.exports.some((entry) => entry.name === "read")).toBe(true);
   });
 });

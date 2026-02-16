@@ -10,6 +10,7 @@
 - Bearer 토큰 인증, access(public/restricted), integrity/dist-tags 관리
 - `src/`: Node 런타임 파일시스템 기반 서버/클라이언트 유틸 제공
 - `cloudflare/`: Cloudflare Worker(KV + R2) 배포 경로 제공
+- 기본 운영 엔드포인트: `https://goondan-registry.yechanny.workers.dev`
 
 ## 소스 구성
 
@@ -28,3 +29,4 @@
 2. 테스트는 `test/`에서 API 라우팅, 인증, 라이프사이클(publish/get/unpublish/deprecate/delete), 중복 방어를 검증한다.
 3. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시 타입으로 구현한다.
 4. 저장 포맷 변경 시 `src/types.ts`와 테스트 케이스를 함께 갱신한다.
+5. Cloudflare 배포 경로에서는 `REGISTRY_AUTH_TOKENS` 시크릿 로테이션 절차와 publish smoke test 결과를 함께 관리한다.

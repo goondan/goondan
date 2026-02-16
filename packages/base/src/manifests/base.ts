@@ -237,6 +237,220 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         },
       ],
     }),
+    createToolManifest('self-restart', {
+      entry: './src/tools/self-restart.ts',
+      exports: [
+        {
+          name: 'request',
+          description: 'Request orchestrator self restart via runtime restart signal',
+          parameters: {
+            type: 'object',
+            properties: {
+              reason: { type: 'string' },
+            },
+          },
+        },
+      ],
+    }),
+    createToolManifest('telegram', {
+      entry: './src/tools/telegram.ts',
+      exports: [
+        {
+          name: 'send',
+          description: 'Send Telegram message to a chat',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              chatId: { type: 'string' },
+              text: { type: 'string' },
+              parseMode: {
+                type: 'string',
+                enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
+              },
+              disableNotification: { type: 'boolean' },
+              disableWebPagePreview: { type: 'boolean' },
+              replyToMessageId: { type: 'number' },
+              allowSendingWithoutReply: { type: 'boolean' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['chatId', 'text'],
+          },
+        },
+        {
+          name: 'edit',
+          description: 'Edit Telegram message text',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              chatId: { type: 'string' },
+              messageId: { type: 'number' },
+              text: { type: 'string' },
+              parseMode: {
+                type: 'string',
+                enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
+              },
+              disableWebPagePreview: { type: 'boolean' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['chatId', 'messageId', 'text'],
+          },
+        },
+        {
+          name: 'delete',
+          description: 'Delete Telegram message from a chat',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              chatId: { type: 'string' },
+              messageId: { type: 'number' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['chatId', 'messageId'],
+          },
+        },
+        {
+          name: 'react',
+          description: 'Set or clear Telegram message reaction',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              chatId: { type: 'string' },
+              messageId: { type: 'number' },
+              emoji: { type: 'string' },
+              emojis: { type: 'array' },
+              clear: { type: 'boolean' },
+              isBig: { type: 'boolean' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['chatId', 'messageId'],
+          },
+        },
+        {
+          name: 'setChatAction',
+          description: 'Set Telegram bot chat action (typing/upload...)',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              chatId: { type: 'string' },
+              status: {
+                type: 'string',
+                enum: [
+                  'typing',
+                  'upload-photo',
+                  'record-video',
+                  'upload-video',
+                  'record-voice',
+                  'upload-voice',
+                  'upload-document',
+                  'choose-sticker',
+                  'find-location',
+                  'record-video-note',
+                  'upload-video-note',
+                ],
+              },
+              action: { type: 'string' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['chatId'],
+          },
+        },
+      ],
+    }),
+    createToolManifest('slack', {
+      entry: './src/tools/slack.ts',
+      exports: [
+        {
+          name: 'send',
+          description: 'Send Slack message to a channel',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              channelId: { type: 'string' },
+              text: { type: 'string' },
+              threadTs: { type: 'string' },
+              mrkdwn: { type: 'boolean' },
+              unfurlLinks: { type: 'boolean' },
+              unfurlMedia: { type: 'boolean' },
+              replyBroadcast: { type: 'boolean' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['channelId', 'text'],
+          },
+        },
+        {
+          name: 'read',
+          description: 'Read Slack channel or thread messages',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              channelId: { type: 'string' },
+              messageTs: { type: 'string' },
+              threadTs: { type: 'string' },
+              latest: { type: 'string' },
+              oldest: { type: 'string' },
+              inclusive: { type: 'boolean' },
+              limit: { type: 'number' },
+              cursor: { type: 'string' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['channelId'],
+          },
+        },
+        {
+          name: 'edit',
+          description: 'Edit Slack message text',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              channelId: { type: 'string' },
+              messageTs: { type: 'string' },
+              text: { type: 'string' },
+              mrkdwn: { type: 'boolean' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['channelId', 'messageTs', 'text'],
+          },
+        },
+        {
+          name: 'delete',
+          description: 'Delete Slack message from a channel',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              channelId: { type: 'string' },
+              messageTs: { type: 'string' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['channelId', 'messageTs'],
+          },
+        },
+        {
+          name: 'react',
+          description: 'Add one or more Slack reactions to a message',
+          parameters: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              channelId: { type: 'string' },
+              messageTs: { type: 'string' },
+              emoji: { type: 'string' },
+              emojis: { type: 'array' },
+              timeoutMs: { type: 'number' },
+            },
+            required: ['channelId', 'messageTs'],
+          },
+        },
+      ],
+    }),
     createToolManifest('http-fetch', {
       entry: './src/tools/http-fetch.ts',
       exports: [

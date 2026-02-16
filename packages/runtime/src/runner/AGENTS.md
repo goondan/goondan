@@ -8,6 +8,7 @@
   - Bundle 로딩, Connection/ingress 해석, connector child 프로세스 기동
   - Agent turn/step/toolCall 파이프라인 실행
   - AI SDK 기반 LLM 호출
+  - watch/tool 재시작 신호 시 Connector 종료 후 replacement runner 기동(포트 충돌 방지)
 - `runtime-runner-connector-child.ts`: Connector entry 실행 전용 child 프로세스
 - `runtime-routing.ts`: inbound context 포맷/라우팅 유틸
 - `turn-policy.ts`: maxSteps 등 turn 정책 응답 유틸

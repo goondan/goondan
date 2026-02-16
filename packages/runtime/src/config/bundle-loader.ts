@@ -123,6 +123,10 @@ export class BundleLoader {
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
+        const lowerName = entry.name.toLowerCase();
+        if (lowerName === "dist" || lowerName === "node_modules" || lowerName === ".git") {
+          continue;
+        }
         await this.walk(fullPath, collected);
         continue;
       }

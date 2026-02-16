@@ -9,6 +9,7 @@
 - Bearer 인증, access(public/restricted), dist-tags, integrity 생성 규칙 유지
 - wrangler 배포 예시 설정 제공 (`wrangler.toml.example`)
 - 실제 배포는 `pnpx wrangler` 명령(`kv namespace create`, `r2 bucket create`, `secret put`, `deploy`) 기반으로 수행
+- 운영 레지스트리 URL: `https://goondan-registry.yechanny.workers.dev`
 
 ## 작업 규칙
 
@@ -16,3 +17,4 @@
 2. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시적 타입으로 구현한다.
 3. 테스트는 `test/`에서 순수 함수(crypto/route/handler 로직) 중심으로 검증한다.
 4. 저장 포맷을 바꾸면 관련 타입(`src/types.ts`)과 테스트를 함께 갱신한다.
+5. 인증 토큰 로테이션은 `REGISTRY_AUTH_TOKENS` 시크릿으로 관리하며, 갱신 후 publish smoke test를 수행한다.

@@ -6,7 +6,7 @@ spec:
   version: "0.1.0"
   dependencies:
     - name: "@goondan/base"
-      version: "^1.0.0"
+      version: "^1.0.2"
 ---
 apiVersion: goondan.ai/v1
 kind: Model
@@ -60,6 +60,21 @@ spec:
         required: ["channel", "text"]
 ---
 apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: self-restart
+spec:
+  entry: "../../packages/base/dist/tools/self-restart.js"
+  exports:
+    - name: request
+      description: "Request orchestrator self restart"
+      parameters:
+        type: object
+        properties:
+          reason:
+            type: string
+---
+apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: context-injector
@@ -108,6 +123,14 @@ spec:
   prompts:
     systemRef: "./prompts/coordinator.system.md"
   extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: message-compaction
+        package: "@goondan/base"
     - ref: "Extension/context-injector"
   requiredTools:
     - "channel-dispatch__send"
@@ -116,6 +139,15 @@ spec:
         kind: Tool
         name: agents
         package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: telegram
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: slack
+        package: "@goondan/base"
+    - ref: "Tool/self-restart"
     - ref: "Tool/channel-dispatch"
 ---
 apiVersion: goondan.ai/v1
@@ -127,6 +159,11 @@ spec:
     modelRef: "Model/default-model"
   prompts:
     systemRef: "./prompts/researcher.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
   tools:
     - ref:
         kind: Tool
@@ -142,6 +179,11 @@ spec:
     modelRef: "Model/default-model"
   prompts:
     systemRef: "./prompts/builder.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
   tools:
     - ref:
         kind: Tool
@@ -165,6 +207,11 @@ spec:
     modelRef: "Model/default-model"
   prompts:
     systemRef: "./prompts/reviewer.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
   tools:
     - ref:
         kind: Tool

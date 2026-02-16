@@ -211,8 +211,12 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function terminatePreviousProcess(previousPid: number | undefined, replacementPid: number): Promise<void> {
-  if (!previousPid || previousPid <= 0 || previousPid === replacementPid) {
+async function terminatePreviousProcess(previousPid: number | undefined, replacementPid?: number): Promise<void> {
+  if (!previousPid || previousPid <= 0) {
+    return;
+  }
+
+  if (replacementPid && previousPid === replacementPid) {
     return;
   }
 
@@ -452,6 +456,8 @@ export class LocalRuntimeController implements RuntimeController {
       projectRoot: path.dirname(manifestPath),
     });
 
+    await terminatePreviousProcess(state.pid);
+
     const runner = await this.startDetachedRunner({
       manifestPath,
       stateRoot,
@@ -478,7 +484,6 @@ export class LocalRuntimeController implements RuntimeController {
     };
 
     await writeFile(activePath, JSON.stringify(refreshedState, null, 2), 'utf8');
-    await terminatePreviousProcess(state.pid, runner.pid);
 
     const restarted = request.instanceKey
       ? [request.instanceKey]

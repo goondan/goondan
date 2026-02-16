@@ -228,7 +228,7 @@ interface RuntimeEngineState {
   spawnedAgentsByOwner: Map<string, Map<string, SpawnedAgentRecord>>;
   instanceWorkdirs: Map<string, string>;
   extensionEnvironments: Map<string, AgentExtensionEnvironment>;
-  restartPromise?: Promise<void>;
+  restartRequestedReason?: string;
 }
 
 interface AgentExtensionEnvironment {
@@ -3205,42 +3205,18 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
 }
 
 async function requestRuntimeRestart(runtime: RuntimeEngineState, reason: string): Promise<void> {
-  if (runtime.restartPromise) {
-    await runtime.restartPromise;
+  if (runtime.restartRequestedReason !== undefined) {
     return;
   }
 
-  runtime.restartPromise = (async () => {
-    const runnerModulePath = process.argv[1];
-    if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
-      throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
-    }
-
-    const replacementPid = await spawnReplacementRunner({
-      runnerModulePath,
-      runnerArgs: process.argv.slice(2),
-      stateRoot: runtime.runnerArgs.stateRoot,
-      instanceKey: runtime.runnerArgs.instanceKey,
-      bundlePath: runtime.runnerArgs.bundlePath,
-      watch: runtime.runnerArgs.watch,
-      swarmName: runtime.runnerArgs.swarmName,
-      env: process.env,
-    });
-
-    console.info(
-      `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
-    );
-
+  runtime.restartRequestedReason = reason;
+  console.info(`[goondan-runtime] restart requested reason=${reason}`);
+  try {
     process.kill(process.pid, 'SIGTERM');
-  })()
-    .catch((error) => {
-      console.error(`[goondan-runtime] replacement orchestrator restart failed: ${unknownToErrorMessage(error)}`);
-    })
-    .finally(() => {
-      runtime.restartPromise = undefined;
-    });
-
-  await runtime.restartPromise;
+  } catch (error) {
+    runtime.restartRequestedReason = undefined;
+    throw new Error(`restart 신호 전송 실패: ${unknownToErrorMessage(error)}`);
+  }
 }
 async function handleConnectorEvent(
   runtime: RuntimeEngineState,
@@ -3722,6 +3698,30 @@ async function main(): Promise<void> {
     stopWatching();
     await stopConnectors(runningConnectors);
   }
+
+  if (runtime.restartRequestedReason !== undefined) {
+    const runnerModulePath = process.argv[1];
+    if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
+      throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
+    }
+
+    const reason = runtime.restartRequestedReason;
+    const replacementPid = await spawnReplacementRunner({
+      runnerModulePath,
+      runnerArgs: process.argv.slice(2),
+      stateRoot: runtime.runnerArgs.stateRoot,
+      instanceKey: runtime.runnerArgs.instanceKey,
+      bundlePath: runtime.runnerArgs.bundlePath,
+      watch: runtime.runnerArgs.watch,
+      swarmName: runtime.runnerArgs.swarmName,
+      env: process.env,
+    });
+
+    console.info(
+      `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
+    );
+  }
+
   process.exit(0);
 }
 

@@ -5,7 +5,7 @@
 ## 책임 범위
 
 - 명령 파싱/라우팅 (`init`, `run`, `restart`, `validate`, `instance`, `logs`, `package`, `doctor`)
-- `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화
+- `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화 (`goondan.yaml` 첫 문서 `kind: Package` 기본 생성, `--package` 옵션 미지원)
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
 - `run --watch` 시 bundle/리소스 YAML 및 Tool/Connector entry 변경 감지 후 replacement orchestrator 재기동
 - runtime runner는 Connection별 Connector를 별도 child process로 실행하고 IPC(event/start/shutdown)로 연동

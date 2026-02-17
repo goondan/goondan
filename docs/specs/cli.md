@@ -83,7 +83,6 @@ gdn init [path] [options]
 |------|------|------|--------|
 | `--name <name>` | `-n` | Swarm 이름 | 디렉터리 이름 |
 | `--template <name>` | `-t` | 템플릿 사용 | `default` |
-| `--package` | | Package로 초기화 | `false` |
 | `--git` | | Git 저장소 초기화 | `true` |
 | `--no-git` | | Git 저장소 초기화 안 함 | - |
 | `--force` | `-f` | 기존 파일 덮어쓰기 | `false` |
@@ -109,9 +108,11 @@ gdn init ./my-agent
 # 멀티 에이전트 템플릿으로 생성
 gdn init --template multi-agent
 
-# Package로 초기화
-gdn init --package --name @myorg/my-tools
+# Package 이름 지정
+gdn init --name @myorg/my-tools
 ```
+
+`gdn init`은 템플릿 종류와 무관하게 `goondan.yaml` 첫 문서로 `kind: Package`를 기본 생성해야 한다(MUST).
 
 ### 3.6 생성되는 파일 구조
 
@@ -130,6 +131,13 @@ gdn init --package --name @myorg/my-tools
 
 ```yaml
 apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: my-agent
+spec:
+  version: "0.1.0"
+---
+apiVersion: goondan.ai/v1
 kind: Model
 metadata:
   name: claude
@@ -145,18 +153,20 @@ kind: Agent
 metadata:
   name: assistant
 spec:
-  modelRef: "Model/claude"
-  systemPrompt: |
-    You are a helpful assistant.
+  modelConfig:
+    modelRef: "Model/claude"
+  prompts:
+    systemPrompt: |
+      You are a helpful assistant.
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
 metadata:
   name: default
 spec:
+  entryAgent: "Agent/assistant"
   agents:
     - ref: "Agent/assistant"
-  entryAgent: "Agent/assistant"
 ```
 
 ---

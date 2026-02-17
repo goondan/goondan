@@ -71,16 +71,12 @@ function buildPackageYaml(name: string): string {
   ].join('\n');
 }
 
-function defaultTemplate(name: string, asPackage: boolean): TemplateFiles {
+function defaultTemplate(name: string): TemplateFiles {
   const model = buildModelYaml();
   const agent = buildAgentYaml('assistant', 'Model/claude', 'You are a helpful assistant.');
   const swarm = buildSwarmYaml(['assistant'], 'assistant');
 
-  const docs: string[] = [];
-  if (asPackage) {
-    docs.push(buildPackageYaml(name));
-  }
-  docs.push(model, agent, swarm);
+  const docs: string[] = [buildPackageYaml(name), model, agent, swarm];
 
   return {
     'goondan.yaml': docs.join('\n---\n') + '\n',
@@ -90,18 +86,14 @@ function defaultTemplate(name: string, asPackage: boolean): TemplateFiles {
   };
 }
 
-function multiAgentTemplate(name: string, asPackage: boolean): TemplateFiles {
+function multiAgentTemplate(name: string): TemplateFiles {
   const model = buildModelYaml();
   const planner = buildAgentYaml('planner', 'Model/claude', 'You are a planning agent. Break tasks into steps.');
   const coder = buildAgentYaml('coder', 'Model/claude', 'You are a coding agent. Implement the plan.');
   const reviewer = buildAgentYaml('reviewer', 'Model/claude', 'You are a code reviewer. Review code for correctness.');
   const swarm = buildSwarmYaml(['planner', 'coder', 'reviewer'], 'planner');
 
-  const docs: string[] = [];
-  if (asPackage) {
-    docs.push(buildPackageYaml(name));
-  }
-  docs.push(model, planner, coder, reviewer, swarm);
+  const docs: string[] = [buildPackageYaml(name), model, planner, coder, reviewer, swarm];
 
   return {
     'goondan.yaml': docs.join('\n---\n') + '\n',
@@ -126,32 +118,28 @@ function packageTemplate(name: string): TemplateFiles {
   };
 }
 
-function minimalTemplate(name: string, asPackage: boolean): TemplateFiles {
+function minimalTemplate(name: string): TemplateFiles {
   const model = buildModelYaml();
   const agent = buildAgentYaml('assistant', 'Model/claude', 'You are a helpful assistant.');
   const swarm = buildSwarmYaml(['assistant'], 'assistant');
 
-  const docs: string[] = [];
-  if (asPackage) {
-    docs.push(buildPackageYaml(name));
-  }
-  docs.push(model, agent, swarm);
+  const docs: string[] = [buildPackageYaml(name), model, agent, swarm];
 
   return {
     'goondan.yaml': docs.join('\n---\n') + '\n',
   };
 }
 
-function generateTemplateFiles(template: InitTemplate, name: string, asPackage: boolean): TemplateFiles {
+function generateTemplateFiles(template: InitTemplate, name: string): TemplateFiles {
   switch (template) {
     case 'default':
-      return defaultTemplate(name, asPackage);
+      return defaultTemplate(name);
     case 'multi-agent':
-      return multiAgentTemplate(name, asPackage);
+      return multiAgentTemplate(name);
     case 'package':
       return packageTemplate(name);
     case 'minimal':
-      return minimalTemplate(name, asPackage);
+      return minimalTemplate(name);
   }
 }
 
@@ -181,7 +169,7 @@ export class DefaultInitService implements InitService {
 
     await mkdir(targetDir, { recursive: true });
 
-    const files = generateTemplateFiles(request.template, request.name, request.asPackage);
+    const files = generateTemplateFiles(request.template, request.name);
     const createdFiles: string[] = [];
 
     for (const [relativePath, content] of Object.entries(files)) {

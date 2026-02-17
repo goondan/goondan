@@ -44,7 +44,6 @@ const runCommand = command(
     action: constant('run' as const),
     bundlePath: optional(argument(string({ metavar: 'BUNDLE_PATH' }))),
     swarm: optional(option('-s', '--swarm', string({ metavar: 'NAME' }))),
-    instanceKey: optional(option('-i', '--instance-key', string({ metavar: 'KEY' }))),
     watch: optional(option('-w', '--watch')),
     foreground: optional(option('--foreground')),
     interactive: optional(option('--interactive')),

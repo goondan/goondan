@@ -136,6 +136,7 @@ interface SwarmAgentRef {
 
 interface SelectedSwarm {
   name: string;
+  instanceKey: string;
   packageName?: string;
   entryAgent: SwarmAgentRef;
   agents: SwarmAgentRef[];
@@ -524,6 +525,44 @@ async function spawnReplacementRunner(input: {
   return pid;
 }
 
+function upsertRunnerOption(argv: string[], option: string, value: string): string[] {
+  const next: string[] = [];
+  let replaced = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token) {
+      continue;
+    }
+
+    if (token === option) {
+      if (!replaced) {
+        next.push(option, value);
+        replaced = true;
+      }
+      index += 1;
+      continue;
+    }
+
+    const prefixed = `${option}=`;
+    if (token.startsWith(prefixed)) {
+      if (!replaced) {
+        next.push(option, value);
+        replaced = true;
+      }
+      continue;
+    }
+
+    next.push(token);
+  }
+
+  if (!replaced) {
+    next.push(option, value);
+  }
+
+  return next;
+}
+
 function parseRunnerArguments(argv: string[]): RunnerArguments {
   let bundlePath: string | undefined;
   let instanceKey: string | undefined;
@@ -896,6 +935,7 @@ function parseSwarmSelection(
 
   const spec = readSpecRecord(swarmResource);
   const entryAgent = parseSwarmAgentRef(spec.entryAgent);
+  const instanceKey = parseSwarmInstanceKey(swarmResource, spec);
 
   const rawAgents = spec.agents;
   if (!Array.isArray(rawAgents) || rawAgents.length === 0) {
@@ -911,11 +951,25 @@ function parseSwarmSelection(
     swarmResource,
     selectedSwarm: {
       name: swarmResource.metadata.name,
+      instanceKey,
       packageName: swarmResource.__package,
       entryAgent,
       agents,
     },
   };
+}
+
+function parseSwarmInstanceKey(swarmResource: RuntimeResource, spec: Record<string, unknown>): string {
+  const configured = spec.instanceKey;
+  if (configured === undefined) {
+    return swarmResource.metadata.name;
+  }
+
+  if (typeof configured !== 'string' || configured.trim().length === 0) {
+    throw new Error(`Swarm/${swarmResource.metadata.name} spec.instanceKey는 비어 있지 않은 문자열이어야 합니다.`);
+  }
+
+  return configured.trim();
 }
 
 function hasMatchingSwarm(resource: RuntimeResource, selectedSwarm: SelectedSwarm): boolean {
@@ -1830,9 +1884,13 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
   if (loaded.errors.length > 0) {
     throw new Error(formatValidationErrors(loaded.errors));
   }
-  const localPackageName = loaded.resources.find(
+  const localPackageNameCandidate = loaded.resources.find(
     (resource) => resource.kind === 'Package' && resource.__file === 'goondan.yaml',
   )?.metadata.name;
+  if (typeof localPackageNameCandidate !== 'string' || localPackageNameCandidate.trim().length === 0) {
+    throw new Error('goondan.yaml에 kind: Package 문서와 metadata.name이 필요합니다.');
+  }
+  const localPackageName = localPackageNameCandidate.trim();
 
   const { swarmResource, selectedSwarm } = parseSwarmSelection(loaded.resources, args.swarmName);
 
@@ -3191,7 +3249,7 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
   const workspacePaths = new WorkspacePaths({
     stateRoot: args.stateRoot,
     projectRoot: path.dirname(args.bundlePath),
-    packageName: plan.localPackageName,
+    workspaceName: plan.selectedSwarm.instanceKey,
   });
   return {
     executionQueue: new Map<string, Promise<void>>(),
@@ -3667,7 +3725,13 @@ async function preflight(args: RunnerArguments): Promise<RunnerPlan> {
     throw new Error(`Bundle 파일을 찾을 수 없습니다: ${args.bundlePath}`);
   }
 
-  return await buildRunnerPlan(args);
+  const plan = await buildRunnerPlan(args);
+  if (plan.selectedSwarm.instanceKey !== args.instanceKey) {
+    throw new Error(
+      `instanceKey 불일치: expected=${plan.selectedSwarm.instanceKey}, actual=${args.instanceKey} (source=Swarm/${plan.selectedSwarm.name})`,
+    );
+  }
+  return plan;
 }
 
 async function main(): Promise<void> {
@@ -3707,14 +3771,27 @@ async function main(): Promise<void> {
     }
 
     const reason = runtime.restartRequestedReason;
+    const replacementPlan = await buildRunnerPlan(runtime.runnerArgs);
+    const replacementInstanceKey = replacementPlan.selectedSwarm.instanceKey;
+    const replacementSwarmName = replacementPlan.selectedSwarm.name;
+    const replacementRunnerArgsWithInstanceKey = upsertRunnerOption(
+      process.argv.slice(2),
+      '--instance-key',
+      replacementInstanceKey,
+    );
+    const replacementRunnerArgs = upsertRunnerOption(
+      replacementRunnerArgsWithInstanceKey,
+      '--swarm',
+      replacementSwarmName,
+    );
     const replacementPid = await spawnReplacementRunner({
       runnerModulePath,
-      runnerArgs: process.argv.slice(2),
+      runnerArgs: replacementRunnerArgs,
       stateRoot: runtime.runnerArgs.stateRoot,
-      instanceKey: runtime.runnerArgs.instanceKey,
+      instanceKey: replacementInstanceKey,
       bundlePath: runtime.runnerArgs.bundlePath,
       watch: runtime.runnerArgs.watch,
-      swarmName: runtime.runnerArgs.swarmName,
+      swarmName: replacementSwarmName,
       env: process.env,
     });
 

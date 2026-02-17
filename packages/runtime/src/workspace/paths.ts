@@ -1,26 +1,23 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { adjectives, animals, colors, names, uniqueNamesGenerator } from "unique-names-generator";
-
-const WORKSPACE_ID_DICTIONARIES = [adjectives, colors, animals, names];
 
 export interface WorkspacePathsOptions {
   stateRoot?: string;
   projectRoot: string;
-  packageName?: string;
+  workspaceName?: string;
 }
 
 export class WorkspacePaths {
   readonly goondanHome: string;
   readonly projectRoot: string;
-  readonly packageName?: string;
+  readonly workspaceName?: string;
   readonly workspaceId: string;
 
   constructor(options: WorkspacePathsOptions) {
     this.goondanHome = this.resolveGoondanHome(options.stateRoot);
     this.projectRoot = path.resolve(options.projectRoot);
-    this.packageName = options.packageName;
-    this.workspaceId = this.generateWorkspaceId(this.projectRoot, this.packageName);
+    this.workspaceName = options.workspaceName;
+    this.workspaceId = this.generateWorkspaceId(this.workspaceName);
   }
 
   get configFile(): string {
@@ -85,52 +82,33 @@ export class WorkspacePaths {
     return path.join(os.homedir(), ".goondan");
   }
 
-  private generateWorkspaceId(projectRoot: string, packageName: string | undefined): string {
-    const normalizedRoot = projectRoot.replaceAll("\\", "/");
-    const normalizedPackage = normalizePackageName(packageName);
-    const hashInput = `${normalizedRoot}\n${normalizedPackage}`;
-    const raw = uniqueNamesGenerator({
-      dictionaries: WORKSPACE_ID_DICTIONARIES,
-      separator: "-",
-      style: "lowerCase",
-      seed: hashInput,
-    });
-    return normalizeWorkspaceSlug(raw);
+  private generateWorkspaceId(workspaceName: string | undefined): string {
+    return normalizeWorkspaceId(workspaceName);
   }
 }
 
-function normalizePackageName(packageName: string | undefined): string {
-  if (typeof packageName !== "string") {
-    return "no-package";
+function normalizeWorkspaceId(workspaceName: string | undefined): string {
+  if (typeof workspaceName !== "string") {
+    return "default";
   }
 
-  const trimmed = packageName.trim();
+  const trimmed = workspaceName.trim();
   if (trimmed.length === 0) {
-    return "no-package";
+    return "default";
   }
 
-  return trimmed;
-}
-
-function normalizeWorkspaceSlug(value: string): string {
-  const cleaned = value
+  const normalized = trimmed
     .toLowerCase()
-    .replace(/[^a-z-]/g, "-")
+    .replace(/[^a-z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
-  const tokens = cleaned.split("-").filter((token) => token.length > 0);
-  if (tokens.length === 0) {
-    return "stable-stable-stable-stable";
+
+  if (normalized.length === 0) {
+    return "default";
   }
 
-  while (tokens.length < 4) {
-    tokens.push("stable");
-  }
-  if (tokens.length > 4) {
-    return tokens.slice(0, 4).join("-");
-  }
-  return tokens.join("-");
+  return normalized.slice(0, 128);
 }
 
 export function sanitizeInstanceKey(instanceKey: string): string {

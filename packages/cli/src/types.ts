@@ -21,7 +21,6 @@ export interface ValidationResult {
 export interface RuntimeStartRequest {
   bundlePath: string;
   swarm?: string;
-  instanceKey?: string;
   watch: boolean;
   foreground?: boolean;
   interactive: boolean;

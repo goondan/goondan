@@ -15,7 +15,7 @@ describe("FileInstanceManager", () => {
     paths = new WorkspacePaths({
       projectRoot: tempDir,
       stateRoot: path.join(tempDir, ".goondan"),
-      packageName: "test-bundle",
+      workspaceName: "test-bundle",
     });
     manager = new FileInstanceManager(paths);
   });

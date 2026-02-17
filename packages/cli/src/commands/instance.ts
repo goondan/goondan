@@ -60,6 +60,7 @@ export async function handleInstanceRestart({ cmd, deps, globals }: InstanceRest
   });
 
   const pidSuffix = typeof result.pid === 'number' ? ` (pid: ${result.pid})` : '';
-  deps.io.out(`Instance restarted: ${cmd.key}${pidSuffix}`);
+  const restartedKey = result.instanceKey ?? cmd.key;
+  deps.io.out(`Instance restarted: ${restartedKey}${pidSuffix}`);
   return 0;
 }

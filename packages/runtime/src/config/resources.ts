@@ -291,6 +291,17 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
       });
     }
 
+    if ("instanceKey" in resource.spec && resource.spec.instanceKey !== undefined) {
+      const instanceKeyValue = resource.spec.instanceKey;
+      if (typeof instanceKeyValue !== "string" || instanceKeyValue.trim().length === 0) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Swarm.spec.instanceKey must be a non-empty string when provided.",
+          path: `${pathPrefix}.instanceKey`,
+        });
+      }
+    }
+
     if (!Array.isArray(resource.spec.agents) || resource.spec.agents.length === 0) {
       errors.push({
         code: "E_CONFIG_SCHEMA_INVALID",

@@ -159,6 +159,224 @@ export function verifySlackSignature(
   return timingSafeEqual(expectedBuf, receivedBuf);
 }
 
+interface SlackAttachmentReference {
+  kind: 'image' | 'file';
+  url: string;
+  name: string;
+}
+
+const IMAGE_FILE_TYPES = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'bmp',
+  'svg',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
+]);
+
+function collectSlackEventRecords(slackEvent: Record<string, unknown>): Record<string, unknown>[] {
+  return [slackEvent];
+}
+
+function pickFirstString(records: Record<string, unknown>[], key: string): string | undefined {
+  for (const record of records) {
+    const value = readString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function isImageReference(record: Record<string, unknown>): boolean {
+  const mimeType = readString(record.mimetype);
+  if (mimeType && mimeType.toLowerCase().startsWith('image/')) {
+    return true;
+  }
+
+  const fileType = readString(record.filetype)?.toLowerCase();
+  if (fileType && IMAGE_FILE_TYPES.has(fileType)) {
+    return true;
+  }
+
+  return false;
+}
+
+function readAttachmentUrl(record: Record<string, unknown>): string | undefined {
+  return (
+    readString(record.url_private_download) ??
+    readString(record.url_private) ??
+    readString(record.permalink_public) ??
+    readString(record.permalink) ??
+    readString(record.image_url) ??
+    readString(record.thumb_url) ??
+    readString(record.from_url) ??
+    readString(record.original_url)
+  );
+}
+
+function readAttachmentName(record: Record<string, unknown>, fallback: string): string {
+  return (
+    readString(record.title) ??
+    readString(record.name) ??
+    readString(record.alt_text) ??
+    readString(record.id) ??
+    fallback
+  );
+}
+
+function pushSlackFileReferences(
+  references: SlackAttachmentReference[],
+  filesValue: unknown
+): void {
+  if (!Array.isArray(filesValue)) {
+    return;
+  }
+
+  for (const rawFile of filesValue) {
+    if (!isRecord(rawFile)) {
+      continue;
+    }
+    const url = readAttachmentUrl(rawFile);
+    if (!url) {
+      continue;
+    }
+
+    const kind: SlackAttachmentReference['kind'] = isImageReference(rawFile) ? 'image' : 'file';
+    references.push({
+      kind,
+      url,
+      name: readAttachmentName(rawFile, kind === 'image' ? 'image' : 'file'),
+    });
+  }
+}
+
+function pushSlackAttachmentReferences(
+  references: SlackAttachmentReference[],
+  attachmentsValue: unknown
+): void {
+  if (!Array.isArray(attachmentsValue)) {
+    return;
+  }
+
+  for (const rawAttachment of attachmentsValue) {
+    if (!isRecord(rawAttachment)) {
+      continue;
+    }
+    const url = readAttachmentUrl(rawAttachment);
+    if (!url) {
+      continue;
+    }
+
+    const hasImageUrl =
+      readString(rawAttachment.image_url) !== undefined ||
+      readString(rawAttachment.thumb_url) !== undefined;
+    const kind: SlackAttachmentReference['kind'] = hasImageUrl ? 'image' : 'file';
+
+    references.push({
+      kind,
+      url,
+      name: readAttachmentName(rawAttachment, kind === 'image' ? 'image' : 'attachment'),
+    });
+  }
+}
+
+function pushSlackBlockImageReferences(
+  references: SlackAttachmentReference[],
+  blocksValue: unknown
+): void {
+  if (!Array.isArray(blocksValue)) {
+    return;
+  }
+
+  for (const rawBlock of blocksValue) {
+    if (!isRecord(rawBlock)) {
+      continue;
+    }
+    if (readString(rawBlock.type) !== 'image') {
+      continue;
+    }
+
+    const directImageUrl = readString(rawBlock.image_url);
+    if (directImageUrl) {
+      references.push({
+        kind: 'image',
+        url: directImageUrl,
+        name: readAttachmentName(rawBlock, 'image'),
+      });
+      continue;
+    }
+
+    const slackFile = rawBlock.slack_file;
+    if (!isRecord(slackFile)) {
+      continue;
+    }
+    const url = readAttachmentUrl(slackFile);
+    if (!url) {
+      continue;
+    }
+    references.push({
+      kind: 'image',
+      url,
+      name: readAttachmentName(slackFile, 'image'),
+    });
+  }
+}
+
+function dedupeAttachmentReferences(
+  references: SlackAttachmentReference[]
+): SlackAttachmentReference[] {
+  const seen = new Set<string>();
+  const deduped: SlackAttachmentReference[] = [];
+
+  for (const reference of references) {
+    const key = `${reference.kind}:${reference.url}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(reference);
+  }
+
+  return deduped;
+}
+
+function collectAttachmentReferences(records: Record<string, unknown>[]): SlackAttachmentReference[] {
+  const references: SlackAttachmentReference[] = [];
+  for (const record of records) {
+    pushSlackFileReferences(references, record.files);
+    pushSlackAttachmentReferences(references, record.attachments);
+    pushSlackBlockImageReferences(references, record.blocks);
+  }
+  return dedupeAttachmentReferences(references);
+}
+
+function formatAttachmentReference(reference: SlackAttachmentReference): string {
+  return `[${reference.kind}:${reference.name}] ${reference.url}`;
+}
+
+function composeMessageText(
+  baseText: string | undefined,
+  references: SlackAttachmentReference[]
+): string {
+  const text = baseText ?? '';
+  if (references.length === 0) {
+    return text;
+  }
+
+  const attachmentText = references.map((reference) => formatAttachmentReference(reference)).join('\n');
+  if (text.length === 0) {
+    return attachmentText;
+  }
+  return `${text}\n${attachmentText}`;
+}
+
 function parseSlackEvent(body: unknown): ConnectorEvent | null {
   if (!isRecord(body)) {
     return null;
@@ -174,19 +392,21 @@ function parseSlackEvent(body: unknown): ConnectorEvent | null {
     return null;
   }
 
-  const subtype = readString(slackEvent.subtype);
-  const botId = readString(slackEvent.bot_id);
+  const eventRecords = collectSlackEventRecords(slackEvent);
+  const subtype = pickFirstString(eventRecords, 'subtype');
+  const botId = pickFirstString(eventRecords, 'bot_id');
   if (subtype === 'bot_message' || botId) {
     return null;
   }
 
-  const channelId = readString(slackEvent.channel);
-  const ts = readString(slackEvent.ts);
-  const threadTs = readString(slackEvent.thread_ts);
-  const text = readString(slackEvent.text) ?? '';
-  const userId = readString(slackEvent.user);
+  const channelId = pickFirstString(eventRecords, 'channel');
+  const ts = pickFirstString(eventRecords, 'ts');
+  const threadTs = pickFirstString(eventRecords, 'thread_ts');
+  const userId = pickFirstString(eventRecords, 'user');
+  const attachmentReferences = collectAttachmentReferences(eventRecords);
+  const text = composeMessageText(pickFirstString(eventRecords, 'text'), attachmentReferences);
 
-  if (!channelId || !ts) {
+  if (!channelId || !ts || text.length === 0) {
     return null;
   }
 
@@ -201,6 +421,21 @@ function parseSlackEvent(body: unknown): ConnectorEvent | null {
   }
   if (userId) {
     properties.user_id = userId;
+  }
+  if (subtype) {
+    properties.subtype = subtype;
+  }
+  if (attachmentReferences.length > 0) {
+    properties.attachment_count = String(attachmentReferences.length);
+    const firstImage = attachmentReferences.find((reference) => reference.kind === 'image');
+    const firstFile = attachmentReferences.find((reference) => reference.kind === 'file');
+    if (firstImage) {
+      properties.image_url = firstImage.url;
+    }
+    if (firstFile) {
+      properties.file_url = firstFile.url;
+      properties.file_name = firstFile.name;
+    }
   }
 
   const instanceKey = `slack:${channelId}:${threadTs ?? ts}`;

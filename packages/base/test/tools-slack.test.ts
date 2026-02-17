@@ -27,6 +27,20 @@ function createJsonResponse(status: number, payload: unknown): Response {
   });
 }
 
+function createBinaryResponse(
+  status: number,
+  body: string,
+  contentType: string
+): Response {
+  return new Response(Buffer.from(body, 'utf8'), {
+    status,
+    headers: {
+      'content-type': contentType,
+      'content-length': String(Buffer.byteLength(body, 'utf8')),
+    },
+  });
+}
+
 function createFetchMock(
   handler: (request: CapturedRequest) => Promise<Response> | Response
 ): typeof fetch {
@@ -383,6 +397,44 @@ describe('slack tool', () => {
           messageTs: '1735200000.005000',
         })
       ).rejects.toThrow("Provide 'emoji' or 'emojis'");
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it('slack__downloadFile downloads private file with token auth', async () => {
+    let captured: CapturedRequest | undefined;
+    globalThis.fetch = createFetchMock((request) => {
+      captured = request;
+      return createBinaryResponse(200, 'fake-image-bytes', 'image/png');
+    });
+
+    const workspace = await createTempWorkspace();
+    try {
+      const ctx = createToolContext(workspace.path);
+      const output = await slackHandlers.downloadFile(ctx, {
+        token: 'xoxb-download-1',
+        url: 'https://files.slack.com/files-pri/T123-F123/image.png',
+        includeBase64: false,
+        includeDataUrl: false,
+      });
+      const result = assertJsonObject(output);
+
+      expect(result.ok).toBe(true);
+      expect(result.contentType).toBe('image/png');
+      expect(result.sizeBytes).toBe(Buffer.byteLength('fake-image-bytes', 'utf8'));
+      expect(result.base64).toBeNull();
+      expect(result.dataUrl).toBeNull();
+
+      const request = captured;
+      if (!request) {
+        throw new Error('Expected file download request');
+      }
+
+      expect(request.input).toBe('https://files.slack.com/files-pri/T123-F123/image.png');
+      expect(request.init?.method).toBe('GET');
+      const headers = new Headers(request.init?.headers);
+      expect(headers.get('authorization')).toBe('Bearer xoxb-download-1');
     } finally {
       await workspace.cleanup();
     }

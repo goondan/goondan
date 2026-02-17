@@ -156,6 +156,85 @@ describe('telegram polling connector', () => {
     expect(secondRequest.searchParams.get('offset')).toBe('102');
   });
 
+  it('emits photo metadata and marker text for image messages', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    let callCount = 0;
+
+    const fetchMock = async (): Promise<Response> => {
+      callCount += 1;
+      if (callCount === 1) {
+        return createJsonResponse(200, {
+          ok: true,
+          result: [
+            {
+              update_id: 210,
+              message: {
+                message_id: 99,
+                date: 1700002222,
+                caption: 'look at this',
+                chat: {
+                  id: 777,
+                  type: 'private',
+                },
+                from: {
+                  id: 8080,
+                  username: 'bob',
+                },
+                photo: [
+                  {
+                    file_id: 'small-photo',
+                    file_unique_id: 'unique-small',
+                    width: 90,
+                    height: 90,
+                    file_size: 1200,
+                  },
+                  {
+                    file_id: 'large-photo',
+                    file_unique_id: 'unique-large',
+                    width: 1280,
+                    height: 720,
+                    file_size: 45200,
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      }
+
+      return createJsonResponse(200, {
+        ok: true,
+        result: [],
+      });
+    };
+
+    await pollTelegramUpdates(ctx, {
+      token: 'bot-token',
+      fetchImpl: fetchMock,
+      timeoutSeconds: 0,
+      requestTimeoutMs: 100,
+      retryDelayMs: 0,
+      maxRequests: 2,
+    });
+
+    expect(events.length).toBe(1);
+    const event = events[0];
+    if (!event) {
+      throw new Error('Expected telegram connector event');
+    }
+    if (event.message.type !== 'text') {
+      throw new Error('Expected text message');
+    }
+
+    expect(event.message.text).toContain('look at this');
+    expect(event.message.text).toContain('[telegram_photo] file_id=large-photo');
+    expect(event.properties.photo_file_id).toBe('large-photo');
+    expect(event.properties.photo_width).toBe('1280');
+    expect(event.properties.photo_height).toBe('720');
+    expect(event.properties.has_photo).toBe('true');
+  });
+
   it('ignores bot-originated messages to prevent self-feedback loops', async () => {
     const events: ConnectorEvent[] = [];
     const ctx = createConnectorContext(events);

@@ -52,6 +52,7 @@ export {
   remove as telegramDelete,
   react as telegramReact,
   setChatAction as telegramSetChatAction,
+  downloadFile as telegramDownloadFile,
 } from './telegram.js';
 
 export {
@@ -61,6 +62,7 @@ export {
   edit as slackEdit,
   remove as slackDelete,
   react as slackReact,
+  downloadFile as slackDownloadFile,
 } from './slack.js';
 
 export {

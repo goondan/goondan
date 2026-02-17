@@ -37,6 +37,16 @@ interface TelegramParsedMessage {
   date?: number;
   text?: string;
   caption?: string;
+  photoFileId?: string;
+  photoFileUniqueId?: string;
+  photoWidth?: number;
+  photoHeight?: number;
+  photoFileSize?: number;
+  imageDocumentFileId?: string;
+  imageDocumentFileUniqueId?: string;
+  imageDocumentFileName?: string;
+  imageDocumentMimeType?: string;
+  imageDocumentFileSize?: number;
 }
 
 interface TelegramParsedUpdate {
@@ -50,6 +60,22 @@ interface TelegramApiResponse {
   description?: string;
   errorCode?: number;
   retryAfterSeconds?: number;
+}
+
+interface TelegramParsedPhoto {
+  fileId: string;
+  fileUniqueId?: string;
+  width?: number;
+  height?: number;
+  fileSize?: number;
+}
+
+interface TelegramParsedDocumentImage {
+  fileId: string;
+  fileUniqueId?: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -129,6 +155,84 @@ function buildTelegramApiUrl(
   return `${normalizeApiBaseUrl(apiBaseUrl)}/bot${token}/${method}`;
 }
 
+function parseTelegramPhoto(value: unknown): TelegramParsedPhoto | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const fileId = readString(value.file_id);
+  if (!fileId) {
+    return null;
+  }
+
+  return {
+    fileId,
+    fileUniqueId: readString(value.file_unique_id),
+    width: readInteger(value.width),
+    height: readInteger(value.height),
+    fileSize: readInteger(value.file_size),
+  };
+}
+
+function photoSortKey(photo: TelegramParsedPhoto): number {
+  if (photo.fileSize !== undefined) {
+    return photo.fileSize;
+  }
+
+  const width = photo.width ?? 0;
+  const height = photo.height ?? 0;
+  return width * height;
+}
+
+function parseTelegramLargestPhoto(value: unknown): TelegramParsedPhoto | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  let selected: TelegramParsedPhoto | undefined;
+  for (const item of value) {
+    const parsed = parseTelegramPhoto(item);
+    if (!parsed) {
+      continue;
+    }
+
+    if (!selected) {
+      selected = parsed;
+      continue;
+    }
+
+    if (photoSortKey(parsed) >= photoSortKey(selected)) {
+      selected = parsed;
+    }
+  }
+
+  return selected;
+}
+
+function parseTelegramImageDocument(value: unknown): TelegramParsedDocumentImage | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const fileId = readString(value.file_id);
+  if (!fileId) {
+    return undefined;
+  }
+
+  const mimeType = readString(value.mime_type);
+  if (!mimeType || !mimeType.toLowerCase().startsWith('image/')) {
+    return undefined;
+  }
+
+  return {
+    fileId,
+    fileUniqueId: readString(value.file_unique_id),
+    fileName: readString(value.file_name),
+    mimeType,
+    fileSize: readInteger(value.file_size),
+  };
+}
+
 function parseTelegramMessage(value: unknown): TelegramParsedMessage | null {
   if (!isRecord(value)) {
     return null;
@@ -146,6 +250,8 @@ function parseTelegramMessage(value: unknown): TelegramParsedMessage | null {
 
   const fromValue = value.from;
   const from = isRecord(fromValue) ? fromValue : undefined;
+  const photo = parseTelegramLargestPhoto(value.photo);
+  const imageDocument = parseTelegramImageDocument(value.document);
 
   return {
     chatId,
@@ -161,6 +267,16 @@ function parseTelegramMessage(value: unknown): TelegramParsedMessage | null {
     date: readInteger(value.date),
     text: readString(value.text),
     caption: readString(value.caption),
+    photoFileId: photo?.fileId,
+    photoFileUniqueId: photo?.fileUniqueId,
+    photoWidth: photo?.width,
+    photoHeight: photo?.height,
+    photoFileSize: photo?.fileSize,
+    imageDocumentFileId: imageDocument?.fileId,
+    imageDocumentFileUniqueId: imageDocument?.fileUniqueId,
+    imageDocumentFileName: imageDocument?.fileName,
+    imageDocumentMimeType: imageDocument?.mimeType,
+    imageDocumentFileSize: imageDocument?.fileSize,
   };
 }
 
@@ -330,8 +446,57 @@ function toTelegramConnectorEvent(update: TelegramParsedUpdate): ConnectorEvent 
   if (message.fromLastName) {
     properties.from_last_name = message.fromLastName;
   }
+  if (message.photoFileId) {
+    properties.photo_file_id = message.photoFileId;
+    properties.has_photo = 'true';
+  }
+  if (message.photoFileUniqueId) {
+    properties.photo_file_unique_id = message.photoFileUniqueId;
+  }
+  if (message.photoWidth !== undefined) {
+    properties.photo_width = String(message.photoWidth);
+  }
+  if (message.photoHeight !== undefined) {
+    properties.photo_height = String(message.photoHeight);
+  }
+  if (message.photoFileSize !== undefined) {
+    properties.photo_file_size = String(message.photoFileSize);
+  }
+  if (message.imageDocumentFileId) {
+    properties.image_document_file_id = message.imageDocumentFileId;
+    properties.has_image_document = 'true';
+  }
+  if (message.imageDocumentFileUniqueId) {
+    properties.image_document_file_unique_id = message.imageDocumentFileUniqueId;
+  }
+  if (message.imageDocumentFileName) {
+    properties.image_document_file_name = message.imageDocumentFileName;
+  }
+  if (message.imageDocumentMimeType) {
+    properties.image_document_mime_type = message.imageDocumentMimeType;
+  }
+  if (message.imageDocumentFileSize !== undefined) {
+    properties.image_document_file_size = String(message.imageDocumentFileSize);
+  }
 
-  const text = message.text ?? message.caption ?? '';
+  const textParts: string[] = [];
+  if (message.text) {
+    textParts.push(message.text);
+  } else if (message.caption) {
+    textParts.push(message.caption);
+  }
+
+  if (message.photoFileId) {
+    textParts.push(`[telegram_photo] file_id=${message.photoFileId}`);
+  }
+  if (message.imageDocumentFileId) {
+    textParts.push(`[telegram_image_document] file_id=${message.imageDocumentFileId}`);
+  }
+
+  const text = textParts.join('\n').trim();
+  if (text.length === 0) {
+    return null;
+  }
 
   return {
     name: 'telegram_message',

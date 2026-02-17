@@ -5,4 +5,4 @@ kind: Package
 metadata:
   name: "@goondan/base"
 spec:
-  version: "0.0.3-alpha4"
+  version: "0.0.3-alpha5"

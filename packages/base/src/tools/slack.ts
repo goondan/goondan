@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import type { JsonObject, JsonValue, ToolContext, ToolHandler } from '../types.js';
 import {
   isJsonObject,
@@ -6,6 +8,7 @@ import {
   optionalString,
   optionalStringArray,
   requireString,
+  resolveFromWorkdir,
 } from '../utils.js';
 
 const SLACK_API_BASE_URL = 'https://slack.com/api';
@@ -35,6 +38,14 @@ interface SlackApiResponse {
   messages?: unknown;
   hasMore?: boolean;
   nextCursor?: string;
+}
+
+interface SlackFileDownloadResult {
+  buffer: Buffer;
+  contentType: string | null;
+  contentLength: number | null;
+  etag: string | null;
+  contentDisposition: string | null;
 }
 
 function normalizeApiBaseUrl(apiBaseUrl: string): string {
@@ -102,6 +113,40 @@ function resolveListLimit(input: JsonObject, fallback: number): number {
   }
 
   return limit;
+}
+
+function resolveDownloadUrl(input: JsonObject): string {
+  const url = toNonEmptyString(input.url)
+    ?? toNonEmptyString(input.fileUrl)
+    ?? toNonEmptyString(input.downloadUrl);
+  if (!url) {
+    throw new Error("Provide 'url' (or 'fileUrl'/'downloadUrl') to download Slack file.");
+  }
+  return url;
+}
+
+function resolveMaxBytes(input: JsonObject, fallback = 3_000_000): number {
+  const raw = optionalNumber(input, 'maxBytes', fallback) ?? fallback;
+  if (!Number.isFinite(raw) || raw <= 0) {
+    throw new Error("'maxBytes' must be a positive number");
+  }
+  const maxBytes = Math.trunc(raw);
+  if (maxBytes < 1 || maxBytes > 20_000_000) {
+    throw new Error("'maxBytes' must be between 1 and 20000000");
+  }
+  return maxBytes;
+}
+
+function optionalSavePath(input: JsonObject): string | undefined {
+  const value = optionalString(input, 'savePath') ?? optionalString(input, 'outputPath');
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 function resolveSlackToken(input: JsonObject): string {
@@ -256,6 +301,82 @@ async function callSlackMethod(
   }
 
   return parsed;
+}
+
+async function readResponseBuffer(response: Response, maxBytes: number): Promise<Buffer> {
+  const contentLengthHeader = response.headers.get('content-length');
+  if (contentLengthHeader) {
+    const parsedLength = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      throw new Error(`Slack file exceeds maxBytes limit (${parsedLength} > ${maxBytes})`);
+    }
+  }
+
+  const raw = await response.arrayBuffer();
+  const buffer = Buffer.from(raw);
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`Slack file exceeds maxBytes limit (${buffer.byteLength} > ${maxBytes})`);
+  }
+  return buffer;
+}
+
+function resolveFileContentType(response: Response): string | null {
+  const header = response.headers.get('content-type');
+  return header && header.length > 0 ? header : null;
+}
+
+function buildDataUrl(contentType: string | null, buffer: Buffer): string | null {
+  if (!contentType || buffer.byteLength === 0) {
+    return null;
+  }
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
+async function downloadSlackFile(
+  input: JsonObject,
+  token: string
+): Promise<SlackFileDownloadResult> {
+  const timeoutMs = resolveTimeoutMs(input);
+  const maxBytes = resolveMaxBytes(input);
+  const url = resolveDownloadUrl(input);
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      },
+      timeoutMs
+    );
+  } catch (error) {
+    throw new Error(`[slack] file download request failed: ${toErrorMessage(error)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`[slack] file download failed: ${defaultHttpDescription(response)}`);
+  }
+
+  return {
+    buffer: await readResponseBuffer(response, maxBytes),
+    contentType: resolveFileContentType(response),
+    contentLength: (() => {
+      const header = response.headers.get('content-length');
+      if (!header) {
+        return null;
+      }
+      const parsed = Number.parseInt(header, 10);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return null;
+      }
+      return parsed;
+    })(),
+    etag: response.headers.get('etag'),
+    contentDisposition: response.headers.get('content-disposition'),
+  };
 }
 
 function extractMessageText(message: unknown): string | null {
@@ -480,10 +601,47 @@ export const react: ToolHandler = async (_ctx: ToolContext, input: JsonObject): 
   };
 };
 
+export const downloadFile: ToolHandler = async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
+  const token = resolveSlackToken(input);
+  const url = resolveDownloadUrl(input);
+  const includeBase64 = optionalBoolean(input, 'includeBase64', true) ?? true;
+  const includeDataUrl = optionalBoolean(input, 'includeDataUrl', true) ?? true;
+  const savePath = optionalSavePath(input);
+
+  const result = await downloadSlackFile(input, token);
+  const fileSize = result.buffer.byteLength;
+  const base64 = includeBase64 ? result.buffer.toString('base64') : null;
+  const dataUrl = includeDataUrl && includeBase64
+    ? buildDataUrl(result.contentType, result.buffer)
+    : null;
+
+  let savedPath: string | null = null;
+  if (savePath) {
+    const targetPath = resolveFromWorkdir(ctx.workdir, savePath);
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, result.buffer);
+    savedPath = targetPath;
+  }
+
+  return {
+    ok: true,
+    url,
+    contentType: result.contentType,
+    contentLength: result.contentLength,
+    sizeBytes: fileSize,
+    etag: result.etag,
+    contentDisposition: result.contentDisposition,
+    savedPath,
+    base64,
+    dataUrl,
+  };
+};
+
 export const handlers = {
   send,
   edit,
   read,
   delete: remove,
   react,
+  downloadFile,
 } satisfies Record<string, ToolHandler>;

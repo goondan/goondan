@@ -6,7 +6,7 @@
 
 1. 모든 외부 입력은 `coordinator`로 진입한다.
 2. `coordinator`는 사용자 의도를 과도하게 재해석하지 않고, 필요 시 하위 에이전트 인스턴스를 spawn/라우팅한다.
-3. 최종 사용자 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 전달한다. Telegram lifecycle(typing/reaction/edit/delete/추가 안내 메시지)은 `@goondan/base` `telegram` Tool로, Slack lifecycle(read/reaction/edit/delete/추가 안내 메시지)은 `@goondan/base` `slack` Tool로 제어할 수 있다. self-evolution 적용 시 `self-restart` Tool(`self-restart__request`)로 런타임 재기동을 요청할 수 있다.
+3. 최종 사용자 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 전달한다. Telegram lifecycle(typing/reaction/edit/delete/download/추가 안내 메시지)은 `@goondan/base` `telegram` Tool로, Slack lifecycle(read/reaction/edit/delete/download/추가 안내 메시지)은 `@goondan/base` `slack` Tool로 제어할 수 있다. self-evolution 적용 시 `self-restart` Tool(`self-restart__request`)로 런타임 재기동을 요청할 수 있다.
 4. 하위 에이전트는 작업 중간 상태를 `coordinator`에게 보고하며, 외부 채널에는 직접 응답하지 않는다.
 
 ## 파일 가이드
@@ -37,7 +37,7 @@
 ## 수정 시 체크
 
 1. 채널 라우팅 키(`chat_id`, `channel_id`, `thread_ts`)를 깨지지 않게 유지한다.
-2. 최종 outbound는 채널별 Tool(`telegram__send` 또는 `slack__send`) 호출로 유지하고, Telegram lifecycle 제어는 `telegram__send/edit/delete/react/setChatAction`, Slack lifecycle 제어는 `slack__send/read/edit/delete/react` 사용을 허용한다.
+2. 최종 outbound는 채널별 Tool(`telegram__send` 또는 `slack__send`) 호출로 유지하고, Telegram lifecycle 제어는 `telegram__send/edit/delete/react/setChatAction/downloadFile`, Slack lifecycle 제어는 `slack__send/read/edit/delete/react/downloadFile` 사용을 허용한다.
 3. `coordinator.spec.requiredTools`는 채널 전송 Tool 목록 중 최소 1개 성공 호출(any-of)을 강제하도록 유지한다.
 4. Telegram/Slack Connection의 `ingress.rules[].route.instanceKey`를 동일하게 유지해 채널 간 기억을 공유한다.
 5. `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용하도록 프롬프트를 유지한다.
@@ -46,6 +46,6 @@
 8. `Extension/context-injector`가 `[runtime_catalog]` 힌트를 주입하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.
 9. 장기 실행 안정성을 위해 `coordinator`에는 `message-window` + `message-compaction`, 하위 전문 에이전트에는 최소 `message-window`를 유지한다.
 10. coordinator의 Extension 선언 순서는 `message-window -> message-compaction -> context-injector`를 유지한다.
-11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack`, `Tool/self-restart`가 포함되어 채널 lifecycle 제어와 self-restart를 수행할 수 있게 유지한다.
+11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack`, `Tool/self-restart`가 포함되어 채널 lifecycle 제어(이미지/첨부 다운로드 포함)와 self-restart를 수행할 수 있게 유지한다.
 12. self-restart가 필요한 turn에서는 `self-restart__request`를 마지막 Tool call로 1회만 호출하도록 coordinator 프롬프트를 유지한다.
 13. Slack Connection ingress 이벤트는 `app_mention`, `message_im`을 유지한다.

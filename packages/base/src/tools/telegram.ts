@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import type { JsonObject, JsonValue, ToolContext, ToolHandler } from '../types.js';
 import {
   isJsonObject,
@@ -6,6 +8,7 @@ import {
   optionalString,
   optionalStringArray,
   requireString,
+  resolveFromWorkdir,
 } from '../utils.js';
 
 const TELEGRAM_API_BASE_URL = 'https://api.telegram.org';
@@ -44,13 +47,21 @@ type TelegramMethod =
   | 'editMessageText'
   | 'deleteMessage'
   | 'setMessageReaction'
-  | 'sendChatAction';
+  | 'sendChatAction'
+  | 'getFile';
 
 interface TelegramApiResponse {
   ok: boolean;
   result?: unknown;
   description?: string;
   errorCode?: number;
+}
+
+interface TelegramResolvedFile {
+  fileId: string;
+  fileUniqueId: string | null;
+  filePath: string;
+  fileSize: number | null;
 }
 
 function normalizeApiBaseUrl(apiBaseUrl: string): string {
@@ -66,6 +77,10 @@ function normalizeInputToken(raw: string): string {
 
 function buildTelegramApiUrl(apiBaseUrl: string, token: string, method: TelegramMethod): string {
   return `${normalizeApiBaseUrl(apiBaseUrl)}/bot${token}/${method}`;
+}
+
+function buildTelegramFileDownloadUrl(apiBaseUrl: string, token: string, filePath: string): string {
+  return `${normalizeApiBaseUrl(apiBaseUrl)}/file/bot${token}/${filePath}`;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -179,6 +194,38 @@ function resolveTimeoutMs(input: JsonObject): number {
     throw new Error("'timeoutMs' must be a positive number");
   }
   return Math.trunc(timeoutMs);
+}
+
+function resolveMaxBytes(input: JsonObject, fallback = 3_000_000): number {
+  const raw = optionalNumber(input, 'maxBytes', fallback) ?? fallback;
+  if (!Number.isFinite(raw) || raw <= 0) {
+    throw new Error("'maxBytes' must be a positive number");
+  }
+  const maxBytes = Math.trunc(raw);
+  if (maxBytes < 1 || maxBytes > 20_000_000) {
+    throw new Error("'maxBytes' must be between 1 and 20000000");
+  }
+  return maxBytes;
+}
+
+function resolveFileId(input: JsonObject): string {
+  const fileId = toNonEmptyString(input.fileId) ?? toNonEmptyString(input.file_id);
+  if (!fileId) {
+    throw new Error("Provide 'fileId' (or 'file_id') for Telegram file download.");
+  }
+  return fileId;
+}
+
+function optionalSavePath(input: JsonObject): string | undefined {
+  const value = optionalString(input, 'savePath') ?? optionalString(input, 'outputPath');
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 function resolveApiBaseUrl(input: JsonObject): string {
@@ -357,6 +404,61 @@ async function callTelegramMethod(
   }
 
   return parsed.result;
+}
+
+async function readResponseBuffer(response: Response, maxBytes: number): Promise<Buffer> {
+  const contentLengthHeader = response.headers.get('content-length');
+  if (contentLengthHeader) {
+    const parsedLength = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      throw new Error(`Telegram file exceeds maxBytes limit (${parsedLength} > ${maxBytes})`);
+    }
+  }
+
+  const raw = await response.arrayBuffer();
+  const buffer = Buffer.from(raw);
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`Telegram file exceeds maxBytes limit (${buffer.byteLength} > ${maxBytes})`);
+  }
+  return buffer;
+}
+
+function resolveResponseContentType(response: Response): string | null {
+  const contentType = response.headers.get('content-type');
+  if (!contentType || contentType.length === 0) {
+    return null;
+  }
+  return contentType;
+}
+
+function buildDataUrl(contentType: string | null, buffer: Buffer): string | null {
+  if (!contentType || buffer.byteLength === 0) {
+    return null;
+  }
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
+function parseTelegramGetFileResult(result: unknown): TelegramResolvedFile {
+  if (!isJsonObject(result)) {
+    throw new Error('[telegram] getFile returned invalid result payload');
+  }
+
+  const filePath = toNonEmptyString(result.file_path);
+  const fileId = toNonEmptyString(result.file_id);
+  if (!filePath || !fileId) {
+    throw new Error('[telegram] getFile result missing file_id/file_path');
+  }
+
+  const fileSize = typeof result.file_size === 'number' && Number.isFinite(result.file_size)
+    ? Math.trunc(result.file_size)
+    : null;
+
+  return {
+    fileId,
+    fileUniqueId: toNonEmptyString(result.file_unique_id) ?? null,
+    filePath,
+    fileSize,
+  };
 }
 
 function extractMessageSummary(result: unknown): {
@@ -543,10 +645,80 @@ export const setChatAction: ToolHandler = async (
   };
 };
 
+export const downloadFile: ToolHandler = async (
+  ctx: ToolContext,
+  input: JsonObject
+): Promise<JsonValue> => {
+  const token = resolveTelegramToken(input);
+  const fileId = resolveFileId(input);
+  const timeoutMs = resolveTimeoutMs(input);
+  const maxBytes = resolveMaxBytes(input);
+  const includeBase64 = optionalBoolean(input, 'includeBase64', true) ?? true;
+  const includeDataUrl = optionalBoolean(input, 'includeDataUrl', true) ?? true;
+  const savePath = optionalSavePath(input);
+  const apiBaseUrl = resolveApiBaseUrl(input);
+
+  const getFileResult = await callTelegramMethod(
+    'getFile',
+    token,
+    {
+      file_id: fileId,
+    },
+    input
+  );
+  const resolvedFile = parseTelegramGetFileResult(getFileResult);
+  const downloadUrl = buildTelegramFileDownloadUrl(apiBaseUrl, token, resolvedFile.filePath);
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      downloadUrl,
+      {
+        method: 'GET',
+      },
+      timeoutMs
+    );
+  } catch (error) {
+    throw new Error(`[telegram] file download request failed: ${toErrorMessage(error)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`[telegram] file download failed: ${defaultHttpDescription(response)}`);
+  }
+
+  const buffer = await readResponseBuffer(response, maxBytes);
+  const contentType = resolveResponseContentType(response);
+  const base64 = includeBase64 ? buffer.toString('base64') : null;
+  const dataUrl = includeDataUrl && includeBase64 ? buildDataUrl(contentType, buffer) : null;
+
+  let savedPath: string | null = null;
+  if (savePath) {
+    const targetPath = resolveFromWorkdir(ctx.workdir, savePath);
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, buffer);
+    savedPath = targetPath;
+  }
+
+  return {
+    ok: true,
+    fileId: resolvedFile.fileId,
+    fileUniqueId: resolvedFile.fileUniqueId,
+    filePath: resolvedFile.filePath,
+    fileSize: resolvedFile.fileSize,
+    downloadUrl,
+    contentType,
+    sizeBytes: buffer.byteLength,
+    savedPath,
+    base64,
+    dataUrl,
+  };
+};
+
 export const handlers = {
   send,
   edit,
   delete: remove,
   react,
   setChatAction,
+  downloadFile,
 } satisfies Record<string, ToolHandler>;

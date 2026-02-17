@@ -27,6 +27,20 @@ function createJsonResponse(status: number, payload: unknown): Response {
   });
 }
 
+function createBinaryResponse(
+  status: number,
+  body: string,
+  contentType: string
+): Response {
+  return new Response(Buffer.from(body, 'utf8'), {
+    status,
+    headers: {
+      'content-type': contentType,
+      'content-length': String(Buffer.byteLength(body, 'utf8')),
+    },
+  });
+}
+
 function createFetchMock(
   handler: (request: CapturedRequest) => Promise<Response> | Response
 ): typeof fetch {
@@ -398,6 +412,66 @@ describe('telegram tool', () => {
           status: 'non-typing',
         })
       ).rejects.toThrow("Unsupported chat action 'non-typing'");
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it('telegram__downloadFile resolves file path and downloads bytes', async () => {
+    const requests: CapturedRequest[] = [];
+    globalThis.fetch = createFetchMock((request) => {
+      requests.push(request);
+
+      if (request.input.endsWith('/getFile')) {
+        return createJsonResponse(200, {
+          ok: true,
+          result: {
+            file_id: 'photo-file-id',
+            file_unique_id: 'unique-photo',
+            file_path: 'photos/file_123.jpg',
+            file_size: 2048,
+          },
+        });
+      }
+
+      return createBinaryResponse(200, 'telegram-image-bytes', 'image/jpeg');
+    });
+
+    const workspace = await createTempWorkspace();
+    try {
+      const ctx = createToolContext(workspace.path);
+      const output = await telegramHandlers.downloadFile(ctx, {
+        token: 'token-download-1',
+        fileId: 'photo-file-id',
+        includeBase64: false,
+        includeDataUrl: false,
+      });
+      const result = assertJsonObject(output);
+
+      expect(result.ok).toBe(true);
+      expect(result.fileId).toBe('photo-file-id');
+      expect(result.filePath).toBe('photos/file_123.jpg');
+      expect(result.contentType).toBe('image/jpeg');
+      expect(result.sizeBytes).toBe(Buffer.byteLength('telegram-image-bytes', 'utf8'));
+      expect(result.base64).toBeNull();
+      expect(result.dataUrl).toBeNull();
+
+      const firstRequest = requests[0];
+      const secondRequest = requests[1];
+      if (!firstRequest || !secondRequest) {
+        throw new Error('Expected getFile + file download requests');
+      }
+
+      expect(firstRequest.input).toContain('/bottoken-download-1/getFile');
+      expect(secondRequest.input).toBe('https://api.telegram.org/file/bottoken-download-1/photos/file_123.jpg');
+
+      const firstBody = firstRequest.init?.body;
+      if (typeof firstBody !== 'string') {
+        throw new Error('Expected getFile JSON body');
+      }
+      expect(JSON.parse(firstBody)).toEqual({
+        file_id: 'photo-file-id',
+      });
     } finally {
       await workspace.cleanup();
     }

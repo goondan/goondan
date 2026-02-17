@@ -196,6 +196,62 @@ describe('slack connector', () => {
     expect(event.instanceKey).toBe('slack:D789:5678.0001');
   });
 
+  it('includes attached image references in message text', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event: {
+        type: 'message',
+        subtype: 'file_share',
+        channel: 'D999',
+        ts: '2000.1000',
+        user: 'U999',
+        files: [
+          {
+            id: 'F111',
+            name: 'screenshot.png',
+            title: 'screenshot.png',
+            mimetype: 'image/png',
+            permalink: 'https://example.slack.com/files/U999/F111/screenshot',
+          },
+        ],
+      },
+    });
+
+    await handleSlackRequest(ctx, body);
+    expect(events.length).toBe(1);
+
+    const event = events[0];
+    if (!event) throw new Error('Expected event');
+    if (event.message.type !== 'text') throw new Error('Expected text');
+
+    expect(event.message.text).toContain('[image:screenshot.png]');
+    expect(event.message.text).toContain('https://example.slack.com/files/U999/F111/screenshot');
+    expect(event.properties.subtype).toBe('file_share');
+    expect(event.properties.attachment_count).toBe('1');
+    expect(event.properties.image_url).toBe('https://example.slack.com/files/U999/F111/screenshot');
+  });
+
+  it('ignores empty message events without text or attachments', async () => {
+    const events: ConnectorEvent[] = [];
+    const ctx = createConnectorContext(events);
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event: {
+        type: 'message',
+        channel: 'D123',
+        ts: '9999.0001',
+      },
+    });
+
+    const response = await handleSlackRequest(ctx, body);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toEqual({ ok: true, ignored: true });
+    expect(events.length).toBe(0);
+  });
+
   it('ignores bot message events', async () => {
     const events: ConnectorEvent[] = [];
     const ctx = createConnectorContext(events);

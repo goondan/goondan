@@ -13,8 +13,8 @@
 - `researcher`/`builder`/`reviewer`는 `message-window` Extension으로 메시지 윈도우를 제한합니다.
 - 필요 시 `agents__catalog` 호출로 현재 Swarm에서 호출 가능한 에이전트 목록(`callableAgents`)을 복원합니다.
 - 최종 외부 채널 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 수행합니다.
-- Telegram 입력에서는 coordinator가 `telegram__send/edit/delete/react/setChatAction`을 함께 사용해 메시지 lifecycle(typing, reaction, 수정/삭제, 추가 안내 메시지)을 제어할 수 있습니다.
-- Slack 입력에서는 coordinator가 `slack__send/read/edit/delete/react`를 함께 사용해 메시지 lifecycle(조회, reaction, 수정/삭제, 추가 안내 메시지)을 제어할 수 있습니다.
+- Telegram 입력에서는 coordinator가 `telegram__send/edit/delete/react/setChatAction/downloadFile`을 함께 사용해 메시지 lifecycle(typing, reaction, 수정/삭제, 이미지 다운로드, 추가 안내 메시지)을 제어할 수 있습니다.
+- Slack 입력에서는 coordinator가 `slack__send/read/edit/delete/react/downloadFile`을 함께 사용해 메시지 lifecycle(조회, reaction, 수정/삭제, 첨부 다운로드, 추가 안내 메시지)을 제어할 수 있습니다.
 - 설정/프롬프트/툴 파일이 바뀐 turn에서는 coordinator가 `self-restart__request`를 호출해 런타임 self-restart를 요청할 수 있습니다.
 - `coordinator.spec.requiredTools=["telegram__send","slack__send"]`로, `maxStepsPerTurn` 범위 내에서 둘 중 하나 이상의 성공 호출이 강제됩니다.
 - 런타임은 채널별 outbound를 직접 처리하지 않으며, 응답 전달은 Tool 호출 결과로만 수행됩니다.
@@ -73,6 +73,7 @@ gdn instance restart <instanceKey>
 - 입력에는 `[goondan_context]` JSON 블록이 포함될 수 있으며, 이 값으로 채널 라우팅 정보를 복원합니다.
 - `context-injector` Extension이 turn마다 `[runtime_catalog]` 힌트를 주입할 수 있으며, coordinator는 이를 위임 판단에 활용합니다.
 - Telegram 메시지 포매팅이 필요하면 `telegram__send/edit`의 `parseMode`(`Markdown`, `MarkdownV2`, `HTML`)를 사용합니다.
-- Slack 메시지 lifecycle 제어는 `slack__send/read/edit/delete/react` 호출을 사용합니다.
+- Slack 메시지 lifecycle 제어는 `slack__send/read/edit/delete/react/downloadFile` 호출을 사용합니다.
+- Telegram 이미지 메시지의 `photo_file_id`/`image_document_file_id`는 `telegram__downloadFile(fileId=...)`로 조회할 수 있습니다.
 - coordinator의 Extension 순서는 `message-window -> message-compaction -> context-injector`입니다.
   메시지 정책 적용 후 catalog 힌트를 주입해 최신 위임 후보가 turn 직전에 반영되도록 유지합니다.

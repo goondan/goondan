@@ -22,6 +22,8 @@ describe("base manifests", () => {
     const telegram = tools.find((item) => item.metadata.name === "telegram");
     const slack = tools.find((item) => item.metadata.name === "slack");
     expect(telegram?.spec.exports.some((entry) => entry.name === "read")).toBe(false);
+    expect(telegram?.spec.exports.some((entry) => entry.name === "downloadFile")).toBe(true);
     expect(slack?.spec.exports.some((entry) => entry.name === "read")).toBe(true);
+    expect(slack?.spec.exports.some((entry) => entry.name === "downloadFile")).toBe(true);
   });
 });

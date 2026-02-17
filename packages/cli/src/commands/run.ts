@@ -17,7 +17,6 @@ export async function handleRun({ cmd, deps, globals }: RunContext): Promise<Exi
   const request: RuntimeStartRequest = {
     bundlePath,
     swarm: cmd.swarm ?? undefined,
-    instanceKey: cmd.instanceKey ?? undefined,
     watch: cmd.watch ?? false,
     foreground: cmd.foreground ?? false,
     interactive: cmd.interactive ?? false,

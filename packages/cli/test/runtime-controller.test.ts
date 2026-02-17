@@ -3,7 +3,6 @@ import os from 'node:os';
 import { createServer } from 'node:net';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { WorkspacePaths } from '@goondan/runtime';
 import { LocalRuntimeController } from '../src/services/runtime.js';
 
 interface RuntimeFixture {
@@ -171,6 +170,78 @@ metadata:
 spec:
   version: "0.1.0"
 ---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: test-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: bot
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    systemPrompt: "test"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  entryAgent: "Agent/bot"
+  agents:
+    - ref: "Agent/bot"
+`;
+
+const fixedSwarmInstanceKeyBundle = `
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@goondan/test-runtime"
+spec:
+  version: "0.1.0"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: test-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: bot
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    systemPrompt: "test"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: default
+spec:
+  instanceKey: "fixed-main"
+  entryAgent: "Agent/bot"
+  agents:
+    - ref: "Agent/bot"
+`;
+
+const bundleWithoutPackage = `
 apiVersion: goondan.ai/v1
 kind: Model
 metadata:
@@ -549,7 +620,7 @@ export function register(api) {
 `;
 
 describe('LocalRuntimeController.startOrchestrator', () => {
-  it('instance-key를 생략하면 폴더+패키지명 기반 키를 사용하고 동일 키 런타임을 재사용한다', async () => {
+  it('instance-key를 생략하면 Swarm.metadata.name 기반 키를 사용하고 동일 키 런타임을 재사용한다', async () => {
     const fixture = await createRuntimeFixture(basicBundle);
     let startedPid: number | undefined;
 
@@ -571,11 +642,7 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       }
       startedPid = first.pid;
 
-      const expectedKey = new WorkspacePaths({
-        stateRoot: fixture.stateRoot,
-        projectRoot: fixture.bundleDir,
-        packageName: '@goondan/test-runtime',
-      }).workspaceId;
+      const expectedKey = 'default';
 
       expect(first.instanceKey).toBe(expectedKey);
       expect(first.instanceKey.includes('/')).toBe(false);
@@ -595,6 +662,71 @@ describe('LocalRuntimeController.startOrchestrator', () => {
         process.kill(startedPid, 'SIGTERM');
         await waitForProcessExit(startedPid);
       }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Swarm.spec.instanceKey가 있으면 해당 고정 키를 사용한다', async () => {
+    const fixture = await createRuntimeFixture(fixedSwarmInstanceKeyBundle);
+    let startedPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const first = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!first.pid) {
+        throw new Error('첫 실행 pid가 없습니다.');
+      }
+      startedPid = first.pid;
+
+      expect(first.instanceKey).toBe('fixed-main');
+
+      const second = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      expect(second.instanceKey).toBe('fixed-main');
+      expect(second.pid).toBe(first.pid);
+    } finally {
+      if (startedPid && isProcessAlive(startedPid)) {
+        process.kill(startedPid, 'SIGTERM');
+        await waitForProcessExit(startedPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('goondan.yaml에 kind: Package 문서가 없으면 시작을 거부한다', async () => {
+    const fixture = await createRuntimeFixture(bundleWithoutPackage);
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      await expect(
+        controller.startOrchestrator({
+          bundlePath: fixture.bundleDir,
+          watch: false,
+          interactive: false,
+          noInstall: false,
+          stateRoot: fixture.stateRoot,
+        }),
+      ).rejects.toThrow(/kind: Package 문서와 metadata.name이 필요합니다/);
+    } finally {
       await rm(fixture.rootDir, { recursive: true, force: true });
     }
   });

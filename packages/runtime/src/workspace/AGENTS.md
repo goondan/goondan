@@ -11,7 +11,7 @@ Workspace는 **2-root** 구조를 구현합니다:
 ### 핵심 설계 원칙
 
 1. **정의와 상태의 물리적 분리**: Git 버전 관리와 실행 상태를 분리
-2. **결정론적 매핑**: Project Root + Package 이름 → workspaceId
+2. **결정론적 매핑**: Swarm instanceKey → workspaceId
 3. **이벤트 소싱**: `base.jsonl` + `events.jsonl` 기반 메시지 상태 관리
 4. **Delta Append 우선**: Turn 종료 시 mutation 없으면 delta append 사용
 
@@ -23,14 +23,12 @@ Workspace는 **2-root** 구조를 구현합니다:
 
 **핵심 메서드:**
 - `resolveGoondanHome()`: CLI 옵션 > 환경변수 > 기본값 순서
-- `generateWorkspaceId()`: 스펙(workspace.md §3.2) 정확히 준수하는 토큰 기반 ID 생성
-  - Format: `<folderToken>__<packageToken>`
-  - 예: `Users_alice_projects_my-agent__goondan_sample-10`
-- `normalizeWorkspaceToken()`: 경로/패키지명을 워크스페이스 토큰으로 정규화
+- `generateWorkspaceId()`: 스펙(workspace.md §3.2)에 맞춰 workspaceName(보통 Swarm instanceKey)을 파일시스템 안전 slug로 정규화
+  - 예: `main:prod` -> `main-prod`
 
 **중요 규칙:**
-- workspaceId는 **사람이 식별 가능**(SHOULD)해야 하며 결정론적이어야 함(MUST)
-- 120자 초과 시 해시 suffix로 truncate
+- workspaceId는 결정론적으로 동일 입력에서 동일 값이어야 함(MUST)
+- 동일 Swarm instanceKey는 Project Root가 달라도 동일 workspaceId를 생성
 - 타입 단언 금지 - 모든 경로 조합은 명시적 타입
 
 ### `storage.ts`
@@ -89,7 +87,7 @@ Workspace는 **2-root** 구조를 구현합니다:
 **MUST 요구사항:**
 1. 2-root 물리적 분리 (Project Root ≠ System Root)
 2. `base.jsonl` + `events.jsonl` 분리 기록
-3. workspaceId는 Project Root + Package 기반 결정론적 생성
+3. workspaceId는 Swarm instanceKey 기반 결정론적 생성
 4. Turn 경계는 `turnId`로 구분 (혼합 적용 금지)
 5. Extension state는 `extensions/<ext-name>.json`에 JSON 저장
 6. 비밀값 평문 저장 금지, at-rest encryption 적용
@@ -112,7 +110,7 @@ Workspace는 **2-root** 구조를 구현합니다:
 1. **workspaceId 결정론성**: 동일 입력 → 동일 ID 생성 확인
 2. **Delta append 조건**: append-only 이벤트 시 delta append, mutation 시 rewrite 검증
 3. **복원 시나리오**: `base + events` 재생으로 정확한 상태 복원 확인
-4. **경로 안전성**: 특수문자/긴 경로/패키지명 정규화 테스트
+4. **경로 안전성**: 특수문자/긴 workspaceName 정규화 테스트
 
 ## 관련 패키지
 

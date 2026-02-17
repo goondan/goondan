@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { closeSync, openSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { parseYamlDocuments, WorkspacePaths } from '@goondan/runtime';
+import { BundleLoader, type RuntimeResource } from '@goondan/runtime';
 import { resolveRuntimeRunnerPath } from '@goondan/runtime/runner';
 import { configError } from '../errors.js';
 import { loadRuntimeEnv } from './env.js';
@@ -44,6 +44,11 @@ interface RuntimeStateFile {
   swarm?: string;
   pid?: number;
   logs?: ProcessLogFile[];
+}
+
+interface RuntimeStartIdentity {
+  swarmName: string;
+  instanceKey: string;
 }
 
 function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
@@ -216,48 +221,114 @@ async function terminatePreviousProcess(previousPid: number | undefined, replace
   }
 }
 
-async function readPackageNameFromManifest(manifestPath: string): Promise<string | undefined> {
-  try {
-    const raw = await readFile(manifestPath, 'utf8');
-    const docs = parseYamlDocuments(raw);
-    for (const doc of docs) {
-      if (!isObjectRecord(doc)) {
-        continue;
-      }
-
-      if (doc['kind'] !== 'Package') {
-        continue;
-      }
-
-      const metadata = doc['metadata'];
-      if (!isObjectRecord(metadata)) {
-        continue;
-      }
-
-      const name = metadata['name'];
-      if (typeof name === 'string' && name.trim().length > 0) {
-        return name.trim();
-      }
-    }
-
-    return undefined;
-  } catch {
+function extractLocalPackageName(resources: RuntimeResource[]): string | undefined {
+  const localPackage = resources.find((resource) => resource.kind === 'Package' && resource.__file === 'goondan.yaml');
+  if (!localPackage) {
     return undefined;
   }
+  const name = localPackage.metadata.name;
+  if (typeof name !== 'string') {
+    return undefined;
+  }
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed;
 }
 
-async function resolveDefaultInstanceKey(
+function selectSwarmResource(resources: RuntimeResource[], requestedName: string | undefined): RuntimeResource {
+  const swarms = resources.filter((resource) => resource.kind === 'Swarm');
+  if (swarms.length === 0) {
+    throw configError('Swarm 리소스를 찾지 못했습니다.', 'goondan.yaml에 kind: Swarm 리소스를 추가하세요.');
+  }
+
+  if (requestedName && requestedName.trim().length > 0) {
+    const selected = swarms.find((swarm) => swarm.metadata.name === requestedName);
+    if (!selected) {
+      throw configError(`Swarm '${requestedName}'을(를) 찾지 못했습니다.`, '--swarm 값을 확인하거나 gdn validate를 실행하세요.');
+    }
+    return selected;
+  }
+
+  const defaultSwarm = swarms.find((swarm) => swarm.metadata.name === 'default');
+  if (defaultSwarm) {
+    return defaultSwarm;
+  }
+
+  if (swarms.length === 1) {
+    const single = swarms[0];
+    if (!single) {
+      throw configError('Swarm 리소스를 찾지 못했습니다.', 'goondan.yaml에 kind: Swarm 리소스를 추가하세요.');
+    }
+    return single;
+  }
+
+  const names = swarms.map((swarm) => swarm.metadata.name).join(', ');
+  throw configError(
+    `실행할 Swarm을 선택할 수 없습니다. candidates: ${names}`,
+    '--swarm 옵션으로 실행할 Swarm을 지정하세요.',
+  );
+}
+
+function resolveSwarmInstanceKey(swarm: RuntimeResource): string {
+  if (!isObjectRecord(swarm.spec)) {
+    throw configError(`Swarm/${swarm.metadata.name} spec 형식이 잘못되었습니다.`, 'gdn validate로 Swarm 구성을 점검하세요.');
+  }
+
+  const configured = swarm.spec['instanceKey'];
+  if (configured === undefined) {
+    return swarm.metadata.name;
+  }
+
+  if (typeof configured !== 'string' || configured.trim().length === 0) {
+    throw configError(
+      `Swarm/${swarm.metadata.name} spec.instanceKey 형식이 올바르지 않습니다.`,
+      'spec.instanceKey를 비어 있지 않은 문자열로 수정하세요.',
+    );
+  }
+
+  return configured.trim();
+}
+
+function summarizeValidationError(resourcePath: string, message: string): string {
+  if (resourcePath.trim().length > 0) {
+    return `${resourcePath}: ${message}`;
+  }
+  return message;
+}
+
+async function resolveRuntimeStartIdentity(
   manifestPath: string,
   stateRoot: string,
-): Promise<string> {
-  const packageName = await readPackageNameFromManifest(manifestPath);
-  const projectRoot = path.dirname(manifestPath);
-  const workspace = new WorkspacePaths({
-    stateRoot,
-    projectRoot,
-    packageName,
-  });
-  return workspace.workspaceId;
+  requestedSwarm: string | undefined,
+): Promise<RuntimeStartIdentity> {
+  const loader = new BundleLoader({ stateRoot });
+  const bundleDir = path.dirname(manifestPath);
+  const loaded = await loader.load(bundleDir);
+  if (loaded.errors.length > 0) {
+    const first = loaded.errors[0];
+    if (!first) {
+      throw configError('Bundle 검증 실패', 'gdn validate로 상세 오류를 확인하세요.');
+    }
+    const detail = summarizeValidationError(first.path, first.message);
+    throw configError(`Bundle 검증 실패: ${detail}`, 'gdn validate로 상세 오류를 확인하세요.');
+  }
+
+  const packageName = extractLocalPackageName(loaded.resources);
+  if (!packageName) {
+    throw configError(
+      'goondan.yaml에 kind: Package 문서와 metadata.name이 필요합니다.',
+      'goondan.yaml 첫 번째 문서에 kind: Package를 선언하세요.',
+    );
+  }
+
+  const selectedSwarm = selectSwarmResource(loaded.resources, requestedSwarm);
+  const instanceKey = resolveSwarmInstanceKey(selectedSwarm);
+  return {
+    swarmName: selectedSwarm.metadata.name,
+    instanceKey,
+  };
 }
 
 function buildRunnerArgs(input: RunnerStartInput): string[] {
@@ -340,7 +411,8 @@ export class LocalRuntimeController implements RuntimeController {
     await mkdir(runtimeDir, { recursive: true });
     const foreground = request.foreground ?? false;
 
-    const instanceKey = request.instanceKey ?? (await resolveDefaultInstanceKey(manifestPath, stateRoot));
+    const identity = await resolveRuntimeStartIdentity(manifestPath, stateRoot, request.swarm);
+    const instanceKey = identity.instanceKey;
     const activePath = path.join(runtimeDir, 'active.json');
     if (await exists(activePath)) {
       const rawActive = await readFile(activePath, 'utf8');
@@ -349,7 +421,7 @@ export class LocalRuntimeController implements RuntimeController {
         if (foreground) {
           throw configError(
             `이미 실행 중인 Orchestrator 인스턴스가 있습니다: ${instanceKey}`,
-            'foreground 모드는 기존 실행 중인 인스턴스에 attach할 수 없습니다. 기존 프로세스를 종료하거나 --instance-key를 변경하세요.',
+            'foreground 모드는 기존 실행 중인 인스턴스에 attach할 수 없습니다. 기존 프로세스를 종료하거나 gdn restart를 사용하세요.',
           );
         }
         return {
@@ -365,7 +437,7 @@ export class LocalRuntimeController implements RuntimeController {
           stateRoot,
           env: runtimeEnv,
           instanceKey,
-          swarm: request.swarm,
+          swarm: identity.swarmName,
           watch: request.watch,
         })
       : await this.startDetachedRunner({
@@ -373,7 +445,7 @@ export class LocalRuntimeController implements RuntimeController {
           stateRoot,
           env: runtimeEnv,
           instanceKey,
-          swarm: request.swarm,
+          swarm: identity.swarmName,
           watch: request.watch,
         });
     const state: RuntimeStateFile = {
@@ -381,7 +453,7 @@ export class LocalRuntimeController implements RuntimeController {
       bundlePath: manifestPath,
       startedAt: new Date().toISOString(),
       watch: request.watch,
-      swarm: request.swarm,
+      swarm: identity.swarmName,
       pid: runner.pid,
       logs: [
         {
@@ -427,6 +499,7 @@ export class LocalRuntimeController implements RuntimeController {
     const runtimeEnv = await loadRuntimeEnv(this.env, {
       projectRoot: path.dirname(manifestPath),
     });
+    const identity = await resolveRuntimeStartIdentity(manifestPath, stateRoot, state.swarm);
 
     await terminatePreviousProcess(state.pid);
 
@@ -434,17 +507,17 @@ export class LocalRuntimeController implements RuntimeController {
       manifestPath,
       stateRoot,
       env: runtimeEnv,
-      instanceKey: state.instanceKey,
-      swarm: state.swarm,
+      instanceKey: identity.instanceKey,
+      swarm: identity.swarmName,
       watch: state.watch,
     });
 
     const refreshedState: RuntimeStateFile = {
-      instanceKey: state.instanceKey,
+      instanceKey: identity.instanceKey,
       bundlePath: state.bundlePath,
       startedAt: new Date().toISOString(),
       watch: state.watch,
-      swarm: state.swarm,
+      swarm: identity.swarmName,
       pid: runner.pid,
       logs: [
         {
@@ -458,14 +531,14 @@ export class LocalRuntimeController implements RuntimeController {
     await writeFile(activePath, JSON.stringify(refreshedState, null, 2), 'utf8');
 
     const restarted = request.instanceKey
-      ? [request.instanceKey]
+      ? [identity.instanceKey]
       : request.agent
         ? [request.agent]
-        : [state.instanceKey];
+        : [identity.instanceKey];
 
     return {
       restarted,
-      instanceKey: state.instanceKey,
+      instanceKey: identity.instanceKey,
       pid: runner.pid,
     };
   }

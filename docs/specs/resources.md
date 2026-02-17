@@ -764,6 +764,8 @@ interface SwarmSpec {
   entryAgent: ObjectRefLike;
   /** 포함된 Agent 목록 */
   agents: RefItem[];
+  /** 오케스트레이터 인스턴스 키 (미지정 시 metadata.name 사용) */
+  instanceKey?: string;
   /** 실행 정책 */
   policy?: SwarmPolicy;
 }
@@ -809,6 +811,7 @@ kind: Swarm
 metadata:
   name: default
 spec:
+  instanceKey: "main"
   entryAgent: "Agent/coder"
   agents:
     - ref: "Agent/coder"
@@ -828,6 +831,7 @@ spec:
 |------|------|------|------|
 | `entryAgent` | MUST | ObjectRefLike | 유효한 Agent 참조 |
 | `agents` | MUST | array | 최소 1개 이상의 Agent 참조 |
+| `instanceKey` | MAY | string | 비어있지 않은 문자열 |
 | `policy.maxStepsPerTurn` | MAY | number | 양의 정수, 기본값 32 |
 | `policy.lifecycle.ttlSeconds` | MAY | number | 양의 정수 (초) |
 | `policy.lifecycle.gcGraceSeconds` | MAY | number | 양의 정수 (초) |
@@ -835,6 +839,8 @@ spec:
 
 **추가 검증 규칙:**
 - `entryAgent`는 `agents` 배열에 포함된 Agent를 참조해야 한다 (MUST).
+- `instanceKey`가 지정되면 Runtime/CLI는 해당 값을 인스턴스 식별자로 사용해야 한다 (MUST).
+- `instanceKey`가 생략되면 Runtime/CLI는 `metadata.name`을 인스턴스 식별자로 사용해야 한다 (MUST).
 - `policy.maxStepsPerTurn` 값에 도달하면 Turn을 강제 종료해야 한다 (MUST).
 - `policy.lifecycle`가 설정되면 Runtime은 인스턴스 TTL 및 GC 정책에 반영해야 한다 (SHOULD).
 - `policy`는 `maxStepsPerTurn`, `lifecycle`, `shutdown` 하위 필드만 사용한다(MUST).
@@ -1097,6 +1103,7 @@ spec:
 | Agent | prompts (systemPrompt 또는 systemRef) 필수 | MUST |
 | Swarm | entryAgent, agents 필수 | MUST |
 | Swarm | entryAgent는 agents에 포함 | MUST |
+| Swarm | instanceKey 지정 시 비어있지 않은 문자열 | MUST |
 | Connector | entry, events 필수 | MUST |
 | Connector | events[].name Connector 내 고유 | MUST |
 | Connection | connectorRef 필수 | MUST |

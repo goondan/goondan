@@ -139,4 +139,43 @@ describe("validateResources", () => {
       ),
     ).toBe(true);
   });
+
+  it("Swarm.instanceKey 형식이 잘못되면 오류를 반환한다", () => {
+    const resources: RuntimeResource[] = [
+      createResource({
+        kind: "Model",
+        metadata: { name: "claude" },
+        spec: { provider: "anthropic", model: "claude-3-5-sonnet" },
+        docIndex: 0,
+      }),
+      createResource({
+        kind: "Agent",
+        metadata: { name: "coder" },
+        spec: {
+          modelConfig: { modelRef: "Model/claude" },
+          prompts: { systemPrompt: "You are coder." },
+        },
+        docIndex: 1,
+      }),
+      createResource({
+        kind: "Swarm",
+        metadata: { name: "default" },
+        spec: {
+          entryAgent: "Agent/coder",
+          agents: ["Agent/coder"],
+          instanceKey: "",
+        },
+        docIndex: 2,
+      }),
+    ];
+
+    const errors = validateResources(resources);
+    expect(
+      errors.some(
+        (error) =>
+          error.code === "E_CONFIG_SCHEMA_INVALID" &&
+          error.path.endsWith(".spec.instanceKey"),
+      ),
+    ).toBe(true);
+  });
 });

@@ -85,6 +85,12 @@ describe('parseArgv', () => {
     }
   });
 
+  it('run 명령에서 --instance-key 옵션은 허용되지 않는다', () => {
+    const result = parseArgv(['run', '--instance-key', 'session-001']);
+
+    expect(result.success).toBe(false);
+  });
+
   it('instance delete 명령을 파싱한다', () => {
     const result = parseArgv(['instance', 'delete', 'my-key', '--force']);
 

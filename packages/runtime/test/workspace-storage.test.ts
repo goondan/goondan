@@ -16,7 +16,7 @@ describe('FileWorkspaceStorage', () => {
     paths = new WorkspacePaths({
       stateRoot: tmpDir,
       projectRoot: tmpDir,
-      packageName: '@test/workspace',
+      workspaceName: 'test-workspace',
     });
     storage = new FileWorkspaceStorage(paths);
     await storage.initializeSystemRoot();

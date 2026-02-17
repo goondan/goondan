@@ -176,7 +176,6 @@ gdn run [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--swarm <name>` | `-s` | 실행할 Swarm 이름. 미지정 시 `default`를 찾고, 없으면 Swarm이 1개일 때 자동 선택 | `default` |
-| `--instance-key <key>` | `-i` | 인스턴스 키 | Project Root + Package 기반 human-readable 해시 키 |
 | `--watch` | `-w` | 파일 변경 감시 모드 (변경 시 자동 재시작) | `false` |
 | `--foreground` | | 백그라운드 분리 없이 현재 터미널에 붙어서 실행 | `false` |
 | `--input <text>` | | 초기 입력 메시지 | - |
@@ -190,14 +189,17 @@ gdn run [options]
 `gdn run`은 다음 순서로 동작한다:
 
 1. `goondan.yaml` 및 관련 리소스 파일을 파싱
-2. `--instance-key` 미지정 시 Project Root + Package 이름 기반 human-readable 해시 인스턴스 키(예: `allied-gray-antelope-darrelle`)를 계산
-3. 동일 키의 Orchestrator가 이미 실행 중이면 해당 프로세스를 재사용(resume)하고 새 프로세스는 스폰하지 않음
-4. `@goondan/runtime/runner` 경로를 해석하고 runtime-runner child 프로세스를 기동
-5. startup handshake(`ready` 또는 `start_error`)를 대기하여 초기화 성공/실패를 즉시 판별
-6. Orchestrator 상주 프로세스 상태 파일(`runtime/active.json`) 갱신
-7. 정의된 Connector에 대해 ConnectorProcess 스폰
-8. CLI Connector(기본)인 경우 대화형 루프 시작
-9. 이벤트 수신 시 필요한 AgentProcess 스폰
+2. local `kind: Package` 문서와 `metadata.name` 존재를 검증한다 (없으면 실패)
+3. 실행할 Swarm을 선택하고 instanceKey를 계산한다: `Swarm.spec.instanceKey ?? Swarm.metadata.name`
+4. 동일 키의 Orchestrator가 이미 실행 중이면 해당 프로세스를 재사용(resume)하고 새 프로세스는 스폰하지 않음
+5. `@goondan/runtime/runner` 경로를 해석하고 runtime-runner child 프로세스를 기동
+6. startup handshake(`ready` 또는 `start_error`)를 대기하여 초기화 성공/실패를 즉시 판별
+7. Orchestrator 상주 프로세스 상태 파일(`runtime/active.json`) 갱신
+8. 정의된 Connector에 대해 ConnectorProcess 스폰
+9. CLI Connector(기본)인 경우 대화형 루프 시작
+10. 이벤트 수신 시 필요한 AgentProcess 스폰
+
+`gdn run`은 `instanceKey` 사용자 지정 옵션을 제공하지 않으며, instanceKey는 선택된 Swarm 정의로부터만 결정되어야 한다(MUST).
 
 **Orchestrator는 에이전트가 모두 종료되어도 살아 있으며**, 새로운 이벤트가 오면 필요한 AgentProcess를 다시 스폰한다.
 
@@ -255,9 +257,6 @@ gdn run
 # 특정 Swarm 실행
 gdn run --swarm code-review
 
-# 인스턴스 키 지정
-gdn run --instance-key session-001
-
 # 개발 모드 (watch)
 gdn run --watch
 
@@ -275,7 +274,7 @@ gdn run --input-file ./request.txt
 
 ## 5. gdn restart
 
-실행 중인 Orchestrator 인스턴스를 최신 runner 바이너리로 재기동한다. active 인스턴스의 bundle/instanceKey를 유지한 채 새 프로세스를 시작하고 기존 PID를 종료한다.
+실행 중인 Orchestrator 인스턴스를 최신 runner 바이너리로 재기동한다. active 인스턴스의 bundle/Swarm을 기준으로 instanceKey를 다시 계산한 뒤 새 프로세스를 시작하고 기존 PID를 종료한다.
 
 ### 5.1 사용법
 
@@ -293,8 +292,9 @@ gdn restart [options]
 ### 5.3 동작 방식
 
 1. `runtime/active.json`의 active Orchestrator 인스턴스를 읽는다.
-2. 동일 `instanceKey`/bundle로 replacement runner를 먼저 기동한다.
-3. active pid를 새 값으로 갱신하고, 기존 Orchestrator PID를 종료한다.
+2. active 상태의 Swarm 정의에서 instanceKey(`Swarm.spec.instanceKey ?? Swarm.metadata.name`)를 재계산한다.
+3. 계산된 `instanceKey`/bundle로 replacement runner를 먼저 기동한다.
+4. active pid를 새 값으로 갱신하고, 기존 Orchestrator PID를 종료한다.
 
 ### 5.4 예시
 
@@ -427,12 +427,12 @@ gdn instance list [options]
 
 ```
 INSTANCE KEY                     AGENT         STATUS    CREATED              UPDATED
-allied-gray-antelope-darrelle   orchestrator  running   2026-02-13 09:30:00  2026-02-13 09:30:00
+default                          orchestrator  running   2026-02-13 09:30:00  2026-02-13 09:30:00
 ```
 
 ### 7.3 gdn instance restart
 
-특정 오케스트레이터 인스턴스를 최신 runner 바이너리로 재시작한다. 재시작 시 동일 `instanceKey`와 bundle 경로를 유지하고, 새 프로세스 PID를 `runtime/active.json`에 반영한다. 인터랙티브 `gdn instance` 화면은 각 행에 `started=<timestamp>`를 표시해 재시작 여부를 눈으로 확인할 수 있어야 한다(SHOULD).
+특정 오케스트레이터 인스턴스를 최신 runner 바이너리로 재시작한다. 재시작 시 active Swarm 정의 기준으로 instanceKey를 다시 계산해 적용하고, 새 프로세스 PID를 `runtime/active.json`에 반영한다. 인터랙티브 `gdn instance` 화면은 각 행에 `started=<timestamp>`를 표시해 재시작 여부를 눈으로 확인할 수 있어야 한다(SHOULD).
 
 **사용법:**
 
@@ -455,7 +455,7 @@ gdn instance restart <key> [options]
 **예시:**
 
 ```bash
-gdn instance restart allied-gray-antelope-darrelle
+gdn instance restart default
 ```
 
 ### 7.4 gdn instance delete

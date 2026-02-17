@@ -244,7 +244,6 @@ export interface InitRequest {
   targetDir: string;
   name: string;
   template: InitTemplate;
-  asPackage: boolean;
   git: boolean;
   force: boolean;
 }

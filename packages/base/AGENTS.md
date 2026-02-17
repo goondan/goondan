@@ -2,6 +2,11 @@
 
 `@goondan/base` 패키지는 Goondan v2 런타임에서 바로 사용할 수 있는 기본 Tool/Extension/Connector 구현과 리소스 샘플 매니페스트를 제공한다.
 
+## 배포 정책
+
+- `@goondan/base`는 npm 배포 대상이 아니다.
+- 따라서 `npm publish`/`pnpm publish`로 `@goondan/base`를 배포하지 않는다.
+
 ## 책임 범위
 
 - Tool 기본 구현: `bash`, `file-system`, `agents`(request/send/spawn/list/catalog), `self-restart`(request), `http-fetch`, `json-query`, `text-transform`, `telegram`(send/edit/delete/react/setChatAction/downloadFile, parseMode normalize), `slack`(send/read/edit/delete/react/downloadFile)
@@ -17,11 +22,11 @@
 3. Tool 이름 규칙은 `{resource}__{export}`를 유지한다.
 4. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 정확한 타입 정의로 구현한다.
 5. 테스트는 네트워크 의존 없이 로컬 재현 가능해야 한다.
-6. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지한다.
+6. 이 패키지는 npm 배포를 수행하지 않는다.
 
 ## 디렉토리 가이드
 
-- `goondan.yaml`: publish 입력용 Package 메타데이터 매니페스트
+- `goondan.yaml`: 로컬 의존성/검증 기준 Package 메타데이터 매니페스트
 - `build-manifest.mjs`: 빌드 후 `dist/goondan.yaml`(리소스 포함 배포 manifest) 생성 스크립트 (`goondan.yaml`의 Package name/version을 소스로 사용)
 - `src/types.ts`: base 패키지의 공통 타입 및 가드
 - `src/tools/*`: Tool 핸들러 구현 (`handlers` export)

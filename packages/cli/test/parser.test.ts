@@ -212,22 +212,14 @@ describe('parseArgv', () => {
         expect(cmd.template).toBe('default');
         expect(cmd.git).toBe(true);
         expect(cmd.force).toBeUndefined();
-        expect(cmd.asPackage).toBeUndefined();
       }
     }
   });
 
-  it('init --package 옵션을 파싱한다', () => {
-    const result = parseArgv(['init', '--package', '--template', 'package']);
+  it('init --package 옵션은 더 이상 허용되지 않는다', () => {
+    const result = parseArgv(['init', '--package']);
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      const cmd = result.value.command;
-      if (cmd.action === 'init') {
-        expect(cmd.asPackage).toBe(true);
-        expect(cmd.template).toBe('package');
-      }
-    }
+    expect(result.success).toBe(false);
   });
 
   it('init --no-git 옵션을 파싱한다', () => {

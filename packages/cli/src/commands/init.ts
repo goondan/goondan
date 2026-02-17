@@ -15,7 +15,6 @@ export async function handleInit({ cmd, deps }: InitContext): Promise<ExitCode> 
   const dirName = path.basename(targetDir);
   const name = cmd.name ?? dirName;
   const template: InitTemplate = cmd.template;
-  const asPackage = cmd.asPackage ?? false;
   const git = cmd.noGit ? false : cmd.git;
   const force = cmd.force ?? false;
 
@@ -23,7 +22,6 @@ export async function handleInit({ cmd, deps }: InitContext): Promise<ExitCode> 
     targetDir,
     name,
     template,
-    asPackage,
     git,
     force,
   });

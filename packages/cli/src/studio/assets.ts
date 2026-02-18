@@ -391,8 +391,10 @@ body::before {
 export const STUDIO_JS = `const state = {
   mode: "graph",
   instances: [],
+  instancesDigest: "",
   selectedInstanceKey: null,
   visualization: null,
+  visualizationDigest: "",
   selectedEdgeKey: null,
   pollTimer: null,
   seenRecentEventKeys: new Set(),
@@ -441,11 +443,47 @@ function eventKey(event) {
   return [event.at, event.source, event.target || "", event.subtype, event.detail].join("|");
 }
 
+function computeInstancesDigest(items, selectedInstanceKey) {
+  const normalized = Array.isArray(items) ? items : [];
+  const rows = normalized.map((item) =>
+    [
+      item && typeof item.key === "string" ? item.key : "",
+      item && typeof item.status === "string" ? item.status : "",
+      item && typeof item.agent === "string" ? item.agent : "",
+      item && typeof item.updatedAt === "string" ? item.updatedAt : "",
+    ].join(":"),
+  );
+  return selectedInstanceKey + "|" + rows.join("||");
+}
+
+function computeVisualizationDigest(payload) {
+  if (!payload) {
+    return "";
+  }
+
+  const participants = Array.isArray(payload.participants) ? payload.participants : [];
+  const interactions = Array.isArray(payload.interactions) ? payload.interactions : [];
+  const timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+  const recent = Array.isArray(payload.recentEvents) ? payload.recentEvents : [];
+
+  const timelineTail = timeline.length > 0 ? eventKey(timeline[timeline.length - 1]) : "";
+  const recentTail = recent.length > 0 ? eventKey(recent[recent.length - 1]) : "";
+  return [
+    payload.instanceKey || "",
+    String(participants.length),
+    String(interactions.length),
+    String(timeline.length),
+    timelineTail,
+    recentTail,
+  ].join("|");
+}
+
 function resetRecentEventTracking() {
   state.seenRecentEventKeys = new Set();
   state.recentEventKeyQueue = [];
   state.recentPulseEvents = [];
   state.hasHydratedRecentEvents = false;
+  state.visualizationDigest = "";
 }
 
 function trackRecentEventKey(key) {
@@ -490,14 +528,22 @@ async function refreshInstances() {
     resetRecentEventTracking();
   }
 
-  renderInstanceList();
+  const digest = computeInstancesDigest(state.instances, state.selectedInstanceKey);
+  if (digest !== state.instancesDigest) {
+    state.instancesDigest = digest;
+    renderInstanceList();
+  }
 }
 
 async function refreshVisualization() {
   if (!state.selectedInstanceKey) {
+    const hadVisualization = state.visualization !== null;
     state.visualization = null;
-    resetRecentEventTracking();
-    renderVisualization();
+    state.visualizationDigest = "";
+    if (hadVisualization) {
+      resetRecentEventTracking();
+      renderVisualization();
+    }
     return;
   }
 
@@ -520,8 +566,16 @@ async function refreshVisualization() {
     }
     state.recentPulseEvents = pulseEvents;
   }
-  state.visualization = payload;
-  renderVisualization();
+
+  const nextDigest = computeVisualizationDigest(payload);
+  const hasPulse = Array.isArray(state.recentPulseEvents) && state.recentPulseEvents.length > 0;
+  if (nextDigest !== state.visualizationDigest || hasPulse) {
+    state.visualization = payload;
+    state.visualizationDigest = nextDigest;
+    renderVisualization();
+  } else {
+    state.visualization = payload;
+  }
 }
 
 function renderInstanceList() {
@@ -550,10 +604,11 @@ function renderInstanceList() {
 
     button.appendChild(title);
     button.appendChild(meta);
-    button.addEventListener("click", () => {
+  button.addEventListener("click", () => {
       state.selectedInstanceKey = item.key;
       state.selectedEdgeKey = null;
       resetRecentEventTracking();
+      state.instancesDigest = "";
       renderInstanceList();
       void refreshVisualization();
     });
@@ -782,9 +837,6 @@ function renderGraph(viz) {
     fxLayer.appendChild(dot);
   }
 
-  svg.appendChild(edgeLayer);
-  svg.appendChild(nodeLayer);
-  svg.appendChild(fxLayer);
   wrap.appendChild(svg);
   els.graphView.innerHTML = "";
   els.graphView.appendChild(wrap);

@@ -1,6 +1,6 @@
-# Goondan Config Plane 리소스 정의 스펙 (v2.0)
+# Goondan Config Plane 리소스 정의 스펙 (v0.0.3)
 
-> **v2.0 주요 변경사항:**
+> **v0.0.3 주요 변경사항:**
 > - `apiVersion`: `goondan.ai/v1`
 > - 지원 Kind: **8종** (Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package)
 > - Tool/Extension/Connector 실행 환경: Bun

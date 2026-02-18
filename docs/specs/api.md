@@ -1,4 +1,4 @@
-# Goondan Runtime/SDK API 스펙 (v2.0)
+# Goondan Runtime/SDK API 스펙 (v0.0.3)
 
 런타임과 확장(Extension/Tool/Connector/Connection)의 **실행 API**를 정의한다. API 표면은 프로세스-per-에이전트 모델, Bun-native 런타임, Middleware Only 파이프라인을 기준으로 구성한다.
 
@@ -538,7 +538,7 @@ Runtime/SDK API는 다음 표면으로 구성한다.
 
 ---
 
-## 부록: Spec 타입 요약 (v2)
+## 부록: Spec 타입 요약 (v0.0.3)
 
 중복 타입 재정의를 피하기 위해 부록에는 전체 인터페이스 목록을 두지 않는다.
 

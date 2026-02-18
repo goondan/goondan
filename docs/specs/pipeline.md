@@ -1,4 +1,4 @@
-# Goondan 라이프사이클 파이프라인 스펙 (v2.0)
+# Goondan 라이프사이클 파이프라인 스펙 (v0.0.3)
 
 > 공통 타입(`Message`, `MessageEvent`, `ConversationState`, `TurnResult`, `ToolCallResult`, `ExecutionContext`)의 기준은 `docs/specs/shared-types.md`를 따른다.
 

@@ -1,6 +1,6 @@
-# Goondan Workspace 및 Storage 모델 스펙 (v2.0)
+# Goondan Workspace 및 Storage 모델 스펙 (v0.0.3)
 
-> 이 문서는 Goondan v2 Workspace 및 Storage 모델의 유일한 source of truth이다.
+> 이 문서는 Goondan v0.0.3 Workspace 및 Storage 모델의 유일한 source of truth이다.
 > 메시지 상태의 실행 규칙(이벤트 적용 순서, 폴딩 시점, 복원 판단)은 `docs/specs/runtime.md`를 따른다.
 > 이 문서는 저장소 경로/레이아웃/영속화 포맷을 단일 기준으로 정의한다.
 
@@ -756,5 +756,5 @@ async function initializeInstanceState(
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-12

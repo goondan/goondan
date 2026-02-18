@@ -1,6 +1,6 @@
-# Goondan CLI (gdn) 스펙 (v2.0)
+# Goondan CLI (gdn) 스펙 (v0.0.3)
 
-> 이 문서는 Goondan v2 CLI 도구 `gdn`의 유일한 source of truth이다.
+> 이 문서는 Goondan v0.0.3 CLI 도구 `gdn`의 유일한 source of truth이다.
 
 ---
 
@@ -807,5 +807,5 @@ Summary
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-16

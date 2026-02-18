@@ -1,6 +1,6 @@
-# Goondan Runtime 실행 모델 스펙 (v2.0)
+# Goondan Runtime 실행 모델 스펙 (v0.0.3)
 
-> 이 문서는 Goondan v2 Runtime의 유일한 source of truth이다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
+> 이 문서는 Goondan v0.0.3 Runtime의 유일한 source of truth이다. Config/Bundle 스펙은 `docs/specs/bundle.md`를, API 스펙은 `docs/specs/api.md`를 따른다.
 > 공통 타입(`Message`, `MessageEvent`, `AgentEvent`, `IpcMessage`, `TurnResult`, `ToolCallResult` 등)은 `docs/specs/shared-types.md`를 기준으로 동기화한다.
 
 ---
@@ -1092,5 +1092,5 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-16

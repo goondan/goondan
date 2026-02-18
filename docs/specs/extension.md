@@ -1,4 +1,4 @@
-# Goondan Extension 시스템 스펙 (v2.0)
+# Goondan Extension 시스템 스펙 (v0.0.3)
 
 > 공통 타입(`ExecutionContext`, `TurnResult`, `ConversationState`, `MessageEvent`, `ToolCallResult`)은 `docs/specs/shared-types.md`를 기준으로 한다.
 

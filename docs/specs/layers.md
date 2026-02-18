@@ -1,4 +1,4 @@
-# Goondan 구성 계층 역할 개요 (v2.0)
+# Goondan 구성 계층 역할 개요 (v0.0.3)
 
 이 문서는 `runtime`, `types`, `@goondan/base`, `@goondan/cli`, `@goondan/registry`의 역할과 관계를 **추상 계층 관점**에서 정리한다.
 세부 API/스키마/명령 규격은 각 소유 스펙 문서를 따른다.

@@ -1,4 +1,4 @@
-# Goondan 공통 타입 스펙 (v2.0)
+# Goondan 공통 타입 스펙 (v0.0.3)
 
 `docs/specs` 전반에서 반복되는 타입 정의의 단일 기준(SSOT)을 정의한다.
 다른 스펙 문서(`api`, `runtime`, `pipeline`, `tool`, `connection`, `resources`)는 이 문서를 우선 참조해야 하며, 동일 타입의 재정의를 지양한다.

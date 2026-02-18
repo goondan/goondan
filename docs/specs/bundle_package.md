@@ -1,4 +1,4 @@
-# Goondan Package 스펙 (v2.0)
+# Goondan Package 스펙 (v0.0.3)
 
 > **현재 규범 요약:**
 > - `apiVersion`: `goondan.ai/v1`

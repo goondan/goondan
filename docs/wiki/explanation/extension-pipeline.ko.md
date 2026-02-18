@@ -91,7 +91,7 @@ ExtensionApi
 
 | API 영역 | 역할 |
 |----------|------|
-| `pipeline` | 핵심 확장 메커니즘. turn 실행, LLM 호출, 도구 호출을 감싸는 미들웨어 등록. |
+| `pipeline` | 핵심 확장 메커니즘. turn 실행, LLM 호출, 도구 호출을 감싸는 미들웨어 등록. `turn`/`step`에서는 `ctx.agents`로 다른 에이전트 호출도 가능. |
 | `tools` | LLM의 도구 카탈로그에 나타나는 도구를 동적으로 등록 -- MCP, 스킬 디스커버리 같은 패턴에 유용. |
 | `state` | 에이전트 인스턴스별 JSON 데이터 영속화. 재시작 시 자동 복원, 각 turn 후 자동 저장. |
 | `events` | 경량 프로세스 내 이벤트 버스. Extension이 서로 결합하지 않고 `turn.completed`, `step.started` 등에 반응 가능. |
@@ -111,8 +111,8 @@ Goondan의 파이프라인은 정확히 세 가지 미들웨어 타입을 제공
 
 | 미들웨어 | 감싸는 범위 | 대표적 용도 |
 |----------|-----------|------------|
-| **`turn`** | 전체 대화 턴 (하나의 인바운드 이벤트부터 완료까지) | 메시지 압축, 대화 윈도잉, 턴 수준 메트릭 |
-| **`step`** | 단일 LLM 호출과 후속 도구 실행 | 도구 카탈로그 필터링, 컨텍스트 주입, step 타이밍 |
+| **`turn`** | 전체 대화 턴 (하나의 인바운드 이벤트부터 완료까지) | 메시지 압축, 대화 윈도잉, 턴 수준 메트릭, `ctx.agents` 기반 전/후처리 호출 |
+| **`step`** | 단일 LLM 호출과 후속 도구 실행 | 도구 카탈로그 필터링, 컨텍스트 주입, step 타이밍, `ctx.agents` 기반 위임 호출 |
 | **`toolCall`** | 개별 도구 호출 하나 | 인자 검증/변환, 도구별 로깅 |
 
 이 세 계층은 **중첩 관계**입니다: turn은 여러 step을 포함하고, step은 여러 tool call을 포함할 수 있습니다.
@@ -198,6 +198,7 @@ Turn 미들웨어 체인
 - **`turn` 컨텍스트** -- `conversationState`, `emitMessageEvent()`, `inputEvent`, `metadata`
 - **`step` 컨텍스트** -- turn의 모든 것 + `stepIndex`, `toolCatalog` (변경 가능)
 - **`toolCall` 컨텍스트** -- `toolName`, `toolCallId`, `args` (변경 가능), `metadata`
+- **`turn`/`step` 추가 표면** -- `ctx.agents.request/send`로 프로그래매틱 에이전트 호출 (`toolCall`에는 없음)
 
 ### 왜 하나가 아닌 세 개의 계층인가?
 
@@ -295,6 +296,7 @@ export function register(api: ExtensionApi): void {
 2. `next()`가 반환한 결과를 변환해서 반환할 수 **있습니다**.
 3. 동일한 미들웨어 타입을 등록하는 여러 Extension은 onion 순서로 체이닝됩니다 (먼저 등록 = 바깥).
 4. 하나의 Extension이 여러 미들웨어 타입을 등록하거나, 같은 타입의 미들웨어를 여러 개 등록할 수 있습니다.
+5. `ctx.agents`는 `turn`, `step` 컨텍스트에서만 제공됩니다.
 
 ### Priority
 
@@ -387,6 +389,7 @@ Extension 초기화 시 MCP 서버의 도구를 `api.tools.register()`로 동적
 | `register(api)` | 단일 진입점; AgentProcess 초기화 시 한 번 호출 |
 | ExtensionApi | 5개 영역: `pipeline`, `tools`, `state`, `events`, `logger` |
 | 미들웨어 타입 | `turn` (전체 대화 턴), `step` (LLM 호출 단위), `toolCall` (단일 도구 호출) |
+| 미들웨어 에이전트 호출 | `ctx.agents.request/send`은 `turn`/`step`에서만 제공되고 Orchestrator IPC를 재사용 |
 | Onion 모델 | 먼저 등록 = 바깥; `next()`가 전처리/후처리 분리; `next()` 반드시 한 번 호출 |
 | ConversationState | 이벤트 소싱: `NextMessages = BaseMessages + SUM(Events)`; 직접 변경 금지 |
 | Agent별 로드 | 각 Agent가 자신만의 Extension 목록 선언; 상태는 인스턴스별 격리 |

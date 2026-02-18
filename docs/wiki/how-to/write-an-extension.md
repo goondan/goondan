@@ -79,7 +79,7 @@ export function register(api: ExtensionApi): void {
 
 ## Step 3: Register middleware (pipeline)
 
-The `api.pipeline` API is where most Extension logic lives. Register middleware at one or more of the three levels: `turn`, `step`, and `toolCall`.
+The `api.pipeline` API is where most Extension logic lives. Register middleware at one or more of the three levels: `turn`, `step`, and `toolCall`. In `turn` and `step`, you can also call other agents programmatically via `ctx.agents`.
 
 ### 3a. Turn middleware
 
@@ -100,7 +100,7 @@ api.pipeline.register('turn', async (ctx) => {
 });
 ```
 
-**Key context fields:** `conversationState`, `emitMessageEvent()`, `inputEvent`, `metadata`
+**Key context fields:** `conversationState`, `emitMessageEvent()`, `inputEvent`, `agents`, `metadata`
 
 ### 3b. Step middleware
 
@@ -143,12 +143,46 @@ api.pipeline.register('toolCall', async (ctx) => {
 
 **Key context fields:** `toolName`, `toolCallId`, `args` (mutable), `metadata`
 
+### 3d. Middleware-driven inter-agent calls (`ctx.agents`)
+
+If you need automatic pre/post processing by another agent (without asking the worker LLM to explicitly call `agents__request`), use `ctx.agents` in `turn` or `step` middleware.
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: 'Find context for this inbound message',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+Notes:
+
+- `ctx.agents` is available only in `turn` and `step` middleware.
+- `toolCall` middleware does not expose `ctx.agents`.
+- `request` defaults to `15000ms` timeout when omitted.
+
 **Checklist:**
 
 - [ ] Every middleware calls `ctx.next()` exactly once
 - [ ] `next()` return value is propagated (return the result)
 - [ ] Pre-processing happens before `ctx.next()`; post-processing happens after
 - [ ] You chose the right middleware level for your use case (turn / step / toolCall)
+- [ ] If using inter-agent middleware calls, they are implemented only in `turn`/`step` (`toolCall` is not supported)
 
 > For middleware context details, see [Extension API Reference -- PipelineRegistry](../reference/extension-api.md#1-pipeline----pipelineregistry). For the conceptual model, see [Extension Pipeline (Explanation)](../explanation/extension-pipeline.md#the-middleware-pipeline-onion-model).
 

@@ -79,7 +79,7 @@ export function register(api: ExtensionApi): void {
 
 ## 3단계: 미들웨어 등록 (pipeline)
 
-`api.pipeline` API는 Extension 로직의 핵심입니다. 세 가지 수준 중 하나 이상에 미들웨어를 등록합니다: `turn`, `step`, `toolCall`.
+`api.pipeline` API는 Extension 로직의 핵심입니다. 세 가지 수준 중 하나 이상에 미들웨어를 등록합니다: `turn`, `step`, `toolCall`. `turn`과 `step`에서는 `ctx.agents`로 다른 에이전트를 프로그래매틱하게 호출할 수도 있습니다.
 
 ### 3a. Turn 미들웨어
 
@@ -100,7 +100,7 @@ api.pipeline.register('turn', async (ctx) => {
 });
 ```
 
-**주요 컨텍스트 필드:** `conversationState`, `emitMessageEvent()`, `inputEvent`, `metadata`
+**주요 컨텍스트 필드:** `conversationState`, `emitMessageEvent()`, `inputEvent`, `agents`, `metadata`
 
 ### 3b. Step 미들웨어
 
@@ -143,12 +143,46 @@ api.pipeline.register('toolCall', async (ctx) => {
 
 **주요 컨텍스트 필드:** `toolName`, `toolCallId`, `args` (변경 가능), `metadata`
 
+### 3d. 미들웨어 기반 에이전트 호출 (`ctx.agents`)
+
+작업 에이전트 LLM이 `agents__request`를 직접 호출하지 않아도 되는 자동 전/후처리가 필요하면, `turn` 또는 `step` 미들웨어에서 `ctx.agents`를 사용하세요.
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: '현재 인바운드 메시지에 필요한 컨텍스트를 찾아주세요',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+주의사항:
+
+- `ctx.agents`는 `turn`, `step` 미들웨어에서만 제공됩니다.
+- `toolCall` 미들웨어에는 `ctx.agents`가 없습니다.
+- `request` 타임아웃을 생략하면 기본값은 `15000ms`입니다.
+
 **체크리스트:**
 
 - [ ] 모든 미들웨어가 `ctx.next()`를 정확히 한 번 호출하는가
 - [ ] `next()` 반환값을 전파하는가 (결과를 return)
 - [ ] 전처리는 `ctx.next()` 전에, 후처리는 후에 발생하는가
 - [ ] 용도에 맞는 미들웨어 수준을 선택했는가 (turn / step / toolCall)
+- [ ] 에이전트 호출 미들웨어를 사용할 경우 `turn`/`step`에서만 사용했는가 (`toolCall` 미지원)
 
 > 미들웨어 컨텍스트 상세는 [Extension API 레퍼런스 -- PipelineRegistry](../reference/extension-api.ko.md#1-pipeline----pipelineregistry)를 참조하세요. 개념 모델은 [Extension 파이프라인 (설명)](../explanation/extension-pipeline.ko.md#미들웨어-파이프라인-onion-모델)을 참조하세요.
 

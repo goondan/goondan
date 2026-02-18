@@ -91,7 +91,7 @@ ExtensionApi
 
 | API area | What it does |
 |----------|-------------|
-| `pipeline` | The primary extension mechanism. Register middleware that wraps turn execution, LLM calls, and tool calls. |
+| `pipeline` | The primary extension mechanism. Register middleware that wraps turn execution, LLM calls, and tool calls. `turn`/`step` middleware can also call other agents via `ctx.agents`. |
 | `tools` | Dynamically register tools that appear in the LLM's tool catalog -- useful for patterns like MCP or skill discovery. |
 | `state` | Persist JSON data per agent instance. Automatically restored on restart and saved after each turn. |
 | `events` | Lightweight in-process event bus. Extensions can react to `turn.completed`, `step.started`, etc. without coupling to each other. |
@@ -111,8 +111,8 @@ Goondan's pipeline has exactly three middleware types. Each corresponds to a dif
 
 | Middleware | Wraps | Typical use |
 |-----------|-------|-------------|
-| **`turn`** | An entire conversation turn (one inbound event to completion) | Message compaction, conversation windowing, turn-level metrics |
-| **`step`** | A single LLM call plus its subsequent tool executions | Tool catalog filtering, context injection, step timing |
+| **`turn`** | An entire conversation turn (one inbound event to completion) | Message compaction, conversation windowing, turn-level metrics, pre/post agent calls via `ctx.agents` |
+| **`step`** | A single LLM call plus its subsequent tool executions | Tool catalog filtering, context injection, step timing, delegated agent calls via `ctx.agents` |
 | **`toolCall`** | An individual tool invocation | Argument validation/transformation, per-tool logging |
 
 These three layers are **nested**: a turn contains multiple steps, and a step may contain multiple tool calls.
@@ -198,6 +198,7 @@ Each layer has a dedicated context with the fields relevant to its scope:
 - **`turn` context** -- `conversationState`, `emitMessageEvent()`, `inputEvent`, `metadata`
 - **`step` context** -- everything from turn plus `stepIndex`, `toolCatalog` (mutable)
 - **`toolCall` context** -- `toolName`, `toolCallId`, `args` (mutable), `metadata`
+- **`turn`/`step` add-on** -- `ctx.agents.request/send` for programmatic inter-agent calls (not available in `toolCall`)
 
 ### Why three layers instead of one?
 
@@ -295,6 +296,7 @@ export function register(api: ExtensionApi): void {
 2. You **may** transform the result returned by `next()` before returning it.
 3. Multiple Extensions registering the same middleware type are chained in onion order (first registered = outermost).
 4. One Extension can register multiple middleware types, or even multiple middlewares of the same type.
+5. `ctx.agents` is provided in `turn` and `step` contexts only.
 
 ### Priority
 
@@ -387,6 +389,7 @@ Use `api.tools.register()` to dynamically register tools from an MCP server at E
 | `register(api)` | Single entry point; called once during AgentProcess initialization |
 | ExtensionApi | 5 areas: `pipeline`, `tools`, `state`, `events`, `logger` |
 | Middleware types | `turn` (whole conversation turn), `step` (LLM call unit), `toolCall` (single tool invocation) |
+| Middleware agent calls | `ctx.agents.request/send` is available in `turn`/`step` only and reuses Orchestrator IPC |
 | Onion model | First-registered = outermost; `next()` separates pre/post; must call `next()` exactly once |
 | ConversationState | Event sourcing: `NextMessages = BaseMessages + SUM(Events)`; no direct mutation |
 | Agent-specific loading | Each Agent declares its own Extension list; state is isolated per instance |

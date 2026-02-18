@@ -10,7 +10,7 @@
 
 ## Overview
 
-An Extension is a middleware logic bundle that hooks into the runtime lifecycle. Extensions do not receive LLM tool calls directly -- instead, they register middleware, manage state, subscribe to events, and optionally register dynamic tools via the `ExtensionApi` surface.
+An Extension is a middleware logic bundle that hooks into the runtime lifecycle. Extensions do not receive LLM tool calls directly -- instead, they register middleware, manage state, subscribe to events, optionally register dynamic tools via the `ExtensionApi` surface, and can call other agents programmatically through `ctx.agents` in `turn` / `step` middleware.
 
 This document is a precise reference for every property and method available to Extension authors. For conceptual background, see [Extension Pipeline (Explanation)](../explanation/extension-pipeline.md). For a practical walkthrough, see [Write an Extension (How-to)](../how-to/write-an-extension.md).
 
@@ -108,6 +108,7 @@ type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallRe
 - When multiple middleware of the same type are registered, they chain in **onion order** (first registered = outermost layer).
 - A single Extension may register multiple middleware types simultaneously.
 - A single Extension may register multiple middleware of the same type.
+- `ctx.agents.request()` / `ctx.agents.send()` are available in `turn` and `step` middleware only (not in `toolCall`).
 
 #### Example
 
@@ -136,6 +137,9 @@ interface TurnMiddlewareContext extends ExecutionContext {
   /** Conversation state (base + events via event sourcing) */
   readonly conversationState: ConversationState;
 
+  /** Programmatic inter-agent calls from middleware */
+  readonly agents: MiddlewareAgentsApi;
+
   /** Emit a message event (append / replace / remove / truncate) */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -162,6 +166,7 @@ interface TurnMiddlewareContext extends ExecutionContext {
 |-------|------|---------|-------------|
 | `inputEvent` | `AgentEvent` | readonly | The event that started this Turn |
 | `conversationState` | `ConversationState` | readonly | Current conversation state |
+| `agents` | `MiddlewareAgentsApi` | readonly | Programmatic inter-agent API (`request` / `send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | -- | Emit a message mutation event |
 | `metadata` | `Record<string, JsonValue>` | mutable | Shared metadata across middleware |
 | `next` | `() => Promise<TurnResult>` | -- | Call to proceed to the next layer |
@@ -219,6 +224,9 @@ interface StepMiddlewareContext extends ExecutionContext {
   /** Conversation state */
   readonly conversationState: ConversationState;
 
+  /** Programmatic inter-agent calls from middleware */
+  readonly agents: MiddlewareAgentsApi;
+
   /** Emit a message event */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -240,6 +248,7 @@ interface StepMiddlewareContext extends ExecutionContext {
 | `turn` | `Turn` | readonly | Current Turn info |
 | `stepIndex` | `number` | readonly | Step index (0-based) within the Turn |
 | `conversationState` | `ConversationState` | readonly | Current conversation state |
+| `agents` | `MiddlewareAgentsApi` | readonly | Programmatic inter-agent API (`request` / `send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | -- | Emit a message mutation event |
 | `toolCatalog` | `ToolCatalogItem[]` | **mutable** | Tool catalog visible to the LLM for this Step |
 | `metadata` | `Record<string, JsonValue>` | mutable | Shared metadata across middleware |
@@ -278,7 +287,64 @@ api.pipeline.register('step', async (ctx) => {
 
 ---
 
-#### 1.3 ToolCallMiddlewareContext
+#### 1.3 MiddlewareAgentsApi (`ctx.agents`)
+
+`turn` and `step` middleware can call other agents programmatically via `ctx.agents`. This reuses the same Orchestrator IPC routing path as `agents__request` and `agents__send`.
+
+```typescript
+interface MiddlewareAgentsApi {
+  request(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    timeoutMs?: number; // default: 15000
+    metadata?: Record<string, unknown>;
+  }): Promise<{ target: string; response: string }>;
+
+  send(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ accepted: boolean }>;
+}
+```
+
+Rules:
+
+- Available only in `turn` and `step` contexts.
+- Not available in `toolCall` context.
+- `request` default timeout is `15000ms`.
+- The runtime detects cyclic request chains and returns an error.
+
+Example:
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: 'Find relevant context for this user input',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+---
+
+#### 1.4 ToolCallMiddlewareContext
 
 Wraps a single tool call. Called once per tool invocation within a Step.
 

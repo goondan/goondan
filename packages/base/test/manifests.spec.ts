@@ -16,6 +16,7 @@ describe("base manifests", () => {
     expect(tools.some((item) => item.metadata.name === "telegram")).toBe(true);
     expect(tools.some((item) => item.metadata.name === "slack")).toBe(true);
     expect(tools.some((item) => item.metadata.name === "self-restart")).toBe(true);
+    expect(tools.some((item) => item.metadata.name === "wait")).toBe(true);
     expect(extensions.some((item) => item.metadata.name === "logging")).toBe(true);
     expect(connectors.some((item) => item.metadata.name === "telegram-polling")).toBe(true);
 

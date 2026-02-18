@@ -13,7 +13,7 @@ describe('manifest helpers', () => {
     const extensions = createBaseExtensionManifests();
     const connectors = createBaseConnectorManifests();
 
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(10);
     expect(extensions.length).toBe(4);
     expect(connectors.length).toBe(6);
 
@@ -23,6 +23,7 @@ describe('manifest helpers', () => {
     expect(tools.some((item) => item.metadata.name === 'telegram')).toBe(true);
     expect(tools.some((item) => item.metadata.name === 'slack')).toBe(true);
     expect(tools.some((item) => item.metadata.name === 'self-restart')).toBe(true);
+    expect(tools.some((item) => item.metadata.name === 'wait')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-compaction')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-window')).toBe(true);
     expect(

@@ -46,6 +46,11 @@ export {
 } from './text-transform.js';
 
 export {
+  handlers as waitHandlers,
+  seconds as waitSeconds,
+} from './wait.js';
+
+export {
   handlers as telegramHandlers,
   send as telegramSend,
   edit as telegramEdit,

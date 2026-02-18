@@ -40,7 +40,7 @@ function requireRuntime(ctx: ToolContext) {
 export const request: ToolHandler = async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
   const runtime = requireRuntime(ctx);
   const target = requireString(input, 'target');
-  const message = optionalString(input, 'input');
+  const message = requireString(input, 'input');
   const instanceKey = optionalString(input, 'instanceKey') ?? ctx.instanceKey;
   const eventType = optionalString(input, 'eventType') ?? 'agent.request';
   const metadata = optionalJsonObject(input, 'metadata');
@@ -68,7 +68,7 @@ export const request: ToolHandler = async (ctx: ToolContext, input: JsonObject):
 export const send: ToolHandler = async (ctx: ToolContext, input: JsonObject): Promise<JsonValue> => {
   const runtime = requireRuntime(ctx);
   const target = requireString(input, 'target');
-  const message = optionalString(input, 'input');
+  const message = requireString(input, 'input');
   const instanceKey = optionalString(input, 'instanceKey') ?? ctx.instanceKey;
   const eventType = optionalString(input, 'eventType') ?? 'agent.send';
   const metadata = optionalJsonObject(input, 'metadata');

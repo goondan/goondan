@@ -4,19 +4,19 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 
 ## 파일 구조
 
-- `api.md` - Runtime/SDK API 스펙 v0.0.3 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, 통합 이벤트 모델, Runtime Events API 표면)
+- `api.md` - Runtime/SDK API 스펙 v0.0.3 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, `turn`/`step` 미들웨어 `ctx.agents` API, 통합 이벤트 모델, Runtime Events API 표면)
 - `help.md` - 스펙 운영 도움말 v0.0.3 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, 기본 레지스트리 `https://goondan-registry.yechanny.workers.dev`, `gdn package` 도움말 기준, 문서 링크 자동 점검 체크리스트)
 - `layers.md` - 구성 계층 역할 개요 v0.0.3 (`runtime`, `types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
 - `shared-types.md` - 공통 타입 스펙 v0.0.3 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult/AgentToolRuntime(request/send/spawn/list/catalog) SSOT)
 - `resources.md` - Config Plane 리소스 정의 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, Config 참조 모델(ObjectRef/ValueSource) 사용 문맥, YAML 보안, 경로 해석, 분할 파일 구성)
 - `bundle_package.md` - Package 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, **dist/goondan.yaml 배포 규칙/manifest 우선순위/Package Root 경로 규칙**, 보안/검증 오류 코드, CLI 명령어)
-- `runtime.md` - **[v0.0.3]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, Edit & Restart, Observability)
+- `runtime.md` - **[v0.0.3]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, Extension `ctx.agents` 경로, request 순환 호출 감지, Edit & Restart, Observability)
 - `connector.md` - Connector 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - `connection.md` - Connection 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 시크릿)
-- `extension.md` - Extension 시스템 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
+- `extension.md` - Extension 시스템 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, `turn`/`step` 컨텍스트의 `ctx.agents` request/send, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - `oauth.md` - OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
-- `pipeline.md` - 라이프사이클 파이프라인 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry)
+- `pipeline.md` - 라이프사이클 파이프라인 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, `turn`/`step`의 `ctx.agents` API, ConversationState 이벤트 소싱, PipelineRegistry)
 - `tool.md` - Tool 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델)
 - `workspace.md` - **[v0.0.3]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
 - `cli.md` - **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor)

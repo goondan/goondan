@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { loadExtensions, type ExtensionSpec } from "./loader.js";
-import type { ExtensionApi, RuntimeResource, TurnResult, JsonValue } from "../types.js";
+import type {
+  ExtensionApi,
+  MiddlewareAgentsApi,
+  RuntimeResource,
+  TurnResult,
+  JsonValue,
+} from "../types.js";
 import { PipelineRegistryImpl } from "../pipeline/registry.js";
 import { ToolRegistryImpl } from "../tools/registry.js";
 import { ExtensionStateManagerImpl } from "./state-manager.js";
@@ -12,6 +18,20 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+
+const noopMiddlewareAgentsApi: MiddlewareAgentsApi = {
+  async request(params) {
+    return {
+      target: params.target,
+      response: "",
+    };
+  },
+  async send() {
+    return {
+      accepted: true,
+    };
+  },
+};
 
 describe("Extension Integration", () => {
   let tempDir: string;
@@ -132,6 +152,7 @@ describe("Extension Integration", () => {
           createdAt: new Date(),
         },
         conversationState,
+        agents: noopMiddlewareAgentsApi,
         emitMessageEvent: () => {},
         metadata,
       },
@@ -173,6 +194,7 @@ describe("Extension Integration", () => {
           createdAt: new Date(),
         },
         conversationState,
+        agents: noopMiddlewareAgentsApi,
         emitMessageEvent: () => {},
         metadata: {},
       },
@@ -246,6 +268,7 @@ describe("Extension Integration", () => {
           createdAt: new Date(),
         },
         conversationState,
+        agents: noopMiddlewareAgentsApi,
         emitMessageEvent: () => {},
         metadata: metadata1,
       },
@@ -269,6 +292,7 @@ describe("Extension Integration", () => {
           createdAt: new Date(),
         },
         conversationState,
+        agents: noopMiddlewareAgentsApi,
         emitMessageEvent: () => {},
         metadata: metadata2,
       },

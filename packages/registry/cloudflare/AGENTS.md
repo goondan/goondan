@@ -18,3 +18,4 @@
 3. 테스트는 `test/`에서 순수 함수(crypto/route/handler 로직) 중심으로 검증한다.
 4. 저장 포맷을 바꾸면 관련 타입(`src/types.ts`)과 테스트를 함께 갱신한다.
 5. 인증 토큰 로테이션은 `REGISTRY_AUTH_TOKENS` 시크릿으로 관리하며, 갱신 후 publish smoke test를 수행한다.
+6. workspace 버전 업데이트 시 `package.json` 버전을 루트 `@goondan/*` 버전과 동일하게 유지한다.

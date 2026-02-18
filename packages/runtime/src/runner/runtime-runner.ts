@@ -42,6 +42,9 @@ import {
   type AgentRuntimeSendResult,
   type AgentRuntimeSpawnOptions,
   type AgentRuntimeSpawnResult,
+  type MiddlewareAgentsApi,
+  type MiddlewareAgentRequestParams,
+  type MiddlewareAgentSendParams,
   type JsonObject,
   type JsonSchemaProperty,
   type JsonSchemaObject,
@@ -115,6 +118,10 @@ interface ConnectorChildEventMessage {
   type: 'connector_event';
   event: unknown;
 }
+
+const DEFAULT_MIDDLEWARE_AGENT_REQUEST_TIMEOUT_MS = 15_000;
+const EXTENSION_AGENT_CALL_SOURCE = 'extension-middleware';
+const AGENT_CALL_STACK_METADATA_KEY = '__goondanAgentCallStack';
 
 interface RunnerArguments {
   bundlePath: string;
@@ -1848,6 +1855,210 @@ function buildRuntimeAgentCatalog(
   };
 }
 
+function createAgentCallNode(agentName: string, instanceKey: string): string {
+  return `${agentName}@${instanceKey}`;
+}
+
+function readAgentCallStack(metadata: JsonObject | undefined): string[] {
+  if (!metadata) {
+    return [];
+  }
+
+  const value = metadata[AGENT_CALL_STACK_METADATA_KEY];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const stack: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || item.length === 0) {
+      continue;
+    }
+    stack.push(item);
+  }
+
+  return stack;
+}
+
+function appendAgentCallStack(stack: string[], node: string): string[] {
+  if (stack.includes(node)) {
+    return [...stack];
+  }
+  return [...stack, node];
+}
+
+function withAgentCallStack(metadata: JsonObject | undefined, stack: string[]): JsonObject {
+  const next: JsonObject = {};
+  if (metadata) {
+    for (const [key, value] of Object.entries(metadata)) {
+      next[key] = value;
+    }
+  }
+  next[AGENT_CALL_STACK_METADATA_KEY] = stack;
+  return next;
+}
+
+function toMiddlewareAgentResponseText(response: JsonValue | undefined): string {
+  if (typeof response === 'string') {
+    return response;
+  }
+  if (response === undefined || response === null) {
+    return '';
+  }
+  return safeJsonStringify(response);
+}
+
+function createMiddlewareAgentMetadata(input: {
+  callerAgentName: string;
+  callerInstanceKey: string;
+  callerTurnId: string;
+  inheritedMetadata: JsonObject | undefined;
+  metadata: JsonObject | undefined;
+}): JsonObject {
+  const next: JsonObject = {};
+  if (input.metadata) {
+    for (const [key, value] of Object.entries(input.metadata)) {
+      next[key] = value;
+    }
+  }
+
+  const callerNode = createAgentCallNode(input.callerAgentName, input.callerInstanceKey);
+  const inheritedStack = readAgentCallStack(input.inheritedMetadata);
+  const callStack = appendAgentCallStack(inheritedStack, callerNode);
+
+  next.callerAgent = input.callerAgentName;
+  next.callerInstanceKey = input.callerInstanceKey;
+  next.callerTurnId = input.callerTurnId;
+  next.callSource = EXTENSION_AGENT_CALL_SOURCE;
+  next[AGENT_CALL_STACK_METADATA_KEY] = callStack;
+
+  return next;
+}
+
+function createMiddlewareAgentEvent(input: {
+  callerAgentName: string;
+  traceId: string;
+  eventType: string;
+  eventInput: string | undefined;
+  targetInstanceKey: string;
+  metadata: JsonObject;
+  correlationId?: string;
+}): AgentEvent {
+  const event: AgentEvent = {
+    id: createId('agent_event'),
+    type: input.eventType,
+    createdAt: new Date(),
+    traceId: input.traceId,
+    source: {
+      kind: 'agent',
+      name: input.callerAgentName,
+    },
+    input: input.eventInput,
+    instanceKey: input.targetInstanceKey,
+    metadata: input.metadata,
+  };
+
+  if (input.correlationId) {
+    return {
+      ...event,
+      replyTo: {
+        target: input.callerAgentName,
+        correlationId: input.correlationId,
+      },
+    };
+  }
+
+  return event;
+}
+
+function normalizeMiddlewareTarget(target: string): string {
+  const resolved = target.trim();
+  if (resolved.length === 0) {
+    throw new Error('ctx.agents 호출에는 target이 필요합니다.');
+  }
+  return resolved;
+}
+
+function normalizeMiddlewareInstanceKey(instanceKey: string | undefined, fallback: string): string {
+  if (!instanceKey) {
+    return fallback;
+  }
+
+  const resolved = instanceKey.trim();
+  return resolved.length > 0 ? resolved : fallback;
+}
+
+function normalizeMiddlewareTimeoutMs(timeoutMs: number | undefined): number {
+  if (
+    typeof timeoutMs === 'number' &&
+    Number.isFinite(timeoutMs) &&
+    Number.isInteger(timeoutMs) &&
+    timeoutMs > 0
+  ) {
+    return timeoutMs;
+  }
+  return DEFAULT_MIDDLEWARE_AGENT_REQUEST_TIMEOUT_MS;
+}
+
+function createMiddlewareAgentsApi(input: {
+  runtime: AgentToolRuntime;
+  callerAgentName: string;
+  callerInstanceKey: string;
+  callerTurnId: string;
+  traceId: string;
+  inboundMetadata: JsonObject | undefined;
+}): MiddlewareAgentsApi {
+  const resolveMetadata = (metadata: JsonObject | undefined): JsonObject =>
+    createMiddlewareAgentMetadata({
+      callerAgentName: input.callerAgentName,
+      callerInstanceKey: input.callerInstanceKey,
+      callerTurnId: input.callerTurnId,
+      inheritedMetadata: input.inboundMetadata,
+      metadata,
+    });
+
+  return {
+    request: async (params: MiddlewareAgentRequestParams) => {
+      const target = normalizeMiddlewareTarget(params.target);
+      const targetInstanceKey = normalizeMiddlewareInstanceKey(params.instanceKey, input.callerInstanceKey);
+      const timeoutMs = normalizeMiddlewareTimeoutMs(params.timeoutMs);
+      const correlationId = createId('corr');
+      const event = createMiddlewareAgentEvent({
+        callerAgentName: input.callerAgentName,
+        traceId: input.traceId,
+        eventType: 'agent.request',
+        eventInput: params.input,
+        targetInstanceKey,
+        metadata: resolveMetadata(params.metadata),
+        correlationId,
+      });
+
+      const result = await input.runtime.request(target, event, { timeoutMs });
+      return {
+        target: result.target,
+        response: toMiddlewareAgentResponseText(result.response),
+      };
+    },
+    send: async (params: MiddlewareAgentSendParams) => {
+      const target = normalizeMiddlewareTarget(params.target);
+      const targetInstanceKey = normalizeMiddlewareInstanceKey(params.instanceKey, input.callerInstanceKey);
+      const event = createMiddlewareAgentEvent({
+        callerAgentName: input.callerAgentName,
+        traceId: input.traceId,
+        eventType: 'agent.send',
+        eventInput: params.input,
+        targetInstanceKey,
+        metadata: resolveMetadata(params.metadata),
+      });
+
+      const result = await input.runtime.send(target, event);
+      return {
+        accepted: result.accepted,
+      };
+    },
+  };
+}
+
 function mergeToolCatalog(
   baseCatalog: ToolCatalogItem[],
   extensionCatalog: ToolCatalogItem[],
@@ -2730,6 +2941,19 @@ function createAgentToolRuntime(input: {
         throw new Error('agents__request 입력 이벤트 형식이 올바르지 않습니다.');
       }
 
+      if (target === input.callerAgentName && parsed.instanceKey === input.callerInstanceKey) {
+        throw new Error('agents__request는 동일 agent+instance를 대상으로 호출할 수 없습니다.');
+      }
+
+      const callerNode = createAgentCallNode(input.callerAgentName, input.callerInstanceKey);
+      const targetNode = createAgentCallNode(target, parsed.instanceKey);
+      const currentCallStack = appendAgentCallStack(readAgentCallStack(parsed.metadata), callerNode);
+      if (currentCallStack.includes(targetNode)) {
+        throw new Error(
+          `agents__request 순환 호출이 감지되었습니다: ${[...currentCallStack, targetNode].join(' -> ')}`,
+        );
+      }
+
       const inboundEvent: RuntimeInboundEvent = {
         sourceKind: 'agent',
         sourceName: parsed.sourceName,
@@ -2740,12 +2964,8 @@ function createAgentToolRuntime(input: {
           from_agent: input.callerAgentName,
           from_instance: input.callerInstanceKey,
         },
-        metadata: parsed.metadata,
+        metadata: withAgentCallStack(parsed.metadata, currentCallStack),
       };
-
-      if (target === input.callerAgentName && inboundEvent.instanceKey === input.callerInstanceKey) {
-        throw new Error('agents__request는 동일 agent+instance를 대상으로 호출할 수 없습니다.');
-      }
 
       const timeoutMs = options?.timeoutMs;
       const turnResult = await withOptionalTimeout(
@@ -2774,6 +2994,9 @@ function createAgentToolRuntime(input: {
         throw new Error('agents__send 입력 이벤트 형식이 올바르지 않습니다.');
       }
 
+      const callerNode = createAgentCallNode(input.callerAgentName, input.callerInstanceKey);
+      const currentCallStack = appendAgentCallStack(readAgentCallStack(parsed.metadata), callerNode);
+
       const inboundEvent: RuntimeInboundEvent = {
         sourceKind: 'agent',
         sourceName: parsed.sourceName,
@@ -2784,7 +3007,7 @@ function createAgentToolRuntime(input: {
           from_agent: input.callerAgentName,
           from_instance: input.callerInstanceKey,
         },
-        metadata: parsed.metadata,
+        metadata: withAgentCallStack(parsed.metadata, currentCallStack),
       };
 
       void executeInboundTurn({
@@ -2958,6 +3181,14 @@ async function runAgentTurn(input: {
     callerInstanceKey: input.instanceKey,
     logger: input.logger,
   });
+  const middlewareAgentsApi = createMiddlewareAgentsApi({
+    runtime: agentRuntime,
+    callerAgentName: input.plan.name,
+    callerInstanceKey: input.instanceKey,
+    callerTurnId: input.turnId,
+    traceId: input.traceId,
+    inboundMetadata: input.inputEvent.metadata,
+  });
   const extensionEnvironment = await getOrCreateAgentExtensionEnvironment({
     runtime: input.runtime,
     plan: input.plan,
@@ -2980,6 +3211,7 @@ async function runAgentTurn(input: {
         traceId: input.traceId,
         inputEvent: input.inputEvent,
         conversationState,
+        agents: middlewareAgentsApi,
         emitMessageEvent(event: MessageEvent): void {
           conversationState.emitMessageEvent(event);
         },
@@ -3039,6 +3271,7 @@ async function runAgentTurn(input: {
             turn: turnSnapshot,
             stepIndex: step,
             conversationState,
+            agents: middlewareAgentsApi,
             emitMessageEvent(event: MessageEvent): void {
               conversationState.emitMessageEvent(event);
             },

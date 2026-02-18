@@ -488,6 +488,7 @@ function truncateErrorMessage(message: string, limit: number): string {
 Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기), `send`(fire-and-forget), `spawn`(정의된 Agent 인스턴스 준비), `list`(spawn 목록 조회), `catalog`(현재 Swarm 에이전트 카탈로그 조회) 패턴을 지원한다.
 
 > 통합 이벤트 모델 상세는 `docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션, IPC 규격은 `docs/specs/runtime.md`의 `IPC 메시지 타입` 섹션을 참조한다.
+> `agents__request`/`agents__send` 호출 시 `input`에는 비어있지 않은 문자열을 전달해야 한다(MUST).
 
 ### 11.1 통신 패턴
 
@@ -546,6 +547,7 @@ Tool 문맥에서는 에이전트 간 통신이 `event` 기반 `AgentEvent`로 �
 | 통합 이벤트 모델 | MUST | 에이전트 간 통신은 `AgentEvent` + `replyTo` 패턴을 사용해야 한다 |
 | request 패턴 | MUST | 요청-응답 통신은 `replyTo`를 설정하고, `correlationId`로 매칭해야 한다 |
 | send 패턴 | MUST | fire-and-forget 통신은 `replyTo`를 생략해야 한다 |
+| request/send 입력 페이로드 | MUST | `agents__request`/`agents__send`는 비어있지 않은 `input` 문자열을 포함해야 한다 |
 | spawn 대상 제약 | MUST | `agents__spawn`의 `target`은 현재 Swarm에 정의된 Agent 리소스여야 한다 |
 | 리소스 불변성 | MUST | `agents__spawn`은 `goondan.yaml`의 Agent 리소스를 런타임에 생성/수정하지 않는다 |
 | list 패턴 | SHOULD | `agents__list`는 기본적으로 호출 Agent가 spawn한 인스턴스 목록을 반환한다 |

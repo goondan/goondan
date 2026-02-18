@@ -1,11 +1,12 @@
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   agentsHandlers,
   bashHandlers,
   fileSystemHandlers,
   selfRestartHandlers,
+  waitHandlers,
 } from '../src/tools/index.js';
 import type { AgentEvent, AgentToolRuntime, JsonObject, JsonValue } from '../src/types.js';
 import { isJsonObject } from '../src/utils.js';
@@ -164,12 +165,25 @@ describe('base tools', () => {
       expect(requestOutput.target).toBe('reviewer');
       expect(requestOutput.response).toEqual({ ok: true, target: 'reviewer' });
 
+      await expect(
+        agentsHandlers.request(ctx, {
+          target: 'reviewer',
+        }),
+      ).rejects.toThrow("'input' must be a non-empty string");
+
       const sendResult = await agentsHandlers.send(ctx, {
         target: 'planner',
         input: 'fire and forget',
       });
       const sendOutput = assertJsonObject(sendResult);
       expect(sendOutput.accepted).toBe(true);
+
+      await expect(
+        agentsHandlers.send(ctx, {
+          target: 'planner',
+        }),
+      ).rejects.toThrow("'input' must be a non-empty string");
+
       expect(captured.length).toBe(2);
       const firstCaptured = captured[0];
       const secondCaptured = captured[1];
@@ -207,6 +221,32 @@ describe('base tools', () => {
       expect(catalogOutput.availableCount).toBe(4);
       expect(catalogOutput.callableCount).toBe(3);
     } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it('wait__seconds delays for the requested duration', async () => {
+    const workspace = await createTempWorkspace();
+    vi.useFakeTimers();
+    try {
+      const ctx = createToolContext(workspace.path);
+      const promise = waitHandlers.seconds(ctx, {
+        seconds: 1.5,
+      });
+      await vi.advanceTimersByTimeAsync(1500);
+
+      const output = await promise;
+      const result = assertJsonObject(output);
+      expect(result.waitedSeconds).toBe(1.5);
+      expect(result.waitedMs).toBe(1500);
+
+      await expect(
+        waitHandlers.seconds(ctx, {
+          seconds: 301,
+        }),
+      ).rejects.toThrow("'seconds' must be less than or equal to 300");
+    } finally {
+      vi.useRealTimers();
       await workspace.cleanup();
     }
   });

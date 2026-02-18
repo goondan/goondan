@@ -112,6 +112,23 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         },
       ],
     }),
+    createToolManifest('wait', {
+      entry: './src/tools/wait.ts',
+      errorMessageLimit: 600,
+      exports: [
+        {
+          name: 'seconds',
+          description: 'Pause execution for the specified number of seconds',
+          parameters: {
+            type: 'object',
+            properties: {
+              seconds: { type: 'number' },
+            },
+            required: ['seconds'],
+          },
+        },
+      ],
+    }),
     createToolManifest('file-system', {
       entry: './src/tools/file-system.ts',
       errorMessageLimit: 2000,
@@ -185,7 +202,7 @@ export function createBaseToolManifests(): BaseToolManifest[] {
               timeoutMs: { type: 'number' },
               metadata: { type: 'object' },
             },
-            required: ['target'],
+            required: ['target', 'input'],
           },
         },
         {
@@ -200,7 +217,7 @@ export function createBaseToolManifests(): BaseToolManifest[] {
               eventType: { type: 'string' },
               metadata: { type: 'object' },
             },
-            required: ['target'],
+            required: ['target', 'input'],
           },
         },
         {

@@ -23,8 +23,8 @@
 - `instance` (bare) 시 인터랙티브 TUI 모드 — non-TTY/`--json` 환경에서는 `instance list`로 자동 폴백, TTY에서는 `r` 키로 선택 인스턴스 재시작 + started 시각 확인
 - active pid 종료 전 `runtime-runner + instance-key` 일치 여부를 검증해 오탐 종료를 방지
 - `logs` 명령으로 인스턴스/프로세스별 로그 파일 tail 조회 지원
-- `studio` 명령으로 Studio 서버 실행(`--host`/`--port`/`--open`/`--no-open`) + `/api/instances`, `/api/instances/:key/visualization` 제공, 시각화 입력으로 `base.jsonl`/`events.jsonl`/`runtime-events.jsonl` 및 runtime 로그를 함께 사용하며 runtime key 선택 시 해당 workspace 하위 인스턴스를 집계
-- Flow 모드는 connector/agent 레인 중심으로 렌더링하며 Tool 호출(`tool.called/completed/failed`)은 별도 레인이 아니라 해당 agent 레인의 인라인 step으로 표시한다
+- `studio` 명령으로 Studio 서버 실행(`--host`/`--port`/`--open`/`--no-open`) + `/api/instances`, `/api/instances/:key/visualization` 제공, 시각화 입력으로 `base.jsonl`/`events.jsonl`/`runtime-events.jsonl` 및 runtime 로그를 함께 사용하며 runtime key 선택 시 해당 workspace 하위 인스턴스를 집계하고, `message.metadata.__goondanInbound`를 복원해 agent/connector 원발신자를 flow/graph 간선으로 반영한다
+- Flow 모드는 connector/agent 레인 중심으로 렌더링하며 Tool 호출(`tool.called/completed/failed`)은 별도 레인이 아니라 해당 agent 레인의 인라인 step으로 표시하고 agent 간 inbound 메시지의 왕복 간선을 표시한다
 - CLI 빌드 시 `dist/bin.js` 실행 권한 유지(`chmod +x`)
 - 출력 포맷(구조화 오류, suggestion/helpUrl 포함)
 - `validate`는 runtime BundleLoader 기반 fail-fast 검증(참조/Kind/Package 문서 위치 포함)을 수행

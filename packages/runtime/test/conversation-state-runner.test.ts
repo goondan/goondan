@@ -80,4 +80,50 @@ describe('runner conversation-state', () => {
     expect(persistent[0]?.data.role).toBe('user');
     expect(persistent[1]?.data.role).toBe('assistant');
   });
+
+  it('user 메타데이터를 턴/영속 메시지 변환에서 유지한다', () => {
+    const messages: Message[] = [
+      {
+        id: 'm-meta-1',
+        data: {
+          role: 'user',
+          content: 'inbound',
+        },
+        metadata: {
+          __goondanInbound: {
+            sourceKind: 'agent',
+            sourceName: 'coordinator',
+            eventName: 'agent.request',
+            instanceKey: 'worker:brain-shared',
+          },
+        },
+        createdAt: new Date('2026-02-16T00:00:00.000Z'),
+        source: {
+          type: 'user',
+        },
+      },
+    ];
+
+    const turns = toConversationTurns(messages);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.metadata).toEqual({
+      __goondanInbound: {
+        sourceKind: 'agent',
+        sourceName: 'coordinator',
+        eventName: 'agent.request',
+        instanceKey: 'worker:brain-shared',
+      },
+    });
+
+    const persistent = toPersistentMessages(turns);
+    expect(persistent).toHaveLength(1);
+    expect(persistent[0]?.metadata).toEqual({
+      __goondanInbound: {
+        sourceKind: 'agent',
+        sourceName: 'coordinator',
+        eventName: 'agent.request',
+        instanceKey: 'worker:brain-shared',
+      },
+    });
+  });
 });

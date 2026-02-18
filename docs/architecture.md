@@ -2,7 +2,7 @@
 
 > "Kubernetes for Agent Swarm"
 
-본 문서는 Goondan v2의 **시스템 설계 철학, 핵심 개념, 아키텍처 구조, 설계 패턴, 기대 효과**를 다룬다.
+본 문서는 Goondan v0.0.3의 **시스템 설계 철학, 핵심 개념, 아키텍처 구조, 설계 패턴, 기대 효과**를 다룬다.
 구현 상세(TypeScript 인터페이스, YAML 스키마, CLI 사용법 등)는 `docs/specs/` 디렉토리의 스펙 문서를 참고하고,
 처음 접하는 개발자를 위한 실습 가이드는 `GUIDE.md`를 참고한다.
 
@@ -21,7 +21,7 @@
 
 ## 1. 핵심 개념
 
-Goondan v2는 세 개의 핵심 축으로 구성된다.
+Goondan v0.0.3은 세 개의 핵심 축으로 구성된다.
 
 - **Config Plane**: `goondan.yaml` 기반 선언형 리소스 정의 (8종 Kind)
 - **Runtime Plane**: Orchestrator 상주 프로세스 + Process-per-Agent 실행 모델 + IPC 메시지 브로커
@@ -478,5 +478,5 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-16

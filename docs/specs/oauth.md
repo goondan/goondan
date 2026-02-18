@@ -1,4 +1,4 @@
-# OAuth 스펙 (v2.0)
+# OAuth 스펙 (v0.0.3)
 
 이 문서는 OAuth 적용 범위를 정의한다.
 OAuth는 독립 리소스가 아니라 Extension/Connection 조합으로 구현한다.

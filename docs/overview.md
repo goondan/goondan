@@ -1,8 +1,8 @@
-# Goondan 시스템 개요 (v2.0)
+# Goondan 시스템 개요 (v0.0.3)
 
 > "Kubernetes for Agent Swarm" - 에이전트 스웜 오케스트레이션 플랫폼
 
-이 문서는 Goondan v2.0 시스템의 철학, 핵심 개념, 설계 원칙, 아키텍처를 통합적으로 이해하기 위한 개요를 제공합니다. 상세 구현 스펙은 `docs/specs/` 디렉터리의 각 문서를 참조하세요.
+이 문서는 Goondan v0.0.3 시스템의 철학, 핵심 개념, 설계 원칙, 아키텍처를 통합적으로 이해하기 위한 개요를 제공합니다. 상세 구현 스펙은 `docs/specs/` 디렉터리의 각 문서를 참조하세요.
 
 ---
 
@@ -839,7 +839,7 @@ Registry (@goondan/registry)
 
 ---
 
-## 11. v2 주요 변경사항 요약
+## 11. v0.0.3 주요 변경사항 요약
 
 ### 11.1 Runtime
 
@@ -847,7 +847,7 @@ Registry (@goondan/registry)
 - 단일 프로세스 모델
 - Mutator + Middleware 13개 훅
 
-**현재 (v2):**
+**현재 (v0.0.3):**
 - Process-per-Agent 아키텍처
 - Orchestrator 상주 프로세스
 - Middleware 3종 (`turn`, `step`, `toolCall`)
@@ -1129,7 +1129,7 @@ gdn doctor   # 환경 검증 및 문제 진단
 - 13개 세분화 훅 (Mutator + Middleware)
 - 복잡한 학습 곡선
 
-**현재 (v2):**
+**현재 (v0.0.3):**
 - 3종 미들웨어 (`turn`, `step`, `toolCall`)
 - 일관된 `next()` 패턴
 - 높은 가독성과 낮은 학습 곡선
@@ -1603,5 +1603,5 @@ Goondan은 단순한 에이전트 프레임워크가 아니라 **생태계**를 
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-13

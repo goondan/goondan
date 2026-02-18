@@ -1,4 +1,4 @@
-# Goondan Connector 스펙 v2.0
+# Goondan Connector 스펙 v0.0.3
 
 > `ConnectorContext`/`ConnectorEvent`의 타입 원형은 이 문서가 소유한다.
 > `secrets`/`verify` 해석과 ingress 라우팅 계약은 `docs/specs/connection.md`를 단일 기준으로 따른다.
@@ -567,5 +567,5 @@ export default async function(ctx: ConnectorContext): Promise<void> {
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-12

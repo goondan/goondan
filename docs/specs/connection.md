@@ -1,4 +1,4 @@
-# Goondan Connection 스펙 v2.0
+# Goondan Connection 스펙 v0.0.3
 
 > 공통 타입(`ObjectRefLike`, `ValueSource`, `Ingress*`)의 단일 기준은 `docs/specs/shared-types.md`이다.
 > 값 해석 정책(`valueFrom.env`, 레지스트리/시크릿 규칙)은 `docs/specs/help.md`의 공통 계약을 따른다.
@@ -535,5 +535,5 @@ spec:
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-12

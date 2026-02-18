@@ -1,8 +1,8 @@
 # Goondan 빠른 시작 가이드 (처음 사용자용)
 
-> Kubernetes for Agent Swarm
+> Kubernetes for Agent Swarm (v0.0.3)
 
-이 문서는 Goondan을 처음 접한 사람이 `goondan.yaml`을 만들고 실행하고 확장할 수 있게 하는 실전 가이드다.  
+이 문서는 Goondan v0.0.3을 처음 접한 사람이 `goondan.yaml`을 만들고 실행하고 확장할 수 있게 하는 실전 가이드다.  
 런타임 내부 구현 상세(프로세스 상태, IPC 등)는 의도적으로 제외했다.
 
 ---

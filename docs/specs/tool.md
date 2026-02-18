@@ -1,4 +1,4 @@
-# Goondan Tool 시스템 스펙 v2.0
+# Goondan Tool 시스템 스펙 v0.0.3
 
 > 공통 타입(`ToolCall`, `ToolCallResult`, `ToolContext`, `IpcMessage`)의 기준은 `docs/specs/shared-types.md`를 따른다.
 
@@ -837,5 +837,5 @@ spec:
 
 ---
 
-**문서 버전**: v2.0
+**문서 버전**: v0.0.3
 **최종 수정**: 2026-02-12

@@ -38,6 +38,7 @@ interface ConnectorLogEvent {
   connectorName: string;
   connectionName: string;
   eventName: string;
+  instanceKey: string;
 }
 
 interface MutableParticipant extends StudioParticipant {
@@ -70,14 +71,23 @@ function nowIso(offset = 0): string {
   return new Date(Date.now() + offset).toISOString();
 }
 
-function normalizeTimestamp(input: unknown, fallbackOffset: number): string {
+function fallbackIsoFromEpochMs(epochMs: number): string {
+  if (!Number.isFinite(epochMs)) {
+    return new Date(0).toISOString();
+  }
+
+  const normalized = Math.max(0, Math.trunc(epochMs));
+  return new Date(normalized).toISOString();
+}
+
+function normalizeTimestamp(input: unknown, fallbackEpochMs: number): string {
   if (typeof input === 'string') {
     const parsed = Date.parse(input);
     if (!Number.isNaN(parsed)) {
       return new Date(parsed).toISOString();
     }
   }
-  return nowIso(fallbackOffset);
+  return fallbackIsoFromEpochMs(fallbackEpochMs);
 }
 
 function toMillis(input: string): number {
@@ -399,7 +409,7 @@ function runtimeEventRoute(
   };
 }
 
-function parseConnectorLogLine(line: string, fallbackOffset: number): ConnectorLogEvent | undefined {
+function parseConnectorLogLine(line: string, fallbackEpochMs: number): ConnectorLogEvent | undefined {
   const pattern =
     /\[goondan-runtime\]\[([^/\]]+)\/([^\]]+)\] emitted event name=([^\s]+) instanceKey=([^\s]+)/u;
   const match = pattern.exec(line);
@@ -410,19 +420,45 @@ function parseConnectorLogLine(line: string, fallbackOffset: number): ConnectorL
   const connectionName = match[1] ?? '';
   const connectorName = match[2] ?? '';
   const eventName = match[3] ?? '';
-  if (connectionName.length === 0 || connectorName.length === 0 || eventName.length === 0) {
+  const instanceKey = match[4] ?? '';
+  if (connectionName.length === 0 || connectorName.length === 0 || eventName.length === 0 || instanceKey.length === 0) {
     return undefined;
   }
 
   const timestampMatch = line.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/u);
-  const at = normalizeTimestamp(timestampMatch ? timestampMatch[1] : undefined, fallbackOffset);
+  const at = normalizeTimestamp(timestampMatch ? timestampMatch[1] : undefined, fallbackEpochMs);
 
   return {
     at,
     connectionName,
     connectorName,
     eventName,
+    instanceKey,
   };
+}
+
+function compareDirentByNameAsc(a: { name: string }, b: { name: string }): number {
+  return a.name.localeCompare(b.name);
+}
+
+function pseudoEpochMsFromPath(filePath: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < filePath.length; index += 1) {
+    hash ^= filePath.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  const tenYearsInSeconds = 10 * 365 * 24 * 60 * 60;
+  const offsetSeconds = (hash >>> 0) % tenYearsInSeconds;
+  return 1_577_836_800_000 + offsetSeconds * 1000;
+}
+
+function stableFileBaseEpochMs(filePath: string, birthtimeMs: number): number {
+  if (Number.isFinite(birthtimeMs) && birthtimeMs > 0) {
+    return Math.trunc(birthtimeMs);
+  }
+
+  return pseudoEpochMsFromPath(filePath);
 }
 
 async function resolveInstanceLocations(stateRoot: string, instanceKey: string): Promise<LocatedInstancePath[]> {
@@ -432,7 +468,7 @@ async function resolveInstanceLocations(stateRoot: string, instanceKey: string):
 
   const workspacesRoot = path.join(stateRoot, 'workspaces');
   if (await exists(workspacesRoot)) {
-    const workspaces = await readdir(workspacesRoot, { withFileTypes: true });
+    const workspaces = (await readdir(workspacesRoot, { withFileTypes: true })).sort(compareDirentByNameAsc);
     for (const workspace of workspaces) {
       if (!workspace.isDirectory()) {
         continue;
@@ -462,7 +498,7 @@ async function resolveInstanceLocations(stateRoot: string, instanceKey: string):
 
   const legacyRoot = path.join(stateRoot, 'instances');
   if (await exists(legacyRoot)) {
-    const workspaceCandidates = await readdir(legacyRoot, { withFileTypes: true });
+    const workspaceCandidates = (await readdir(legacyRoot, { withFileTypes: true })).sort(compareDirentByNameAsc);
     for (const workspace of workspaceCandidates) {
       if (!workspace.isDirectory()) {
         continue;
@@ -647,6 +683,9 @@ export class DefaultStudioService implements StudioService {
       const basePath = path.join(location.instancePath, 'messages', 'base.jsonl');
       const eventsPath = path.join(location.instancePath, 'messages', 'events.jsonl');
       const runtimeEventsPath = path.join(location.instancePath, 'messages', 'runtime-events.jsonl');
+      const baseFallbackMs = (await stat(basePath).catch(() => undefined))?.mtimeMs ?? 0;
+      const eventsFallbackMs = (await stat(eventsPath).catch(() => undefined))?.mtimeMs ?? 0;
+      const runtimeFallbackMs = (await stat(runtimeEventsPath).catch(() => undefined))?.mtimeMs ?? 0;
 
       const baseRows = await readJsonLines(basePath);
       for (const row of baseRows) {
@@ -654,7 +693,7 @@ export class DefaultStudioService implements StudioService {
         if (!message) {
           continue;
         }
-        const at = normalizeTimestamp(message.createdAt, sequence);
+        const at = normalizeTimestamp(message.createdAt, baseFallbackMs + sequence);
         const principalAgent = metadataAgent ?? 'orchestrator';
         const principalAgentId = `agent:${principalAgent}`;
         registerParticipant(participants, principalAgentId, principalAgent, 'agent', at);
@@ -706,7 +745,7 @@ export class DefaultStudioService implements StudioService {
           if (!message) {
             continue;
           }
-          const at = normalizeTimestamp(message.createdAt, sequence);
+          const at = normalizeTimestamp(message.createdAt, eventsFallbackMs + sequence);
           const principalAgent = metadataAgent ?? 'orchestrator';
           const principalAgentId = `agent:${principalAgent}`;
           const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId);
@@ -730,7 +769,10 @@ export class DefaultStudioService implements StudioService {
           continue;
         }
 
-        const at = nowIso(sequence);
+        const at = normalizeTimestamp(
+          isObjectRecord(row) ? row['createdAt'] : undefined,
+          eventsFallbackMs + sequence,
+        );
         pushTimeline(
           timeline,
           {
@@ -751,7 +793,7 @@ export class DefaultStudioService implements StudioService {
         if (!isObjectRecord(row)) {
           continue;
         }
-        const at = normalizeTimestamp(row['timestamp'], sequence);
+        const at = normalizeTimestamp(row['timestamp'], runtimeFallbackMs + sequence);
         const routed = runtimeEventRoute(row);
         if (!routed) {
           continue;
@@ -953,11 +995,11 @@ export class DefaultStudioService implements StudioService {
       return events;
     }
 
-    const files = await readdir(logDir, { withFileTypes: true });
+    const files = (await readdir(logDir, { withFileTypes: true })).sort(compareDirentByNameAsc);
     let sequence = 0;
 
     for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith('.log')) {
+      if (!file.isFile() || !file.name.endsWith('.stdout.log')) {
         continue;
       }
 
@@ -968,11 +1010,15 @@ export class DefaultStudioService implements StudioService {
       }
 
       const stats = await stat(fullPath);
-      const baseOffset = stats.mtime.getTime();
+      const baseOffsetMs = stableFileBaseEpochMs(fullPath, stats.birthtimeMs);
       const lines = content.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
       for (const line of lines) {
-        const parsed = parseConnectorLogLine(line, sequence + Math.max(1, Math.trunc(baseOffset / 1000)));
+        const parsed = parseConnectorLogLine(line, baseOffsetMs + sequence);
         if (!parsed) {
+          sequence += 1;
+          continue;
+        }
+        if (parsed.instanceKey !== instanceKey) {
           sequence += 1;
           continue;
         }

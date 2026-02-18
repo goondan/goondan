@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CliDependencies, TerminalIO } from '../types.js';
 import { isObjectRecord } from '../utils.js';
 import { DefaultDoctorService } from './doctor.js';
@@ -12,19 +13,30 @@ import { LocalRuntimeController } from './runtime.js';
 import { DefaultStudioService } from './studio.js';
 import { DefaultBundleValidator } from './validator.js';
 
-async function readCliVersion(cwd: string): Promise<string> {
+function readCliVersion(cwd: string): string {
+  const cliPackageJson = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'package.json',
+  );
   const localPackageJson = path.join(cwd, 'package.json');
-  try {
-    const raw = await readFile(localPackageJson, 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    if (isObjectRecord(parsed)) {
-      const version = parsed['version'];
-      if (typeof version === 'string') {
-        return version;
+
+  const candidates = [cliPackageJson, localPackageJson];
+
+  for (const candidate of candidates) {
+    try {
+      const raw = readFileSync(candidate, 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      if (isObjectRecord(parsed)) {
+        const version = parsed['version'];
+        if (typeof version === 'string' && version.trim().length > 0) {
+          return version;
+        }
       }
+    } catch {
+      continue;
     }
-  } catch {
-    return '0.0.0';
   }
 
   return '0.0.0';
@@ -84,7 +96,7 @@ export function createDefaultDependencies(): CliDependencies {
     terminal,
     env,
     cwd,
-    version: '0.0.0',
+    version: readCliVersion(cwd),
     runtime,
     validator,
     instances,
@@ -94,10 +106,6 @@ export function createDefaultDependencies(): CliDependencies {
     init,
     studio,
   };
-
-  void readCliVersion(cwd).then((version) => {
-    deps.version = version;
-  });
 
   return deps;
 }

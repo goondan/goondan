@@ -29,6 +29,15 @@ Goondan 스웜의 에이전트는 **IPC 기반 이벤트**를 통해 Orchestrato
 
 모든 통신은 Orchestrator를 경유하며, Orchestrator가 `instanceKey`로 이벤트를 라우팅하고 필요할 때 대상 에이전트를 자동으로 스폰합니다.
 
+LLM 도구 호출 외에도, `turn` / `step` 미들웨어에서는 `ctx.agents`로 에이전트를 프로그래매틱하게 호출할 수 있습니다:
+
+| 미들웨어 API | 패턴 | 설명 |
+|-------------|------|------|
+| `ctx.agents.request` | 요청-응답 | Extension 미들웨어가 요청을 보내고 응답을 기다림 |
+| `ctx.agents.send` | 발사 후 망각 | Extension 미들웨어가 비동기 알림 전송 |
+
+현재 `ctx.agents`는 `request`, `send`만 지원합니다. 인스턴스 준비/발견(`spawn`, `list`, `catalog`)은 `agents` 도구 경로를 사용합니다.
+
 ---
 
 ## 설정: agents 도구 포함
@@ -52,6 +61,42 @@ spec:
 ```
 
 이렇게 하면 LLM이 호출할 수 있는 다섯 가지 도구가 노출됩니다: `agents__request`, `agents__send`, `agents__spawn`, `agents__list`, `agents__catalog`.
+
+---
+
+## 패턴 0: 미들웨어 트리거 request/send (`ctx.agents`)
+
+작업 에이전트 LLM이 `agents__request`를 직접 호출하지 않아야 하는 자동 처리(예: turn 전 프리로드, turn 후 감사)가 필요할 때 사용합니다.
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: '현재 인바운드 메시지에 필요한 컨텍스트를 찾아주세요',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+주의사항:
+
+- `turn` / `step` 미들웨어 컨텍스트에서만 사용 가능합니다.
+- `toolCall` 컨텍스트에는 `ctx.agents`가 없습니다.
+- `request` 타임아웃을 생략하면 기본값은 `15000ms`입니다.
+- 런타임은 순환 요청 체인을 감지해 오류를 반환합니다.
 
 ---
 

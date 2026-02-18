@@ -10,7 +10,7 @@
 
 ## 개요
 
-Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음입니다. Extension은 LLM의 tool call을 직접 받지 않으며, 대신 미들웨어를 등록하고, 상태를 관리하고, 이벤트를 구독하고, `ExtensionApi`를 통해 동적 도구를 등록합니다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음입니다. Extension은 LLM의 tool call을 직접 받지 않으며, 대신 미들웨어를 등록하고, 상태를 관리하고, 이벤트를 구독하고, `ExtensionApi`를 통해 동적 도구를 등록합니다. 또한 `turn` / `step` 미들웨어에서는 `ctx.agents`로 다른 에이전트를 프로그래매틱하게 호출할 수 있습니다.
 
 이 문서는 Extension 작성자가 사용할 수 있는 모든 프로퍼티와 메서드에 대한 정밀 레퍼런스입니다. 개념적 배경은 [Extension Pipeline (Explanation)](../explanation/extension-pipeline.ko.md), 실용 가이드는 [Extension 작성법 (How-to)](../how-to/write-an-extension.ko.md)을 참조하세요.
 
@@ -108,6 +108,7 @@ type ToolCallMiddleware = (ctx: ToolCallMiddlewareContext) => Promise<ToolCallRe
 - 동일 타입의 미들웨어가 여러 개 등록되면 **onion 순서**로 체이닝됩니다 (먼저 등록 = 바깥 레이어).
 - 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있습니다.
 - 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있습니다.
+- `ctx.agents.request()` / `ctx.agents.send()`은 `turn`, `step` 미들웨어에서만 제공됩니다 (`toolCall`에서는 미제공).
 
 #### 예제
 
@@ -136,6 +137,9 @@ interface TurnMiddlewareContext extends ExecutionContext {
   /** 대화 상태 (base + events 이벤트 소싱) */
   readonly conversationState: ConversationState;
 
+  /** 미들웨어에서 다른 에이전트를 프로그래매틱하게 호출 */
+  readonly agents: MiddlewareAgentsApi;
+
   /** 메시지 이벤트 발행 (append / replace / remove / truncate) */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -162,6 +166,7 @@ interface TurnMiddlewareContext extends ExecutionContext {
 |------|------|-----------|------|
 | `inputEvent` | `AgentEvent` | readonly | Turn을 시작한 이벤트 |
 | `conversationState` | `ConversationState` | readonly | 현재 대화 상태 |
+| `agents` | `MiddlewareAgentsApi` | readonly | 프로그래매틱 에이전트 호출 API (`request` / `send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | -- | 메시지 변경 이벤트 발행 |
 | `metadata` | `Record<string, JsonValue>` | mutable | 미들웨어 간 공유 메타데이터 |
 | `next` | `() => Promise<TurnResult>` | -- | 다음 레이어로 진행 |
@@ -219,6 +224,9 @@ interface StepMiddlewareContext extends ExecutionContext {
   /** 대화 상태 */
   readonly conversationState: ConversationState;
 
+  /** 미들웨어에서 다른 에이전트를 프로그래매틱하게 호출 */
+  readonly agents: MiddlewareAgentsApi;
+
   /** 메시지 이벤트 발행 */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -240,6 +248,7 @@ interface StepMiddlewareContext extends ExecutionContext {
 | `turn` | `Turn` | readonly | 현재 Turn 정보 |
 | `stepIndex` | `number` | readonly | Turn 내 Step 인덱스 (0부터) |
 | `conversationState` | `ConversationState` | readonly | 현재 대화 상태 |
+| `agents` | `MiddlewareAgentsApi` | readonly | 프로그래매틱 에이전트 호출 API (`request` / `send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | -- | 메시지 변경 이벤트 발행 |
 | `toolCatalog` | `ToolCatalogItem[]` | **mutable** | 이 Step에서 LLM에 노출되는 도구 카탈로그 |
 | `metadata` | `Record<string, JsonValue>` | mutable | 미들웨어 간 공유 메타데이터 |
@@ -278,7 +287,64 @@ api.pipeline.register('step', async (ctx) => {
 
 ---
 
-#### 1.3 ToolCallMiddlewareContext
+#### 1.3 MiddlewareAgentsApi (`ctx.agents`)
+
+`turn`과 `step` 미들웨어는 `ctx.agents`를 통해 다른 에이전트를 프로그래매틱하게 호출할 수 있습니다. 이 경로는 `agents__request`, `agents__send`와 동일한 Orchestrator IPC 라우팅을 재사용합니다.
+
+```typescript
+interface MiddlewareAgentsApi {
+  request(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    timeoutMs?: number; // 기본값: 15000
+    metadata?: Record<string, unknown>;
+  }): Promise<{ target: string; response: string }>;
+
+  send(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ accepted: boolean }>;
+}
+```
+
+규칙:
+
+- `turn`, `step` 컨텍스트에서만 사용 가능합니다.
+- `toolCall` 컨텍스트에서는 제공되지 않습니다.
+- `request` 기본 타임아웃은 `15000ms`입니다.
+- 런타임은 순환 요청 체인을 감지하고 오류를 반환합니다.
+
+예제:
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: '현재 사용자 입력과 관련된 컨텍스트를 찾으세요',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+---
+
+#### 1.4 ToolCallMiddlewareContext
 
 단일 도구 호출을 감쌉니다. Step 내에서 각 도구 호출마다 실행됩니다.
 

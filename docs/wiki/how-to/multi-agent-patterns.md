@@ -29,6 +29,15 @@ Agents in a Goondan swarm communicate exclusively through the Orchestrator using
 
 All communication flows through the Orchestrator, which routes events by `instanceKey` and spawns target agents automatically when needed.
 
+In addition to LLM tool calls, `turn` / `step` middleware can call agents programmatically via `ctx.agents`:
+
+| Middleware API | Pattern | Description |
+|----------------|---------|-------------|
+| `ctx.agents.request` | Request-response | Extension middleware sends a request and waits for response |
+| `ctx.agents.send` | Fire-and-forget | Extension middleware sends an async notification |
+
+`ctx.agents` currently supports `request` / `send` only. Instance preparation/discovery (`spawn`, `list`, `catalog`) stays on the `agents` tool path.
+
 ---
 
 ## Setup: Include the agents tool
@@ -52,6 +61,42 @@ spec:
 ```
 
 This exposes five LLM-callable tools: `agents__request`, `agents__send`, `agents__spawn`, `agents__list`, and `agents__catalog`.
+
+---
+
+## Pattern 0: Middleware-triggered request/send (`ctx.agents`)
+
+Use this when inter-agent calls should happen automatically in Extension middleware (for example, turn preloading or turn post auditing), without asking the worker LLM to explicitly call `agents__request`.
+
+```typescript
+api.pipeline.register('turn', async (ctx) => {
+  const preload = await ctx.agents.request({
+    target: 'retriever',
+    input: 'Find context for this inbound message',
+    timeoutMs: 5000,
+  });
+
+  if (preload.response.length > 0) {
+    ctx.metadata.preloadedContext = preload.response;
+  }
+
+  const result = await ctx.next();
+
+  await ctx.agents.send({
+    target: 'observer',
+    input: `turn=${ctx.turnId} finish=${result.finishReason}`,
+  });
+
+  return result;
+});
+```
+
+Notes:
+
+- Available only in `turn` / `step` middleware contexts.
+- `toolCall` context does not expose `ctx.agents`.
+- Default `request` timeout is `15000ms` if omitted.
+- Cyclic request chains are detected by runtime and return an error.
 
 ---
 

@@ -63,6 +63,7 @@
 - `@goondan/*` npm 패키지의 `package.json` 버전은 단일 버전으로 통일해 관리하고, 버전 변경 시 관련 패키지를 일괄 갱신할 것
 - npm 공개 배포 대상(`@goondan/cli`, `@goondan/runtime` 등) 패키지는 `package.json`에 `publishConfig.access = "public"`을 유지할 것(스코프 패키지 402 방지)
 - `@goondan/base`는 npm 배포 대상이 아니므로 publish를 수행하지 말 것
+- `@goondan/base` 변경 배포는 npm이 아니라 `gdn package publish`로 수행할 것 (예: `gdn package publish packages/base/goondan.yaml`, 기본 레지스트리 `https://goondan-registry.yechanny.workers.dev`)
 - 변경 사항에 맞는 테스트를 항상 작성/보완하고, 작업 완료 시 빌드 및 테스트를 반드시 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지. 타입 가드/정확한 타입 정의로 해결할 것
 - Turn 메시지 상태 모델은 `NextMessages = BaseMessages + SUM(Events)`를 기준으로 문서/구현을 동기화할 것 (`messages/base.jsonl`, `messages/events.jsonl` 포함). `messages/runtime-events.jsonl`은 관측성 스트림으로 별도 유지할 것

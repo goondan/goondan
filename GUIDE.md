@@ -383,6 +383,7 @@ spec:
 4. **`gdn studio`**
    - 인스턴스별 Graph/Flow를 시각적으로 확인
    - `runtime-events.jsonl`, 메시지 로그, runtime 로그를 함께 확인할 때 유용
+   - foreground 실행이므로 `Ctrl+C`로 종료하면 Studio 서버와 포트가 함께 정리됨
 
 5. 위 1~4를 정리한 뒤 재실행
 

@@ -139,6 +139,85 @@ export interface PackagePublishResult {
   dryRun: boolean;
 }
 
+export interface StudioInstanceSummary {
+  key: string;
+  status: string;
+  agent: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudioParticipant {
+  id: string;
+  label: string;
+  kind: 'agent' | 'user' | 'assistant' | 'tool' | 'extension' | 'connector' | 'system' | 'unknown';
+  lastSeenAt: string;
+}
+
+export interface StudioInteractionHistory {
+  at: string;
+  from: string;
+  to: string;
+  direction: 'a->b' | 'b->a';
+  kind: string;
+  detail: string;
+}
+
+export interface StudioInteraction {
+  key: string;
+  a: string;
+  b: string;
+  total: number;
+  lastSeenAt: string;
+  direction: 'a->b' | 'b->a' | 'undirected';
+  history: StudioInteractionHistory[];
+}
+
+export interface StudioTimelineEntry {
+  at: string;
+  kind: 'message' | 'runtime-event' | 'connector-log';
+  source: string;
+  target?: string;
+  subtype: string;
+  detail: string;
+}
+
+export interface StudioVisualization {
+  instanceKey: string;
+  participants: StudioParticipant[];
+  interactions: StudioInteraction[];
+  timeline: StudioTimelineEntry[];
+  recentEvents: StudioTimelineEntry[];
+}
+
+export interface StudioInstancesRequest {
+  stateRoot?: string;
+}
+
+export interface StudioInstanceRequest {
+  stateRoot?: string;
+  instanceKey: string;
+  maxRecentEvents?: number;
+}
+
+export interface StudioServerRequest {
+  stateRoot?: string;
+  port: number;
+  host: string;
+}
+
+export interface StudioServerSession {
+  url: string;
+  close(): Promise<void>;
+  closed: Promise<void>;
+}
+
+export interface StudioService {
+  listInstances(request: StudioInstancesRequest): Promise<StudioInstanceSummary[]>;
+  loadVisualization(request: StudioInstanceRequest): Promise<StudioVisualization>;
+  startServer(request: StudioServerRequest): Promise<StudioServerSession>;
+}
+
 export interface RegistryPackageMetadata {
   name: string;
   latestVersion: string;
@@ -289,4 +368,5 @@ export interface CliDependencies {
   doctor: DoctorService;
   logs: LogService;
   init: InitService;
+  studio: StudioService;
 }

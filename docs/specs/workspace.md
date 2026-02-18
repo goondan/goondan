@@ -53,11 +53,13 @@ Goondan v2의 워크스페이스는 **2-root** 구조를 채택한다. **프로�
 ### 2.4 메시지 영속화 규칙
 
 1. 메시지 상태는 `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록되어야 한다(MUST).
-2. Turn 종료 폴드-커밋의 실행 시점/순서는 `docs/specs/runtime.md`의 메시지 상태 실행 규칙을 따라야 한다(MUST).
-3. Turn 종료 시 기존 base에 delta append가 가능하면 전체 rewrite 대신 delta append를 우선 사용해야 한다(SHOULD). Mutation 발생 시에만 rewrite해야 한다(SHOULD).
-4. `events.jsonl`은 Turn 최종 base 반영이 성공한 뒤에만 비울 수 있다(MUST).
-5. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
-6. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다(MUST NOT).
+2. Runtime은 Turn/Step/Tool 관측성 이벤트를 `messages/runtime-events.jsonl`에 append-only로 기록해야 한다(MUST).
+3. Turn 종료 폴드-커밋의 실행 시점/순서는 `docs/specs/runtime.md`의 메시지 상태 실행 규칙을 따라야 한다(MUST).
+4. Turn 종료 시 기존 base에 delta append가 가능하면 전체 rewrite 대신 delta append를 우선 사용해야 한다(SHOULD). Mutation 발생 시에만 rewrite해야 한다(SHOULD).
+5. `events.jsonl`은 Turn 최종 base 반영이 성공한 뒤에만 비울 수 있다(MUST).
+6. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
+7. `runtime-events.jsonl`은 메시지 상태 복원(`Base + SUM(Events)`) 입력으로 사용해서는 안 된다(MUST NOT).
+8. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다(MUST NOT).
 
 ### 2.5 보안 규칙
 
@@ -162,7 +164,8 @@ function generateWorkspaceId(workspaceName?: string): string {
                 ├── metadata.json        # 상태, 생성일시
                 ├── messages/
                 │   ├── base.jsonl       # 확정된 Message 목록
-                │   └── events.jsonl     # Turn 중 누적 MessageEvent 로그
+                │   ├── events.jsonl     # Turn 중 누적 MessageEvent 로그
+                │   └── runtime-events.jsonl # Turn/Step/Tool RuntimeEvent 로그
                 └── extensions/
                     └── <ext-name>.json  # Extension 상태
 
@@ -271,7 +274,8 @@ System Root(`~/.goondan/`)는 CLI 설정, 패키지, 인스턴스 상태를 통�
                 ├── metadata.json        # 상태, 생성일시
                 ├── messages/
                 │   ├── base.jsonl       # 확정된 Message 목록
-                │   └── events.jsonl     # Turn 중 누적 MessageEvent 로그
+                │   ├── events.jsonl     # Turn 중 누적 MessageEvent 로그
+                │   └── runtime-events.jsonl # Turn/Step/Tool RuntimeEvent 로그
                 └── extensions/
                     └── <ext-name>.json  # Extension 상태
 ```
@@ -329,7 +333,8 @@ interface SystemConfig {
 ├── metadata.json                # MUST: 인스턴스 상태 메타데이터
 ├── messages/
 │   ├── base.jsonl               # MUST: 확정된 Message 목록
-│   └── events.jsonl             # MUST: Turn 중 누적 MessageEvent 로그
+│   ├── events.jsonl             # MUST: Turn 중 누적 MessageEvent 로그
+│   └── runtime-events.jsonl     # MUST: Turn/Step/Tool RuntimeEvent 로그
 └── extensions/
     └── <ext-name>.json          # MUST: Extension 상태
 ```
@@ -376,7 +381,7 @@ interface InstanceMetadata {
 
 ### 7.3 messages/ 디렉터리
 
-메시지 상태는 `base.jsonl`과 `events.jsonl`로 분리 저장된다.
+메시지 상태와 관측성 이벤트는 `base.jsonl`, `events.jsonl`, `runtime-events.jsonl`로 분리 저장된다.
 
 #### 7.3.1 Message Base Log (`base.jsonl`)
 
@@ -415,7 +420,25 @@ Runtime은 Turn 중 발생하는 MessageEvent를 `events.jsonl`에 append-only�
 3. Runtime 재시작 시 `events.jsonl`이 비어 있지 않으면 마지막 base와 합성하여 복원해야 한다(MUST).
 4. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다(MUST NOT).
 
-#### 7.3.3 Turn 종료 시 폴드-커밋
+#### 7.3.3 Runtime Event Log (`runtime-events.jsonl`)
+
+Runtime은 Turn/Step/Tool 실행 관측성 이벤트를 `runtime-events.jsonl`에 append-only로 기록해야 한다(MUST).
+
+**레코드 형식:**
+
+```jsonl
+{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001"}
+{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
+```
+
+**규칙:**
+
+1. `runtime-events.jsonl`은 관측성 로그이며 메시지 상태 계산(`Base + SUM(Events)`)에 포함되지 않아야 한다(MUST NOT).
+2. Runtime Event는 append-only로 기록해야 한다(MUST).
+3. Turn/Step/Tool 이벤트 타입은 런타임 이벤트 계약(`turn.*`, `step.*`, `tool.*`)을 따라야 한다(MUST).
+
+#### 7.3.4 Turn 종료 시 폴드-커밋
 
 **규칙:**
 
@@ -571,6 +594,10 @@ export class WorkspacePaths {
     return path.join(this.instancePath(instanceKey), 'messages', 'events.jsonl');
   }
 
+  instanceRuntimeEventsPath(instanceKey: string): string {
+    return path.join(this.instancePath(instanceKey), 'messages', 'runtime-events.jsonl');
+  }
+
   instanceExtensionStatePath(instanceKey: string, extensionName: string): string {
     return path.join(this.instancePath(instanceKey), 'extensions', `${extensionName}.json`);
   }
@@ -606,6 +633,9 @@ console.log(paths.workspaceId);
 
 console.log(paths.instanceMessageBasePath('user:123'));
 // => "/Users/alice/.goondan/workspaces/main-prod/instances/user:123/messages/base.jsonl"
+
+console.log(paths.instanceRuntimeEventsPath('user:123'));
+// => "/Users/alice/.goondan/workspaces/main-prod/instances/user:123/messages/runtime-events.jsonl"
 
 console.log(paths.instanceExtensionStatePath('user:123', 'compaction'));
 // => "/Users/alice/.goondan/workspaces/main-prod/instances/user:123/extensions/compaction.json"
@@ -671,6 +701,11 @@ async function initializeInstanceState(
     paths.instanceMetadataPath(instanceKey),
     JSON.stringify(metadata, null, 2)
   );
+
+  // 메시지 로그 파일 초기화
+  await fs.writeFile(paths.instanceMessageBasePath(instanceKey), '', { flag: 'a' });
+  await fs.writeFile(paths.instanceMessageEventsPath(instanceKey), '', { flag: 'a' });
+  await fs.writeFile(paths.instanceRuntimeEventsPath(instanceKey), '', { flag: 'a' });
 }
 ```
 
@@ -710,13 +745,15 @@ async function initializeInstanceState(
 3. 메시지 상태는 `messages/base.jsonl` + `messages/events.jsonl`로 분리 기록되어야 한다.
 4. `base.jsonl`은 Turn 종료 시 fold 결과를 기록해야 한다.
 5. `events.jsonl`은 Turn 중 append되고, base 반영 성공 후 비워져야 한다.
-6. Extension 상태는 `extensions/<ext-name>.json`에 JSON으로 저장되어야 한다.
-7. 비밀값은 평문 저장이 금지되며, 로그/메트릭에 마스킹 없이 기록해서는 안 된다.
-8. `metadata.json`에는 최소 상태, Agent 이름, instanceKey, 생성/갱신 시각을 포함해야 한다.
-9. workspaceId는 실행 Swarm 인스턴스 키를 입력으로 한 slug로 결정론적으로 생성되어야 한다.
-10. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다.
-11. Extension state 파일은 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다.
-12. Tool/Extension은 System Root의 비밀값 저장소 구현체(파일/키체인 등)에 직접 접근하거나 수정해서는 안 된다.
+6. `runtime-events.jsonl`은 Turn/Step/Tool 관측성 이벤트를 append-only로 기록해야 한다.
+7. `runtime-events.jsonl`은 메시지 상태 복원(`Base + SUM(Events)`) 입력으로 사용해서는 안 된다.
+8. Extension 상태는 `extensions/<ext-name>.json`에 JSON으로 저장되어야 한다.
+9. 비밀값은 평문 저장이 금지되며, 로그/메트릭에 마스킹 없이 기록해서는 안 된다.
+10. `metadata.json`에는 최소 상태, Agent 이름, instanceKey, 생성/갱신 시각을 포함해야 한다.
+11. workspaceId는 실행 Swarm 인스턴스 키를 입력으로 한 slug로 결정론적으로 생성되어야 한다.
+12. Turn 경계는 `turnId`로 구분되며, 서로 다른 Turn의 이벤트를 혼합 적용해서는 안 된다.
+13. Extension state 파일은 직렬화 불가능한 값(함수, Symbol 등)을 포함해서는 안 된다.
+14. Tool/Extension은 System Root의 비밀값 저장소 구현체(파일/키체인 등)에 직접 접근하거나 수정해서는 안 된다.
 
 ### SHOULD 권장사항
 
@@ -757,4 +794,4 @@ async function initializeInstanceState(
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-12
+**최종 수정**: 2026-02-18

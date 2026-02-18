@@ -378,8 +378,13 @@ spec:
 3. **`gdn logs --instance-key <instanceKey>`**
    - 최근 로그로 root cause를 먼저 확인
    - 로그 위치: `~/.goondan/runtime/logs/<instanceKey>/`
+   - Runtime Event 로그 위치: `~/.goondan/workspaces/<workspaceId>/instances/<instanceKey>/messages/runtime-events.jsonl`
 
-4. 위 1~3을 정리한 뒤 재실행
+4. **`gdn studio`**
+   - 인스턴스별 Graph/Flow를 시각적으로 확인
+   - `runtime-events.jsonl`, 메시지 로그, runtime 로그를 함께 확인할 때 유용
+
+5. 위 1~4를 정리한 뒤 재실행
 
 ### 5.2 `gdn validate` 실패 대응
 
@@ -498,6 +503,7 @@ gdn package install              # 패키지 설치
 gdn validate                # 설정 검증 (실행 전 필수)
 gdn run --foreground        # CLI로 대화하며 테스트
 gdn logs                    # 로그 확인
+gdn studio --no-open        # Studio 서버만 실행 (브라우저 자동 열기 비활성화)
 ```
 
 ### 6.3 배포/운영
@@ -527,6 +533,7 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 | `gdn run` | 실행 | `--foreground`, `--swarm <name>` |
 | `gdn restart` | 재시작 | |
 | `gdn logs` | 로그 확인 | `--lines N`, `--instance-key <key>` |
+| `gdn studio` | 상호작용 시각화 서버 실행 | `--host <host>`, `--port <port>`, `--no-open` |
 | `gdn instance list` | 인스턴스 목록 | |
 | `gdn instance restart` | 인스턴스 재시작 | |
 | `gdn instance delete` | 인스턴스 제거 | `--force` |
@@ -539,6 +546,7 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 - **`gdn run` 또는 `validate` 실패**: `docs/specs/resources.md` → 리소스 필드 정의 확인
 - **런타임 오류**: `docs/specs/runtime.md` → 런타임 동작 모델 이해
 - **CLI 명령어 상세**: `docs/specs/cli.md` → 전체 명령어 레퍼런스
+- **Studio 관측/시각화**: `docs/specs/cli.md` → `gdn studio` API/옵션 확인
 
 ### 7.2 설계/의사결정 시
 - **전체 아키텍처 이해**: `docs/architecture.md` → 시스템 개요, 핵심 개념, 설계 패턴

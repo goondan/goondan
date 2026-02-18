@@ -4,7 +4,7 @@
 
 ## 책임 범위
 
-- 명령 파싱/라우팅 (`init`, `run`, `restart`, `validate`, `instance`, `logs`, `package`, `doctor`)
+- 명령 파싱/라우팅 (`init`, `run`, `restart`, `validate`, `instance`, `logs`, `package`, `doctor`, `studio`)
 - `init` 시 4종 템플릿(default, multi-agent, package, minimal) 기반 프로젝트 스캐폴딩 + git 초기화 (`goondan.yaml` 첫 문서 `kind: Package` 기본 생성, `--package` 옵션 미지원)
 - `run` 시 detached runtime runner 기동 + startup handshake(ready/start_error)로 초기화 실패를 즉시 노출
 - `run --watch` 시 bundle/리소스 YAML 및 Tool/Connector entry 변경 감지 후 replacement orchestrator 재기동
@@ -23,6 +23,7 @@
 - `instance` (bare) 시 인터랙티브 TUI 모드 — non-TTY/`--json` 환경에서는 `instance list`로 자동 폴백, TTY에서는 `r` 키로 선택 인스턴스 재시작 + started 시각 확인
 - active pid 종료 전 `runtime-runner + instance-key` 일치 여부를 검증해 오탐 종료를 방지
 - `logs` 명령으로 인스턴스/프로세스별 로그 파일 tail 조회 지원
+- `studio` 명령으로 Studio 서버 실행(`--host`/`--port`/`--open`/`--no-open`) + `/api/instances`, `/api/instances/:key/visualization` 제공, 시각화 입력으로 `base.jsonl`/`events.jsonl`/`runtime-events.jsonl` 및 runtime 로그를 함께 사용
 - CLI 빌드 시 `dist/bin.js` 실행 권한 유지(`chmod +x`)
 - 출력 포맷(구조화 오류, suggestion/helpUrl 포함)
 - `validate`는 runtime BundleLoader 기반 fail-fast 검증(참조/Kind/Package 문서 위치 포함)을 수행
@@ -35,7 +36,7 @@
 
 - **`@optique/core`** + **`@optique/run`** 패키지 사용 (type-safe combinatorial CLI parser)
 - `src/parser.ts`: Optique 파서 정의 + 타입 추론 (`gdnParser`, `GdnArgs`, `GdnCommand`)
-  - 12개 action discriminated union: `init`, `run`, `restart`, `validate`, `instance.list`, `instance.restart`, `instance.delete`, `package.add`, `package.install`, `package.publish`, `doctor`, `logs`
+  - 13개 action discriminated union: `init`, `run`, `restart`, `validate`, `instance.list`, `instance.restart`, `instance.delete`, `package.add`, `package.install`, `package.publish`, `doctor`, `logs`, `studio`
   - `parseArgv(argv)`: 테스트용 래퍼 (no process.exit, `Result<GdnArgs>` 반환)
   - `formatParseError(result)`: 파싱 에러 메시지 변환
 - `src/bin.ts`: `run()` (from `@optique/run`) 사용 — `--help`, `--version`, completion, 에러 포맷 자동 처리

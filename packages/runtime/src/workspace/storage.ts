@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { ConversationStateImpl, applyMessageEvents } from "../conversation/state.js";
+import type { RuntimeEvent } from "../events/runtime-events.js";
 import type {
   CoreMessage,
   JsonValue,
@@ -61,6 +62,7 @@ export class FileWorkspaceStorage {
 
     await ensureFile(this.paths.instanceMessageBasePath(instanceKey));
     await ensureFile(this.paths.instanceMessageEventsPath(instanceKey));
+    await ensureFile(this.paths.instanceRuntimeEventsPath(instanceKey));
   }
 
   async loadConversation(instanceKey: string): Promise<LoadedConversation> {
@@ -86,6 +88,13 @@ export class FileWorkspaceStorage {
 
     const serialized = JSON.stringify(serializeMessageEvent(event));
     await fs.appendFile(eventPath, `${serialized}\n`, "utf8");
+  }
+
+  async appendRuntimeEvent(instanceKey: string, event: RuntimeEvent): Promise<void> {
+    const runtimeEventPath = this.paths.instanceRuntimeEventsPath(instanceKey);
+    await ensureParentDir(runtimeEventPath);
+
+    await fs.appendFile(runtimeEventPath, `${JSON.stringify(event)}\n`, "utf8");
   }
 
   async foldEventsToBase(instanceKey: string): Promise<void> {

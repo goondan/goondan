@@ -21,6 +21,11 @@ import type {
   RuntimeRestartResult,
   RuntimeStartRequest,
   RuntimeStartResult,
+  StudioInstanceRequest,
+  StudioInstancesRequest,
+  StudioServerRequest,
+  StudioServerSession,
+  StudioVisualization,
   TerminalIO,
   ValidationResult,
 } from '../src/types.js';
@@ -37,6 +42,9 @@ export interface MockState {
   addRequests: PackageAddRequest[];
   installRequests: PackageInstallRequest[];
   publishRequests: PackagePublishRequest[];
+  studioListRequests: StudioInstancesRequest[];
+  studioVisualizationRequests: StudioInstanceRequest[];
+  studioServerRequests: StudioServerRequest[];
 }
 
 export interface MockTerminalState {
@@ -105,6 +113,9 @@ export interface MockOverrides {
   doctorResult?: DoctorReport;
   logResult?: LogReadResult;
   initResult?: InitResult;
+  studioListResult?: { key: string; status: string; agent: string; createdAt: string; updatedAt: string }[];
+  studioVisualizationResult?: StudioVisualization;
+  studioServerResult?: StudioServerSession;
 }
 
 function defaultValidation(): ValidationResult {
@@ -137,6 +148,9 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
     addRequests: [],
     installRequests: [],
     publishRequests: [],
+    studioListRequests: [],
+    studioVisualizationRequests: [],
+    studioServerRequests: [],
   };
 
   const validateResult = overrides?.validateResult ?? defaultValidation();
@@ -255,6 +269,36 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
             template: request.template,
             filesCreated: ['goondan.yaml', '.env', '.gitignore'],
             gitInitialized: request.git,
+          }
+        );
+      }),
+    },
+    studio: {
+      listInstances: vi.fn(async (request: StudioInstancesRequest) => {
+        state.studioListRequests.push(request);
+        return overrides?.studioListResult ?? [];
+      }),
+      loadVisualization: vi.fn(async (request: StudioInstanceRequest): Promise<StudioVisualization> => {
+        state.studioVisualizationRequests.push(request);
+        return (
+          overrides?.studioVisualizationResult ?? {
+            instanceKey: request.instanceKey,
+            participants: [],
+            interactions: [],
+            timeline: [],
+            recentEvents: [],
+          }
+        );
+      }),
+      startServer: vi.fn(async (request: StudioServerRequest): Promise<StudioServerSession> => {
+        state.studioServerRequests.push(request);
+        return (
+          overrides?.studioServerResult ?? {
+            url: `http://${request.host}:${String(request.port)}`,
+            async close(): Promise<void> {
+              return;
+            },
+            closed: Promise.resolve(),
           }
         );
       }),

@@ -156,6 +156,17 @@ const logsCommand = command(
   }),
 );
 
+const studioCommand = command(
+  'studio',
+  object({
+    action: constant('studio'),
+    host: withDefault(option('--host', string({ metavar: 'HOST' })), '127.0.0.1'),
+    port: withDefault(option('--port', integer({ min: 1, max: 65535 })), 4317),
+    open: optional(option('--open')),
+    noOpen: optional(option('--no-open')),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Top-level parser: global options + command union
 // ---------------------------------------------------------------------------
@@ -169,6 +180,7 @@ const allCommands = or(
   packageCommand,
   doctorCommand,
   logsCommand,
+  studioCommand,
 );
 
 export const gdnParser = merge(globalOptions, object({ command: allCommands }));

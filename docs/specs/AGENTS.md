@@ -11,15 +11,15 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `resources.md` - Config Plane 리소스 정의 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef "Kind/name", ValueSource, Kind별 스키마, SwarmPolicy.shutdown, 검증 오류 형식)
 - `bundle.md` - Bundle YAML 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, Config 참조 모델(ObjectRef/ValueSource) 사용 문맥, YAML 보안, 경로 해석, 분할 파일 구성)
 - `bundle_package.md` - Package 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 프로젝트 매니페스트, ~/.goondan/packages/, 레지스트리 API, 의존성 해석, values 병합 우선순위, **dist/goondan.yaml 배포 규칙/manifest 우선순위/Package Root 경로 규칙**, 보안/검증 오류 코드, CLI 명령어)
-- `runtime.md` - **[v0.0.3]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, Extension `ctx.agents` 경로, request 순환 호출 감지, Edit & Restart, Observability)
+- `runtime.md` - **[v0.0.3]** Runtime 실행 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, Orchestrator 상주 프로세스, Process-per-Agent, IPC 메시지 브로커, Reconciliation Loop, Graceful Shutdown Protocol, Turn/Step, Message 이벤트 소싱, `runtime-events.jsonl` 관측 스트림, Extension `ctx.agents` 경로, request 순환 호출 감지, Edit & Restart, Observability)
 - `connector.md` - Connector 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 별도 Bun 프로세스, 자체 프로토콜 관리, ConnectorEvent 발행)
 - `connection.md` - Connection 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 시크릿)
 - `extension.md` - Extension 시스템 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, `turn`/`step` 컨텍스트의 `ctx.agents` request/send, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - `oauth.md` - OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - `pipeline.md` - 라이프사이클 파이프라인 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, `turn`/`step`의 `ctx.agents` API, ConversationState 이벤트 소싱, PipelineRegistry)
 - `tool.md` - Tool 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델)
-- `workspace.md` - **[v0.0.3]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화, Extension state, 보안 규칙, 프로세스별 로깅)
-- `cli.md` - **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor)
+- `workspace.md` - **[v0.0.3]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화(`base/events/runtime-events`), Extension state, 보안 규칙, 프로세스별 로깅)
+- `cli.md` - **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor, studio)
 
 ## 문서 작성 규칙
 
@@ -37,7 +37,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 1. **아키텍처 일치**: 스펙은 `docs/architecture.md`의 핵심 개념/설계 원칙과 일치해야 합니다.
 2. **GUIDE.md 동기화**: 스펙 변경 시 `/GUIDE.md` 반영 여부를 검토합니다.
 3. **구현 검증**: 스펙 변경 후 `packages/runtime` 및 `packages/types` 구현이 스펙을 준수하는지 확인합니다.
-4. **메시지 모델 정합성**: Runtime/Workspace/Pipeline/Extension/API 스펙에서 Turn 메시지 처리 규칙은 `NextMessages = BaseMessages + SUM(Events)` 및 `messages/base.jsonl`/`messages/events.jsonl` 구조와 일치해야 합니다.
+4. **메시지 모델 정합성**: Runtime/Workspace/Pipeline/Extension/API 스펙에서 Turn 메시지 처리 규칙은 `NextMessages = BaseMessages + SUM(Events)` 및 `messages/base.jsonl`/`messages/events.jsonl` 구조와 일치해야 합니다. `messages/runtime-events.jsonl`은 관측성 스트림으로 분리되어야 합니다.
 5. **v0.0.3 핵심 변경 사항**:
    - `apiVersion`: `goondan.ai/v1`
    - 실행 환경: Bun (Tool은 AgentProcess 내부 모듈 로드/핸들러 실행)
@@ -46,10 +46,11 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
    - IPC: `event`/`shutdown`/`shutdown_ack` 3종 + `AgentEvent.replyTo` 기반 통합 이벤트 모델
    - 공통 타입 SSOT: `shared-types.md` 기준으로 문서 간 타입 드리프트 방지
    - Connector: 별도 Bun 프로세스, 자체 프로토콜 관리
-- Connection: `config`/`secrets` 분리 전달, OAuth는 Extension 내부 구현
+   - Connection: `config`/`secrets` 분리 전달, OAuth는 Extension 내부 구현
    - 설정 변경 모델: Edit & Restart (runtime.md 참조)
-   - OAuth: Extension 내부 구현
    - Pipeline: Middleware 통합 (turn/step/toolCall 3종)
+   - Runtime Event Stream: `runtime-events.jsonl` append-only 기록, 메시지 상태 계산과 분리
+   - CLI Studio: `gdn studio` 명령으로 인스턴스 시각화 서버 제공
 6. **공통 타입 단일 기준**: 문서 간 공유 타입은 `shared-types.md`를 먼저 갱신하고, 개별 스펙은 링크/참조 중심으로 유지합니다.
 7. **도움말 단일 기준**: 공통 운영 규칙(레지스트리 설정, `gdn package` 명령어 매트릭스, env 해석 정책)은 `help.md`를 기준으로 유지합니다.
 8. **소유권 기반 작성**: 타입/계약의 소유 문서는 `help.md` 2절 매트릭스를 따르며, 비소유 문서에서의 중복 재정의는 피하고 참조를 우선합니다.

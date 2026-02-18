@@ -9,6 +9,7 @@ import { FileLogService } from './logs.js';
 import { DefaultPackageService } from './package.js';
 import { HttpRegistryClient } from './registry.js';
 import { LocalRuntimeController } from './runtime.js';
+import { DefaultStudioService } from './studio.js';
 import { DefaultBundleValidator } from './validator.js';
 
 async function readCliVersion(cwd: string): Promise<string> {
@@ -73,6 +74,7 @@ export function createDefaultDependencies(): CliDependencies {
   const runtime = new LocalRuntimeController(cwd, env);
   const instances = new FileInstanceStore(env);
   const logs = new FileLogService(env);
+  const studio = new DefaultStudioService(env, instances);
   const packages = new DefaultPackageService(cwd, env, registry, validator);
   const doctor = new DefaultDoctorService(cwd, env, validator);
   const init = new DefaultInitService();
@@ -90,6 +92,7 @@ export function createDefaultDependencies(): CliDependencies {
     doctor,
     logs,
     init,
+    studio,
   };
 
   void readCliVersion(cwd).then((version) => {

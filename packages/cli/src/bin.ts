@@ -16,6 +16,7 @@ import type { InstanceInteractiveGlobals } from './commands/instance-interactive
 import { handlePackageAdd, handlePackageInstall, handlePackagePublish } from './commands/package.js';
 import { handleDoctor } from './commands/doctor.js';
 import { handleLogs } from './commands/logs.js';
+import { handleStudio } from './commands/studio.js';
 
 function isBareInstanceArgv(argv: readonly string[]): boolean {
   const nonGlobalArgs: string[] = [];
@@ -130,6 +131,9 @@ async function main(): Promise<void> {
         break;
       case 'logs':
         exitCode = await handleLogs({ cmd, deps, globals });
+        break;
+      case 'studio':
+        exitCode = await handleStudio({ cmd, deps, globals });
         break;
       default:
         exitCode = 2;

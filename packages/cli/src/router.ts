@@ -8,6 +8,7 @@ import { handleInit } from './commands/init.js';
 import { handleInstanceList, handleInstanceDelete, handleInstanceRestart } from './commands/instance.js';
 import { handleInstanceInteractive } from './commands/instance-interactive.js';
 import type { InstanceInteractiveGlobals } from './commands/instance-interactive.js';
+import { handleStudio } from './commands/studio.js';
 import { handleLogs } from './commands/logs.js';
 import { handlePackageAdd, handlePackageInstall, handlePackagePublish } from './commands/package.js';
 import { handleRestart } from './commands/restart.js';
@@ -122,6 +123,8 @@ async function dispatchCommand(
       return handleDoctor({ cmd, deps, globals });
     case 'logs':
       return handleLogs({ cmd, deps, globals });
+    case 'studio':
+      return handleStudio({ cmd, deps, globals });
     default:
       throw usageError('지원하지 않는 명령어입니다.', 'gdn --help로 명령 목록을 확인하세요.');
   }

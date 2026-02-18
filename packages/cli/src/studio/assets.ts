@@ -336,6 +336,35 @@ body::before {
   fill: none;
 }
 
+.flow-step {
+  fill: rgba(142, 184, 255, 0.2);
+  stroke: rgba(142, 184, 255, 0.62);
+  stroke-width: 1.2;
+  rx: 8;
+  ry: 8;
+}
+
+.flow-step.called {
+  fill: rgba(142, 184, 255, 0.24);
+  stroke: rgba(142, 184, 255, 0.78);
+}
+
+.flow-step.done {
+  fill: rgba(124, 245, 222, 0.22);
+  stroke: rgba(124, 245, 222, 0.78);
+}
+
+.flow-step.failed {
+  fill: rgba(255, 159, 110, 0.2);
+  stroke: rgba(255, 159, 110, 0.78);
+}
+
+.flow-dot {
+  fill: #73f0d6;
+  stroke: rgba(8, 17, 38, 0.8);
+  stroke-width: 1;
+}
+
 .event-particle {
   fill: #ffffff;
   filter: drop-shadow(0 0 6px rgba(124, 245, 222, 0.9));
@@ -761,6 +790,66 @@ function renderGraph(viz) {
   els.graphView.appendChild(wrap);
 }
 
+function pickFlowParticipants(participants) {
+  const prioritized = participants.filter((item) => item.kind === "agent" || item.kind === "connector");
+  if (prioritized.length > 0) {
+    return prioritized;
+  }
+
+  const fallback = participants.filter((item) => item.kind !== "tool" && item.kind !== "extension");
+  if (fallback.length > 0) {
+    return fallback;
+  }
+
+  return participants;
+}
+
+function isToolStepEvent(event) {
+  return (
+    event &&
+    event.kind === "runtime-event" &&
+    (event.subtype === "tool.called" || event.subtype === "tool.completed" || event.subtype === "tool.failed")
+  );
+}
+
+function truncateFlowText(text, limit) {
+  if (typeof text !== "string") {
+    return "";
+  }
+  if (text.length <= limit) {
+    return text;
+  }
+  return text.slice(0, limit) + "…";
+}
+
+function summarizeFlowEvent(event, maxLength) {
+  const detail = event.detail || "";
+  const text = formatTs(event.at) + " · " + event.subtype + (detail ? " · " + detail : "");
+  return truncateFlowText(text, maxLength);
+}
+
+function resolveToolStepLaneIndex(event, laneById) {
+  const sourceIndex = laneById.has(event.source) ? laneById.get(event.source) : undefined;
+  const targetIndex = laneById.has(event.target) ? laneById.get(event.target) : undefined;
+  if (event.subtype === "tool.called") {
+    if (typeof sourceIndex === "number") {
+      return sourceIndex;
+    }
+    if (typeof targetIndex === "number") {
+      return targetIndex;
+    }
+    return 0;
+  }
+
+  if (typeof targetIndex === "number") {
+    return targetIndex;
+  }
+  if (typeof sourceIndex === "number") {
+    return sourceIndex;
+  }
+  return 0;
+}
+
 function renderFlow(viz) {
   const timeline = Array.isArray(viz.timeline) ? viz.timeline : [];
   const participants = Array.isArray(viz.participants) ? viz.participants : [];
@@ -769,12 +858,13 @@ function renderFlow(viz) {
     return;
   }
 
-  const laneWidth = 180;
+  const laneWidth = 220;
   const topPad = 42;
-  const rowGap = 62;
-  const lanes = participants.slice(0, 10);
+  const rowGap = 64;
+  const lanes = pickFlowParticipants(participants).slice(0, 10);
+  const visibleTimeline = timeline.slice(-160);
   const width = Math.max(760, laneWidth * lanes.length);
-  const height = Math.max(280, topPad + timeline.length * rowGap + 40);
+  const height = Math.max(280, topPad + visibleTimeline.length * rowGap + 40);
   const laneById = new Map(lanes.map((item, index) => [item.id, index]));
 
   const wrap = document.createElement("div");
@@ -818,13 +908,69 @@ function renderFlow(viz) {
     svg.appendChild(laneLine);
   });
 
-  timeline.slice(-120).forEach((event, index) => {
+  visibleTimeline.forEach((event, index) => {
     const y = topPad + index * rowGap;
-    const sourceIndex = laneById.has(event.source) ? laneById.get(event.source) : 0;
-    const targetIndex = laneById.has(event.target) ? laneById.get(event.target) : sourceIndex;
+    if (isToolStepEvent(event)) {
+      const laneIndex = resolveToolStepLaneIndex(event, laneById);
+      const laneCenter = laneWidth * laneIndex + laneWidth / 2;
+      const stepWidth = Math.max(140, laneWidth - 30);
+      const stepHeight = 28;
+      const stepX = laneCenter - stepWidth / 2;
+      const stepY = y - stepHeight / 2;
+      const step = createSvgEl("rect");
+      const stepClass =
+        event.subtype === "tool.called"
+          ? "flow-step called"
+          : event.subtype === "tool.failed"
+            ? "flow-step failed"
+            : "flow-step done";
+      step.setAttribute("x", String(stepX));
+      step.setAttribute("y", String(stepY));
+      step.setAttribute("width", String(stepWidth));
+      step.setAttribute("height", String(stepHeight));
+      step.setAttribute("class", stepClass);
+      svg.appendChild(step);
+
+      const stepText = createSvgEl("text");
+      stepText.setAttribute("x", String(laneCenter));
+      stepText.setAttribute("y", String(y + 4));
+      stepText.setAttribute("text-anchor", "middle");
+      stepText.setAttribute("class", "flow-event");
+      stepText.textContent = summarizeFlowEvent(event, 88);
+      svg.appendChild(stepText);
+      return;
+    }
+
+    const sourceIndex = laneById.has(event.source) ? laneById.get(event.source) : undefined;
+    const targetIndex = laneById.has(event.target) ? laneById.get(event.target) : undefined;
+    const anchorIndex =
+      typeof sourceIndex === "number"
+        ? sourceIndex
+        : typeof targetIndex === "number"
+          ? targetIndex
+          : 0;
+
+    if (typeof sourceIndex !== "number" || typeof targetIndex !== "number" || sourceIndex === targetIndex) {
+      const x = laneWidth * anchorIndex + laneWidth / 2;
+      const dot = createSvgEl("circle");
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("r", "4");
+      dot.setAttribute("class", "flow-dot");
+      svg.appendChild(dot);
+
+      const label = createSvgEl("text");
+      label.setAttribute("x", String(x + 10));
+      label.setAttribute("y", String(y - 6));
+      label.setAttribute("text-anchor", "start");
+      label.setAttribute("class", "flow-event");
+      label.textContent = summarizeFlowEvent(event, 88);
+      svg.appendChild(label);
+      return;
+    }
+
     const sx = laneWidth * sourceIndex + laneWidth / 2;
     const tx = laneWidth * targetIndex + laneWidth / 2;
-
     const arc = createSvgEl("path");
     const midY = y - 18;
     arc.setAttribute("d", "M " + sx + " " + y + " Q " + (sx + tx) / 2 + " " + midY + " " + tx + " " + y);
@@ -837,9 +983,7 @@ function renderFlow(viz) {
     label.setAttribute("y", String(y - 6));
     label.setAttribute("text-anchor", "middle");
     label.setAttribute("class", "flow-event");
-    const detail = event.detail || "";
-    const text = formatTs(event.at) + " · " + event.subtype + " · " + detail;
-    label.textContent = text.length > 80 ? text.slice(0, 80) + "…" : text;
+    label.textContent = summarizeFlowEvent(event, 92);
     svg.appendChild(label);
   });
 

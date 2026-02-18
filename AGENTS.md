@@ -81,6 +81,6 @@
 - Tool: 더블 언더스코어 네이밍 (`{리소스명}__{export명}`), AgentProcess(Bun) 내부 모듈 로드/핸들러 실행
 - Connector: 자체 프로세스로 프로토콜 직접 관리 (`entry` + `events`)
 - Workspace: 2루트 (Project Root + `~/.goondan/`)
-- CLI Studio: `gdn studio` 명령으로 인스턴스별 Graph/Flow 시각화 서버 제공
+- CLI Studio: `gdn studio` 명령으로 인스턴스별 Graph/Flow 시각화 서버 제공 (runtime key의 workspace 하위 인스턴스 집계, flow 모드 tool step 인라인 표시)
 - Config: apiVersion `goondan.ai/v1`, 8종 Kind (Model/Agent/Swarm/Tool/Extension/Connector/Connection/Package)
 - 설정 변경 모델: Edit & Restart

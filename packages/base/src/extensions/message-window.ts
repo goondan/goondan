@@ -1,4 +1,5 @@
 import type { ExtensionApi, MessageEvent } from '../types.js';
+import { normalizeRemovalTargets } from './message-integrity.js';
 
 export interface MessageWindowExtensionConfig {
   maxMessages?: number;
@@ -25,15 +26,26 @@ export function registerMessageWindowExtension(
 
   api.pipeline.register('turn', async (ctx) => {
     const messages = ctx.conversationState.nextMessages;
-    if (messages.length <= maxMessages) {
+    const removedIds = new Set<string>();
+    if (messages.length > maxMessages) {
+      const removeCount = messages.length - maxMessages;
+      for (let index = 0; index < removeCount; index += 1) {
+        const message = messages[index];
+        if (!message) {
+          continue;
+        }
+        removedIds.add(message.id);
+      }
+    }
+
+    const normalizedRemovedIds = normalizeRemovalTargets(messages, removedIds);
+    if (normalizedRemovedIds.size === 0) {
       return ctx.next();
     }
 
-    const removeCount = messages.length - maxMessages;
     const events: MessageEvent[] = [];
-    for (let index = 0; index < removeCount; index += 1) {
-      const message = messages[index];
-      if (!message) {
+    for (const message of messages) {
+      if (!normalizedRemovedIds.has(message.id)) {
         continue;
       }
 

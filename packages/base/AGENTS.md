@@ -6,6 +6,7 @@
 
 - `@goondan/base`는 npm 배포 대상이 아니다.
 - 따라서 `npm publish`/`pnpm publish`로 `@goondan/base`를 배포하지 않는다.
+- `@goondan/base` 배포는 goondan 패키지 레지스트리로 `gdn package publish`를 사용한다 (예: `gdn package publish packages/base/goondan.yaml`).
 
 ## 책임 범위
 

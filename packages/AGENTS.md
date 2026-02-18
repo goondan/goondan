@@ -18,6 +18,7 @@
 7. `@goondan/*` npm 패키지의 `package.json` `version`은 동일한 단일 버전 문자열로 통일해 관리한다(버전 변경 시 전 패키지를 함께 갱신).
 8. npm 공개 배포 대상 패키지는 `package.json`에 `publishConfig.access = "public"`을 명시한다(스코프 패키지 publish 시 default access로 인한 402 방지).
 9. `@goondan/base`는 npm 배포 대상이 아니므로 `pnpm --filter @goondan/base publish`를 수행하지 않는다.
+10. `@goondan/base` 배포는 `gdn package publish packages/base/goondan.yaml` 경로로 수행한다(기본 레지스트리: `https://goondan-registry.yechanny.workers.dev`).
 
 ## 패키지별 책임 요약
 

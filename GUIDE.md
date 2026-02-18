@@ -131,7 +131,7 @@ spec:
 - **`Swarm`**: 여러 Agent를 묶고, `entryAgent`로 시작 Agent를 지정하는 실행 제어자
 - **`entryAgent`**: Swarm에서 **첫 번째로 실행되는 Agent**의 참조 (`Swarm.spec.entryAgent`)
 - **`instanceKey`**: 같은 Swarm라도 채널/사용자별 대화 상태를 분리하는 세션 키
-  - 임의의 문자열을 자유롭게 사용 가능 (예약어 없음)
+  - 임의의 문자열을 자유롭게 사용 가능
   - 예시: `"local"`, `"telegram-main"`, `"user-123"` 등
   - 미지정 시: `Swarm.spec.instanceKey ?? Swarm.metadata.name` 사용
   - 실서비스: 사용자/채널/세션 기반 동적 값 권장 (예: Telegram `chat_id`, Slack `channel_id`)

@@ -166,6 +166,35 @@ export interface AgentToolRuntime {
   catalog(): Promise<AgentRuntimeCatalogResult>;
 }
 
+export interface MiddlewareAgentRequestParams {
+  target: string;
+  input?: string;
+  instanceKey?: string;
+  timeoutMs?: number;
+  metadata?: JsonObject;
+}
+
+export interface MiddlewareAgentSendParams {
+  target: string;
+  input?: string;
+  instanceKey?: string;
+  metadata?: JsonObject;
+}
+
+export interface MiddlewareAgentRequestResult {
+  target: string;
+  response: string;
+}
+
+export interface MiddlewareAgentSendResult {
+  accepted: boolean;
+}
+
+export interface MiddlewareAgentsApi {
+  request(params: MiddlewareAgentRequestParams): Promise<MiddlewareAgentRequestResult>;
+  send(params: MiddlewareAgentSendParams): Promise<MiddlewareAgentSendResult>;
+}
+
 export interface ToolContext extends ExecutionContext {
   readonly toolCallId: string;
   readonly message: Message;
@@ -219,6 +248,7 @@ export interface StepResult {
 export interface TurnMiddlewareContext extends ExecutionContext {
   readonly inputEvent: AgentEvent;
   readonly conversationState: ConversationState;
+  readonly agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
   next(): Promise<TurnResult>;
@@ -228,6 +258,7 @@ export interface StepMiddlewareContext extends ExecutionContext {
   readonly turn: Turn;
   readonly stepIndex: number;
   readonly conversationState: ConversationState;
+  readonly agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;

@@ -11,6 +11,7 @@
 
 - Tool 기본 구현: `bash`, `file-system`, `agents`(request/send/spawn/list/catalog), `self-restart`(request), `http-fetch`, `json-query`, `text-transform`, `telegram`(send/edit/delete/react/setChatAction/downloadFile, parseMode normalize), `slack`(send/read/edit/delete/react/downloadFile)
 - Extension 기본 구현: `logging`, `message-window`, `message-compaction`, `tool-search`
+- Extension 타입 계약: `turn`/`step` 미들웨어 컨텍스트의 `ctx.agents`(request/send) 표면을 런타임과 동일하게 유지
 - Connector 기본 구현: `cli`, `webhook`, `telegram-polling`(bot-origin 메시지 무시로 self-feedback 방지, photo/image document file_id 메타 전달), `slack`(webhook port/path configurable, 첨부 image/file 참조 텍스트 보강), `discord`, `github`
 - 리소스 매니페스트 헬퍼: Tool/Extension/Connector/Connection 샘플 생성
 - `vitest` 기반 단위 테스트

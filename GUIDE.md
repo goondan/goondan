@@ -242,6 +242,7 @@ agents:
   - Agent가 "이 작업을 하려면 이 Tool을 써야지" 하고 명시적으로 호출
 - **Extension**: 런타임 단계(turn/step/toolCall)에서 자동 적용되는 미들웨어
   - 예: 메시지 히스토리 관리, 로깅, Tool 필터링 등
+  - `turn`/`step` 미들웨어에서는 `ctx.agents.request/send`로 다른 Agent를 자동 호출 가능
   - Agent가 직접 호출하지 않고, Runtime이 자동으로 실행
 
 **판단 기준:**

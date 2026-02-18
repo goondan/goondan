@@ -30,3 +30,4 @@
 3. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시 타입으로 구현한다.
 4. 저장 포맷 변경 시 `src/types.ts`와 테스트 케이스를 함께 갱신한다.
 5. Cloudflare 배포 경로에서는 `REGISTRY_AUTH_TOKENS` 시크릿 로테이션 절차와 publish smoke test 결과를 함께 관리한다.
+6. `@goondan/*` 버전 업데이트 시 `@goondan/registry`와 `@goondan/registry-cloudflare`의 `package.json` 버전도 동일 문자열로 동기화한다.

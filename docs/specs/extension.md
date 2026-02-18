@@ -8,7 +8,7 @@
 
 ### 1.1 배경 및 설계 동기
 
-Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. 또한 `turn`/`step` 미들웨어에서는 `ctx.agents` API로 다른 Agent를 프로그래매틱하게 호출할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
 `ExtensionApi` 표면은 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 구성된다. OAuth/설정 갱신 같은 도메인 기능은 Extension 내부에서 구현하며, 파이프라인 훅은 Middleware 형태(`docs/specs/pipeline.md`)를 따른다.
 메시지 windowing/compaction 같은 정책은 Runtime 코어가 아닌 Extension에서 선택적으로 제공한다.
@@ -33,6 +33,7 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 4. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
 5. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
 6. `api.tools.register()`로 등록한 도구는 도구 이름 규칙(`{리소스명}__{하위도구명}`)을 따라야 한다(MUST).
+7. `turn`/`step` 미들웨어 컨텍스트는 `ctx.agents.request/send`을 제공해야 하며, `toolCall` 컨텍스트에는 이를 제공하지 않아야 한다(MUST).
 
 ### 2.3 상태 관리 규칙
 
@@ -266,6 +267,7 @@ interface ExtensionApi {
 3. 동일 타입에 여러 미들웨어가 등록되면 등록 순서대로 onion 방식으로 체이닝해야 한다(MUST).
 4. 하나의 Extension이 여러 종류의 미들웨어를 동시에 등록할 수 있어야 한다(MUST).
 5. 하나의 Extension이 같은 종류의 미들웨어를 여러 개 등록할 수 있어야 한다(MAY).
+6. `turn`/`step` 미들웨어는 필요 시 `ctx.agents.request/send`으로 다른 Agent를 호출할 수 있어야 한다(MUST).
 
 ### 5.3 Tool 등록 API
 
@@ -706,7 +708,7 @@ export function register(api: ExtensionApi): void {
 
 핵심 포인트:
 
-1. `turn`/`step` 컨텍스트는 `conversationState`와 `emitMessageEvent`를 제공한다.
+1. `turn`/`step` 컨텍스트는 `conversationState`, `emitMessageEvent`, `agents`를 제공한다.
 2. `step` 컨텍스트는 `toolCatalog` 조작을 허용한다.
 3. `toolCall` 컨텍스트는 `args` 조작을 허용한다.
 4. 공통 타입(`ConversationState`, `MessageEvent`, `ToolCallResult`) 원형은 `docs/specs/shared-types.md`를 따른다.

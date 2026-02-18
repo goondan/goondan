@@ -73,6 +73,7 @@ export function register(api: ExtensionApi): void;
 `PipelineRegistry`, `TurnMiddleware`, `StepMiddleware`, `ToolCallMiddleware`, `MiddlewareOptions` 원형은 `docs/specs/pipeline.md` 5절을 따른다.
 
 상세 미들웨어 컨텍스트는 `docs/specs/pipeline.md` 4절을 참조한다.
+`turn`/`step` 컨텍스트는 `ctx.agents.request/send`를 통해 다른 Agent를 호출할 수 있어야 한다.
 
 ### 2.4 사용 예시
 
@@ -80,6 +81,13 @@ export function register(api: ExtensionApi): void;
 export function register(api: ExtensionApi): void {
   // 미들웨어 등록
   api.pipeline.register('step', async (ctx) => {
+    const preload = await ctx.agents.request({
+      target: 'retriever',
+      input: 'current user intent',
+      timeoutMs: 5000,
+    });
+    ctx.metadata.preloadedContext = preload.response;
+
     const start = Date.now();
     const result = await ctx.next();
     api.logger.info(`Step ${ctx.stepIndex}: ${Date.now() - start}ms`);

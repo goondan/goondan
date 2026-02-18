@@ -49,7 +49,7 @@ Runtime은 다음 3종의 미들웨어를 제공해야 한다(MUST).
 Turn 전체를 감싸는 미들웨어이다. 하나의 입력 이벤트(`AgentEvent`)를 처리하는 Turn의 시작부터 종료까지를 래핑한다.
 
 **역할:**
-- `next()` 호출 전 (turn.pre 시점): 메시지 히스토리 조작, ConversationState 접근, MessageEvent 발행
+- `next()` 호출 전 (turn.pre 시점): 메시지 히스토리 조작, ConversationState 접근, MessageEvent 발행, 필요 시 다른 Agent 요청
 - `next()` 호출 후 (turn.post 시점): Turn 결과 후처리, 추가 MessageEvent 발행
 
 **컨텍스트 필드:**
@@ -62,6 +62,7 @@ Turn 전체를 감싸는 미들웨어이다. 하나의 입력 이벤트(`AgentEv
 | `traceId` | `string` | readonly | Turn 추적 식별자 |
 | `inputEvent` | `AgentEvent` | readonly | Turn을 트리거한 입력 이벤트 |
 | `conversationState` | `ConversationState` | readonly | 대화 상태 (base + events 이벤트 소싱) |
+| `agents` | `MiddlewareAgentsApi` | readonly | Extension 미들웨어에서 다른 Agent를 호출하는 API (`request`/`send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | - | 메시지 이벤트 발행 (append/replace/remove/truncate) |
 | `metadata` | `Record<string, JsonValue>` | mutable | 미들웨어 간 공유 메타데이터 |
 | `next` | `() => Promise<TurnResult>` | - | 다음 미들웨어 또는 코어 Turn 로직 실행 |
@@ -72,15 +73,16 @@ Turn 전체를 감싸는 미들웨어이다. 하나의 입력 이벤트(`AgentEv
 2. `next()` 호출 전에 `conversationState.baseMessages`에 접근하여 Turn 시작 기준 메시지를 확인할 수 있어야 한다(MUST).
 3. `next()` 호출 전에 `emitMessageEvent()`로 메시지 이벤트를 발행할 수 있어야 한다(MUST).
 4. `next()` 호출 후에도 추가 `emitMessageEvent()` 발행이 가능해야 한다(MUST).
-5. `next()`의 반환값 `TurnResult`를 변환하여 반환할 수 있다(MAY).
-6. `next()`를 반드시 한 번 호출해야 한다(MUST). 호출하지 않으면 이후 미들웨어와 코어 Turn 로직이 실행되지 않는다.
+5. `ctx.agents.request/send`을 통해 다른 Agent에 요청/알림을 보낼 수 있어야 한다(MUST).
+6. `next()`의 반환값 `TurnResult`를 변환하여 반환할 수 있다(MAY).
+7. `next()`를 반드시 한 번 호출해야 한다(MUST). 호출하지 않으면 이후 미들웨어와 코어 Turn 로직이 실행되지 않는다.
 
 ### 3.2 `step` 미들웨어
 
 Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서 각 Step이 실행될 때마다 호출된다.
 
 **역할:**
-- `next()` 호출 전: Tool Catalog 조작, ConversationState 접근, MessageEvent 발행, 메타데이터 설정
+- `next()` 호출 전: Tool Catalog 조작, ConversationState 접근, MessageEvent 발행, 메타데이터 설정, 필요 시 다른 Agent 요청
 - `next()` 호출 후: Step 결과 검사/변환, 로깅, 재시도 판단
 
 **컨텍스트 필드:**
@@ -94,6 +96,7 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 | `turn` | `Turn` | readonly | 현재 Turn 정보 |
 | `stepIndex` | `number` | readonly | 현재 Step 인덱스 (Turn 내 0부터) |
 | `conversationState` | `ConversationState` | readonly | 대화 상태 |
+| `agents` | `MiddlewareAgentsApi` | readonly | Extension 미들웨어에서 다른 Agent를 호출하는 API (`request`/`send`) |
 | `emitMessageEvent` | `(event: MessageEvent) => void` | - | 메시지 이벤트 발행 |
 | `toolCatalog` | `ToolCatalogItem[]` | **mutable** | 현재 Step의 도구 카탈로그 (필터링/추가/수정 가능) |
 | `metadata` | `Record<string, JsonValue>` | mutable | 미들웨어 간 공유 메타데이터 |
@@ -104,8 +107,9 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 1. `step` 미들웨어는 단일 Step의 전체 실행(LLM 호출 및 도구 실행)을 래핑해야 한다(MUST).
 2. `toolCatalog`는 변경 가능(mutable)해야 하며, 미들웨어에서 도구 목록을 필터링/추가/수정할 수 있어야 한다(MUST).
 3. `next()` 호출 전에 `toolCatalog`를 조작하면, 변경된 카탈로그가 해당 Step의 LLM 호출에 반영되어야 한다(MUST).
-4. `next()` 호출 후 `StepResult`를 검사하여 재시도 여부를 판단할 수 있다(MAY). 재시도 시 `next()`를 다시 호출하는 것이 아니라, 미들웨어가 적절한 결과를 반환하거나 예외를 던져야 한다(SHOULD).
-5. `next()`를 반드시 한 번 호출해야 한다(MUST).
+4. `ctx.agents.request/send`을 통해 다른 Agent에 요청/알림을 보낼 수 있어야 한다(MUST).
+5. `next()` 호출 후 `StepResult`를 검사하여 재시도 여부를 판단할 수 있다(MAY). 재시도 시 `next()`를 다시 호출하는 것이 아니라, 미들웨어가 적절한 결과를 반환하거나 예외를 던져야 한다(SHOULD).
+6. `next()`를 반드시 한 번 호출해야 한다(MUST).
 
 ### 3.3 `toolCall` 미들웨어
 
@@ -151,6 +155,9 @@ interface TurnMiddlewareContext extends ExecutionContext {
   /** 대화 상태 (base + events 이벤트 소싱) */
   readonly conversationState: ConversationState;
 
+  /** 다른 Agent를 프로그래매틱하게 호출 */
+  readonly agents: MiddlewareAgentsApi;
+
   /** 메시지 이벤트 발행 (append/replace/remove/truncate) */
   emitMessageEvent(event: MessageEvent): void;
 
@@ -174,6 +181,9 @@ interface StepMiddlewareContext extends ExecutionContext {
 
   /** 대화 상태 */
   readonly conversationState: ConversationState;
+
+  /** 다른 Agent를 프로그래매틱하게 호출 */
+  readonly agents: MiddlewareAgentsApi;
 
   /** 메시지 이벤트 발행 */
   emitMessageEvent(event: MessageEvent): void;
@@ -213,7 +223,37 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
 }
 ```
 
-### 4.4 ConversationState
+### 4.4 MiddlewareAgentsApi
+
+`turn`/`step` 미들웨어는 `ctx.agents`를 통해 다른 Agent를 호출할 수 있다. 이 API는 기존 Tool API(`agents__request`, `agents__send`)와 동일한 라우팅/자동 스폰 규칙을 따르며, Orchestrator IPC 경로를 재사용한다.
+
+```typescript
+interface MiddlewareAgentsApi {
+  request(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    timeoutMs?: number; // default: 15000
+    metadata?: JsonObject;
+  }): Promise<{ target: string; response: string }>;
+
+  send(params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    metadata?: JsonObject;
+  }): Promise<{ accepted: boolean }>;
+}
+```
+
+**규칙:**
+
+1. `ctx.agents`는 `turn`/`step` 미들웨어에서만 제공되어야 한다(MUST).
+2. `toolCall` 미들웨어에서는 `ctx.agents`를 제공하지 않아야 한다(MUST NOT).
+3. `request` 기본 타임아웃은 15000ms여야 한다(MUST).
+4. Runtime은 `request`에 대해 순환 호출을 감지하고 오류를 반환해야 한다(MUST).
+
+### 4.5 ConversationState
 
 메시지 상태는 이벤트 소싱 모델(`NextMessages = BaseMessages + SUM(Events)`)로 관리된다.
 `ConversationState` 원형은 `docs/specs/shared-types.md` 4절을 따른다.
@@ -227,11 +267,11 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
 5. `next()` 호출 전은 전처리(pre) 시점이고, `next()` 호출 후는 후처리(post) 시점이다(MUST).
 6. 메시지 컨텍스트는 `conversationState` + `emitMessageEvent`를 사용해야 한다(MUST).
 
-### 4.5 MessageEvent / Message 타입
+### 4.6 MessageEvent / Message 타입
 
 `MessageEvent`, `Message`, `MessageSource`의 원형은 `docs/specs/shared-types.md`를 참조한다.
 
-### 4.6 결과 타입
+### 4.7 결과 타입
 
 ```typescript
 interface StepResult {

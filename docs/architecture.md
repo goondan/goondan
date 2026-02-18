@@ -324,16 +324,23 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 
 에이전트 간 통신은 통합 이벤트 모델(`AgentEvent`)을 사용하며, Orchestrator를 경유하는 IPC로 구현된다. 두 가지 패턴을 지원한다:
 
-- **request** (응답 대기): `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭한다.
+- **request (tool 경로)**: `agents__request` 도구 호출로 요청-응답을 매칭한다.
+- **request (middleware 경로)**: `turn`/`step` 미들웨어에서 `ctx.agents.request`로 요청-응답을 매칭한다.
 - **send** (fire-and-forget): `AgentEvent.replyTo`를 생략하여 단방향 알림을 보낸다.
 - **보조 운영 API**: `agents__spawn`(인스턴스 준비), `agents__list`(spawn 목록 복원), `agents__catalog`(호출 가능한 Agent 카탈로그 조회)
 
-request 흐름:
+tool request 흐름:
 1. 원 Agent가 `agents__request` 도구를 호출한다.
 2. AgentProcess가 Orchestrator에 IPC `event` 메시지를 전송한다 (`AgentEvent.replyTo` 포함).
 3. Orchestrator가 대상 AgentProcess로 라우팅한다 (필요시 스폰).
 4. 대상 Agent의 Turn 완료 후 Orchestrator에 응답 `event`를 전송한다.
 5. Orchestrator가 `correlationId`로 매칭하여 원 Agent에 결과를 전달한다.
+
+middleware request 흐름:
+1. Extension의 `turn`/`step` 미들웨어가 `ctx.agents.request`를 호출한다.
+2. AgentProcess가 동일한 IPC `event` 경로로 Orchestrator에 요청을 전달한다.
+3. Orchestrator가 대상 AgentProcess로 라우팅한다 (필요시 스폰).
+4. 대상 Agent의 응답이 원 미들웨어로 반환된다.
 
 trace 컨텍스트는 `replyTo.correlationId`로 보존되며, 프로세스 격리를 유지하면서 IPC를 통해서만 통신한다.
 

@@ -4,6 +4,7 @@ import type {
   ExecutionContext,
   JsonObject,
   JsonValue,
+  MiddlewareAgentsApi,
   MessageEvent,
   StepResult,
   ToolCallResult,
@@ -22,6 +23,7 @@ export interface MiddlewareOptions {
 export interface TurnMiddlewareContext extends ExecutionContext {
   readonly inputEvent: AgentEvent;
   readonly conversationState: ConversationState;
+  readonly agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
   next(): Promise<TurnResult>;
@@ -31,6 +33,7 @@ export interface StepMiddlewareContext extends ExecutionContext {
   readonly turn: Turn;
   readonly stepIndex: number;
   readonly conversationState: ConversationState;
+  readonly agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
@@ -59,6 +62,7 @@ interface MiddlewareEntry<T> {
 interface TurnMutableState extends ExecutionContext {
   inputEvent: AgentEvent;
   conversationState: ConversationState;
+  agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
 }
@@ -67,6 +71,7 @@ interface StepMutableState extends ExecutionContext {
   turn: Turn;
   stepIndex: number;
   conversationState: ConversationState;
+  agents: MiddlewareAgentsApi;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
@@ -145,6 +150,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       traceId: ctx.traceId,
       inputEvent: ctx.inputEvent,
       conversationState: ctx.conversationState,
+      agents: ctx.agents,
       emitMessageEvent: ctx.emitMessageEvent,
       metadata: ctx.metadata,
     };
@@ -216,6 +222,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       turn: ctx.turn,
       stepIndex: ctx.stepIndex,
       conversationState: ctx.conversationState,
+      agents: ctx.agents,
       emitMessageEvent: ctx.emitMessageEvent,
       toolCatalog: ctx.toolCatalog,
       metadata: ctx.metadata,
@@ -393,6 +400,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       get conversationState() {
         return state.conversationState;
       },
+      get agents() {
+        return state.agents;
+      },
       emitMessageEvent(event: MessageEvent): void {
         state.emitMessageEvent(event);
       },
@@ -428,6 +438,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       },
       get conversationState() {
         return state.conversationState;
+      },
+      get agents() {
+        return state.agents;
       },
       emitMessageEvent(event: MessageEvent): void {
         state.emitMessageEvent(event);

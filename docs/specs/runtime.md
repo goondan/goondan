@@ -544,14 +544,16 @@ AgentA → Orchestrator:
 
 **규칙:**
 
-1. 에이전트 간 통신/인스턴스 준비/카탈로그 조회는 표준 Tool API(`agents__request`, `agents__send`, `agents__spawn`, `agents__list`, `agents__catalog`)를 통해 요청되어야 한다(MUST).
-2. `replyTo`가 있는 이벤트를 수신한 AgentProcess는 Turn 완료 후 응답 이벤트를 전송해야 한다(MUST).
-3. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
-4. `agents__spawn`의 target은 현재 Swarm에 정의된 Agent 리소스여야 한다(MUST).
-5. `agents__spawn`은 리소스 정의(`goondan.yaml`)를 수정하지 않고 인스턴스 상태만 준비해야 한다(MUST).
-6. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
-7. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
-8. 요청 실패는 구조화된 ToolCallResult(`status="error"`)로 반환해야 한다(MUST).
+1. 에이전트 간 통신은 표준 Tool API(`agents__request`, `agents__send`) 또는 `turn`/`step` 미들웨어의 `ctx.agents.request/send`를 통해 요청되어야 하며, 두 경로 모두 Orchestrator IPC 라우팅을 재사용해야 한다(MUST).
+2. 인스턴스 준비/조회/카탈로그 조회는 표준 Tool API(`agents__spawn`, `agents__list`, `agents__catalog`)를 통해 요청되어야 한다(MUST).
+3. `replyTo`가 있는 이벤트를 수신한 AgentProcess는 Turn 완료 후 응답 이벤트를 전송해야 한다(MUST).
+4. 응답 이벤트의 `metadata.inReplyTo`는 원본 `replyTo.correlationId`와 일치해야 한다(MUST).
+5. `agents__spawn`의 target은 현재 Swarm에 정의된 Agent 리소스여야 한다(MUST).
+6. `agents__spawn`은 리소스 정의(`goondan.yaml`)를 수정하지 않고 인스턴스 상태만 준비해야 한다(MUST).
+7. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
+8. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
+9. Runtime은 `request` 호출에서 순환 요청 체인을 감지하면 즉시 오류를 반환해야 한다(MUST).
+10. 요청 실패는 구조화된 ToolCallResult(`status="error"`) 또는 미들웨어 예외로 반환해야 한다(MUST).
 
 ### 6.3 IPC 전송 메커니즘
 

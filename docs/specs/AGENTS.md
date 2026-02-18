@@ -17,7 +17,7 @@ Goondan 스펙 문서 폴더입니다. 각 문서는 설계 동기/핵심 규칙
 - `extension.md` - Extension 시스템 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, ExtensionApi 단순화: pipeline/tools/state/events/logger, `turn`/`step` 컨텍스트의 `ctx.agents` request/send, Middleware 파이프라인, Skill/ToolSearch/Compaction/Logging/MCP 패턴)
 - `oauth.md` - OAuth 범위 문서 (Extension/Connection 조합 구현 원칙)
 - `pipeline.md` - 라이프사이클 파이프라인 스펙 v0.0.3 (배경/설계 동기, 핵심 규칙 통합, Middleware Only: turn/step/toolCall 3종, Onion 모델, `turn`/`step`의 `ctx.agents` API, ConversationState 이벤트 소싱, PipelineRegistry)
-- `tool.md` - Tool 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델)
+- `tool.md` - Tool 시스템 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, 더블 언더스코어 네이밍, ToolContext 축소, 통합 이벤트 기반 에이전트 간 통신, AgentProcess 내부 Tool 실행 모델, 입력 스키마 설명/검증 규칙)
 - `workspace.md` - **[v0.0.3]** Workspace 및 Storage 모델 스펙 (배경/설계 동기, 핵심 규칙 통합, 2루트 분리: Project Root + System Root, Message 영속화(`base/events/runtime-events`), Extension state, 보안 규칙, 프로세스별 로깅)
 - `cli.md` - **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor, studio)
 

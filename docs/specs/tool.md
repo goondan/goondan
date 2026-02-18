@@ -61,6 +61,9 @@ LLM tool call
 3. `errorMessageLimit` 미설정 시 기본값은 1000자여야 한다(MUST).
 4. 사용자 복구를 돕는 `suggestion` 필드를 제공하는 것을 권장한다(SHOULD).
 5. 문서 링크(`helpUrl`) 제공을 권장한다(SHOULD).
+6. Tool 핸들러 실행 전에 `parameters` 스키마(`required`, `type`, `enum`, `additionalProperties`)를 검증해야 한다(MUST).
+7. 스키마 검증 실패 시 `ToolCallResult.status="error"`와 `code="E_TOOL_INVALID_ARGS"`를 반환해야 한다(MUST).
+8. LLM으로 전달하는 tool-result 에러 텍스트에는 가능한 경우 `code`/`suggestion`/`helpUrl`을 포함해야 한다(SHOULD).
 
 ### 2.5 ToolContext 규칙
 
@@ -152,16 +155,22 @@ spec:
       description: "셸 명령 실행"
       parameters:
         type: object
+        additionalProperties: false
         properties:
-          command: { type: string }
+          command:
+            type: string
+            description: "실행할 셸 명령 문자열"
         required: [command]
 
     - name: script                   # LLM에는 "bash__script"로 노출
       description: "스크립트 파일 실행"
       parameters:
         type: object
+        additionalProperties: false
         properties:
-          path: { type: string }
+          path:
+            type: string
+            description: "워크디렉토리 기준 스크립트 경로"
         required: [path]
 ```
 
@@ -264,13 +273,21 @@ interface JsonSchemaObject {
 }
 
 interface JsonSchemaProperty {
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null'
+    | Array<'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null'>;
   description?: string;
   enum?: (string | number)[];
   items?: JsonSchemaProperty;
   default?: JsonValue;
 }
 ```
+
+### 6.3 스키마 품질 및 전달 규칙
+
+1. `description`은 Tool export 레벨뿐 아니라 `properties`의 각 속성에도 작성해야 한다(SHOULD).
+2. 특별한 이유가 없으면 `additionalProperties: false`로 닫힌 입력 스키마를 사용해야 한다(SHOULD).
+3. Runtime은 Tool Catalog에 등록된 `parameters`를 LLM provider에 손실 없이 전달해야 한다(MUST).
+4. Runtime은 handler 실행 전에 전달된 입력을 동일 스키마로 검증해야 한다(MUST).
 
 ### 6.2 Export 이름 규칙
 

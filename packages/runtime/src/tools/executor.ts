@@ -1,5 +1,8 @@
 import type {
   JsonObject,
+  JsonSchemaObject,
+  JsonSchemaProperty,
+  JsonValue,
   Message,
   ToolCallResult,
   ToolContext,
@@ -23,7 +26,9 @@ export class ToolExecutor {
   constructor(private readonly registry: ToolRegistry) {}
 
   async execute(request: ToolExecutionRequest): Promise<ToolCallResult> {
-    if (!request.allowRegistryBypass && !isToolInCatalog(request.toolName, request.catalog)) {
+    const catalogItem = findToolInCatalog(request.toolName, request.catalog);
+
+    if (!request.allowRegistryBypass && !catalogItem) {
       return {
         toolCallId: request.toolCallId,
         toolName: request.toolName,
@@ -36,6 +41,25 @@ export class ToolExecutor {
             "Agent 구성의 spec.tools에 해당 도구를 추가하거나, step 미들웨어에서 동적으로 등록하세요.",
         },
       };
+    }
+
+    if (catalogItem?.parameters) {
+      const issues = validateToolArguments(request.args, catalogItem.parameters, "args");
+      if (issues.length > 0) {
+        const limit = request.errorMessageLimit ?? DEFAULT_ERROR_MESSAGE_LIMIT;
+        const message = truncateErrorMessage(formatValidationIssues(request.toolName, issues), limit);
+        return {
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          status: "error",
+          error: {
+            name: "ToolInputValidationError",
+            code: "E_TOOL_INVALID_ARGS",
+            message,
+            suggestion: buildValidationSuggestion(catalogItem.parameters),
+          },
+        };
+      }
     }
 
     const handler = this.registry.getHandler(request.toolName);
@@ -73,8 +97,178 @@ export class ToolExecutor {
   }
 }
 
-function isToolInCatalog(toolName: string, catalog: ToolCatalogItem[]): boolean {
-  return catalog.some((item) => item.name === toolName);
+function findToolInCatalog(toolName: string, catalog: ToolCatalogItem[]): ToolCatalogItem | undefined {
+  return catalog.find((item) => item.name === toolName);
+}
+
+interface ValidationIssue {
+  path: string;
+  message: string;
+}
+
+function validateToolArguments(args: JsonObject, schema: JsonSchemaObject, rootPath: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  validateObjectValue(args, schema, rootPath, issues);
+  return issues;
+}
+
+function validateObjectValue(
+  value: JsonObject,
+  schema: JsonSchemaObject,
+  currentPath: string,
+  issues: ValidationIssue[],
+): void {
+  const properties = schema.properties ?? {};
+  const required = schema.required ?? [];
+
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) {
+      issues.push({
+        path: `${currentPath}.${key}`,
+        message: "required property is missing",
+      });
+    }
+  }
+
+  if (schema.additionalProperties === false) {
+    for (const key of Object.keys(value)) {
+      if (!Object.hasOwn(properties, key)) {
+        issues.push({
+          path: `${currentPath}.${key}`,
+          message: "unexpected property",
+        });
+      }
+    }
+  }
+
+  for (const [key, propertySchema] of Object.entries(properties)) {
+    if (!Object.hasOwn(value, key)) {
+      continue;
+    }
+
+    const nestedValue = value[key];
+    if (nestedValue === undefined) {
+      continue;
+    }
+    validatePropertyValue(nestedValue, propertySchema, `${currentPath}.${key}`, issues);
+  }
+}
+
+function validatePropertyValue(
+  value: JsonValue,
+  schema: JsonSchemaProperty,
+  currentPath: string,
+  issues: ValidationIssue[],
+): void {
+  const expectedTypes = toExpectedTypes(schema.type);
+  if (expectedTypes.length > 0 && !expectedTypes.some((type) => matchesSchemaType(value, type))) {
+    issues.push({
+      path: currentPath,
+      message: `expected ${expectedTypes.join("|")} but got ${toJsonTypeName(value)}`,
+    });
+    return;
+  }
+
+  if (schema.enum && schema.enum.length > 0 && !schema.enum.some((candidate) => isEnumMatch(candidate, value))) {
+    issues.push({
+      path: currentPath,
+      message: `value must be one of [${schema.enum.map((item) => JSON.stringify(item)).join(", ")}]`,
+    });
+    return;
+  }
+
+  if (isJsonObjectValue(value) && schema.properties) {
+    for (const [childKey, childSchema] of Object.entries(schema.properties)) {
+      if (!Object.hasOwn(value, childKey)) {
+        continue;
+      }
+      const childValue = value[childKey];
+      if (childValue === undefined) {
+        continue;
+      }
+      validatePropertyValue(childValue, childSchema, `${currentPath}.${childKey}`, issues);
+    }
+  }
+
+  if (Array.isArray(value) && schema.items) {
+    for (let index = 0; index < value.length; index += 1) {
+      const entry = value[index];
+      if (entry === undefined) {
+        continue;
+      }
+      validatePropertyValue(entry, schema.items, `${currentPath}[${index}]`, issues);
+    }
+  }
+}
+
+function toExpectedTypes(type: string | string[] | undefined): string[] {
+  if (typeof type === "string") {
+    return [type];
+  }
+  if (Array.isArray(type)) {
+    return type.filter((entry): entry is string => typeof entry === "string");
+  }
+  return [];
+}
+
+function matchesSchemaType(value: JsonValue, expectedType: string): boolean {
+  switch (expectedType) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return isJsonObjectValue(value);
+    case "null":
+      return value === null;
+    default:
+      return true;
+  }
+}
+
+function isJsonObjectValue(value: JsonValue): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toJsonTypeName(value: JsonValue): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? "integer" : "number";
+  }
+  return typeof value;
+}
+
+function isEnumMatch(candidate: JsonValue, value: JsonValue): boolean {
+  if (candidate === value) {
+    return true;
+  }
+  return JSON.stringify(candidate) === JSON.stringify(value);
+}
+
+function formatValidationIssues(toolName: string, issues: ValidationIssue[]): string {
+  const maxIssues = 5;
+  const visible = issues.slice(0, maxIssues).map((issue) => `${issue.path}: ${issue.message}`);
+  const suffix = issues.length > maxIssues ? `; +${issues.length - maxIssues} more issues` : "";
+  return `Invalid arguments for tool '${toolName}': ${visible.join("; ")}${suffix}`;
+}
+
+function buildValidationSuggestion(schema: JsonSchemaObject): string {
+  const required = schema.required ?? [];
+  const keys = Object.keys(schema.properties ?? {});
+  const requiredText = required.length > 0 ? required.join(", ") : "(none)";
+  const keyText = keys.length > 0 ? keys.join(", ") : "(none)";
+  return `입력 스키마를 확인해 인자를 다시 작성하세요. required=[${requiredText}], allowed=[${keyText}]`;
 }
 
 function toToolError(error: unknown, limit: number): {

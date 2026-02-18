@@ -18,6 +18,7 @@
 ## 주요 파일 목록
 - GUIDE.md : 시스템 가이드 문서 (처음 접하는 개발자용)
 - docs/architecture.md : 아키텍처 개요 문서 (시스템 설계 이해용 - 핵심 개념, 다이어그램, 설계 패턴, 시나리오, 기대 효과)
+- docs/wiki/ : 사용자 관점 위키 (Diataxis 4분할: tutorials/how-to/explanation/reference, EN+KO 병행)
 - .agents/skills/* : 저장소 로컬 에이전트 스킬 번들 (SKILL.md 기반 절차/스크립트/레퍼런스)
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 

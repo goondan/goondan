@@ -139,6 +139,113 @@ describe('DefaultStudioService', () => {
     }
   });
 
+  it('runtime 인스턴스 키 선택 시 workspace 하위 인스턴스 이벤트를 함께 집계한다', async () => {
+    const stateRoot = await createStateRoot();
+    const runtimeInstanceKey = 'brain';
+    const workspaceInstancesRoot = path.join(stateRoot, 'workspaces', runtimeInstanceKey, 'instances');
+    const coordinatorPath = path.join(workspaceInstancesRoot, 'coordinator:brain-persona-shared');
+    const workerPath = path.join(workspaceInstancesRoot, 'worker:slack-mention-1');
+    const coordinatorMessages = path.join(coordinatorPath, 'messages');
+    const workerMessages = path.join(workerPath, 'messages');
+    const logDir = path.join(stateRoot, 'runtime', 'logs', runtimeInstanceKey);
+
+    try {
+      await mkdir(coordinatorMessages, { recursive: true });
+      await mkdir(workerMessages, { recursive: true });
+      await mkdir(logDir, { recursive: true });
+
+      await writeFile(
+        path.join(coordinatorPath, 'metadata.json'),
+        JSON.stringify({
+          status: 'idle',
+          agentName: 'coordinator',
+          instanceKey: 'coordinator:brain-persona-shared',
+          createdAt: '2026-02-18T12:00:00.000Z',
+          updatedAt: '2026-02-18T12:00:00.000Z',
+        }),
+        'utf8',
+      );
+
+      await writeFile(
+        path.join(workerPath, 'metadata.json'),
+        JSON.stringify({
+          status: 'idle',
+          agentName: 'worker',
+          instanceKey: 'worker:slack-mention-1',
+          createdAt: '2026-02-18T12:00:00.000Z',
+          updatedAt: '2026-02-18T12:00:00.000Z',
+        }),
+        'utf8',
+      );
+
+      await writeFile(
+        path.join(workerMessages, 'base.jsonl'),
+        [
+          JSON.stringify({
+            id: 'w-1',
+            createdAt: '2026-02-18T12:00:01.000Z',
+            source: { type: 'user' },
+            data: { role: 'user', content: 'hello worker' },
+          }),
+          JSON.stringify({
+            id: 'w-2',
+            createdAt: '2026-02-18T12:00:02.000Z',
+            source: { type: 'assistant', stepId: 'ws-1' },
+            data: { role: 'assistant', content: 'hi from worker' },
+          }),
+        ].join('\n') + '\n',
+        'utf8',
+      );
+
+      await writeFile(
+        path.join(coordinatorMessages, 'runtime-events.jsonl'),
+        JSON.stringify({
+          type: 'tool.called',
+          timestamp: '2026-02-18T12:00:03.000Z',
+          agentName: 'coordinator',
+          toolCallId: 'tc-1',
+          toolName: 'agents__send',
+          stepId: 'cs-1',
+          turnId: 'ct-1',
+        }) + '\n',
+        'utf8',
+      );
+
+      await writeFile(
+        path.join(logDir, 'orchestrator.stdout.log'),
+        '[goondan-runtime][slack-to-brain/slack] emitted event name=app_mention instanceKey=slack:C123:1771411909.426379\n',
+        'utf8',
+      );
+
+      const service = new DefaultStudioService(
+        {},
+        createInstanceStoreStub([
+          {
+            key: runtimeInstanceKey,
+            status: 'running',
+            agent: 'orchestrator',
+            createdAt: '2026-02-18 12:00:00',
+            updatedAt: '2026-02-18 12:00:00',
+          },
+        ]),
+      );
+
+      const visualization = await service.loadVisualization({
+        stateRoot,
+        instanceKey: runtimeInstanceKey,
+        maxRecentEvents: 10,
+      });
+
+      expect(visualization.participants.some((item) => item.id === 'agent:coordinator')).toBe(true);
+      expect(visualization.participants.some((item) => item.id === 'agent:worker')).toBe(true);
+      expect(visualization.timeline.some((item) => item.subtype === 'tool.called')).toBe(true);
+      expect(visualization.timeline.some((item) => item.subtype === 'connector.emitted')).toBe(true);
+      expect(visualization.interactions.length).toBeGreaterThan(0);
+    } finally {
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
   it('studio 서버가 정적 자산과 인스턴스 API를 제공한다', async () => {
     const stateRoot = await createStateRoot();
     const instanceStore = createInstanceStoreStub([

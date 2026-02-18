@@ -23,6 +23,7 @@ import { resolveStateRoot } from './config.js';
 interface LocatedInstancePath {
   workspaceName: string;
   instancePath: string;
+  source: 'exact' | 'workspace';
 }
 
 interface MessageLike {
@@ -465,6 +466,49 @@ async function resolveInstanceLocations(stateRoot: string, instanceKey: string):
   const safeKey = sanitizeInstanceKey(instanceKey);
   const results: LocatedInstancePath[] = [];
   const seen = new Set<string>();
+  const requestedWorkspaceNames = Array.from(new Set([safeKey, instanceKey]));
+
+  const pushLocatedInstance = (
+    workspaceName: string,
+    instancePath: string,
+    source: 'exact' | 'workspace',
+  ): void => {
+    if (seen.has(instancePath)) {
+      return;
+    }
+    seen.add(instancePath);
+    results.push({
+      workspaceName,
+      instancePath,
+      source,
+    });
+  };
+
+  const appendWorkspaceInstances = async (
+    workspaceRootPath: string,
+    workspaceName: string,
+    source: 'workspace',
+    instancesDirName = 'instances',
+  ): Promise<void> => {
+    const workspacePath = path.join(workspaceRootPath, workspaceName);
+    if (!(await exists(workspacePath))) {
+      return;
+    }
+
+    const instancesRoot = path.join(workspacePath, instancesDirName);
+    if (!(await exists(instancesRoot))) {
+      return;
+    }
+
+    const entries = (await readdir(instancesRoot, { withFileTypes: true })).sort(compareDirentByNameAsc);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const instancePath = path.join(instancesRoot, entry.name);
+      pushLocatedInstance(workspaceName, instancePath, source);
+    }
+  };
 
   const workspacesRoot = path.join(stateRoot, 'workspaces');
   if (await exists(workspacesRoot)) {
@@ -484,14 +528,7 @@ async function resolveInstanceLocations(stateRoot: string, instanceKey: string):
         if (!(await exists(candidate))) {
           continue;
         }
-        if (seen.has(candidate)) {
-          continue;
-        }
-        seen.add(candidate);
-        results.push({
-          workspaceName,
-          instancePath: candidate,
-        });
+        pushLocatedInstance(workspaceName, candidate, 'exact');
       }
     }
   }
@@ -512,15 +549,24 @@ async function resolveInstanceLocations(stateRoot: string, instanceKey: string):
         if (!(await exists(candidate))) {
           continue;
         }
-        if (seen.has(candidate)) {
-          continue;
-        }
-        seen.add(candidate);
-        results.push({
-          workspaceName,
-          instancePath: candidate,
-        });
+        pushLocatedInstance(workspaceName, candidate, 'exact');
       }
+    }
+  }
+
+  if (results.length > 0) {
+    return results;
+  }
+
+  if (await exists(workspacesRoot)) {
+    for (const workspaceName of requestedWorkspaceNames) {
+      await appendWorkspaceInstances(workspacesRoot, workspaceName, 'workspace');
+    }
+  }
+
+  if (await exists(legacyRoot)) {
+    for (const workspaceName of requestedWorkspaceNames) {
+      await appendWorkspaceInstances(legacyRoot, workspaceName, 'workspace', '');
     }
   }
 
@@ -834,7 +880,12 @@ export class DefaultStudioService implements StudioService {
       }
     }
 
-    const connectorEvents = await this.readConnectorEventsFromLogs(stateRoot, request.instanceKey);
+    const includesWorkspaceFallback = instanceLocations.some((location) => location.source === 'workspace');
+    const connectorEvents = await this.readConnectorEventsFromLogs(
+      stateRoot,
+      request.instanceKey,
+      includesWorkspaceFallback,
+    );
     const primaryAgent = knownAgents.values().next().value ?? 'orchestrator';
     const primaryAgentId = `agent:${primaryAgent}`;
 
@@ -988,7 +1039,11 @@ export class DefaultStudioService implements StudioService {
     notFound(res);
   }
 
-  private async readConnectorEventsFromLogs(stateRoot: string, instanceKey: string): Promise<ConnectorLogEvent[]> {
+  private async readConnectorEventsFromLogs(
+    stateRoot: string,
+    instanceKey: string,
+    includeAllInstanceKeys = false,
+  ): Promise<ConnectorLogEvent[]> {
     const events: ConnectorLogEvent[] = [];
     const logDir = path.join(stateRoot, 'runtime', 'logs', instanceKey);
     if (!(await exists(logDir))) {
@@ -1018,7 +1073,7 @@ export class DefaultStudioService implements StudioService {
           sequence += 1;
           continue;
         }
-        if (parsed.instanceKey !== instanceKey) {
+        if (!includeAllInstanceKeys && parsed.instanceKey !== instanceKey) {
           sequence += 1;
           continue;
         }

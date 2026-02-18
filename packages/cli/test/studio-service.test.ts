@@ -1,6 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { DefaultStudioService } from '../src/services/studio.js';
 import type { DeleteInstanceRequest, InstanceRecord, InstanceStore, ListInstancesRequest } from '../src/types.js';
@@ -175,6 +175,69 @@ describe('DefaultStudioService', () => {
       expect(instancesPayload.items?.[0]?.key).toBe('instance-a');
     } finally {
       await server.close();
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('connector 로그 타임스탬프가 없어도 시각화 호출 간 이벤트 시간이 고정된다', async () => {
+    const stateRoot = await createStateRoot();
+    const instanceKey = 'instance-stable';
+    const workspaceRoot = path.join(stateRoot, 'workspaces', 'swarm-stable', 'instances', instanceKey);
+    const messageDir = path.join(workspaceRoot, 'messages');
+    const logDir = path.join(stateRoot, 'runtime', 'logs', instanceKey);
+    const logPath = path.join(logDir, 'orchestrator.stdout.log');
+
+    try {
+      await mkdir(messageDir, { recursive: true });
+      await mkdir(logDir, { recursive: true });
+      await writeFile(path.join(messageDir, 'base.jsonl'), '', 'utf8');
+      await writeFile(
+        logPath,
+        '[goondan-runtime][chat/slack] emitted event name=app_mention instanceKey=instance-stable\n',
+        'utf8',
+      );
+
+      const fixedEpochSeconds = 1_700_000_000;
+      await utimes(logPath, fixedEpochSeconds, fixedEpochSeconds);
+
+      const service = new DefaultStudioService({}, createInstanceStoreStub([]));
+      const first = await service.loadVisualization({
+        stateRoot,
+        instanceKey,
+        maxRecentEvents: 5,
+      });
+      const second = await service.loadVisualization({
+        stateRoot,
+        instanceKey,
+        maxRecentEvents: 5,
+      });
+
+      await writeFile(
+        logPath,
+        [
+          '[goondan-runtime][chat/slack] emitted event name=app_mention instanceKey=instance-stable',
+          '[goondan-runtime][chat/slack] emitted event name=app_mention instanceKey=other-instance',
+        ].join('\n') + '\n',
+        'utf8',
+      );
+
+      const third = await service.loadVisualization({
+        stateRoot,
+        instanceKey,
+        maxRecentEvents: 5,
+      });
+
+      const firstConnector = first.timeline.find((item) => item.kind === 'connector-log');
+      const secondConnector = second.timeline.find((item) => item.kind === 'connector-log');
+      const thirdConnectorEvents = third.timeline.filter((item) => item.kind === 'connector-log');
+
+      expect(firstConnector).toBeDefined();
+      expect(secondConnector).toBeDefined();
+      expect(firstConnector?.at).toBe(secondConnector?.at);
+      expect(thirdConnectorEvents.length).toBe(1);
+      expect(thirdConnectorEvents[0]?.source).toBe('connector:slack');
+      expect(firstConnector?.at).toBe(thirdConnectorEvents[0]?.at);
+    } finally {
       await rm(stateRoot, { recursive: true, force: true });
     }
   });

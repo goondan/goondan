@@ -366,6 +366,10 @@ export const STUDIO_JS = `const state = {
   visualization: null,
   selectedEdgeKey: null,
   pollTimer: null,
+  seenRecentEventKeys: new Set(),
+  recentEventKeyQueue: [],
+  recentPulseEvents: [],
+  hasHydratedRecentEvents: false,
 };
 
 const els = {
@@ -408,6 +412,29 @@ function eventKey(event) {
   return [event.at, event.source, event.target || "", event.subtype, event.detail].join("|");
 }
 
+function resetRecentEventTracking() {
+  state.seenRecentEventKeys = new Set();
+  state.recentEventKeyQueue = [];
+  state.recentPulseEvents = [];
+  state.hasHydratedRecentEvents = false;
+}
+
+function trackRecentEventKey(key) {
+  if (state.seenRecentEventKeys.has(key)) {
+    return false;
+  }
+  state.seenRecentEventKeys.add(key);
+  state.recentEventKeyQueue.push(key);
+
+  while (state.recentEventKeyQueue.length > 2000) {
+    const oldest = state.recentEventKeyQueue.shift();
+    if (oldest) {
+      state.seenRecentEventKeys.delete(oldest);
+    }
+  }
+  return true;
+}
+
 async function fetchJson(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
@@ -417,6 +444,7 @@ async function fetchJson(url) {
 }
 
 async function refreshInstances() {
+  const previousSelected = state.selectedInstanceKey;
   const payload = await fetchJson("/api/instances");
   state.instances = Array.isArray(payload.items) ? payload.items : [];
   if (!state.selectedInstanceKey && state.instances.length > 0) {
@@ -428,18 +456,41 @@ async function refreshInstances() {
   ) {
     state.selectedInstanceKey = state.instances.length > 0 ? state.instances[0].key : null;
   }
+
+  if (previousSelected !== state.selectedInstanceKey) {
+    resetRecentEventTracking();
+  }
+
   renderInstanceList();
 }
 
 async function refreshVisualization() {
   if (!state.selectedInstanceKey) {
     state.visualization = null;
+    resetRecentEventTracking();
     renderVisualization();
     return;
   }
 
   const key = encodeURIComponent(state.selectedInstanceKey);
   const payload = await fetchJson("/api/instances/" + key + "/visualization");
+  const recentEvents = Array.isArray(payload.recentEvents) ? payload.recentEvents : [];
+  if (!state.hasHydratedRecentEvents) {
+    for (const event of recentEvents) {
+      trackRecentEventKey(eventKey(event));
+    }
+    state.recentPulseEvents = [];
+    state.hasHydratedRecentEvents = true;
+  } else {
+    const pulseEvents = [];
+    for (const event of recentEvents) {
+      const keyForEvent = eventKey(event);
+      if (trackRecentEventKey(keyForEvent)) {
+        pulseEvents.push(event);
+      }
+    }
+    state.recentPulseEvents = pulseEvents;
+  }
   state.visualization = payload;
   renderVisualization();
 }
@@ -473,6 +524,7 @@ function renderInstanceList() {
     button.addEventListener("click", () => {
       state.selectedInstanceKey = item.key;
       state.selectedEdgeKey = null;
+      resetRecentEventTracking();
       renderInstanceList();
       void refreshVisualization();
     });
@@ -550,7 +602,7 @@ function pickGraphParticipants(participants) {
 function renderGraph(viz) {
   const participants = Array.isArray(viz.participants) ? pickGraphParticipants(viz.participants) : [];
   const interactions = Array.isArray(viz.interactions) ? viz.interactions : [];
-  const recentEvents = Array.isArray(viz.recentEvents) ? viz.recentEvents : [];
+  const pulseEvents = Array.isArray(state.recentPulseEvents) ? state.recentPulseEvents : [];
 
   if (participants.length === 0) {
     els.graphView.innerHTML = "<div class='empty'>표시할 participant가 없습니다.</div>";
@@ -613,7 +665,7 @@ function renderGraph(viz) {
 
   const activeNodes = new Set();
   const activeEdges = new Set();
-  for (const event of recentEvents) {
+  for (const event of pulseEvents) {
     const source = event.source;
     const target = event.target || "";
     activeNodes.add(source);
@@ -672,7 +724,7 @@ function renderGraph(viz) {
     nodeLayer.appendChild(g);
   }
 
-  for (const event of recentEvents) {
+  for (const event of pulseEvents) {
     if (!event.target) {
       continue;
     }

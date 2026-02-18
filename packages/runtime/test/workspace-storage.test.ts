@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { FileWorkspaceStorage } from '../src/workspace/storage.js';
 import { WorkspacePaths } from '../src/workspace/paths.js';
 import type { Message, MessageEvent } from '../src/types.js';
+import type { RuntimeEvent } from '../src/events/runtime-events.js';
 
 describe('FileWorkspaceStorage', () => {
   let tmpDir: string;
@@ -301,6 +302,44 @@ describe('FileWorkspaceStorage', () => {
       expect(loaded.nextMessages).toHaveLength(2);
       expect(loaded.nextMessages[0].id).toBe('m1');
       expect(loaded.nextMessages[1].id).toBe('m2');
+    });
+  });
+
+  describe('runtime events persistence', () => {
+    it('runtime-events.jsonl 파일을 초기화하고 이벤트를 append 한다', async () => {
+      const instanceKey = 'test:user7';
+      await storage.initializeInstanceState(instanceKey, 'test-agent');
+
+      const runtimeEventsPath = paths.instanceRuntimeEventsPath(instanceKey);
+      const initialContent = await fs.readFile(runtimeEventsPath, 'utf8');
+      expect(initialContent).toBe('');
+
+      const turnStartedEvent: RuntimeEvent = {
+        type: 'turn.started',
+        timestamp: '2026-02-01T00:00:00.000Z',
+        agentName: 'test-agent',
+        turnId: 'turn-1',
+        instanceKey,
+      };
+      const stepStartedEvent: RuntimeEvent = {
+        type: 'step.started',
+        timestamp: '2026-02-01T00:00:01.000Z',
+        agentName: 'test-agent',
+        stepId: 'turn-1-step-1',
+        stepIndex: 1,
+        turnId: 'turn-1',
+      };
+
+      await storage.appendRuntimeEvent(instanceKey, turnStartedEvent);
+      await storage.appendRuntimeEvent(instanceKey, stepStartedEvent);
+
+      const persisted = await fs.readFile(runtimeEventsPath, 'utf8');
+      const lines = persisted.trim().split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('"type":"turn.started"');
+      expect(lines[0]).toContain('"turnId":"turn-1"');
+      expect(lines[1]).toContain('"type":"step.started"');
+      expect(lines[1]).toContain('"stepIndex":1');
     });
   });
 });

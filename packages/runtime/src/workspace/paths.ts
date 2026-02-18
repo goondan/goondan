@@ -57,6 +57,10 @@ export class WorkspacePaths {
     return path.join(this.instancePath(instanceKey), "messages", "events.jsonl");
   }
 
+  instanceRuntimeEventsPath(instanceKey: string): string {
+    return path.join(this.instancePath(instanceKey), "messages", "runtime-events.jsonl");
+  }
+
   instanceExtensionStatePath(instanceKey: string, extensionName: string): string {
     return path.join(this.instancePath(instanceKey), "extensions", `${extensionName}.json`);
   }

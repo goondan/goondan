@@ -60,6 +60,21 @@ describe('parseArgv', () => {
     }
   });
 
+  it('studio 명령의 옵션을 파싱한다', () => {
+    const result = parseArgv(['studio', '--host', '0.0.0.0', '--port', '4412', '--no-open']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('studio');
+      const cmd = result.value.command;
+      if (cmd.action === 'studio') {
+        expect(cmd.host).toBe('0.0.0.0');
+        expect(cmd.port).toBe(4412);
+        expect(cmd.noOpen).toBe(true);
+      }
+    }
+  });
+
   it('run 명령 기본값을 파싱한다', () => {
     const result = parseArgv(['run', '--watch']);
 

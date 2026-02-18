@@ -74,7 +74,9 @@ NextMessages = BaseMessages + SUM(Events)
 
 - `BaseMessages`: Turn 시작 시 디스크(`base.jsonl`)에서 로드된 기준 메시지 집합
 - `Events`: Turn 중 누적되는 `MessageEvent` 집합 (`append`, `replace`, `remove`, `truncate`)
+- `RuntimeEvents`: Turn/Step/Tool 실행 관측 이벤트 집합 (`runtime-events.jsonl`)
 - Turn 종료 시 최종 `BaseMessages + SUM(Events)`를 새로운 base로 저장하고, Events를 비운다
+- `runtime-events.jsonl`은 관측성 용도로 append-only 기록되며 `NextMessages` 계산에는 포함되지 않는다
 - 복구 시 `base + events` 재생으로 정확한 상태를 복원할 수 있다
 
 Extension 미들웨어는 메시지를 직접 배열 변경하는 대신 `MessageEvent`를 발행하여 조작한다. 이 모델은 메시지 단위 편집 유연성과 장애 복원 가능성을 동시에 확보한다.
@@ -158,6 +160,7 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
           │ 메시지 상태 로드
           │  - base.jsonl → BaseMessages
           │  - events.jsonl → 잔존 Events (크래시 복원 시)
+          │  - runtime-events.jsonl → Turn/Step/Tool 관측 로그 (상태 복원 입력 아님)
           ▼
    ┌──────────────────────────────────────────────────────────┐
    │                                                          │
@@ -241,7 +244,8 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
    │     NextMessages = BaseMessages + SUM(Events)            │
    │  2. base.jsonl 갱신 (확정된 Message 목록)                │
    │  3. events.jsonl 클리어                                  │
-   │  4. Extension 상태 디스크 기록                           │
+   │  4. runtime-events.jsonl append-only 유지                │
+   │  5. Extension 상태 디스크 기록                           │
    └──────────────────────────────────────────────────────────┘
           │
           ▼
@@ -284,6 +288,10 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
   │  events.jsonl   │ ──→ 클리어
   │  (비움)         │
   └─────────────────┘
+  ┌─────────────────────────────┐
+  │  runtime-events.jsonl       │ ──→ append-only 유지
+  │  (Turn/Step/Tool 관측 로그) │     (상태 계산 미포함)
+  └─────────────────────────────┘
 ```
 
 ---
@@ -429,7 +437,7 @@ Bun 런타임 전용 설계로 빠른 프로세스 기동, 네이티브 TypeScri
 
 ### 5.5 이벤트 소싱 메시지 모델
 
-`NextMessages = BaseMessages + SUM(Events)` 모델로 메시지 단위 편집 유연성과 장애 복원 가능성을 동시에 확보한다. `base.jsonl` + `events.jsonl` 이원화 저장으로 Turn 중 크래시 시에도 정확한 상태 복원이 가능하다.
+`NextMessages = BaseMessages + SUM(Events)` 모델로 메시지 단위 편집 유연성과 장애 복원 가능성을 동시에 확보한다. `base.jsonl` + `events.jsonl` 이원화 저장으로 Turn 중 크래시 시에도 정확한 상태 복원이 가능하며, `runtime-events.jsonl`은 관측성 스트림으로 분리해 상태 계산과 독립적으로 유지한다.
 
 ### 5.6 Connector/Connection 분리로 독립적 진화
 
@@ -449,7 +457,7 @@ Connector가 별도 프로세스로 프로토콜을 자체 관리하므로, 프�
 
 ### 5.10 Observability 표준화
 
-traceId, tokenUsage, latency 등 관측성 표준으로 디버깅과 비용 추적이 용이하다. 각 AgentProcess의 stdout/stderr로 로그를 직접 확인할 수 있어 로그 수집이 단순해진다.
+traceId, tokenUsage, latency 등 관측성 표준으로 디버깅과 비용 추적이 용이하다. Turn/Step/Tool 실행 이벤트를 `runtime-events.jsonl`에 저장해 `gdn studio` 시각화 입력으로 재사용할 수 있고, 각 AgentProcess의 stdout/stderr로도 로그를 직접 확인할 수 있어 운영 추적이 단순해진다.
 
 ### 5.11 패키징 생태계
 
@@ -470,7 +478,7 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/help.md` | 스펙 운영 도움말 - 문서 소유권 매트릭스, 공통 계약(ObjectRef/ValueSource/env 해석), 레지스트리 설정 우선순위, `gdn package` 도움말 기준, 문서 링크 자동 점검 체크리스트 |
 | `specs/shared-types.md` | 공통 타입 SSOT - Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/EventEnvelope/ExecutionContext/ProcessStatus/IpcMessage/TurnResult/ToolCallResult |
 | `specs/resources.md` | Config Plane 리소스 정의 - 8종 Kind(Model, Agent, Swarm, Tool, Extension, Connector, Connection, Package), ObjectRef, Selector+Overrides, ValueSource |
-| `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, `@goondan/runtime/runner` 실행 엔진, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Edit & Restart, Observability |
+| `specs/runtime.md` | Orchestrator 상주 프로세스, Process-per-Agent 실행 모델, `@goondan/runtime/runner` 실행 엔진, IPC 메시지 브로커, Turn/Step 흐름, Message 이벤트 소싱, Runtime Event Stream(`runtime-events.jsonl`), Edit & Restart, Observability |
 | `specs/pipeline.md` | 라이프사이클 파이프라인 - Middleware 3종(turn/step/toolCall), Onion 모델, ConversationState 이벤트 소싱, PipelineRegistry |
 | `specs/tool.md` | Tool 시스템 - 더블 언더스코어 네이밍, ToolContext, 통합 이벤트 기반 에이전트 간 통신, Bun-only 실행 |
 | `specs/extension.md` | Extension 시스템 - ExtensionApi(pipeline/tools/state/events/logger), Middleware 파이프라인, Skill/ToolSearch/MessageWindow/Compaction/Logging/MCP 패턴 |
@@ -478,12 +486,12 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 | `specs/connection.md` | Connection 시스템 - config/secrets 분리 전달, Ingress 라우팅 규칙, 서명 검증 |
 | `specs/bundle.md` | Bundle YAML - goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, YAML 보안 |
 | `specs/bundle_package.md` | Package - 프로젝트 매니페스트, `~/.goondan/packages/`, 레지스트리 API, CLI 명령어 |
-| `specs/workspace.md` | Workspace 및 Storage 모델 - 2루트 분리(Project Root + System Root), Message 영속화, Extension state, 프로세스별 로깅 |
-| `specs/cli.md` | CLI 도구(gdn) - run, restart, validate, instance, package, doctor |
+| `specs/workspace.md` | Workspace 및 Storage 모델 - 2루트 분리(Project Root + System Root), Message 영속화(`base/events/runtime-events`), Extension state, 프로세스별 로깅 |
+| `specs/cli.md` | CLI 도구(gdn) - run, restart, validate, instance, logs, package, doctor, studio |
 | `specs/api.md` | Runtime/SDK API - ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, Runtime Events API 표면 |
 | `specs/oauth.md` | OAuth 범위 문서 - Extension/Connection 조합 구현 원칙 |
 
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-16
+**최종 수정**: 2026-02-18

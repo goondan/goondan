@@ -58,6 +58,18 @@ describe('executeCli router', () => {
     expect(state.outs.join('\n')).toContain('Logs instance=instance-abc');
   });
 
+  it('studio 명령을 studio.startServer로 라우팅한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['studio', '--host', '0.0.0.0', '--port', '4412', '--no-open'], deps);
+
+    expect(code).toBe(0);
+    expect(state.studioServerRequests.length).toBe(1);
+    expect(state.studioServerRequests[0]?.host).toBe('0.0.0.0');
+    expect(state.studioServerRequests[0]?.port).toBe(4412);
+    expect(state.outs.join('\n')).toContain('Studio started');
+  });
+
   it('unknown 명령은 파싱 오류를 반환한다', async () => {
     const { deps, state } = createMockDeps();
 

@@ -8,7 +8,7 @@
 
 `gdn`은 Goondan Agent Swarm 오케스트레이터의 공식 CLI 도구이다. Orchestrator 상주 프로세스 모델과 Edit & Restart 패턴에 맞춰, Orchestrator 운영(`run`, `restart`)과 인스턴스 운영(`instance list/restart/delete`), 패키지 운영(`package`) 중심의 명령 체계를 제공한다.
 
-CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/restart/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
+CLI 명령 표면은 Orchestrator 운영(`run`, `restart`), 인스턴스 운영(`instance list/restart/delete`), 로그 운영(`logs`), 패키지 운영(`package`), 검증/진단(`validate`, `doctor`), Studio 관측성 운영(`studio`)으로 구성한다. CLI를 제공하는 구현은 인스턴스 운영 연산을 사람이 재현 가능하고 스크립트 가능한 형태로 노출해야 한다(SHOULD).
 
 실행 엔진(런타임 러너, 대화 루프, connector child 실행)은 `@goondan/runtime` 패키지의 `runner` 엔트리가 소유한다. CLI는 해당 엔진 프로세스를 기동/감시/재기동하는 제어면으로 동작해야 한다(MUST).
 
@@ -58,6 +58,7 @@ gdn <command> [subcommand] [options]
 | `gdn logs` | 프로세스 로그 조회 |
 | `gdn package` | 패키지 관리 (add, install, publish) |
 | `gdn doctor` | 환경 진단 및 문제 확인 |
+| `gdn studio` | Studio 서버 실행 및 인스턴스 상호작용 시각화 |
 
 ---
 
@@ -748,7 +749,62 @@ Summary
 
 ---
 
-## 11. 종료 코드
+## 11. gdn studio
+
+Studio 서버를 실행하여 런타임 상호작용을 시각화한다.
+
+### 11.1 사용법
+
+```bash
+gdn studio [options]
+```
+
+### 11.2 목적
+
+`gdn studio`는 인스턴스별 상호작용을 Graph/Flow 뷰로 관찰하는 운영용 UI를 제공한다.
+
+- Graph 뷰: participant(agent/connector/tool 등) 간 상호작용 관계를 간선 중심으로 표시
+- Flow 뷰: timeline 이벤트를 lane 기반 흐름으로 표시
+
+### 11.3 옵션
+
+| 옵션 | 설명 | 기본값 |
+|------|------|--------|
+| `--host <host>` | Studio 서버 바인딩 호스트 | `127.0.0.1` |
+| `--port <port>` | Studio 서버 포트 | `4317` |
+| `--open` | 브라우저 자동 열기 강제 | 기본 동작 |
+| `--no-open` | 브라우저 자동 열기 비활성화 | `false` |
+
+`--open`과 `--no-open`을 동시에 지정하면 오류로 처리해야 한다(MUST).
+
+### 11.4 기본 동작
+
+`gdn studio`는 다음 순서로 동작한다.
+
+1. 지정된 `host`/`port`로 Studio HTTP 서버를 실행한다.
+2. `/api/instances`에서 인스턴스 목록을 노출하고, UI가 이를 주기적으로 갱신한다.
+3. 선택한 인스턴스에 대해 `/api/instances/:key/visualization`을 조회해 Graph/Flow 뷰를 렌더링한다.
+4. `visualization` API는 `?recent=<N>` 쿼리(1~200)를 받아 최근 이벤트 요약 범위를 제어할 수 있다.
+5. 기본값으로 브라우저를 자동 실행한다(`--no-open` 지정 시 비활성화).
+
+Studio 시각화 데이터는 인스턴스의 `messages/base.jsonl`, `messages/events.jsonl`, `messages/runtime-events.jsonl`과 런타임 로그를 종합해 생성한다.
+
+### 11.5 예시
+
+```bash
+# 기본 실행 (127.0.0.1:4317 + 브라우저 자동 열기)
+gdn studio
+
+# 호스트/포트 지정
+gdn studio --host 0.0.0.0 --port 8080
+
+# 브라우저 자동 열기 비활성화
+gdn studio --no-open
+```
+
+---
+
+## 12. 종료 코드
 
 | 코드 | 의미 |
 |------|------|
@@ -763,9 +819,9 @@ Summary
 
 ---
 
-## 12. 설정 파일
+## 13. 설정 파일
 
-### 12.1 ~/.goondan/config.json
+### 13.1 ~/.goondan/config.json
 
 전역 CLI 설정 파일 경로는 `~/.goondan/config.json`이다.
 
@@ -787,7 +843,7 @@ Summary
 설정을 변경하려면 이 파일을 직접 편집한다.
 레지스트리 설정 소스/우선순위의 규범 기준은 `docs/specs/help.md` 4절을 따른다.
 
-### 12.2 환경 변수 우선순위
+### 13.2 환경 변수 우선순위
 
 설정 우선순위 (높은 것이 우선):
 
@@ -798,7 +854,7 @@ Summary
 
 ---
 
-## 13. 관련 문서
+## 14. 관련 문서
 
 - `docs/specs/runtime.md`: Runtime 실행 모델 스펙
 - `docs/specs/workspace.md`: Workspace 모델 스펙
@@ -808,4 +864,4 @@ Summary
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-16
+**최종 수정**: 2026-02-18

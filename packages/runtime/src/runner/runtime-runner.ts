@@ -25,6 +25,8 @@ import {
   ExtensionApiImpl,
   ExtensionStateManagerImpl,
   PipelineRegistryImpl,
+  RUNTIME_EVENT_TYPES,
+  RuntimeEventBusImpl,
   buildToolName,
   createMinimalToolContext,
   isJsonObject,
@@ -52,6 +54,7 @@ import {
   type Message,
   type ObjectRefLike,
   type RuntimeResource,
+  type RuntimeEvent,
   type StepResult,
   type ToolCallResult,
   type ToolCatalogItem,
@@ -236,7 +239,17 @@ interface RuntimeEngineState {
   spawnedAgentsByOwner: Map<string, Map<string, SpawnedAgentRecord>>;
   instanceWorkdirs: Map<string, string>;
   extensionEnvironments: Map<string, AgentExtensionEnvironment>;
+  runtimeEventBus: RuntimeEventBusImpl;
+  runtimeEventTurnQueueKeys: Map<string, string>;
   restartRequestedReason?: string;
+}
+
+interface RuntimeEventPersistenceContext {
+  storage: {
+    appendRuntimeEvent: FileWorkspaceStorage['appendRuntimeEvent'];
+  };
+  runtimeEventBus: RuntimeEventBusImpl;
+  runtimeEventTurnQueueKeys: Map<string, string>;
 }
 
 interface AgentExtensionEnvironment {
@@ -3116,7 +3129,7 @@ async function getOrCreateAgentExtensionEnvironment(input: {
 
   const extensionToolRegistry = new ToolRegistryImpl();
   const environment: AgentExtensionEnvironment = {
-    pipelineRegistry: new PipelineRegistryImpl(),
+    pipelineRegistry: new PipelineRegistryImpl(input.runtime.runtimeEventBus),
     extensionToolRegistry,
     extensionToolExecutor: new ToolExecutor(extensionToolRegistry),
     extensionStateManager,
@@ -3478,6 +3491,23 @@ function logConnectorEvent(plan: ConnectorRunPlan, event: ParsedConnectorEvent):
   );
 }
 
+function readRuntimeEventInstanceKey(event: RuntimeEvent): string | undefined {
+  if (!('instanceKey' in event)) {
+    return undefined;
+  }
+
+  if (typeof event.instanceKey !== 'string') {
+    return undefined;
+  }
+
+  const trimmedInstanceKey = event.instanceKey.trim();
+  if (trimmedInstanceKey.length === 0) {
+    return undefined;
+  }
+
+  return trimmedInstanceKey;
+}
+
 function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEngineState {
   const workspacePaths = new WorkspacePaths({
     stateRoot: args.stateRoot,
@@ -3493,6 +3523,84 @@ function buildRuntimeEngine(args: RunnerArguments, plan: RunnerPlan): RuntimeEng
     spawnedAgentsByOwner: new Map<string, Map<string, SpawnedAgentRecord>>(),
     instanceWorkdirs: new Map<string, string>(),
     extensionEnvironments: new Map<string, AgentExtensionEnvironment>(),
+    runtimeEventBus: new RuntimeEventBusImpl(),
+    runtimeEventTurnQueueKeys: new Map<string, string>(),
+  };
+}
+
+function resolveRuntimeEventQueueKey(
+  runtime: RuntimeEventPersistenceContext,
+  event: RuntimeEvent,
+): string | undefined {
+  if (event.type === 'turn.started') {
+    const explicitInstanceKey = readRuntimeEventInstanceKey(event);
+    if (explicitInstanceKey !== undefined) {
+      runtime.runtimeEventTurnQueueKeys.set(event.turnId, explicitInstanceKey);
+      return explicitInstanceKey;
+    }
+
+    return runtime.runtimeEventTurnQueueKeys.get(event.turnId);
+  }
+
+  const trackedInstanceKey = runtime.runtimeEventTurnQueueKeys.get(event.turnId);
+  if (trackedInstanceKey !== undefined) {
+    return trackedInstanceKey;
+  }
+
+  const explicitInstanceKey = readRuntimeEventInstanceKey(event);
+  if (explicitInstanceKey !== undefined) {
+    return explicitInstanceKey;
+  }
+
+  if (event.type === 'turn.completed' || event.type === 'turn.failed') {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function shouldReleaseRuntimeEventTurnKey(event: RuntimeEvent): boolean {
+  return event.type === 'turn.completed' || event.type === 'turn.failed';
+}
+
+export function attachRuntimeEventPersistence(runtime: RuntimeEventPersistenceContext): () => void {
+  const listener = async (event: RuntimeEvent): Promise<void> => {
+    const instanceKey = resolveRuntimeEventQueueKey(runtime, event);
+    if (instanceKey === undefined) {
+      console.warn(
+        `[goondan-runtime] runtime event dropped type=${event.type} turnId=${event.turnId}: unresolved instance`,
+      );
+      if (shouldReleaseRuntimeEventTurnKey(event)) {
+        runtime.runtimeEventTurnQueueKeys.delete(event.turnId);
+      }
+      return;
+    }
+
+    try {
+      await runtime.storage.appendRuntimeEvent(instanceKey, event);
+    } catch (error) {
+      console.warn(
+        `[goondan-runtime] runtime event persistence failed type=${event.type} instanceKey=${instanceKey}: ${unknownToErrorMessage(error)}`,
+      );
+    } finally {
+      if (shouldReleaseRuntimeEventTurnKey(event)) {
+        runtime.runtimeEventTurnQueueKeys.delete(event.turnId);
+      }
+    }
+  };
+
+  const unsubscribers: Array<() => void> = [];
+  for (const eventType of RUNTIME_EVENT_TYPES) {
+    const unsubscribe = runtime.runtimeEventBus.on(eventType, listener);
+    unsubscribers.push(unsubscribe);
+  }
+
+  return () => {
+    for (const unsubscribe of unsubscribers) {
+      unsubscribe();
+    }
+    runtime.runtimeEventBus.clear();
+    runtime.runtimeEventTurnQueueKeys.clear();
   };
 }
 
@@ -3971,78 +4079,100 @@ async function main(): Promise<void> {
   const args = parseRunnerArguments(process.argv.slice(2));
   const plan = await preflight(args);
   const runtime = buildRuntimeEngine(args, plan);
-  await preloadAgentExtensions(runtime, plan, args.instanceKey);
-  const stopWatching = args.watch ? startWatchMode(runtime, plan) : () => {
-    // no-op
-  };
-  const runningConnectors = await startConnectors(plan, runtime);
-
-  console.info(
-    `[goondan-runtime] started instanceKey=${args.instanceKey} pid=${process.pid} swarm=${plan.selectedSwarm.name} connectors=${runningConnectors.length}`,
-  );
-  console.info(`[goondan-runtime] active connectors: ${summarizeConnectorPlans(plan.connectors)}`);
-  console.info(`[goondan-runtime] active agents: ${summarizeAgentPlans(plan.agents)}`);
-
-  const readyMessage: RunnerReadyMessage = {
-    type: 'ready',
-    instanceKey: args.instanceKey,
-    pid: process.pid,
-  };
-  sendMessage(readyMessage);
-
+  const detachRuntimeEventPersistence = attachRuntimeEventPersistence(runtime);
   try {
-    await runLifecycle(runningConnectors);
-  } finally {
-    stopWatching();
-    await stopConnectors(runningConnectors);
-  }
+    await preloadAgentExtensions(runtime, plan, args.instanceKey);
+    const stopWatching = args.watch ? startWatchMode(runtime, plan) : () => {
+      // no-op
+    };
+    let runningConnectors: RunningConnector[] = [];
+    try {
+      runningConnectors = await startConnectors(plan, runtime);
 
-  if (runtime.restartRequestedReason !== undefined) {
-    const runnerModulePath = process.argv[1];
-    if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
-      throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
+      console.info(
+        `[goondan-runtime] started instanceKey=${args.instanceKey} pid=${process.pid} swarm=${plan.selectedSwarm.name} connectors=${runningConnectors.length}`,
+      );
+      console.info(`[goondan-runtime] active connectors: ${summarizeConnectorPlans(plan.connectors)}`);
+      console.info(`[goondan-runtime] active agents: ${summarizeAgentPlans(plan.agents)}`);
+
+      const readyMessage: RunnerReadyMessage = {
+        type: 'ready',
+        instanceKey: args.instanceKey,
+        pid: process.pid,
+      };
+      sendMessage(readyMessage);
+
+      await runLifecycle(runningConnectors);
+    } finally {
+      stopWatching();
+      await stopConnectors(runningConnectors);
     }
 
-    const reason = runtime.restartRequestedReason;
-    const replacementPlan = await buildRunnerPlan(runtime.runnerArgs);
-    const replacementInstanceKey = replacementPlan.selectedSwarm.instanceKey;
-    const replacementSwarmName = replacementPlan.selectedSwarm.name;
-    const replacementRunnerArgsWithInstanceKey = upsertRunnerOption(
-      process.argv.slice(2),
-      '--instance-key',
-      replacementInstanceKey,
-    );
-    const replacementRunnerArgs = upsertRunnerOption(
-      replacementRunnerArgsWithInstanceKey,
-      '--swarm',
-      replacementSwarmName,
-    );
-    const replacementPid = await spawnReplacementRunner({
-      runnerModulePath,
-      runnerArgs: replacementRunnerArgs,
-      stateRoot: runtime.runnerArgs.stateRoot,
-      instanceKey: replacementInstanceKey,
-      bundlePath: runtime.runnerArgs.bundlePath,
-      watch: runtime.runnerArgs.watch,
-      swarmName: replacementSwarmName,
-      env: process.env,
-    });
+    if (runtime.restartRequestedReason !== undefined) {
+      const runnerModulePath = process.argv[1];
+      if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
+        throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
+      }
 
-    console.info(
-      `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
-    );
+      const reason = runtime.restartRequestedReason;
+      const replacementPlan = await buildRunnerPlan(runtime.runnerArgs);
+      const replacementInstanceKey = replacementPlan.selectedSwarm.instanceKey;
+      const replacementSwarmName = replacementPlan.selectedSwarm.name;
+      const replacementRunnerArgsWithInstanceKey = upsertRunnerOption(
+        process.argv.slice(2),
+        '--instance-key',
+        replacementInstanceKey,
+      );
+      const replacementRunnerArgs = upsertRunnerOption(
+        replacementRunnerArgsWithInstanceKey,
+        '--swarm',
+        replacementSwarmName,
+      );
+      const replacementPid = await spawnReplacementRunner({
+        runnerModulePath,
+        runnerArgs: replacementRunnerArgs,
+        stateRoot: runtime.runnerArgs.stateRoot,
+        instanceKey: replacementInstanceKey,
+        bundlePath: runtime.runnerArgs.bundlePath,
+        watch: runtime.runnerArgs.watch,
+        swarmName: replacementSwarmName,
+        env: process.env,
+      });
+
+      console.info(
+        `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
+      );
+    }
+  } finally {
+    detachRuntimeEventPersistence();
   }
 
   process.exit(0);
 }
 
-void main().catch((error) => {
-  const message = unknownToErrorMessage(error);
-  const startErrorMessage: RunnerStartErrorMessage = {
-    type: 'start_error',
-    message,
-  };
-  sendMessage(startErrorMessage);
-  console.error(`[goondan-runtime] startup failure: ${message}`);
-  process.exit(1);
-});
+function isRuntimeRunnerEntryPoint(): boolean {
+  const entryArg = process.argv[1];
+  if (typeof entryArg !== 'string' || entryArg.trim().length === 0) {
+    return false;
+  }
+
+  try {
+    const entryUrl = pathToFileURL(path.resolve(entryArg)).href;
+    return entryUrl === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isRuntimeRunnerEntryPoint()) {
+  void main().catch((error) => {
+    const message = unknownToErrorMessage(error);
+    const startErrorMessage: RunnerStartErrorMessage = {
+      type: 'start_error',
+      message,
+    };
+    sendMessage(startErrorMessage);
+    console.error(`[goondan-runtime] startup failure: ${message}`);
+    process.exit(1);
+  });
+}

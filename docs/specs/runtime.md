@@ -113,7 +113,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
 2. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
 3. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`를 기록해야 한다(SHOULD).
-4. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
+4. Runtime은 Turn/Step/Tool 런타임 이벤트(`turn.*`, `step.*`, `tool.*`)를 인스턴스별 `messages/runtime-events.jsonl`에 append-only로 기록해야 한다(MUST).
+5. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
 
 ### 2.7 Edit & Restart 규칙
 
@@ -769,6 +770,7 @@ NextMessages = BaseMessages + SUM(Events)
 
 - `BaseMessages`: Turn 시작 시점에 로드된 확정 메시지 집합(`messages/base.jsonl`)
 - `Events`: Turn 동안 누적되는 `MessageEvent` 집합(`messages/events.jsonl`)
+- `RuntimeEvents`: Turn/Step/Tool 실행 관측 이벤트 집합(`messages/runtime-events.jsonl`, 메시지 상태 계산에는 미포함)
 
 ```typescript
 interface RuntimeConversationState extends ConversationState {
@@ -820,12 +822,14 @@ interface RuntimeConversationState extends ConversationState {
 
 ### 8.7 영속화
 
-`messages/base.jsonl`/`messages/events.jsonl` 경로 및 파일 레이아웃의 단일 기준은 `docs/specs/workspace.md` 7.3절이다.
+`messages/base.jsonl`/`messages/events.jsonl`/`messages/runtime-events.jsonl` 경로 및 파일 레이아웃의 단일 기준은 `docs/specs/workspace.md` 7.3절이다.
 Runtime은 해당 저장소 위에서 다음 실행 규칙만 보장한다(MUST).
 
 1. Turn 종료 시 `events -> base` 폴딩을 수행한다.
 2. 폴딩 성공 후 `events`를 비운다.
 3. 재시작 시 미처리 `events`가 남아 있으면 `Base + SUM(Events)`로 복원한다.
+4. Turn/Step/Tool 런타임 이벤트(`turn.*`, `step.*`, `tool.*`)를 `runtime-events`에 append-only로 기록한다.
+5. `runtime-events`는 메시지 상태 복원(`Base + SUM(Events)`)의 입력으로 사용하지 않는다.
 
 ### 8.8 Middleware에서의 활용
 
@@ -1048,6 +1052,21 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 {"level":"info","timestamp":"2026-02-05T10:30:03Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.completed","turnId":"turn-001","latencyMs":3000,"tokenUsage":{"prompt":150,"completion":30,"total":180}}
 ```
 
+### 12.4 Runtime Event Stream 영속화
+
+Runtime은 관측성 이벤트를 인스턴스별 `messages/runtime-events.jsonl`에 append-only로 기록한다.
+
+- 이벤트 종류: `turn.started/completed/failed`, `step.started/completed/failed`, `tool.called/completed/failed`
+- 레코드 단위: JSONL 1라인 1이벤트
+- 목적: Studio/운영 관측성 (메시지 상태 계산과 분리)
+
+```jsonl
+{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001"}
+{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
+{"type":"tool.completed","timestamp":"2026-02-18T10:00:00.640Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","status":"ok","duration":290,"stepId":"turn-001-step-0","turnId":"turn-001"}
+```
+
 ---
 
 ## 13. Tool 관련 타입
@@ -1095,4 +1114,4 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-16
+**최종 수정**: 2026-02-18

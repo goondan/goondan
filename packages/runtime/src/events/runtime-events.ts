@@ -9,6 +9,18 @@ export type RuntimeEventType =
   | "tool.completed"
   | "tool.failed";
 
+export const RUNTIME_EVENT_TYPES: RuntimeEventType[] = [
+  "turn.started",
+  "turn.completed",
+  "turn.failed",
+  "step.started",
+  "step.completed",
+  "step.failed",
+  "tool.called",
+  "tool.completed",
+  "tool.failed",
+];
+
 interface RuntimeEventBase {
   type: RuntimeEventType;
   timestamp: string;

@@ -1,8 +1,26 @@
-import type { Message } from '../index.js';
+import type { JsonValue, Message } from '../index.js';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
   content: unknown;
+  metadata?: Record<string, JsonValue>;
+}
+
+function cloneMetadata(metadata: Record<string, JsonValue> | undefined): Record<string, JsonValue> | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+
+  const entries = Object.entries(metadata);
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const copied: Record<string, JsonValue> = {};
+  for (const [key, value] of entries) {
+    copied[key] = value;
+  }
+  return copied;
 }
 
 export function toConversationTurns(messages: Message[]): ConversationTurn[] {
@@ -13,10 +31,15 @@ export function toConversationTurns(messages: Message[]): ConversationTurn[] {
       continue;
     }
 
-    turns.push({
+    const turn: ConversationTurn = {
       role: message.data.role,
       content: message.data.content,
-    });
+    };
+    const metadata = cloneMetadata(message.metadata);
+    if (metadata) {
+      turn.metadata = metadata;
+    }
+    turns.push(turn);
   }
 
   return turns;
@@ -38,7 +61,7 @@ export function toPersistentMessages(turns: ConversationTurn[]): Message[] {
           role: 'assistant',
           content: turn.content,
         },
-        metadata: {},
+        metadata: cloneMetadata(turn.metadata) ?? {},
         createdAt: new Date(),
         source: {
           type: 'assistant',
@@ -54,7 +77,7 @@ export function toPersistentMessages(turns: ConversationTurn[]): Message[] {
         role: 'user',
         content: turn.content,
       },
-      metadata: {},
+      metadata: cloneMetadata(turn.metadata) ?? {},
       createdAt: new Date(),
       source: {
         type: 'user',

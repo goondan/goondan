@@ -126,6 +126,7 @@ interface ConnectorChildEventMessage {
 const DEFAULT_MIDDLEWARE_AGENT_REQUEST_TIMEOUT_MS = 15_000;
 const EXTENSION_AGENT_CALL_SOURCE = 'extension-middleware';
 const AGENT_CALL_STACK_METADATA_KEY = '__goondanAgentCallStack';
+const INBOUND_MESSAGE_METADATA_KEY = '__goondanInbound';
 
 interface RunnerArguments {
   bundlePath: string;
@@ -2432,6 +2433,39 @@ function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${random}`;
 }
 
+function cloneMessageMetadata(metadata: Record<string, JsonValue> | undefined): Record<string, JsonValue> {
+  const copied: Record<string, JsonValue> = {};
+  if (!metadata) {
+    return copied;
+  }
+
+  for (const [key, value] of Object.entries(metadata)) {
+    copied[key] = value;
+  }
+  return copied;
+}
+
+function createInboundMessageMetadata(event: AgentEvent): Record<string, JsonValue> {
+  const sourceKind = event.source.kind;
+  const sourceName = event.source.name;
+  if ((sourceKind !== 'agent' && sourceKind !== 'connector') || sourceName.length === 0) {
+    return {};
+  }
+
+  const inboundPayload: Record<string, JsonValue> = {
+    sourceKind,
+    sourceName,
+    eventName: event.type,
+  };
+  if (typeof event.instanceKey === 'string' && event.instanceKey.length > 0) {
+    inboundPayload.instanceKey = event.instanceKey;
+  }
+
+  return {
+    [INBOUND_MESSAGE_METADATA_KEY]: inboundPayload,
+  };
+}
+
 function createToolContextMessage(content: string): Message {
   return {
     id: createId('message'),
@@ -2447,14 +2481,17 @@ function createToolContextMessage(content: string): Message {
   };
 }
 
-function createConversationUserMessage(content: unknown): Message {
+function createConversationUserMessage(
+  content: unknown,
+  metadata: Record<string, JsonValue> | undefined = undefined,
+): Message {
   return {
     id: createId('message'),
     data: {
       role: 'user',
       content,
     },
-    metadata: {},
+    metadata: cloneMessageMetadata(metadata),
     createdAt: new Date(),
     source: {
       type: 'user',
@@ -2462,14 +2499,18 @@ function createConversationUserMessage(content: unknown): Message {
   };
 }
 
-function createConversationAssistantMessage(content: unknown, stepId: string): Message {
+function createConversationAssistantMessage(
+  content: unknown,
+  stepId: string,
+  metadata: Record<string, JsonValue> | undefined = undefined,
+): Message {
   return {
     id: createId('message'),
     data: {
       role: 'assistant',
       content,
     },
-    metadata: {},
+    metadata: cloneMessageMetadata(metadata),
     createdAt: new Date(),
     source: {
       type: 'assistant',
@@ -2482,10 +2523,10 @@ function createConversationStateFromTurns(turns: ConversationTurn[]): Conversati
   const messages: Message[] = [];
   for (const turn of turns) {
     if (turn.role === 'assistant') {
-      messages.push(createConversationAssistantMessage(turn.content, createId('seed-step')));
+      messages.push(createConversationAssistantMessage(turn.content, createId('seed-step'), turn.metadata));
       continue;
     }
-    messages.push(createConversationUserMessage(turn.content));
+    messages.push(createConversationUserMessage(turn.content, turn.metadata));
   }
   return new ConversationStateImpl(messages);
 }
@@ -3198,9 +3239,10 @@ async function runAgentTurn(input: {
   logger: Console;
 }): Promise<TurnExecutionResult> {
   const conversationState = createConversationStateFromTurns(input.conversation);
+  const inboundMessageMetadata = createInboundMessageMetadata(input.inputEvent);
   conversationState.emitMessageEvent({
     type: 'append',
-    message: createConversationUserMessage(input.userInputText),
+    message: createConversationUserMessage(input.userInputText, inboundMessageMetadata),
   });
   let lastText = '';
   let finalResponseText = '응답 텍스트를 생성하지 못했습니다.';

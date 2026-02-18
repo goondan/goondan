@@ -9,6 +9,7 @@
   - Agent turn/step/toolCall 파이프라인 실행
   - AI SDK 기반 LLM 호출
   - Tool error를 LLM 교정에 유리한 형태(code/suggestion/helpUrl 포함 텍스트)로 tool-result에 반영
+  - inbound 메시지의 발신자 컨텍스트를 `message.metadata.__goondanInbound`로 영속화해 후속 관측(Studio)에서 구조적으로 복원 가능하게 유지
   - watch/tool 재시작 신호 시 Connector 종료 후 replacement runner 기동(포트 충돌 방지)
 - `runtime-runner-connector-child.ts`: Connector entry 실행 전용 child 프로세스
 - `runtime-routing.ts`: inbound context 포맷/라우팅 유틸

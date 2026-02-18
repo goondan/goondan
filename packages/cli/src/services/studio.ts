@@ -32,6 +32,18 @@ interface MessageLike {
   toolName?: string;
   extensionName?: string;
   content: string;
+  inboundContext?: MessageInboundContext;
+}
+
+interface MessageInboundContext {
+  sourceKind: 'agent' | 'connector';
+  sourceName: string;
+  eventName: string;
+  instanceKey: string;
+}
+
+interface MessageRouteState {
+  replyTargetId: string;
 }
 
 interface ConnectorLogEvent {
@@ -63,6 +75,8 @@ interface TimelineEnvelope {
   sortAt: number;
   sequence: number;
 }
+
+const INBOUND_MESSAGE_METADATA_KEY = '__goondanInbound';
 
 function sanitizeInstanceKey(instanceKey: string): string {
   return instanceKey.replace(/[^a-zA-Z0-9_:-]/g, '-').slice(0, 128);
@@ -130,6 +144,40 @@ function toDetailText(value: unknown): string {
   return '';
 }
 
+function parseInboundContextFromMetadata(metadataValue: unknown): MessageInboundContext | undefined {
+  if (!isObjectRecord(metadataValue)) {
+    return undefined;
+  }
+
+  const inboundValue = metadataValue[INBOUND_MESSAGE_METADATA_KEY];
+  if (!isObjectRecord(inboundValue)) {
+    return undefined;
+  }
+
+  const sourceKind = inboundValue['sourceKind'];
+  const sourceName = inboundValue['sourceName'];
+  const eventName = inboundValue['eventName'];
+  const instanceKey = inboundValue['instanceKey'];
+  if (
+    (sourceKind !== 'agent' && sourceKind !== 'connector') ||
+    typeof sourceName !== 'string' ||
+    sourceName.length === 0 ||
+    typeof eventName !== 'string' ||
+    eventName.length === 0 ||
+    typeof instanceKey !== 'string' ||
+    instanceKey.length === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    sourceKind,
+    sourceName,
+    eventName,
+    instanceKey,
+  };
+}
+
 function messageFromUnknown(value: unknown): MessageLike | undefined {
   if (!isObjectRecord(value)) {
     return undefined;
@@ -149,7 +197,9 @@ function messageFromUnknown(value: unknown): MessageLike | undefined {
   }
 
   const role = data['role'];
-  const content = toDetailText(data['content']);
+  const rawContent = toDetailText(data['content']);
+  const contextFromMetadata = parseInboundContextFromMetadata(value['metadata']);
+  const content = rawContent;
 
   const extensionName = source['extensionName'];
   const toolName = source['toolName'];
@@ -165,6 +215,7 @@ function messageFromUnknown(value: unknown): MessageLike | undefined {
     toolName: typeof toolName === 'string' ? toolName : undefined,
     extensionName: typeof extensionName === 'string' ? extensionName : undefined,
     content,
+    inboundContext: contextFromMetadata,
   };
 }
 
@@ -209,6 +260,31 @@ function classifyParticipantKind(sourceType: string): StudioParticipant['kind'] 
   return 'unknown';
 }
 
+function classifyParticipantKindFromId(id: string, sourceType?: string): StudioParticipant['kind'] {
+  if (id.startsWith('agent:')) {
+    return 'agent';
+  }
+  if (id.startsWith('connector:')) {
+    return 'connector';
+  }
+  if (id.startsWith('tool:')) {
+    return 'tool';
+  }
+  if (id.startsWith('extension:')) {
+    return 'extension';
+  }
+  if (id.startsWith('user:')) {
+    return 'user';
+  }
+  if (id.startsWith('system:')) {
+    return 'system';
+  }
+  if (sourceType) {
+    return classifyParticipantKind(sourceType);
+  }
+  return 'unknown';
+}
+
 function registerParticipant(
   participants: Map<string, MutableParticipant>,
   id: string,
@@ -230,6 +306,9 @@ function registerParticipant(
 
   if (toMillis(at) >= toMillis(existing.lastSeenAt)) {
     existing.lastSeenAt = at;
+  }
+  if (existing.kind === 'unknown' && kind !== 'unknown') {
+    existing.kind = kind;
   }
 }
 
@@ -322,11 +401,25 @@ function fromMessageToRoute(
   message: MessageLike,
   instanceKey: string,
   defaultAgentId: string,
+  state: MessageRouteState,
 ): { from: string; to: string; kind: string; detail: string } {
   const userId = `user:${instanceKey}`;
   const systemId = 'system:runtime';
 
   if (message.sourceType === 'user') {
+    const inbound = message.inboundContext;
+    if (inbound) {
+      const fromId = `${inbound.sourceKind}:${inbound.sourceName}`;
+      state.replyTargetId = fromId;
+      return {
+        from: fromId,
+        to: defaultAgentId,
+        kind: `message.${inbound.sourceKind}`,
+        detail: message.content,
+      };
+    }
+
+    state.replyTargetId = userId;
     return {
       from: userId,
       to: defaultAgentId,
@@ -366,7 +459,7 @@ function fromMessageToRoute(
 
   return {
     from: defaultAgentId,
-    to: userId,
+    to: state.replyTargetId,
     kind: 'message.assistant',
     detail: message.content,
   };
@@ -734,6 +827,9 @@ export class DefaultStudioService implements StudioService {
       const runtimeFallbackMs = (await stat(runtimeEventsPath).catch(() => undefined))?.mtimeMs ?? 0;
 
       const baseRows = await readJsonLines(basePath);
+      const routeState: MessageRouteState = {
+        replyTargetId: `user:${request.instanceKey}`,
+      };
       for (const row of baseRows) {
         const message = messageFromUnknown(row);
         if (!message) {
@@ -743,20 +839,20 @@ export class DefaultStudioService implements StudioService {
         const principalAgent = metadataAgent ?? 'orchestrator';
         const principalAgentId = `agent:${principalAgent}`;
         registerParticipant(participants, principalAgentId, principalAgent, 'agent', at);
-        const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId);
+        const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId, routeState);
 
         registerParticipant(
           participants,
           routed.from,
           routed.from.replace(/^[^:]+:/u, ''),
-          classifyParticipantKind(message.sourceType),
+          classifyParticipantKindFromId(routed.from, message.sourceType),
           at,
         );
         registerParticipant(
           participants,
           routed.to,
           routed.to.replace(/^[^:]+:/u, ''),
-          routed.to.startsWith('agent:') ? 'agent' : 'unknown',
+          classifyParticipantKindFromId(routed.to),
           at,
         );
 
@@ -794,10 +890,22 @@ export class DefaultStudioService implements StudioService {
           const at = normalizeTimestamp(message.createdAt, eventsFallbackMs + sequence);
           const principalAgent = metadataAgent ?? 'orchestrator';
           const principalAgentId = `agent:${principalAgent}`;
-          const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId);
+          const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId, routeState);
 
-          registerParticipant(participants, routed.from, routed.from.replace(/^[^:]+:/u, ''), classifyParticipantKind(message.sourceType), at);
-          registerParticipant(participants, routed.to, routed.to.replace(/^[^:]+:/u, ''), routed.to.startsWith('agent:') ? 'agent' : 'unknown', at);
+          registerParticipant(
+            participants,
+            routed.from,
+            routed.from.replace(/^[^:]+:/u, ''),
+            classifyParticipantKindFromId(routed.from, message.sourceType),
+            at,
+          );
+          registerParticipant(
+            participants,
+            routed.to,
+            routed.to.replace(/^[^:]+:/u, ''),
+            classifyParticipantKindFromId(routed.to),
+            at,
+          );
           registerInteraction(interactions, routed.from, routed.to, at, 'message.append', routed.detail);
           pushTimeline(
             timeline,

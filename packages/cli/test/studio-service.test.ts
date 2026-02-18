@@ -246,6 +246,97 @@ describe('DefaultStudioService', () => {
     }
   });
 
+  it('message.metadata.__goondanInbound 기반 agent inbound를 agent 간선으로 복원한다', async () => {
+    const stateRoot = await createStateRoot();
+    const runtimeInstanceKey = 'brain';
+    const workerInstanceKey = 'worker:brain-shared';
+    const workerPath = path.join(stateRoot, 'workspaces', runtimeInstanceKey, 'instances', workerInstanceKey);
+    const messageDir = path.join(workerPath, 'messages');
+
+    try {
+      await mkdir(messageDir, { recursive: true });
+      await writeFile(
+        path.join(workerPath, 'metadata.json'),
+        JSON.stringify({
+          status: 'idle',
+          agentName: 'worker',
+          instanceKey: workerInstanceKey,
+          createdAt: '2026-02-18T12:00:00.000Z',
+          updatedAt: '2026-02-18T12:00:00.000Z',
+        }),
+        'utf8',
+      );
+
+      await writeFile(
+        path.join(messageDir, 'base.jsonl'),
+        [
+          JSON.stringify({
+            id: 'mw-1',
+            createdAt: '2026-02-18T12:00:01.000Z',
+            source: { type: 'user' },
+            metadata: {
+              __goondanInbound: {
+                sourceKind: 'agent',
+                sourceName: 'coordinator',
+                eventName: 'agent.request',
+                instanceKey: workerInstanceKey,
+              },
+            },
+            data: { role: 'user', content: 'worker에게 전달할 요청' },
+          }),
+          JSON.stringify({
+            id: 'mw-2',
+            createdAt: '2026-02-18T12:00:02.000Z',
+            source: { type: 'assistant', stepId: 'ws-1' },
+            data: { role: 'assistant', content: 'coordinator에게 응답' },
+          }),
+        ].join('\n') + '\n',
+        'utf8',
+      );
+
+      const service = new DefaultStudioService(
+        {},
+        createInstanceStoreStub([
+          {
+            key: runtimeInstanceKey,
+            status: 'running',
+            agent: 'orchestrator',
+            createdAt: '2026-02-18 12:00:00',
+            updatedAt: '2026-02-18 12:00:00',
+          },
+        ]),
+      );
+
+      const visualization = await service.loadVisualization({
+        stateRoot,
+        instanceKey: runtimeInstanceKey,
+        maxRecentEvents: 20,
+      });
+
+      expect(visualization.participants.some((item) => item.id === 'agent:worker')).toBe(true);
+      expect(visualization.participants.some((item) => item.id === 'agent:coordinator')).toBe(true);
+
+      const workerCoordinatorEdge = visualization.interactions.find(
+        (item) =>
+          (item.a === 'agent:worker' && item.b === 'agent:coordinator') ||
+          (item.a === 'agent:coordinator' && item.b === 'agent:worker'),
+      );
+      expect(workerCoordinatorEdge).toBeDefined();
+      expect(
+        visualization.timeline.some(
+          (item) => item.source === 'agent:coordinator' && item.target === 'agent:worker',
+        ),
+      ).toBe(true);
+      expect(
+        visualization.timeline.some(
+          (item) => item.source === 'agent:worker' && item.target === 'agent:coordinator',
+        ),
+      ).toBe(true);
+    } finally {
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
   it('studio 서버가 정적 자산과 인스턴스 API를 제공한다', async () => {
     const stateRoot = await createStateRoot();
     const instanceStore = createInstanceStoreStub([

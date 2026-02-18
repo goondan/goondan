@@ -57,6 +57,7 @@ import {
   type RuntimeEvent,
   type StepResult,
   type ToolCallResult,
+  type ToolError,
   type ToolCatalogItem,
   type Turn,
   type TurnResult,
@@ -2543,6 +2544,29 @@ function toToolResultOutput(value: unknown): RunnerToolResultOutput {
   };
 }
 
+function formatToolErrorForModel(error: ToolError | undefined): string {
+  const message = error?.message?.trim().length ? error.message : 'unknown tool error';
+  const lines = [`ERROR: ${message}`];
+
+  if (error?.code) {
+    lines.push(`CODE: ${error.code}`);
+  }
+
+  if (error?.suggestion && error.suggestion.trim().length > 0) {
+    lines.push(`SUGGESTION: ${error.suggestion}`);
+  }
+
+  if (error?.helpUrl && error.helpUrl.trim().length > 0) {
+    lines.push(`HELP: ${error.helpUrl}`);
+  }
+
+  if (error?.code === 'E_TOOL_INVALID_ARGS') {
+    lines.push('ACTION: Fix arguments to match the tool schema, then call this tool again.');
+  }
+
+  return lines.join('\n');
+}
+
 function parseToolCallPart(block: JsonObject): { toolCallId: string; toolName: string; input: JsonObject } | undefined {
   const type = typeof block.type === 'string' ? block.type : '';
   if (type !== 'tool-call' && type !== 'tool_call' && type !== 'tool_use') {
@@ -3396,14 +3420,14 @@ async function runAgentTurn(input: {
                 continue;
               }
 
-              const errorMessage = toolResult.error?.message ?? 'unknown tool error';
+              const errorMessage = formatToolErrorForModel(toolResult.error);
               toolResultBlocks.push({
                 type: 'tool-result',
                 toolCallId: toolUse.id,
                 toolName: toolUse.name,
                 output: {
                   type: 'text',
-                  value: `ERROR: ${errorMessage}`,
+                  value: errorMessage,
                 },
               });
             }

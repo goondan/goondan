@@ -75,6 +75,52 @@ function createConnectorManifest(
   };
 }
 
+function createProperty(type: string | string[], description: string, extra: JsonObject = {}): JsonObject {
+  return {
+    type: Array.isArray(type) ? [...type] : type,
+    description,
+    ...extra,
+  };
+}
+
+function stringProperty(description: string, extra: JsonObject = {}): JsonObject {
+  return createProperty('string', description, extra);
+}
+
+function numberProperty(description: string, extra: JsonObject = {}): JsonObject {
+  return createProperty('number', description, extra);
+}
+
+function booleanProperty(description: string, extra: JsonObject = {}): JsonObject {
+  return createProperty('boolean', description, extra);
+}
+
+function objectProperty(description: string, extra: JsonObject = {}): JsonObject {
+  return createProperty('object', description, extra);
+}
+
+function arrayProperty(description: string, items?: JsonObject, extra: JsonObject = {}): JsonObject {
+  const payload: JsonObject = { ...extra };
+  if (items) {
+    payload.items = items;
+  }
+  return createProperty('array', description, payload);
+}
+
+function createParameters(properties: Record<string, JsonObject>, required: string[] = []): JsonObject {
+  const parameters: JsonObject = {
+    type: 'object',
+    properties,
+    additionalProperties: false,
+  };
+
+  if (required.length > 0) {
+    parameters.required = [...required];
+  }
+
+  return parameters;
+}
+
 export function createBaseToolManifests(): BaseToolManifest[] {
   return [
     createToolManifest('bash', {
@@ -83,32 +129,38 @@ export function createBaseToolManifests(): BaseToolManifest[] {
       exports: [
         {
           name: 'exec',
-          description: 'Run shell command in instance workdir',
-          parameters: {
-            type: 'object',
-            properties: {
-              command: { type: 'string' },
-              cwd: { type: 'string' },
-              timeoutMs: { type: 'number' },
-              env: { type: 'object' },
+          description:
+            'Execute one shell command using /bin/sh -lc in the current instance workspace.',
+          parameters: createParameters(
+            {
+              command: stringProperty('Shell command string to execute.'),
+              cwd: stringProperty('Optional working directory path relative to the instance workdir.'),
+              timeoutMs: numberProperty('Maximum execution time in milliseconds (default: 30000).'),
+              env: objectProperty(
+                'Optional environment variable overrides merged with process.env before execution.'
+              ),
             },
-            required: ['command'],
-          },
+            ['command']
+          ),
         },
         {
           name: 'script',
-          description: 'Run script file path with optional args',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-              args: { type: 'array' },
-              shell: { type: 'string' },
-              timeoutMs: { type: 'number' },
-              env: { type: 'object' },
+          description: 'Run a script file from workdir with optional arguments and custom shell.',
+          parameters: createParameters(
+            {
+              path: stringProperty('Script file path relative to the instance workdir.'),
+              args: arrayProperty(
+                'Optional command-line arguments passed to the script in order.',
+                stringProperty('Single script argument value.')
+              ),
+              shell: stringProperty('Shell binary path used to execute the script (default: /bin/bash).'),
+              timeoutMs: numberProperty('Maximum execution time in milliseconds (default: 30000).'),
+              env: objectProperty(
+                'Optional environment variable overrides merged with process.env before execution.'
+              ),
             },
-            required: ['path'],
-          },
+            ['path']
+          ),
         },
       ],
     }),
@@ -119,13 +171,12 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'seconds',
           description: 'Pause execution for the specified number of seconds',
-          parameters: {
-            type: 'object',
-            properties: {
-              seconds: { type: 'number' },
+          parameters: createParameters(
+            {
+              seconds: numberProperty('Seconds to wait (range: 0 to 300).'),
             },
-            required: ['seconds'],
-          },
+            ['seconds']
+          ),
         },
       ],
     }),
@@ -136,52 +187,46 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'read',
           description: 'Read file content from workdir',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-              maxBytes: { type: 'number' },
+          parameters: createParameters(
+            {
+              path: stringProperty('File path relative to workdir to read.'),
+              maxBytes: numberProperty('Maximum bytes to return from file content (default: 100000).'),
             },
-            required: ['path'],
-          },
+            ['path']
+          ),
         },
         {
           name: 'write',
           description: 'Write file content in workdir',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-              content: { type: 'string' },
-              append: { type: 'boolean' },
+          parameters: createParameters(
+            {
+              path: stringProperty('File path relative to workdir to write. Parent directories are created automatically.'),
+              content: stringProperty('UTF-8 text content to write.'),
+              append: booleanProperty('When true, append content instead of overwriting the file (default: false).'),
             },
-            required: ['path', 'content'],
-          },
+            ['path', 'content']
+          ),
         },
         {
           name: 'list',
           description: 'List directory entries',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-              recursive: { type: 'boolean' },
-              includeDirs: { type: 'boolean' },
-              includeFiles: { type: 'boolean' },
-            },
-          },
+          parameters: createParameters({
+            path: stringProperty('Directory path relative to workdir (default: ".").'),
+            recursive: booleanProperty('When true, traverse subdirectories recursively (default: false).'),
+            includeDirs: booleanProperty('Include directory entries in result (default: true).'),
+            includeFiles: booleanProperty('Include file entries in result (default: true).'),
+          }),
         },
         {
           name: 'mkdir',
           description: 'Create directory in workdir',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-              recursive: { type: 'boolean' },
+          parameters: createParameters(
+            {
+              path: stringProperty('Directory path relative to workdir to create.'),
+              recursive: booleanProperty('Create parent directories when missing (default: true).'),
             },
-            required: ['path'],
-          },
+            ['path']
+          ),
         },
       ],
     }),
@@ -192,65 +237,58 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'request',
           description: 'Send request event to another agent and wait for response',
-          parameters: {
-            type: 'object',
-            properties: {
-              target: { type: 'string' },
-              input: { type: 'string' },
-              instanceKey: { type: 'string' },
-              eventType: { type: 'string' },
-              timeoutMs: { type: 'number' },
-              metadata: { type: 'object' },
+          parameters: createParameters(
+            {
+              target: stringProperty('Target agent resource name to request.'),
+              input: stringProperty('Text payload sent to the target agent.'),
+              instanceKey: stringProperty('Optional target instance key. Defaults to current instanceKey.'),
+              eventType: stringProperty('Custom event type string (default: "agent.request").'),
+              timeoutMs: numberProperty('Response timeout in milliseconds (default: 15000).'),
+              metadata: objectProperty('Optional metadata object attached to the request event.'),
             },
-            required: ['target', 'input'],
-          },
+            ['target', 'input']
+          ),
         },
         {
           name: 'send',
           description: 'Send fire-and-forget event to another agent',
-          parameters: {
-            type: 'object',
-            properties: {
-              target: { type: 'string' },
-              input: { type: 'string' },
-              instanceKey: { type: 'string' },
-              eventType: { type: 'string' },
-              metadata: { type: 'object' },
+          parameters: createParameters(
+            {
+              target: stringProperty('Target agent resource name to send event.'),
+              input: stringProperty('Text payload sent to the target agent.'),
+              instanceKey: stringProperty('Optional target instance key. Defaults to current instanceKey.'),
+              eventType: stringProperty('Custom event type string (default: "agent.send").'),
+              metadata: objectProperty('Optional metadata object attached to the event.'),
             },
-            required: ['target', 'input'],
-          },
+            ['target', 'input']
+          ),
         },
         {
           name: 'spawn',
           description:
             'Spawn or prepare an instance of an already-defined agent resource in the current swarm',
-          parameters: {
-            type: 'object',
-            properties: {
-              target: { type: 'string' },
-              instanceKey: { type: 'string' },
-              cwd: { type: 'string' },
+          parameters: createParameters(
+            {
+              target: stringProperty('Target agent resource name to spawn.'),
+              instanceKey: stringProperty('Optional instance key for the spawned agent.'),
+              cwd: stringProperty('Optional working directory for the spawned agent instance.'),
             },
-            required: ['target'],
-          },
+            ['target']
+          ),
         },
         {
           name: 'list',
           description: 'List spawned agent instances in this runtime',
-          parameters: {
-            type: 'object',
-            properties: {
-              includeAll: { type: 'boolean' },
-            },
-          },
+          parameters: createParameters({
+            includeAll: booleanProperty(
+              'When true, include all known spawned agents beyond current ownership scope (default: false).'
+            ),
+          }),
         },
         {
           name: 'catalog',
           description: 'Describe available and callable agents in the selected swarm',
-          parameters: {
-            type: 'object',
-            properties: {},
-          },
+          parameters: createParameters({}),
         },
       ],
     }),
@@ -260,12 +298,11 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'request',
           description: 'Request orchestrator self restart via runtime restart signal',
-          parameters: {
-            type: 'object',
-            properties: {
-              reason: { type: 'string' },
-            },
-          },
+          parameters: createParameters({
+            reason: stringProperty(
+              'Optional restart reason for logs/observability. Defaults to "tool:self-restart".'
+            ),
+          }),
         },
       ],
     }),
@@ -274,125 +311,162 @@ export function createBaseToolManifests(): BaseToolManifest[] {
       exports: [
         {
           name: 'send',
-          description: 'Send Telegram message to a chat',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              chatId: { type: 'string' },
-              text: { type: 'string' },
-              parseMode: {
-                type: 'string',
-                enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
-              },
-              disableNotification: { type: 'boolean' },
-              disableWebPagePreview: { type: 'boolean' },
-              replyToMessageId: { type: 'number' },
-              allowSendingWithoutReply: { type: 'boolean' },
-              timeoutMs: { type: 'number' },
+          description: 'Send a Telegram text message to a chat.',
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              chatId: createProperty(
+                ['string', 'number'],
+                'Target chat id. Accepts Telegram chat id as string or integer.'
+              ),
+              text: stringProperty('Message text content to send.'),
+              parseMode: stringProperty(
+                'Optional parse mode alias.',
+                {
+                  enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
+                }
+              ),
+              disableNotification: booleanProperty('Disable Telegram push notification for this message.'),
+              disableWebPagePreview: booleanProperty('Disable link preview generation for message links.'),
+              replyToMessageId: createProperty(
+                ['number', 'string'],
+                'Reply to an existing message id in the same chat.'
+              ),
+              allowSendingWithoutReply: booleanProperty('Send even when reply target message no longer exists.'),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-            required: ['chatId', 'text'],
-          },
+            ['chatId', 'text']
+          ),
         },
         {
           name: 'edit',
-          description: 'Edit Telegram message text',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              chatId: { type: 'string' },
-              messageId: { type: 'number' },
-              text: { type: 'string' },
-              parseMode: {
-                type: 'string',
-                enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
-              },
-              disableWebPagePreview: { type: 'boolean' },
-              timeoutMs: { type: 'number' },
+          description: 'Edit text of an existing Telegram message.',
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              chatId: createProperty(
+                ['string', 'number'],
+                'Target chat id. Accepts Telegram chat id as string or integer.'
+              ),
+              messageId: createProperty(['number', 'string'], 'Message id to edit (positive integer).'),
+              text: stringProperty('New message text content.'),
+              parseMode: stringProperty(
+                'Optional parse mode alias.',
+                {
+                  enum: ['Markdown', 'MarkdownV2', 'HTML', 'markdown', 'markdownv2', 'markdown-v2', 'html'],
+                }
+              ),
+              disableWebPagePreview: booleanProperty('Disable link preview generation for message links.'),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-            required: ['chatId', 'messageId', 'text'],
-          },
+            ['chatId', 'messageId', 'text']
+          ),
         },
         {
           name: 'delete',
           description: 'Delete Telegram message from a chat',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              chatId: { type: 'string' },
-              messageId: { type: 'number' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              chatId: createProperty(
+                ['string', 'number'],
+                'Target chat id. Accepts Telegram chat id as string or integer.'
+              ),
+              messageId: createProperty(['number', 'string'], 'Message id to delete (positive integer).'),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-            required: ['chatId', 'messageId'],
-          },
+            ['chatId', 'messageId']
+          ),
         },
         {
           name: 'react',
-          description: 'Set or clear Telegram message reaction',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              chatId: { type: 'string' },
-              messageId: { type: 'number' },
-              emoji: { type: 'string' },
-              emojis: { type: 'array' },
-              clear: { type: 'boolean' },
-              isBig: { type: 'boolean' },
-              timeoutMs: { type: 'number' },
+          description: 'Add, replace, or clear Telegram message reactions.',
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              chatId: createProperty(
+                ['string', 'number'],
+                'Target chat id. Accepts Telegram chat id as string or integer.'
+              ),
+              messageId: createProperty(['number', 'string'], 'Message id to react to (positive integer).'),
+              emoji: stringProperty('Single emoji reaction to set (ignored when clear=true).'),
+              emojis: arrayProperty(
+                'Multiple emoji reactions to set (ignored when clear=true).',
+                stringProperty('Single emoji reaction value.')
+              ),
+              clear: booleanProperty('When true, clear reactions instead of setting them.'),
+              isBig: booleanProperty('Use big reaction animation if supported by Telegram clients.'),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-            required: ['chatId', 'messageId'],
-          },
+            ['chatId', 'messageId']
+          ),
         },
         {
           name: 'setChatAction',
           description: 'Set Telegram bot chat action (typing/upload...)',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              chatId: { type: 'string' },
-              status: {
-                type: 'string',
-                enum: [
-                  'typing',
-                  'upload-photo',
-                  'record-video',
-                  'upload-video',
-                  'record-voice',
-                  'upload-voice',
-                  'upload-document',
-                  'choose-sticker',
-                  'find-location',
-                  'record-video-note',
-                  'upload-video-note',
-                ],
-              },
-              action: { type: 'string' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              chatId: createProperty(
+                ['string', 'number'],
+                'Target chat id. Accepts Telegram chat id as string or integer.'
+              ),
+              action: stringProperty(
+                'Chat action to set.',
+                {
+                  enum: [
+                    'typing',
+                    'upload-photo',
+                    'record-video',
+                    'upload-video',
+                    'record-voice',
+                    'upload-voice',
+                    'upload-document',
+                    'choose-sticker',
+                    'find-location',
+                    'record-video-note',
+                    'upload-video-note',
+                  ],
+                }
+              ),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-            required: ['chatId'],
-          },
+            ['chatId']
+          ),
         },
         {
           name: 'downloadFile',
-          description: 'Download Telegram file/image by fileId',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              fileId: { type: 'string' },
-              file_id: { type: 'string' },
-              maxBytes: { type: 'number' },
-              includeBase64: { type: 'boolean' },
-              includeDataUrl: { type: 'boolean' },
-              savePath: { type: 'string' },
-              outputPath: { type: 'string' },
-              timeoutMs: { type: 'number' },
+          description: 'Resolve and download a Telegram file by file id.',
+          parameters: createParameters(
+            {
+              token: stringProperty(
+                'Bot token. Optional when TELEGRAM_BOT_TOKEN/BOT_TOKEN/TELEGRAM_TOKEN is set.'
+              ),
+              fileId: stringProperty('Telegram file id to download (preferred field).'),
+              maxBytes: numberProperty('Maximum downloaded bytes allowed (default: 3000000).'),
+              includeBase64: booleanProperty('Include base64-encoded content in the result (default: true).'),
+              includeDataUrl: booleanProperty('Include data URL when base64 is included (default: true).'),
+              savePath: stringProperty('Optional path relative to workdir to save the downloaded file.'),
+              timeoutMs: numberProperty('Telegram API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Telegram API base URL override.'),
             },
-          },
+            ['fileId']
+          ),
         },
       ],
     }),
@@ -402,106 +476,107 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'send',
           description: 'Send Slack message to a channel',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              channelId: { type: 'string' },
-              text: { type: 'string' },
-              threadTs: { type: 'string' },
-              mrkdwn: { type: 'boolean' },
-              unfurlLinks: { type: 'boolean' },
-              unfurlMedia: { type: 'boolean' },
-              replyBroadcast: { type: 'boolean' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              channelId: stringProperty('Target channel id to post message.'),
+              text: stringProperty('Message text content to post.'),
+              threadTs: stringProperty('Optional parent thread timestamp for thread replies.'),
+              mrkdwn: booleanProperty('Enable Slack mrkdwn parsing for message text.'),
+              unfurlLinks: booleanProperty('Enable automatic link unfurling.'),
+              unfurlMedia: booleanProperty('Enable automatic media unfurling.'),
+              replyBroadcast: booleanProperty('Broadcast thread reply to channel timeline.'),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-            required: ['channelId', 'text'],
-          },
+            ['channelId', 'text']
+          ),
         },
         {
           name: 'read',
           description: 'Read Slack channel or thread messages',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              channelId: { type: 'string' },
-              messageTs: { type: 'string' },
-              threadTs: { type: 'string' },
-              latest: { type: 'string' },
-              oldest: { type: 'string' },
-              inclusive: { type: 'boolean' },
-              limit: { type: 'number' },
-              cursor: { type: 'string' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              channelId: stringProperty('Target channel id to read from.'),
+              messageTs: stringProperty('Specific message timestamp to find in history.'),
+              threadTs: stringProperty('Thread root timestamp. When set, reads thread replies.'),
+              latest: stringProperty('Upper time boundary (inclusive/exclusive depends on inclusive flag).'),
+              oldest: stringProperty('Lower time boundary (inclusive/exclusive depends on inclusive flag).'),
+              inclusive: booleanProperty('Include boundary messages when latest/oldest are set.'),
+              limit: numberProperty('Maximum messages to return (1 to 1000).'),
+              cursor: stringProperty('Pagination cursor for next page.'),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-            required: ['channelId'],
-          },
+            ['channelId']
+          ),
         },
         {
           name: 'edit',
           description: 'Edit Slack message text',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              channelId: { type: 'string' },
-              messageTs: { type: 'string' },
-              text: { type: 'string' },
-              mrkdwn: { type: 'boolean' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              channelId: stringProperty('Target channel id containing the message.'),
+              messageTs: stringProperty('Timestamp of the message to edit.'),
+              text: stringProperty('New message text content.'),
+              mrkdwn: booleanProperty('Enable Slack mrkdwn parsing for updated text.'),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-            required: ['channelId', 'messageTs', 'text'],
-          },
+            ['channelId', 'messageTs', 'text']
+          ),
         },
         {
           name: 'delete',
           description: 'Delete Slack message from a channel',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              channelId: { type: 'string' },
-              messageTs: { type: 'string' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              channelId: stringProperty('Target channel id containing the message.'),
+              messageTs: stringProperty('Timestamp of the message to delete.'),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-            required: ['channelId', 'messageTs'],
-          },
+            ['channelId', 'messageTs']
+          ),
         },
         {
           name: 'react',
           description: 'Add one or more Slack reactions to a message',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              channelId: { type: 'string' },
-              messageTs: { type: 'string' },
-              emoji: { type: 'string' },
-              emojis: { type: 'array' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              channelId: stringProperty('Target channel id containing the message.'),
+              messageTs: stringProperty('Timestamp of the message to react to.'),
+              emoji: stringProperty('Single emoji name to add, with or without surrounding colons.'),
+              emojis: arrayProperty(
+                'Multiple emoji names to add, each with or without surrounding colons.',
+                stringProperty('Single emoji name value.')
+              ),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-            required: ['channelId', 'messageTs'],
-          },
+            ['channelId', 'messageTs']
+          ),
         },
         {
           name: 'downloadFile',
           description: 'Download Slack file/image with bot token auth',
-          parameters: {
-            type: 'object',
-            properties: {
-              token: { type: 'string' },
-              url: { type: 'string' },
-              fileUrl: { type: 'string' },
-              downloadUrl: { type: 'string' },
-              maxBytes: { type: 'number' },
-              includeBase64: { type: 'boolean' },
-              includeDataUrl: { type: 'boolean' },
-              savePath: { type: 'string' },
-              outputPath: { type: 'string' },
-              timeoutMs: { type: 'number' },
+          parameters: createParameters(
+            {
+              token: stringProperty('Slack bot token. Optional when SLACK_BOT_TOKEN/SLACK_TOKEN is set.'),
+              url: stringProperty('Download URL to fetch (preferred field).'),
+              maxBytes: numberProperty('Maximum downloaded bytes allowed (default: 3000000).'),
+              includeBase64: booleanProperty('Include base64-encoded content in the result (default: true).'),
+              includeDataUrl: booleanProperty('Include data URL when base64 is included (default: true).'),
+              savePath: stringProperty('Optional path relative to workdir to save the downloaded file.'),
+              timeoutMs: numberProperty('Slack API timeout in milliseconds (default: 15000).'),
+              apiBaseUrl: stringProperty('Optional Slack API base URL override.'),
             },
-          },
+            ['url']
+          ),
         },
       ],
     }),
@@ -511,32 +586,32 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'get',
           description: 'Perform HTTP GET request',
-          parameters: {
-            type: 'object',
-            properties: {
-              url: { type: 'string' },
-              headers: { type: 'object' },
-              timeoutMs: { type: 'number' },
-              maxBytes: { type: 'number' },
+          parameters: createParameters(
+            {
+              url: stringProperty('HTTP/HTTPS URL to request.'),
+              headers: objectProperty('Optional request headers object. Primitive values are stringified.'),
+              timeoutMs: numberProperty('Request timeout in milliseconds (default: 30000).'),
+              maxBytes: numberProperty('Maximum response body bytes returned (default: 500000).'),
             },
-            required: ['url'],
-          },
+            ['url']
+          ),
         },
         {
           name: 'post',
           description: 'Perform HTTP POST request',
-          parameters: {
-            type: 'object',
-            properties: {
-              url: { type: 'string' },
-              body: { type: 'object' },
-              bodyString: { type: 'string' },
-              headers: { type: 'object' },
-              timeoutMs: { type: 'number' },
-              maxBytes: { type: 'number' },
+          parameters: createParameters(
+            {
+              url: stringProperty('HTTP/HTTPS URL to request.'),
+              body: objectProperty(
+                'JSON body object. When provided, it is stringified and content-type defaults to application/json.'
+              ),
+              bodyString: stringProperty('Raw string request body. Ignored when body is provided.'),
+              headers: objectProperty('Optional request headers object. Primitive values are stringified.'),
+              timeoutMs: numberProperty('Request timeout in milliseconds (default: 30000).'),
+              maxBytes: numberProperty('Maximum response body bytes returned (default: 500000).'),
             },
-            required: ['url'],
-          },
+            ['url']
+          ),
         },
       ],
     }),
@@ -546,50 +621,46 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'query',
           description: 'Query JSON data by dot-notation path',
-          parameters: {
-            type: 'object',
-            properties: {
-              data: { type: 'string' },
-              path: { type: 'string' },
+          parameters: createParameters(
+            {
+              data: stringProperty('Input JSON string to parse and query.'),
+              path: stringProperty('Dot/bracket path expression. Defaults to "." for root.'),
             },
-            required: ['data'],
-          },
+            ['data']
+          ),
         },
         {
           name: 'pick',
           description: 'Pick specific keys from JSON object',
-          parameters: {
-            type: 'object',
-            properties: {
-              data: { type: 'string' },
-              keys: { type: 'array' },
+          parameters: createParameters(
+            {
+              data: stringProperty('Input JSON string expected to be an object.'),
+              keys: arrayProperty('Object keys to pick from parsed JSON object.', stringProperty('Key name to pick.')),
             },
-            required: ['data', 'keys'],
-          },
+            ['data', 'keys']
+          ),
         },
         {
           name: 'count',
           description: 'Count elements at a JSON path',
-          parameters: {
-            type: 'object',
-            properties: {
-              data: { type: 'string' },
-              path: { type: 'string' },
+          parameters: createParameters(
+            {
+              data: stringProperty('Input JSON string to parse.'),
+              path: stringProperty('Dot/bracket path expression to count at. Defaults to "." for root.'),
             },
-            required: ['data'],
-          },
+            ['data']
+          ),
         },
         {
           name: 'flatten',
           description: 'Flatten nested JSON arrays',
-          parameters: {
-            type: 'object',
-            properties: {
-              data: { type: 'string' },
-              depth: { type: 'number' },
+          parameters: createParameters(
+            {
+              data: stringProperty('Input JSON string expected to be an array.'),
+              depth: numberProperty('Flatten depth level (default: 1).'),
             },
-            required: ['data'],
-          },
+            ['data']
+          ),
         },
       ],
     }),
@@ -599,78 +670,82 @@ export function createBaseToolManifests(): BaseToolManifest[] {
         {
           name: 'replace',
           description: 'Replace text occurrences',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
-              search: { type: 'string' },
-              replacement: { type: 'string' },
-              all: { type: 'boolean' },
+          parameters: createParameters(
+            {
+              text: stringProperty('Source text to transform.'),
+              search: stringProperty('Search string to find in text.'),
+              replacement: stringProperty('Replacement string (default: empty string).'),
+              all: booleanProperty('Replace all occurrences instead of first occurrence only.'),
             },
-            required: ['text', 'search'],
-          },
+            ['text', 'search']
+          ),
         },
         {
           name: 'slice',
           description: 'Extract substring by start/end positions',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
-              start: { type: 'number' },
-              end: { type: 'number' },
+          parameters: createParameters(
+            {
+              text: stringProperty('Source text to slice.'),
+              start: numberProperty('Start index (default: 0).'),
+              end: numberProperty('Optional end index (exclusive).'),
             },
-            required: ['text'],
-          },
+            ['text']
+          ),
         },
         {
           name: 'split',
           description: 'Split text by delimiter',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
-              delimiter: { type: 'string' },
-              maxParts: { type: 'number' },
+          parameters: createParameters(
+            {
+              text: stringProperty('Source text to split.'),
+              delimiter: stringProperty('Delimiter string (default: newline).'),
+              maxParts: numberProperty('Optional maximum number of split parts to return.'),
             },
-            required: ['text'],
-          },
+            ['text']
+          ),
         },
         {
           name: 'join',
           description: 'Join array of strings with delimiter',
-          parameters: {
-            type: 'object',
-            properties: {
-              parts: { type: 'array' },
-              delimiter: { type: 'string' },
+          parameters: createParameters(
+            {
+              parts: arrayProperty(
+                'List of values to join into a single string.',
+                createProperty(
+                  ['string', 'number', 'boolean'],
+                  'Part value. Numbers/booleans are stringified before join.'
+                )
+              ),
+              delimiter: stringProperty('Delimiter string inserted between parts (default: newline).'),
             },
-            required: ['parts'],
-          },
+            ['parts']
+          ),
         },
         {
           name: 'trim',
           description: 'Trim whitespace from text',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
-              mode: { type: 'string' },
+          parameters: createParameters(
+            {
+              text: stringProperty('Source text to trim.'),
+              mode: stringProperty('Trim mode (default: both).', {
+                enum: ['start', 'end', 'both'],
+              }),
             },
-            required: ['text'],
-          },
+            ['text']
+          ),
         },
         {
           name: 'case',
           description: 'Transform text case (upper/lower)',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
-              to: { type: 'string' },
+          parameters: createParameters(
+            {
+              text: stringProperty('Source text to transform.'),
+              to: stringProperty('Target case transform mode.', {
+                enum: ['upper', 'lower'],
+              }),
             },
-            required: ['text', 'to'],
-          },
+            ['text', 'to']
+          ),
         },
       ],
     }),

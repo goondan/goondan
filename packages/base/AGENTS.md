@@ -24,6 +24,7 @@
 4. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 정확한 타입 정의로 구현한다.
 5. 테스트는 네트워크 의존 없이 로컬 재현 가능해야 한다.
 6. 이 패키지는 npm 배포를 수행하지 않는다.
+7. Tool manifest `parameters`는 속성별 `description`을 포함하고, 기본적으로 `additionalProperties: false`를 유지한다.
 
 ## 디렉토리 가이드
 

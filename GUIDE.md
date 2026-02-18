@@ -555,7 +555,7 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 - **실행 모델 이해**: `docs/specs/runtime.md` → Process-per-Agent, IPC, Reconciliation Loop
 
 ### 7.3 확장 적용 시
-- **Tool 개발**: `docs/specs/tool.md` → Tool 시스템 스펙, 더블 언더스코어 네이밍
+- **Tool 개발**: `docs/specs/tool.md` → Tool 시스템 스펙, 더블 언더스코어 네이밍, 속성별 `description` + `additionalProperties: false` + 런타임 입력 검증(`E_TOOL_INVALID_ARGS`)
 - **Extension 개발**: `docs/specs/extension.md` → ExtensionApi, 미들웨어 파이프라인
 - **Connector 개발**: `docs/specs/connector.md` → Connector 프로세스 모델
 - **Connection 설정**: `docs/specs/connection.md` → Ingress 라우팅, 서명 검증

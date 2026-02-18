@@ -1,6 +1,6 @@
 {
   "name": "@goondan/registry",
-  "version": "0.0.3-alpha11",
+  "version": "0.0.3-alpha12",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

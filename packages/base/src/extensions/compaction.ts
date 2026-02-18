@@ -5,6 +5,7 @@ import type {
   TurnMiddlewareContext,
 } from '../types.js';
 import { createId, estimateMessageLength } from '../utils.js';
+import { normalizeRemovalTargets } from './message-integrity.js';
 
 export interface CompactionExtensionConfig {
   maxMessages?: number;
@@ -66,7 +67,7 @@ function compactByRemoval(
   messages: Message[],
   config: Required<CompactionExtensionConfig>
 ): { events: MessageEvent[]; result: CompactionResult; overflow: boolean } {
-  const events: MessageEvent[] = [];
+  const candidateRemovedIds = new Set<string>();
   const protectedIds = new Set<string>();
   const keepFrom = Math.max(0, messages.length - config.retainLastMessages);
 
@@ -80,8 +81,6 @@ function compactByRemoval(
 
   let remainingCount = messages.length;
   let remainingCharacters = messages.reduce((sum, message) => sum + estimateMessageLength(message), 0);
-  let removedCount = 0;
-  let removedCharacters = 0;
 
   for (const message of messages) {
     const overMessageLimit = remainingCount > config.maxMessages;
@@ -98,22 +97,40 @@ function compactByRemoval(
     const messageSize = estimateMessageLength(message);
     remainingCount -= 1;
     remainingCharacters -= messageSize;
-    removedCount += 1;
-    removedCharacters += messageSize;
-
-    events.push({
-      type: 'remove',
-      targetId: message.id,
-    });
+    candidateRemovedIds.add(message.id);
   }
 
-  const overflow = remainingCount > config.maxMessages || remainingCharacters > config.maxCharacters;
+  const finalRemovedIds = normalizeRemovalTargets(messages, candidateRemovedIds);
+  const events: MessageEvent[] = [];
+  let finalRemainingCount = 0;
+  let finalRemainingCharacters = 0;
+  let finalRemovedCount = 0;
+  let finalRemovedCharacters = 0;
+
+  for (const message of messages) {
+    const messageSize = estimateMessageLength(message);
+    if (finalRemovedIds.has(message.id)) {
+      finalRemovedCount += 1;
+      finalRemovedCharacters += messageSize;
+      events.push({
+        type: 'remove',
+        targetId: message.id,
+      });
+      continue;
+    }
+
+    finalRemainingCount += 1;
+    finalRemainingCharacters += messageSize;
+  }
+
+  const overflow =
+    finalRemainingCount > config.maxMessages || finalRemainingCharacters > config.maxCharacters;
   return {
     events,
     result: {
       mode: 'remove',
-      removedCount,
-      removedCharacters,
+      removedCount: finalRemovedCount,
+      removedCharacters: finalRemovedCharacters,
     },
     overflow,
   };

@@ -17,6 +17,7 @@ interface BrowserLauncher {
 }
 
 type BrowserOpenMode = 'open' | 'skip';
+type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 
 function resolveBrowserLauncher(url: string): BrowserLauncher {
   if (process.platform === 'darwin') {
@@ -89,6 +90,60 @@ function resolveBrowserOpenMode(cmd: StudioCommand): BrowserOpenMode {
   return 'open';
 }
 
+async function waitForStudioShutdown(
+  session: { close(): Promise<void>; closed: Promise<void> },
+  deps: Pick<CliDependencies, 'io'>,
+): Promise<ExitCode> {
+  return await new Promise((resolve) => {
+    let settled = false;
+    let shuttingDown = false;
+    let shutdownExitCode: ExitCode = 0;
+
+    const settle = (code: ExitCode): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      process.removeListener('SIGINT', handleSigInt);
+      process.removeListener('SIGTERM', handleSigTerm);
+      resolve(code);
+    };
+
+    const requestShutdown = (signal: ShutdownSignal): void => {
+      if (shuttingDown) {
+        return;
+      }
+      shuttingDown = true;
+      shutdownExitCode = 130;
+      deps.io.out(`Studio 종료 신호(${signal})를 수신했습니다. 서버를 정리합니다...`);
+      void session.close().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        deps.io.err(`Studio 종료 중 오류가 발생했습니다: ${message}`);
+        settle(1);
+      });
+    };
+
+    const handleSigInt = (): void => {
+      requestShutdown('SIGINT');
+    };
+
+    const handleSigTerm = (): void => {
+      requestShutdown('SIGTERM');
+    };
+
+    process.on('SIGINT', handleSigInt);
+    process.on('SIGTERM', handleSigTerm);
+
+    void session.closed.then(() => {
+      settle(shuttingDown ? shutdownExitCode : 0);
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.io.err(`Studio 서버 종료 상태를 확인하지 못했습니다: ${message}`);
+      settle(1);
+    });
+  });
+}
+
 export async function handleStudio({ cmd, deps, globals }: StudioContext): Promise<ExitCode> {
   const browserOpenMode = resolveBrowserOpenMode(cmd);
   const session = await deps.studio.startServer({
@@ -111,6 +166,5 @@ export async function handleStudio({ cmd, deps, globals }: StudioContext): Promi
   }
 
   deps.io.out('종료하려면 Ctrl+C를 누르세요.');
-  void session.closed.catch(() => undefined);
-  return 0;
+  return await waitForStudioShutdown(session, deps);
 }

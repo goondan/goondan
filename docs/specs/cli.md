@@ -786,6 +786,7 @@ gdn studio [options]
 3. 선택한 인스턴스에 대해 `/api/instances/:key/visualization`을 조회해 Graph/Flow 뷰를 렌더링한다.
 4. `visualization` API는 `?recent=<N>` 쿼리(1~200)를 받아 최근 이벤트 요약 범위를 제어할 수 있다.
 5. 기본값으로 브라우저를 자동 실행한다(`--no-open` 지정 시 비활성화).
+6. 서버 실행 중에는 CLI 프로세스가 foreground를 점유하며, `Ctrl+C` 수신 시 Studio 서버를 종료하고 포트를 해제해야 한다(MUST).
 
 Studio 시각화 데이터는 인스턴스의 `messages/base.jsonl`, `messages/events.jsonl`, `messages/runtime-events.jsonl`과 런타임 로그를 종합해 생성한다.
 

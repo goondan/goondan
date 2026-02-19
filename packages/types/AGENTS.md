@@ -1,37 +1,29 @@
-# @goondan/types
+# packages/types
 
-This directory owns the shared type system for Goondan v2.
+`@goondan/types`는 Goondan 전 계층이 공유하는 타입 계약의 SSOT 구현을 담당한다.
 
-## Scope
+## 존재 이유
 
-- Implement SSOT contracts from `docs/specs/shared-types.md`.
-- Implement config resource contracts from `docs/specs/resources.md`.
-- Keep API-facing compatibility with `docs/specs/api.md` and `docs/specs/help.md`.
+- 런타임, CLI, 기본 패키지가 동일한 타입 모델을 공유하도록 보장한다.
+- 리소스/이벤트/메시지 관련 계약 드리프트를 방지한다.
 
-## Rules
+## 구조적 결정
 
-1. Keep changes inside `packages/types/**`.
-2. Do not use type assertions (`as`, `as unknown as`).
-3. Keep source in `src/` and tests in `test/`.
-4. Every behavior change must include or update tests.
-5. Utility behavior must follow:
-   - ObjectRef parsing: `Kind/name`
-   - ValueSource resolution: `value`, `valueFrom.env`, `valueFrom.secretRef`
-   - Message state fold: `NextMessages = BaseMessages + SUM(Events)`
-   - IPC and ProcessStatus guards
-6. npm 공개 배포를 유지하려면 `package.json`의 `publishConfig.access = "public"`을 유지한다.
+1. 타입 계약의 소유권은 `docs/specs/shared-types.md`와 `docs/specs/resources.md`에 맞춘다.
+이유: 계약 변경의 출처를 명확히 고정하기 위해.
+2. 공통 계약은 이 패키지에 집중하고 다른 패키지는 참조만 한다.
+이유: 중복 정의로 인한 해석 차이를 제거하기 위해.
 
-## Source Files
+## 불변 규칙
 
-| File | Responsibility |
-|------|----------------|
-| `src/json.ts` | JSON primitive types (`JsonPrimitive`, `JsonValue`, `JsonObject`, `JsonArray`) + `isJsonValue`, `isPlainObject` guards |
-| `src/references.ts` | ObjectRef, RefItem, Selector, SelectorWithOverrides, RefOrSelector types + parse/format/guard functions (`isObjectRef`, `isObjectRefLike`, `isRefItem`, `isSelectorWithOverrides`, `isRefOrSelector`) |
-| `src/value-source.ts` | ValueSource, ValueFrom, SecretRef types + `resolveValueSource`, `isSecretRefPath` |
-| `src/message.ts` | CoreMessage (local), MessageSource, Message, MessageEvent, ConversationState + `applyMessageEvent`, `foldMessageEvents`, `createConversationState` |
-| `src/events.ts` | EventEnvelope, EventSource, ReplyChannel, TurnAuth, AgentEvent, ProcessStatus, IpcMessage, ShutdownReason + guards (`isEventEnvelope`, `isReplyChannel`, `isAgentEvent`, `isProcessStatus`, `isIpcMessage`, `isIpcMessageType`, `isShutdownReason`) |
-| `src/connector.ts` | ConnectorEventMessage, ConnectorEvent, ConnectorContext types + `isConnectorEventMessage`, `isConnectorEvent` guards (SSOT: docs/specs/connector.md 5.2-5.3절) |
-| `src/tool.ts` | ExecutionContext, ToolCall, ToolCallResult, ToolContext, ToolHandler |
-| `src/turn.ts` | TurnResult |
-| `src/resources.ts` | Resource, KnownKind (8종), TypedResource, all Kind-specific spec interfaces (ModelSpec, AgentSpec, SwarmSpec, ToolSpec, ExtensionSpec, ConnectorSpec, ConnectionSpec, PackageSpec), typed resource aliases, ValidationError + guards (`isKnownKind`, `isResource`, `isGoodanResource`, `isModelResource`, `isAgentResource`, `isSwarmResource`, `isToolResource`, `isExtensionResource`, `isConnectorResource`, `isConnectionResource`, `isPackageResource`) |
-| `src/index.ts` | Barrel re-export of all modules |
+- ObjectRef 형식은 `Kind/name` 규칙을 유지한다.
+- ValueSource 해석은 `value`, `valueFrom.env`, `valueFrom.secretRef` 의미를 보존한다.
+- 메시지 상태 계산은 `NextMessages = BaseMessages + SUM(Events)` 모델을 유지한다.
+- 타입 단언(`as`, `as unknown as`) 없이 타입 가드/정확한 타입 정의로 유지한다.
+
+## 참조
+
+- `docs/specs/shared-types.md`
+- `docs/specs/resources.md`
+- `docs/specs/api.md`
+- `docs/specs/help.md`

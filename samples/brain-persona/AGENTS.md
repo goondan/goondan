@@ -1,51 +1,32 @@
 # samples/brain-persona
 
-이 샘플은 "하나의 인격체(Brain Persona)를 다중 전문 에이전트가 협업해 구현"하는 레퍼런스다.
+`brain-persona`는 단일 페르소나를 다중 전문 에이전트 협업으로 구현하는 참조 샘플이다.
 
-## 구성 원칙
+## 존재 이유
 
-1. 모든 외부 입력은 `coordinator`로 진입한다.
-2. `coordinator`는 사용자 의도를 과도하게 재해석하지 않고, 필요 시 하위 에이전트 인스턴스를 spawn/라우팅한다.
-3. 최종 사용자 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 전달한다. Telegram lifecycle(typing/reaction/edit/delete/download/추가 안내 메시지)은 `@goondan/base` `telegram` Tool로, Slack lifecycle(read/reaction/edit/delete/download/추가 안내 메시지)은 `@goondan/base` `slack` Tool로 제어할 수 있다. self-evolution 적용 시 `self-restart` Tool(`self-restart__request`)로 런타임 재기동을 요청할 수 있다.
-4. 하위 에이전트는 작업 중간 상태를 `coordinator`에게 보고하며, 외부 채널에는 직접 응답하지 않는다.
+- 실제 채널(Telegram/Slack)과 멀티 에이전트 조합에서 운영 가능한 패턴을 제공한다.
+- coordinator 중심 위임 구조의 안정적 실행 규칙을 검증한다.
 
-## 파일 가이드
+## 구조적 결정
 
-- `goondan.yaml`: 샘플 리소스 정의
-- `.env.example`: 실행에 필요한 환경변수 템플릿
-- `prompts/*`: coordinator/전문 에이전트 시스템 프롬프트
-- `extensions/*`: 샘플 전용 runtime middleware (context 주입/정책 실험)
-- Slack 입력은 로컬 connector 파일 대신 `goondan.yaml`의 `@goondan/base` `Connector/slack` 연결을 사용한다.
+1. 외부 입력은 coordinator 단일 진입점으로 통합한다.
+이유: 페르소나 일관성과 대화 라우팅 제어를 중앙화하기 위해.
+2. 최종 outbound는 채널별 Tool 호출로 수행한다.
+이유: 채널 lifecycle 제어와 응답 정책을 명시적으로 다루기 위해.
+3. 채널 ingress는 동일 instanceKey 공유 전략을 사용한다.
+이유: 채널 간 기억 일관성을 유지하기 위해.
 
-## 버전 구분 규칙
+## 불변 규칙
 
-1. `@goondan/base` 버전 질문은 반드시 `npm 패키지`와 `goondan 패키지`로 분리해 답한다.
-2. `npm 패키지`는 `package.json` 기준이다.
-3. 예: `goondan/packages/base/package.json`의 `"version"`.
-4. `goondan 패키지`는 `goondan.yaml`/`goondan.lock.yaml` 기준이다.
-5. 예: `goondan/packages/base/goondan.yaml`의 `Package.spec.version`, 소비자 번들의 `goondan.yaml dependencies`, `goondan.lock.yaml`의 resolved 버전.
-6. "base 업데이트 됐어?" 질문에는 아래 2가지를 항상 함께 답한다.
-7. `npm 패키지 업데이트 여부` (소스/배포 모듈 버전)
-8. `goondan 패키지 업데이트 여부` (리소스 패키지 버전 + dependency/lock 반영 여부)
-9. 답변은 짧고 친절하게 작성하고, 두 축을 섞어 표현하지 않는다.
+- 하위 에이전트는 외부 채널에 직접 응답하지 않고 coordinator를 통해 보고한다.
+- `coordinator.spec.requiredTools`는 채널 전송 Tool 성공 호출을 강제하도록 유지한다.
+- coordinator 프롬프트는 위임 시 `agents__send` 기본 사용 및 필요 시 `agents__catalog` 확인 원칙을 유지한다.
+- coordinator Extension 순서는 `message-window -> message-compaction -> context-injector`를 유지한다.
+- self-restart가 필요한 turn에서는 `self-restart__request`를 마지막 Tool call로 1회만 호출한다.
 
-### 질문/답변 예시
+## 참조
 
-- 질문 예시: `base 업데이트 됐어?`
-- 답변 예시: `네. npm 패키지는 <version>으로 업데이트됐고, goondan 패키지는 <goondan package version> 기준입니다. 이 번들의 goondan 의존성/lock 반영 상태는 <dependency range>/<resolved version>입니다.`
-
-## 수정 시 체크
-
-1. 채널 라우팅 키(`chat_id`, `channel_id`, `thread_ts`)를 깨지지 않게 유지한다.
-2. 최종 outbound는 채널별 Tool(`telegram__send` 또는 `slack__send`) 호출로 유지하고, Telegram lifecycle 제어는 `telegram__send/edit/delete/react/setChatAction/downloadFile`, Slack lifecycle 제어는 `slack__send/read/edit/delete/react/downloadFile` 사용을 허용한다.
-3. `coordinator.spec.requiredTools`는 채널 전송 Tool 목록 중 최소 1개 성공 호출(any-of)을 강제하도록 유지한다.
-4. Telegram/Slack Connection의 `ingress.rules[].route.instanceKey`를 동일하게 유지해 채널 간 기억을 공유한다.
-5. `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용하도록 프롬프트를 유지한다.
-6. 프롬프트가 "단일 자아 톤"을 유지하도록 coordinator/하위 에이전트를 함께 점검한다.
-7. `coordinator` 프롬프트는 위임 대상이 불명확할 때 `agents__catalog`를 호출해 `callableAgents`를 확인하도록 유지한다.
-8. `Extension/context-injector`가 `[runtime_catalog]` 힌트를 주입하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.
-9. 장기 실행 안정성을 위해 `coordinator`에는 `message-window` + `message-compaction`, 하위 전문 에이전트에는 최소 `message-window`를 유지한다.
-10. coordinator의 Extension 선언 순서는 `message-window -> message-compaction -> context-injector`를 유지한다.
-11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack`, `Tool/self-restart`가 포함되어 채널 lifecycle 제어(이미지/첨부 다운로드 포함)와 self-restart를 수행할 수 있게 유지한다.
-12. self-restart가 필요한 turn에서는 `self-restart__request`를 마지막 Tool call로 1회만 호출하도록 coordinator 프롬프트를 유지한다.
-13. Slack Connection ingress 이벤트는 `app_mention`, `message_im`을 유지한다.
+- `samples/brain-persona/README.md`
+- `samples/brain-persona/goondan.yaml`
+- `samples/brain-persona/prompts/`
+- `docs/wiki/how-to/multi-agent-patterns.md`

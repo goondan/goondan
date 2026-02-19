@@ -1,34 +1,30 @@
 # packages
 
-`packages`는 Goondan 구현체의 배포 단위 패키지를 담는 루트입니다.
+`packages`는 Goondan의 배포 경계와 책임 경계를 관리하는 루트다.
 
-## 목적
+## 존재 이유
 
-- `runtime`, `types`, `base`, `cli`, `studio`, `registry`, `sample` 패키지의 소스/테스트를 관리한다.
-- 각 패키지는 스펙(`docs/specs/*.md`)의 소유 범위에 맞는 책임만 구현한다.
+- `runtime`, `types`, `base`, `cli`, `studio`, `registry`를 독립 패키지로 유지해 변경 영향과 배포 단위를 분리한다.
+- 구현 상세는 각 패키지가 소유하고, 이 문서는 패키지 간 경계 원칙만 정의한다.
 
-## 공통 규칙
+## 구조적 결정
 
-1. 패키지별 소스는 `src/`, 테스트는 `test/`에 둔다.
-2. 패키지 배포를 지원하는 경우 루트에 `goondan.yaml`(kind: Package)을 두고 CLI publish 입력으로 사용한다.
-3. 각 패키지는 독립적으로 `build`, `typecheck`, `test` 스크립트를 제공해야 한다.
-4. 타입 단언(`as`, `as unknown as`) 없이 타입 가드/정확한 타입 정의로 구현한다.
-5. 공통 타입은 `@goondan/types`를 기준으로 사용하며 중복 정의를 피한다.
-6. 스펙 변경 또는 구현 경계 변경이 있으면 루트 `AGENTS.md`와 이 문서를 함께 갱신한다.
-7. `@goondan/*` npm 패키지의 `package.json` `version`은 동일한 단일 버전 문자열로 통일해 관리한다(버전 변경 시 전 패키지를 함께 갱신).
-8. npm 공개 배포 대상 패키지는 `package.json`에 `publishConfig.access = "public"`을 명시한다(스코프 패키지 publish 시 default access로 인한 402 방지).
-9. `@goondan/base`는 npm 배포 대상이 아니므로 `pnpm --filter @goondan/base publish`를 수행하지 않는다.
-10. `@goondan/base` 배포는 `gdn package publish packages/base/goondan.yaml` 경로로 수행한다(기본 레지스트리: `https://goondan-registry.yechanny.workers.dev`).
+1. 공통 계약은 `@goondan/types`를 단일 기준으로 둔다.
+이유: 패키지 간 타입 드리프트를 막고 계약 변경 파급을 통제하기 위해.
+2. `@goondan/base`는 npm이 아니라 goondan 패키지 레지스트리로 배포한다.
+이유: 코드뿐 아니라 리소스 매니페스트를 함께 유통해야 하기 때문.
+3. npm 배포 대상 `@goondan/*`는 단일 버전 정책을 유지한다.
+이유: 운영/디버깅 시 버전 매트릭스 복잡도를 줄이기 위해.
 
-## 패키지별 책임 요약
+## 불변 규칙
 
-- `runtime`: Orchestrator/AgentProcess 실행 모델, IPC, 파이프라인, 상태/검증(Kind별 최소 스키마 + Tool/Extension/Connector `spec.entry` 존재 검증 + Package 문서 위치 규칙 포함), ToolExecutor의 Tool 입력 스키마(required/type/enum/additionalProperties) 선검증과 `E_TOOL_INVALID_ARGS` 오류 코드 반환, reconcile 기반 desired state 보정(누락 agent 자동 spawn/불필요 connector 정리), dependency 패키지 리소스 병합 로딩(`dist/goondan.yaml` 우선 / Package Root 경로 기준)
-- `types`: 공통 타입 계약(SSOT), 리소스/이벤트/IPC 타입과 유틸리티
-- `base`: 기본 Tool/Extension/Connector 구현 (`wait` Tool: seconds(지정 초 대기), `self-restart` Tool: request(restart signal), `telegram` Tool: send/edit/delete/react/setChatAction/downloadFile + parseMode, `slack` Tool: send/read/edit/delete/react/downloadFile, Tool manifest의 속성별 description + 닫힌 입력 스키마(`additionalProperties: false`) 유지, `slack` Connector: webhook port/path 설정 + 첨부 image/file 참조 텍스트 보강 지원, `telegram-polling`의 bot-origin self-feedback 필터 + photo/image document file_id 메타 전달 포함, 메시지 정책 Extension이 tool-call/tool-result 짝 정합성을 보존)
-- `cli`: `gdn` 운영 인터페이스(run/restart/validate/instance/logs/package/doctor), Optique 기반 type-safe CLI 파서(discriminated union 라우팅, 자동 help/version/completion), `init`은 `kind: Package` 문서를 기본 생성하고 `--package` 옵션을 노출하지 않음, package install/update/publish 파이프라인, `run` startup handshake 기반 오류 표면화/로그 파일 기록, `run --watch` 파일 변경 감지 기반 replacement orchestrator 재기동, Connection별 Connector child process 실행+IPC 연동, `config`/`secrets`의 `valueFrom.secretRef` 해석 지원, `.env`/`.env.local`/`--env-file` 우선순위 로딩(기존 env 우선 유지), `run`은 `Swarm.spec.instanceKey ?? Swarm.metadata.name` 규칙으로 instanceKey를 결정하고 사용자 지정 `--instance-key` 옵션을 노출하지 않으며 동일 키 active runtime을 resume, `run`/`runtime-runner`는 local `kind: Package` + `metadata.name` 문서를 필수로 요구, runtime runner의 Swarm/Connection/ingress 기반 Connector 실행 + Agent LLM(Tool 포함) 처리 + Agent별 `spec.extensions`를 instance 단위 로드해 turn/step/toolCall middleware 실행(`turn`/`step` 컨텍스트의 `ctx.agents` request/send 포함) + `ToolContext.runtime`(agents request/send/spawn/list/catalog) 연결 + inbound context 최소 주입 + `Agent.spec.requiredTools` 기반 필수 Tool 호출 강제 + ingress route 기반 inbound instanceKey 오버라이드(`route.instanceKey`/`route.instanceKeyProperty`/`route.instanceKeyPrefix`) + Turn 종료 시 `base.jsonl`에 CoreMessage content(assistant tool_use/user tool_result 포함) 보존, Tool/미들웨어 request의 순환 호출 감지 및 차단, Tool 기반 self-evolution 재시작 신호 감지 시 shutdown(Connector 종료) 후 replacement orchestrator 기동 + active pid 갱신 수행, `validate`의 runtime BundleLoader 기반 fail-fast 검증, `instance list`는 active orchestrator(`runtime/active.json`) + 동일 state-root의 managed runtime-runner를 함께 표시(Agent 대화 인스턴스 + legacy `instances/*` 제외), `instance restart`의 기존 active pid 종료 확인 후 최신 runner 바이너리 재기동 + active pid 교체, 인터랙티브 `instance`에서 started 시각 표시로 재시작 확인, `instance delete`는 active 여부와 무관하게 동일 state-root의 managed runtime-runner pid 종료 + workspace 상태 정리 + pid 검증, studio는 runtime key 선택 시 workspace 하위 인스턴스를 통합 집계, `dist/bin.js` 실행 가능 권한 유지
-- `cli(studio flow)`: Flow 다이어그램은 connector/agent 레인 중심으로 렌더링하고, tool 호출 이벤트는 별도 레인이 아닌 agent 레인 내부 step으로 인라인 표시하며 `message.metadata.__goondanInbound` 기반 inbound를 복원해 agent 간 간선을 표시
-- `cli(studio logs)`: RuntimeEvent `step.started.llmInputMessages`를 timeline payload로 전달해 Logs 모드에서 LLM 입력 메시지 목록을 표시
-- `cli(runtime path)`: runtime runner 모듈 경로는 `@goondan/runtime/runner` export의 `resolveRuntimeRunnerPath()`를 사용해 패키지 매니저 레이아웃(Bun/npm/pnpm)과 무관하게 해석
-- `studio`: `gdn studio` 웹 UI(React + Vite SPA) 제공, 빌드 결과를 단일 HTML로 인라인해 CLI 자산(`packages/cli/src/studio/assets.ts`)으로 동기화, npm 공개 배포 시 `publishConfig.access = "public"` 유지
-- `registry`: 패키지 유통 API 서버와 메타데이터/아티팩트 저장소
-- `sample`: 기능 검증 및 온보딩용 실행 가능한 샘플 패키지 모음
+- 패키지는 자신이 소유한 스펙 범위를 넘는 책임을 흡수하지 않는다.
+- 공개 npm 패키지는 `publishConfig.access = "public"`을 유지한다.
+- 타입 단언(`as`, `as unknown as`) 대신 타입 가드/정확한 타입 모델을 사용한다.
+
+## 참조
+
+- `docs/specs/layers.md`
+- `docs/specs/help.md`
+- `docs/specs/bundle_package.md`
+- `AGENTS.md`

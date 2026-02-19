@@ -1,8 +1,8 @@
 # Goondan 빠른 시작 가이드 (처음 사용자용)
 
-> Kubernetes for Agent Swarm (v0.0.3)
+> Kubernetes for Agent Swarm
 
-이 문서는 Goondan v0.0.3을 처음 접한 사람이 `goondan.yaml`을 만들고 실행하고 확장할 수 있게 하는 실전 가이드다.  
+이 문서는 Goondan을 처음 접한 사람이 `goondan.yaml`을 만들고 실행하고 확장할 수 있게 하는 실전 가이드다.  
 런타임 내부 구현 상세(프로세스 상태, IPC 등)는 의도적으로 제외했다.
 
 ---
@@ -166,7 +166,6 @@ Package는 위 리소스들을 묶어 배포/실행 단위를 만드는 패키�
 ```bash
 gdn package add @goondan/base
 gdn package install
-gdn package update
 gdn validate
 gdn run --foreground
 ```
@@ -243,7 +242,6 @@ agents:
   - Agent가 "이 작업을 하려면 이 Tool을 써야지" 하고 명시적으로 호출
 - **Extension**: 런타임 단계(turn/step/toolCall)에서 자동 적용되는 미들웨어
   - 예: 메시지 히스토리 관리, 로깅, Tool 필터링 등
-  - `turn`/`step` 미들웨어에서는 `ctx.agents.request/send`로 다른 Agent를 자동 호출 가능
   - Agent가 직접 호출하지 않고, Runtime이 자동으로 실행
 
 **판단 기준:**
@@ -255,7 +253,6 @@ agents:
 | Tool | 한 줄 설명 | 언제 쓰면 좋은가 |
 | --- | --- | --- |
 | `bash` | 쉘 명령/스크립트 실행 | 로컬 빌드/테스트/자동화 |
-| `wait` | 지정한 초만큼 대기 | 외부 이벤트/재시도 사이 간격 제어 |
 | `file-system` | 파일 읽기/쓰기/목록/디렉토리 생성 | 코드/문서 생성, 파일 기반 파이프라인 |
 | `agents` | 에이전트 간 요청/전달/스폰/조회 | 멀티 에이전트 협업 |
 | `self-restart` | 런타임 재시작 신호 | Tool로 자가 재기동 트리거 필요 시 |
@@ -379,14 +376,8 @@ spec:
 3. **`gdn logs --instance-key <instanceKey>`**
    - 최근 로그로 root cause를 먼저 확인
    - 로그 위치: `~/.goondan/runtime/logs/<instanceKey>/`
-   - Runtime Event 로그 위치: `~/.goondan/workspaces/<workspaceId>/instances/<instanceKey>/messages/runtime-events.jsonl`
 
-4. **`gdn studio`**
-   - 인스턴스별 Graph/Flow를 시각적으로 확인
-   - `runtime-events.jsonl`, 메시지 로그, runtime 로그를 함께 확인할 때 유용
-   - foreground 실행이므로 `Ctrl+C`로 종료하면 Studio 서버와 포트가 함께 정리됨
-
-5. 위 1~4를 정리한 뒤 재실행
+4. 위 1~3을 정리한 뒤 재실행
 
 ### 5.2 `gdn validate` 실패 대응
 
@@ -498,7 +489,6 @@ gdn init my-project            # 새 프로젝트 생성
 cd my-project
 gdn package add @goondan/base   # 기본 패키지 추가
 gdn package install              # 패키지 설치
-gdn package update               # 의존성 최신 버전 갱신
 ```
 
 ### 6.2 개발/테스트
@@ -506,7 +496,6 @@ gdn package update               # 의존성 최신 버전 갱신
 gdn validate                # 설정 검증 (실행 전 필수)
 gdn run --foreground        # CLI로 대화하며 테스트
 gdn logs                    # 로그 확인
-gdn studio --no-open        # Studio 서버만 실행 (브라우저 자동 열기 비활성화)
 ```
 
 ### 6.3 배포/운영
@@ -532,12 +521,10 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 | `gdn init` | 프로젝트 생성 | `--template <name>` |
 | `gdn package add` | 패키지 추가 | |
 | `gdn package install` | 패키지 설치 | |
-| `gdn package update` | 패키지 최신화 | `--exact`, `--registry <url>` |
 | `gdn validate` | 설정 검증 | `--format json` |
 | `gdn run` | 실행 | `--foreground`, `--swarm <name>` |
 | `gdn restart` | 재시작 | |
 | `gdn logs` | 로그 확인 | `--lines N`, `--instance-key <key>` |
-| `gdn studio` | 상호작용 시각화 서버 실행 | `--host <host>`, `--port <port>`, `--no-open` |
 | `gdn instance list` | 인스턴스 목록 | |
 | `gdn instance restart` | 인스턴스 재시작 | |
 | `gdn instance delete` | 인스턴스 제거 | `--force` |
@@ -550,7 +537,6 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 - **`gdn run` 또는 `validate` 실패**: `docs/specs/resources.md` → 리소스 필드 정의 확인
 - **런타임 오류**: `docs/specs/runtime.md` → 런타임 동작 모델 이해
 - **CLI 명령어 상세**: `docs/specs/cli.md` → 전체 명령어 레퍼런스
-- **Studio 관측/시각화**: `docs/specs/cli.md` → `gdn studio` API/옵션 확인
 
 ### 7.2 설계/의사결정 시
 - **전체 아키텍처 이해**: `docs/architecture.md` → 시스템 개요, 핵심 개념, 설계 패턴
@@ -558,7 +544,7 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 - **실행 모델 이해**: `docs/specs/runtime.md` → Process-per-Agent, IPC, Reconciliation Loop
 
 ### 7.3 확장 적용 시
-- **Tool 개발**: `docs/specs/tool.md` → Tool 시스템 스펙, 더블 언더스코어 네이밍, 속성별 `description` + `additionalProperties: false` + 런타임 입력 검증(`E_TOOL_INVALID_ARGS`)
+- **Tool 개발**: `docs/specs/tool.md` → Tool 시스템 스펙, 더블 언더스코어 네이밍
 - **Extension 개발**: `docs/specs/extension.md` → ExtensionApi, 미들웨어 파이프라인
 - **Connector 개발**: `docs/specs/connector.md` → Connector 프로세스 모델
 - **Connection 설정**: `docs/specs/connection.md` → Ingress 라우팅, 서명 검증

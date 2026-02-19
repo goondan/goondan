@@ -1,67 +1,30 @@
-# @goondan/studio
+# packages/studio
 
-`packages/studio`는 Goondan Studio 웹 UI 패키지입니다.
+`@goondan/studio`는 `gdn studio`가 제공하는 런타임 관측 UI를 구현하는 패키지다.
 
-## 책임 범위
+## 존재 이유
 
-- React + Vite 기반 SPA (Single Page Application)
-- `gdn studio` 명령이 제공하는 런타임 관측 시각화 UI 구현
-- Graph 모드: @xyflow/react(React Flow) + dagre 자동 레이아웃 기반 에이전트/커넥터 노드 그래프, 줌/팬/미니맵/컨트롤, 간선 클릭으로 이력 확인, 실시간 활성 애니메이션
-- Flow 모드: 참여자 레인 기반 시퀀스 다이어그램, Tool 호출 인라인 스텝 표시, 아크 화살표
-- Logs 모드: 참여자별 필터 칩 + 시간순 로그 리스트, kind 뱃지(MSG/EVT/LOG), sticky auto-scroll
-- Logs 모드: `step.started.llmInputMessages` payload를 인라인 패널로 렌더링해 LLM 호출 입력 메시지 목록을 확인
-- Flyout (오른쪽 드로어): 간선 이력(Edge History) 상세 조회, 스크림 오버레이
-- 1초 주기 폴링으로 인스턴스/시각화 데이터 실시간 반영
-- 빌드 시 Vite 결과물을 단일 HTML로 인라인(`scripts/embed.mjs`)하여 `packages/cli/src/studio/assets.ts`에 자동 생성
+- 운영 중 인스턴스의 흐름/로그/관계를 시각적으로 진단할 수 있게 한다.
+- CLI와 런타임이 생산한 관측 데이터를 사용자 친화적으로 해석한다.
 
-## 주요 라이브러리
+## 구조적 결정
 
-| 라이브러리 | 용도 |
-|---|---|
-| `@xyflow/react` (React Flow v12) | Graph 뷰 — 노드 그래프 시각화, 줌/팬/미니맵/컨트롤 |
-| `@dagrejs/dagre` | Graph 뷰 — 방향 그래프 자동 레이아웃 (LR/TB) |
-| `clsx` | className 조합 유틸리티 |
-| `date-fns` | 날짜/시간 포맷팅 (tree-shakeable) |
+1. Studio는 독립 빌드 산출물을 CLI에 임베드해 배포한다.
+이유: 별도 정적 자산 서버 의존 없이 단일 실행 경로를 유지하기 위해.
+2. Studio는 런타임 제어가 아닌 관측(read-only) 책임에 집중한다.
+이유: 운영 인터페이스와 실행 제어의 결합도를 낮추기 위해.
+3. 시각화 의미론은 RuntimeEvent/메시지 메타데이터 규약을 그대로 따른다.
+이유: UI 해석과 실제 런타임 동작 간 괴리를 줄이기 위해.
 
-## 아키텍처
+## 불변 규칙
 
-```
-src/
-├── main.tsx                         # React 엔트리
-├── App.tsx                          # 메인 레이아웃 + 상태 관리 + ReactFlowProvider
-├── App.css                          # 전역 스타일 + React Flow 다크 테마 오버라이드
-├── types.ts                         # 프론트엔드 타입 정의
-├── api.ts                           # fetch 래퍼 (/api/instances, /api/instances/:key/visualization)
-├── components/
-│   ├── Sidebar.tsx                  # 좌측 인스턴스 목록 패널
-│   ├── TopBar.tsx                   # 상단 타이틀/모드 토글 바
-│   ├── GraphView.tsx                # React Flow 기반 Graph 시각화 (dagre 레이아웃)
-│   ├── FlowView.tsx                 # SVG 기반 Flow 시퀀스 다이어그램
-│   ├── LogsView.tsx                 # 참여자별 필터 로그 리스트 뷰
-│   ├── Flyout.tsx                   # 오른쪽 플라이아웃 드로어 + Edge History
-│   └── nodes/
-│       └── ParticipantNode.tsx      # React Flow 커스텀 노드 (agent/connector 구분)
-├── hooks/
-│   └── useStudioData.ts             # 데이터 폴링/상태 관리 커스텀 훅
-└── utils/
-    ├── format.ts                    # date-fns 기반 타임스탬프 포맷 유틸
-    └── layout.ts                    # dagre 기반 그래프 레이아웃 계산
-scripts/
-└── embed.mjs                        # Vite 빌드 → CLI assets.ts 자동 생성
-```
+- Studio API 스키마는 CLI가 제공하는 응답 계약과 동기화한다.
+- inbound 메타데이터 기반 발신자 복원 규칙을 깨지 않는다.
+- npm 공개 배포 대상 정책(`publishConfig.access = "public"`)을 유지한다.
 
-## 빌드 규칙
+## 참조
 
-1. `pnpm build`는 `vite build && node scripts/embed.mjs`를 수행합니다.
-2. `scripts/embed.mjs`는 Vite 빌드 결과(`dist/index.html` + CSS/JS)를 단일 HTML로 인라인하여 `packages/cli/src/studio/assets.ts`에 `STUDIO_HTML` 상수로 생성합니다.
-3. `packages/cli` 빌드 전에 반드시 `packages/studio` 빌드가 선행되어야 합니다.
-4. `pnpm dev`로 Vite dev server 실행 시 `/api/*` 요청은 `http://localhost:3000`으로 프록시됩니다 (`gdn studio --port 3000` 병행 필요).
-
-## 구현 규칙
-
-1. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시 타입으로 구현합니다.
-2. npm 공개 배포 대상 패키지이므로 `package.json`의 `publishConfig.access = "public"`을 유지합니다.
-3. API 응답 타입은 `src/types.ts`에 정의하며 CLI 서비스의 응답 스키마와 동기화합니다.
-4. 컴포넌트는 함수형 + hooks 패턴으로 구현합니다.
-5. Graph 뷰의 레이아웃 캐시는 `structureKey`(participant/interaction ID 기반)로 관리하여 폴링 시 불필요한 재계산을 방지합니다.
-6. React Flow의 `colorMode="dark"` 속성을 사용하고, 추가 다크 테마 오버라이드는 `App.css`에서 관리합니다.
+- `docs/specs/cli.md`
+- `docs/specs/runtime.md`
+- `docs/specs/workspace.md`
+- `STUDIO_PLAN.md`

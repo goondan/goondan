@@ -74,6 +74,8 @@ LLM tool call
 
 ### 2.6 에이전트 간 통신 규칙
 
+> 에이전트 통신 API 계약의 SSOT는 `docs/specs/shared-types.md` 8절이다. 아래 규칙은 Tool 문맥에서의 요약이다.
+
 1. 에이전트 간 통신은 통합 이벤트 모델(`AgentEvent` + `replyTo`)을 사용해야 한다(MUST). (`docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션 참조)
 2. `request`(응답 대기) 패턴은 `AgentEvent.replyTo`를 설정하여 요청-응답을 매칭해야 한다(MUST).
 3. `send`(fire-and-forget) 패턴은 `AgentEvent.replyTo`를 생략해야 한다(MUST).
@@ -343,16 +345,18 @@ export const handlers: Record<string, ToolHandler> = {
 
 ### 7.3 ToolContext 구조
 
-`ToolContext` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
+`ToolContext`의 완전한 타입 정의는 `docs/specs/shared-types.md` 8.4절을 따른다.
 
-**핵심 필드:**
+`ToolContext`는 `ExecutionContext`를 확장하며, 다음 필드를 제공한다:
+
+- **`ExecutionContext` 필드** (상속): `agentName`, `instanceKey`, `turnId`, `traceId`
+- `toolCallId`: 현재 Tool call의 고유 ID
+- `message`: 현재 Tool call을 포함하는 assistant Message
 - `workdir`: 인스턴스 워크스페이스 경로 (bash, file-system 등이 기본 CWD로 사용)
 - `logger`: Console 인터페이스 (로깅용)
-- `runtime`: AgentToolRuntime (선택) - 에이전트 간 통신/카탈로그(request/send/spawn/list/catalog) 인터페이스 제공
-- `message`: 현재 Tool call을 포함하는 assistant Message
-- `toolCallId`: 현재 Tool call의 고유 ID
+- `runtime`: `AgentToolRuntime` (선택) — 에이전트 간 통신 인터페이스 (`shared-types.md` 8.2절)
 
-`runtime` 필드는 에이전트 간 통신 도구(agents tool)에서 사용되며, Orchestrator와의 IPC를 통해 다른 AgentProcess와 통신하고 현재 Swarm 카탈로그를 조회한다.
+`runtime` 필드는 에이전트 간 통신 도구(agents tool)에서 사용되며, Orchestrator와의 IPC를 통해 다른 AgentProcess와 통신하고 현재 Swarm 카탈로그를 조회한다. `AgentToolRuntime`은 `request`/`send`/`spawn`/`list`/`catalog` 5가지 메서드를 제공한다.
 
 ---
 
@@ -504,6 +508,7 @@ function truncateErrorMessage(message: string, limit: number): string {
 
 Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통합 이벤트 모델(`AgentEvent`)로 통신한다. `request`(응답 대기), `send`(fire-and-forget), `spawn`(정의된 Agent 인스턴스 준비), `list`(spawn 목록 조회), `catalog`(현재 Swarm 에이전트 카탈로그 조회) 패턴을 지원한다.
 
+> **에이전트 통신 API 계약의 SSOT는 `docs/specs/shared-types.md` 8절이다.** `AgentToolRuntime` (8.2절), `MiddlewareAgentsApi` (8.3절), 에이전트 통신 계약 규칙 (8.5절)을 참조한다.
 > 통합 이벤트 모델 상세는 `docs/specs/runtime.md`의 `AgentEvent 타입 (통합 이벤트 모델)` 섹션, IPC 규격은 `docs/specs/runtime.md`의 `IPC 메시지 타입` 섹션을 참조한다.
 > `agents__request`/`agents__send` 호출 시 `input`에는 비어있지 않은 문자열을 전달해야 한다(MUST).
 
@@ -554,7 +559,8 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 
 ### 11.2 IPC 메시지 형식
 
-IPC 메시지 타입/필드/전송 규칙의 단일 기준은 `docs/specs/runtime.md` 6절과 `docs/specs/shared-types.md` 5절이다.
+IPC 메시지 타입/필드/전송 규칙의 단일 기준은 `docs/specs/runtime.md` 6절과 `docs/specs/shared-types.md` 6절이다.
+에이전트 통신 API 입출력 타입(`AgentRuntimeRequestResult`, `AgentRuntimeSendResult` 등)의 SSOT는 `docs/specs/shared-types.md` 8.1절이다.
 Tool 문맥에서는 에이전트 간 통신이 `event` 기반 `AgentEvent`로 정규화된다는 점만 보장한다(MUST).
 
 ### 11.3 에이전트 간 통신 규칙
@@ -857,4 +863,4 @@ spec:
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-12
+**최종 수정**: 2026-02-20

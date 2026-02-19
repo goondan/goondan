@@ -15,6 +15,9 @@ import type {
   StudioServerSession,
   StudioService,
   StudioTimelineEntry,
+  StudioTokenUsage,
+  StudioTrace,
+  StudioTraceSpan,
   StudioVisualization,
 } from '../types.js';
 import { exists, isObjectRecord, readTextFileIfExists } from '../utils.js';
@@ -43,7 +46,8 @@ interface MessageInboundContext {
 }
 
 interface MessageRouteState {
-  replyTargetId: string;
+  /** 가장 최근 inbound 소스 — assistant 응답의 target 추정에만 사용 */
+  lastInboundSourceId: string;
 }
 
 interface ConnectorLogEvent {
@@ -410,7 +414,7 @@ function fromMessageToRoute(
     const inbound = message.inboundContext;
     if (inbound) {
       const fromId = `${inbound.sourceKind}:${inbound.sourceName}`;
-      state.replyTargetId = fromId;
+      state.lastInboundSourceId = fromId;
       return {
         from: fromId,
         to: defaultAgentId,
@@ -419,7 +423,7 @@ function fromMessageToRoute(
       };
     }
 
-    state.replyTargetId = userId;
+    state.lastInboundSourceId = userId;
     return {
       from: userId,
       to: defaultAgentId,
@@ -457,22 +461,65 @@ function fromMessageToRoute(
     };
   }
 
+  // assistant 메시지: inbound context로부터 마지막 소스를 target으로 사용
   return {
     from: defaultAgentId,
-    to: state.replyTargetId,
+    to: state.lastInboundSourceId,
     kind: 'message.assistant',
     detail: message.content,
   };
 }
 
-function runtimeEventRoute(
-  event: Record<string, unknown>,
-): {
+interface RuntimeEventRouteResult {
   from: string;
   to: string;
   detail: string;
   llmInputMessages?: Array<{ role: string; content: string }>;
-} | undefined {
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  instanceKey?: string;
+  duration?: number;
+  tokenUsage?: StudioTokenUsage;
+}
+
+function parseTokenUsage(value: unknown): StudioTokenUsage | undefined {
+  if (!isObjectRecord(value)) {
+    return undefined;
+  }
+  const promptTokens = value['promptTokens'];
+  const completionTokens = value['completionTokens'];
+  const totalTokens = value['totalTokens'];
+  if (
+    typeof promptTokens !== 'number' ||
+    typeof completionTokens !== 'number' ||
+    typeof totalTokens !== 'number'
+  ) {
+    return undefined;
+  }
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function extractTraceContext(event: Record<string, unknown>): {
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  instanceKey?: string;
+  duration?: number;
+  tokenUsage?: StudioTokenUsage;
+} {
+  const traceId = typeof event['traceId'] === 'string' ? event['traceId'] : undefined;
+  const spanId = typeof event['spanId'] === 'string' ? event['spanId'] : undefined;
+  const parentSpanId = typeof event['parentSpanId'] === 'string' ? event['parentSpanId'] : undefined;
+  const instanceKey = typeof event['instanceKey'] === 'string' ? event['instanceKey'] : undefined;
+  const duration = typeof event['duration'] === 'number' ? event['duration'] : undefined;
+  const tokenUsage = parseTokenUsage(event['tokenUsage']);
+  return { traceId, spanId, parentSpanId, instanceKey, duration, tokenUsage };
+}
+
+function runtimeEventRoute(
+  event: Record<string, unknown>,
+): RuntimeEventRouteResult | undefined {
   const type = event['type'];
   const agentName = event['agentName'];
   if (typeof type !== 'string' || typeof agentName !== 'string') {
@@ -481,6 +528,7 @@ function runtimeEventRoute(
 
   const agentId = `agent:${agentName}`;
   const llmInputMessages = parseLlmInputMessages(event['llmInputMessages']);
+  const trace = extractTraceContext(event);
 
   if (type === 'tool.called') {
     const toolName = event['toolName'];
@@ -489,6 +537,7 @@ function runtimeEventRoute(
       to: `tool:${typeof toolName === 'string' ? toolName : 'unknown'}`,
       detail: typeof toolName === 'string' ? toolName : '',
       llmInputMessages,
+      ...trace,
     };
   }
 
@@ -501,6 +550,7 @@ function runtimeEventRoute(
       to: agentId,
       detail: `${typeof toolName === 'string' ? toolName : 'unknown'}${suffix}`,
       llmInputMessages,
+      ...trace,
     };
   }
 
@@ -509,6 +559,7 @@ function runtimeEventRoute(
     to: 'system:runtime',
     detail: type,
     llmInputMessages,
+    ...trace,
   };
 }
 
@@ -790,6 +841,131 @@ function writeText(res: ServerResponse, statusCode: number, contentType: string,
   res.end(body);
 }
 
+function buildTraces(entries: StudioTimelineEntry[]): StudioTrace[] {
+  const traceMap = new Map<string, {
+    spans: Map<string, StudioTraceSpan>;
+    agentNames: Set<string>;
+    startedAt: string;
+    completedAt?: string;
+  }>();
+
+  // First pass: collect all spans from runtime events with trace info
+  for (const entry of entries) {
+    if (!entry.traceId || !entry.spanId) {
+      continue;
+    }
+
+    let traceData = traceMap.get(entry.traceId);
+    if (!traceData) {
+      traceData = {
+        spans: new Map(),
+        agentNames: new Set(),
+        startedAt: entry.at,
+      };
+      traceMap.set(entry.traceId, traceData);
+    }
+
+    const agentName = entry.source.startsWith('agent:')
+      ? entry.source.slice(6)
+      : entry.target?.startsWith('agent:')
+        ? entry.target.slice(6)
+        : undefined;
+    if (agentName) {
+      traceData.agentNames.add(agentName);
+    }
+
+    const existingSpan = traceData.spans.get(entry.spanId);
+    if (existingSpan) {
+      // Update existing span with completion info
+      if (entry.subtype.endsWith('.completed') || entry.subtype.endsWith('.failed')) {
+        existingSpan.completedAt = entry.at;
+        existingSpan.status = entry.subtype.endsWith('.failed') ? 'failed' : 'completed';
+        if (entry.duration !== undefined) {
+          existingSpan.duration = entry.duration;
+        }
+        if (entry.tokenUsage) {
+          existingSpan.tokenUsage = entry.tokenUsage;
+        }
+      }
+    } else {
+      const status: StudioTraceSpan['status'] = entry.subtype.endsWith('.completed')
+        ? 'completed'
+        : entry.subtype.endsWith('.failed')
+          ? 'failed'
+          : 'started';
+
+      traceData.spans.set(entry.spanId, {
+        spanId: entry.spanId,
+        parentSpanId: entry.parentSpanId,
+        traceId: entry.traceId,
+        type: entry.subtype,
+        agentName: agentName ?? 'unknown',
+        instanceKey: entry.instanceKey ?? '',
+        startedAt: entry.at,
+        completedAt: status !== 'started' ? entry.at : undefined,
+        duration: entry.duration,
+        status,
+        children: [],
+        tokenUsage: entry.tokenUsage,
+        detail: entry.detail,
+      });
+    }
+
+    // Track trace time boundaries
+    if (toMillis(entry.at) < toMillis(traceData.startedAt)) {
+      traceData.startedAt = entry.at;
+    }
+    if (!traceData.completedAt || toMillis(entry.at) > toMillis(traceData.completedAt)) {
+      traceData.completedAt = entry.at;
+    }
+  }
+
+  // Second pass: build tree structure
+  const traces: StudioTrace[] = [];
+  for (const [traceId, traceData] of traceMap) {
+    const rootSpans: StudioTraceSpan[] = [];
+
+    for (const span of traceData.spans.values()) {
+      if (span.parentSpanId) {
+        const parent = traceData.spans.get(span.parentSpanId);
+        if (parent) {
+          parent.children.push(span);
+          continue;
+        }
+      }
+      rootSpans.push(span);
+    }
+
+    // Sort children by startedAt
+    const sortSpanChildren = (span: StudioTraceSpan): void => {
+      span.children.sort((a, b) => toMillis(a.startedAt) - toMillis(b.startedAt));
+      for (const child of span.children) {
+        sortSpanChildren(child);
+      }
+    };
+    for (const root of rootSpans) {
+      sortSpanChildren(root);
+    }
+
+    rootSpans.sort((a, b) => toMillis(a.startedAt) - toMillis(b.startedAt));
+
+    const startMs = toMillis(traceData.startedAt);
+    const endMs = traceData.completedAt ? toMillis(traceData.completedAt) : undefined;
+
+    traces.push({
+      traceId,
+      rootSpans,
+      agentNames: [...traceData.agentNames],
+      startedAt: traceData.startedAt,
+      completedAt: traceData.completedAt,
+      totalDuration: endMs !== undefined ? endMs - startMs : undefined,
+    });
+  }
+
+  traces.sort((a, b) => toMillis(a.startedAt) - toMillis(b.startedAt));
+  return traces;
+}
+
 function notFound(res: ServerResponse): void {
   writeJson(res, 404, {
     error: 'not_found',
@@ -857,7 +1033,7 @@ export class DefaultStudioService implements StudioService {
 
       const baseRows = await readJsonLines(basePath);
       const routeState: MessageRouteState = {
-        replyTargetId: `user:${request.instanceKey}`,
+        lastInboundSourceId: `user:${request.instanceKey}`,
       };
       for (const row of baseRows) {
         const message = messageFromUnknown(row);
@@ -1011,6 +1187,12 @@ export class DefaultStudioService implements StudioService {
             subtype,
             detail: routed.detail,
             llmInputMessages: routed.llmInputMessages,
+            traceId: routed.traceId,
+            spanId: routed.spanId,
+            parentSpanId: routed.parentSpanId,
+            instanceKey: routed.instanceKey,
+            duration: routed.duration,
+            tokenUsage: routed.tokenUsage,
           },
           sequence,
         );
@@ -1053,6 +1235,7 @@ export class DefaultStudioService implements StudioService {
     const entries = timeline.map((item) => item.entry);
     const recentLimit = request.maxRecentEvents ?? 20;
     const recentEvents = entries.slice(Math.max(0, entries.length - recentLimit));
+    const traces = buildTraces(entries);
 
     return {
       instanceKey: request.instanceKey,
@@ -1060,6 +1243,7 @@ export class DefaultStudioService implements StudioService {
       interactions: finalizeInteractions(interactions),
       timeline: entries,
       recentEvents,
+      traces,
     };
   }
 

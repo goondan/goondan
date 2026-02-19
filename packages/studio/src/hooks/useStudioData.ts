@@ -12,7 +12,8 @@ function eventKey(e: TimelineEntry): string {
   const llmMessagesKey = (e.llmInputMessages ?? [])
     .map((item) => `${item.role}:${item.content}`)
     .join('\n');
-  return [e.at, e.source, e.target ?? '', e.subtype, e.detail, llmMessagesKey].join('|');
+  const traceKey = e.traceId && e.spanId ? `${e.traceId}:${e.spanId}` : '';
+  return [e.at, e.source, e.target ?? '', e.subtype, e.detail, llmMessagesKey, traceKey].join('|');
 }
 
 /** participant 구조 핑거프린트 — id/kind/label 변경 시에만 갱신 */

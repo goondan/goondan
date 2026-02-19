@@ -125,15 +125,29 @@ Package Registry (@goondan/registry)
 
 ## 5. 책임 경계 가이드
 
-### 5.1 `runtime`에 둘 내용
+### 5.1 `runtime`(Core)에 둘 내용 (허용)
 
-- 실행 모델, 상태 전이, 런타임 정책, 실행 흐름 제어
-- runtime-runner, connector child 프로세스 orchestration, ingress 라우팅, Tool 런타임 연결
-- 메시지 정책(windowing/compaction)이나 provider 전용 포맷 보정 로직은 두지 않음
+- Orchestrator: Config Plane 파싱/검증/로딩, AgentProcess/ConnectorProcess 스폰/감시/재시작, IPC 메시지 브로커, Reconciliation Loop, Watch 모드, Graceful Shutdown 조율
+- AgentProcess: Turn/Step 실행 루프, LLM 호출, Tool 실행, Middleware Pipeline 운영, Extension 로딩/실행, Message State 관리(이벤트 소싱)
+- **O11y 이벤트 발행**: RuntimeEvent(turn.*/step.*/tool.*) 발행은 AgentProcess(Core)의 책임
+- **TraceContext 전파**: traceId/spanId/parentSpanId 생성 및 인터-에이전트 호출 시 전파
+- **인터-에이전트 IPC 라우팅**: 모든 에이전트 간 통신은 Orchestrator를 경유
+
+### 5.1.1 `runtime`(Core)에 두지 않을 내용 (금지)
+
+- 메시지 개수/길이 제한(windowing), 요약(compaction) 정책 -> Extension 책임
+- Provider-specific 대화 정규화 (특정 provider 전용 block 변환/삭제) -> 모델 어댑터 수준에서만 처리
+- 고정 메시지 트리밍 정책 (`maxConversationTurns`, `BOT_MAX_CONVERSATION_TURNS` 등) -> Extension 책임
+- 모든 Tool 구현 (bash, file-system 등) -> `@goondan/base` 또는 사용자 패키지
+- 모든 Connector 구현 (telegram, slack, CLI 포함) -> `@goondan/base` 또는 사용자 패키지
+- 모든 Extension 구현체 (compaction, logging 등) -> `@goondan/base` 또는 사용자 패키지
 
 ### 5.2 `types`에 둘 내용
 
 - 여러 계층이 공유하는 타입 계약(실행 컨텍스트, 이벤트/메시지, Tool/Turn 결과 등)
+- **TraceContext 타입**: OTel 호환 추적 컨텍스트 (traceId, spanId, parentSpanId)
+- **RuntimeEvent 타입 계약**: 9종 이벤트 타입 및 공통 베이스 (Runtime은 발행자, Types는 계약 소유자)
+- **AgentRuntime* 타입군**: 에이전트 통신 API 입출력 계약
 
 ### 5.3 `base`에 둘 내용
 

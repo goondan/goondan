@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from "./json.js";
+import type { AgentToolRuntime } from "./agent-runtime.js";
 import type { Message } from "./message.js";
 
 export interface ExecutionContext {
@@ -35,6 +36,7 @@ export interface ToolContext extends ExecutionContext {
   readonly message: Message;
   readonly workdir: string;
   readonly logger: Console;
+  readonly runtime?: AgentToolRuntime;
 }
 
 export type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> | JsonValue;

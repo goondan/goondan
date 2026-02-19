@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type {
   AgentEvent,
   ConversationState,
@@ -16,6 +17,7 @@ import {
   STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
   type RuntimeEventBus,
   type StepStartedLlmInputMessage,
+  type TokenUsage,
 } from "../events/runtime-events.js";
 
 export type PipelineType = "turn" | "step" | "toolCall";
@@ -89,6 +91,18 @@ interface ToolCallMutableState extends ExecutionContext {
   metadata: Record<string, JsonValue>;
 }
 
+// ---------------------------------------------------------------------------
+// OTel-compatible span ID generation (64-bit hex)
+// ---------------------------------------------------------------------------
+
+function generateSpanId(): string {
+  return randomBytes(8).toString("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Metadata helpers
+// ---------------------------------------------------------------------------
+
 function isJsonObjectValue(value: JsonValue): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -120,6 +134,37 @@ function readStepStartedLlmInputMessages(
   return messages.length > 0 ? messages : undefined;
 }
 
+function readTokenUsage(metadata: Record<string, JsonValue>): TokenUsage | undefined {
+  const raw = metadata["runtime.tokenUsage"];
+  if (raw === undefined || raw === null || !isJsonObjectValue(raw)) {
+    return undefined;
+  }
+
+  const promptTokens = raw["promptTokens"];
+  const completionTokens = raw["completionTokens"];
+  const totalTokens = raw["totalTokens"];
+
+  if (typeof promptTokens !== "number" || typeof completionTokens !== "number" || typeof totalTokens !== "number") {
+    return undefined;
+  }
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+// ---------------------------------------------------------------------------
+// Turn-scoped step tracking (thread-safe per-turn counter)
+// ---------------------------------------------------------------------------
+
+interface TurnScope {
+  stepCount: number;
+  spanId: string;
+  tokenUsage?: TokenUsage;
+}
+
+// ---------------------------------------------------------------------------
+// Public interfaces
+// ---------------------------------------------------------------------------
+
 export interface PipelineRegistry {
   register(type: "turn", fn: TurnMiddleware, options?: MiddlewareOptions): void;
   register(type: "step", fn: StepMiddleware, options?: MiddlewareOptions): void;
@@ -136,6 +181,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
   private turnMiddlewares: MiddlewareEntry<TurnMiddleware>[] = [];
   private stepMiddlewares: MiddlewareEntry<StepMiddleware>[] = [];
   private toolCallMiddlewares: MiddlewareEntry<ToolCallMiddleware>[] = [];
+
+  /** Turn-scoped tracking: turnId → TurnScope */
+  private activeTurnScopes = new Map<string, TurnScope>();
 
   constructor(private readonly eventBus?: RuntimeEventBus) {}
 
@@ -191,6 +239,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
     };
 
     const startTime = Date.now();
+    const turnSpanId = generateSpanId();
+    const turnScope: TurnScope = { stepCount: 0, spanId: turnSpanId };
+    this.activeTurnScopes.set(ctx.turnId, turnScope);
 
     if (this.eventBus !== undefined) {
       await this.eventBus.emit({
@@ -198,6 +249,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
         turnId: ctx.turnId,
         agentName: ctx.agentName,
         instanceKey: ctx.instanceKey,
+        traceId: ctx.traceId,
+        spanId: turnSpanId,
+        parentSpanId: undefined,
         timestamp: new Date().toISOString(),
       });
     }
@@ -224,8 +278,12 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           turnId: ctx.turnId,
           agentName: ctx.agentName,
           instanceKey: ctx.instanceKey,
-          stepCount: 0,
+          traceId: ctx.traceId,
+          spanId: turnSpanId,
+          parentSpanId: undefined,
+          stepCount: turnScope.stepCount,
           duration: Date.now() - startTime,
+          tokenUsage: turnScope.tokenUsage,
           timestamp: new Date().toISOString(),
         });
       }
@@ -238,12 +296,17 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           turnId: ctx.turnId,
           agentName: ctx.agentName,
           instanceKey: ctx.instanceKey,
+          traceId: ctx.traceId,
+          spanId: turnSpanId,
+          parentSpanId: undefined,
           duration: Date.now() - startTime,
           errorMessage: error instanceof Error ? error.message : String(error),
           timestamp: new Date().toISOString(),
         });
       }
       throw error;
+    } finally {
+      this.activeTurnScopes.delete(ctx.turnId);
     }
   }
 
@@ -265,6 +328,17 @@ export class PipelineRegistryImpl implements PipelineRegistry {
 
     const stepId = `${ctx.turnId}-step-${ctx.stepIndex}`;
     const startTime = Date.now();
+    const stepSpanId = generateSpanId();
+
+    // Resolve parent turn's spanId
+    const turnScope = this.activeTurnScopes.get(ctx.turnId);
+    const parentTurnSpanId = turnScope?.spanId;
+
+    // Count this step in the turn scope
+    if (turnScope) {
+      turnScope.stepCount += 1;
+    }
+
     const llmInputMessages = readStepStartedLlmInputMessages(state.metadata);
 
     if (this.eventBus !== undefined) {
@@ -274,10 +348,18 @@ export class PipelineRegistryImpl implements PipelineRegistry {
         stepIndex: ctx.stepIndex,
         turnId: ctx.turnId,
         agentName: ctx.agentName,
+        instanceKey: ctx.instanceKey,
+        traceId: ctx.traceId,
+        spanId: stepSpanId,
+        parentSpanId: parentTurnSpanId,
         llmInputMessages,
         timestamp: new Date().toISOString(),
       });
     }
+
+    // Store stepSpanId for tool calls to use as parent
+    const stepScopeKey = `${ctx.turnId}:step:${ctx.stepIndex}`;
+    this.activeStepSpanIds.set(stepScopeKey, stepSpanId);
 
     const dispatch = async (index: number): Promise<StepResult> => {
       if (index >= ordered.length) {
@@ -294,6 +376,20 @@ export class PipelineRegistryImpl implements PipelineRegistry {
 
     try {
       const result = await dispatch(0);
+      const stepTokenUsage = readTokenUsage(result.metadata);
+
+      // Accumulate token usage to turn scope
+      if (turnScope && stepTokenUsage) {
+        if (turnScope.tokenUsage) {
+          turnScope.tokenUsage = {
+            promptTokens: turnScope.tokenUsage.promptTokens + stepTokenUsage.promptTokens,
+            completionTokens: turnScope.tokenUsage.completionTokens + stepTokenUsage.completionTokens,
+            totalTokens: turnScope.tokenUsage.totalTokens + stepTokenUsage.totalTokens,
+          };
+        } else {
+          turnScope.tokenUsage = { ...stepTokenUsage };
+        }
+      }
 
       if (this.eventBus !== undefined) {
         await this.eventBus.emit({
@@ -302,8 +398,13 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           stepIndex: ctx.stepIndex,
           turnId: ctx.turnId,
           agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          traceId: ctx.traceId,
+          spanId: stepSpanId,
+          parentSpanId: parentTurnSpanId,
           toolCallCount: result.toolCalls.length,
           duration: Date.now() - startTime,
+          tokenUsage: stepTokenUsage,
           timestamp: new Date().toISOString(),
         });
       }
@@ -317,12 +418,18 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           stepIndex: ctx.stepIndex,
           turnId: ctx.turnId,
           agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          traceId: ctx.traceId,
+          spanId: stepSpanId,
+          parentSpanId: parentTurnSpanId,
           duration: Date.now() - startTime,
           errorMessage: error instanceof Error ? error.message : String(error),
           timestamp: new Date().toISOString(),
         });
       }
       throw error;
+    } finally {
+      this.activeStepSpanIds.delete(stepScopeKey);
     }
   }
 
@@ -345,6 +452,11 @@ export class PipelineRegistryImpl implements PipelineRegistry {
 
     const stepId = `${ctx.turnId}-step-${ctx.stepIndex}`;
     const startTime = Date.now();
+    const toolSpanId = generateSpanId();
+
+    // Resolve parent step's spanId
+    const stepScopeKey = `${ctx.turnId}:step:${ctx.stepIndex}`;
+    const parentStepSpanId = this.activeStepSpanIds.get(stepScopeKey);
 
     if (this.eventBus !== undefined) {
       await this.eventBus.emit({
@@ -354,6 +466,10 @@ export class PipelineRegistryImpl implements PipelineRegistry {
         stepId,
         turnId: ctx.turnId,
         agentName: ctx.agentName,
+        instanceKey: ctx.instanceKey,
+        traceId: ctx.traceId,
+        spanId: toolSpanId,
+        parentSpanId: parentStepSpanId,
         timestamp: new Date().toISOString(),
       });
     }
@@ -384,6 +500,10 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           stepId,
           turnId: ctx.turnId,
           agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          traceId: ctx.traceId,
+          spanId: toolSpanId,
+          parentSpanId: parentStepSpanId,
           timestamp: new Date().toISOString(),
         });
       }
@@ -399,6 +519,10 @@ export class PipelineRegistryImpl implements PipelineRegistry {
           stepId,
           turnId: ctx.turnId,
           agentName: ctx.agentName,
+          instanceKey: ctx.instanceKey,
+          traceId: ctx.traceId,
+          spanId: toolSpanId,
+          parentSpanId: parentStepSpanId,
           errorMessage: error instanceof Error ? error.message : String(error),
           timestamp: new Date().toISOString(),
         });
@@ -406,6 +530,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       throw error;
     }
   }
+
+  /** Step spanId tracking for tool call parent resolution */
+  private activeStepSpanIds = new Map<string, string>();
 
   private sortEntries<T>(entries: MiddlewareEntry<T>[]): MiddlewareEntry<T>[] {
     return [...entries].sort((left, right) => {

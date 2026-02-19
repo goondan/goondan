@@ -181,6 +181,15 @@ interface IngressMatch {
 interface IngressRoute {
   /** 대상 Agent (선택, 생략 시 Swarm entryAgent로 라우팅) */
   agentRef?: ObjectRefLike;
+
+  /** 고정 instanceKey (instanceKeyProperty와 동시 사용 불가) */
+  instanceKey?: string;
+
+  /** ConnectorEvent.properties에서 instanceKey로 사용할 속성 키 (instanceKey와 동시 사용 불가) */
+  instanceKeyProperty?: string;
+
+  /** instanceKeyProperty 기반 키에 적용할 접두어 (instanceKeyProperty와 함께 사용) */
+  instanceKeyPrefix?: string;
 }
 
 /**

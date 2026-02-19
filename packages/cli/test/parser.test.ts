@@ -74,6 +74,47 @@ describe('parseArgv', () => {
     }
   });
 
+  it('logs --agent 옵션을 파싱한다', () => {
+    const result = parseArgv(['logs', '--agent', 'coder']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('logs');
+      const cmd = result.value.command;
+      if (cmd.action === 'logs') {
+        expect(cmd.agent).toBe('coder');
+      }
+    }
+  });
+
+  it('logs --trace 옵션을 파싱한다', () => {
+    const result = parseArgv(['logs', '--trace', 'abc-123']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('logs');
+      const cmd = result.value.command;
+      if (cmd.action === 'logs') {
+        expect(cmd.trace).toBe('abc-123');
+      }
+    }
+  });
+
+  it('logs --agent + --trace 동시 사용을 파싱한다', () => {
+    const result = parseArgv(['logs', '-a', 'coder', '--trace', 'abc-123', '--lines', '50']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('logs');
+      const cmd = result.value.command;
+      if (cmd.action === 'logs') {
+        expect(cmd.agent).toBe('coder');
+        expect(cmd.trace).toBe('abc-123');
+        expect(cmd.lines).toBe(50);
+      }
+    }
+  });
+
   it('studio 명령의 옵션을 파싱한다', () => {
     const result = parseArgv(['studio', '--host', '0.0.0.0', '--port', '4412', '--no-open']);
 

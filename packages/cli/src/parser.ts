@@ -162,6 +162,8 @@ const logsCommand = command(
   object({
     action: constant('logs' as const),
     instanceKey: optional(option('-i', '--instance-key', string({ metavar: 'KEY' }))),
+    agent: optional(option('-a', '--agent', string({ metavar: 'NAME' }))),
+    trace: optional(option('--trace', string({ metavar: 'TRACE_ID' }))),
     process: withDefault(option('-p', '--process', string({ metavar: 'NAME' })), 'orchestrator'),
     stream: withDefault(option('--stream', choice(['stdout', 'stderr', 'both'])), 'both'),
     lines: withDefault(option('-l', '--lines', integer({ min: 1 })), 200),

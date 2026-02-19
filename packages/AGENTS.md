@@ -9,11 +9,13 @@
 
 ## 구조적 결정
 
-1. 공통 계약은 `@goondan/types`를 단일 기준으로 둔다.
+1. 공통 계약은 `@goondan/types`를 단일 기준으로 둔다. RuntimeEvent, TraceContext, AgentRuntime* 타입을 포함.
 이유: 패키지 간 타입 드리프트를 막고 계약 변경 파급을 통제하기 위해.
-2. `@goondan/base`는 npm이 아니라 goondan 패키지 레지스트리로 배포한다.
+2. `@goondan/runtime`은 Orchestrator(프로세스 매니저) + AgentProcess(실행 엔진)로 구성된다.
+이유: Process-per-Agent 아키텍처에서 역할 분리가 명확해야 이중 구현을 방지할 수 있다.
+3. `@goondan/base`는 npm이 아니라 goondan 패키지 레지스트리로 배포한다.
 이유: 코드뿐 아니라 리소스 매니페스트를 함께 유통해야 하기 때문.
-3. npm 배포 대상 `@goondan/*`는 단일 버전 정책을 유지한다.
+4. npm 배포 대상 `@goondan/*`는 단일 버전 정책을 유지한다.
 이유: 운영/디버깅 시 버전 매트릭스 복잡도를 줄이기 위해.
 
 ## 불변 규칙

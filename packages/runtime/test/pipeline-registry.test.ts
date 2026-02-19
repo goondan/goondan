@@ -244,4 +244,181 @@ describe("PipelineRegistryImpl", () => {
       },
     ]);
   });
+
+  it("step.started 이벤트에 TraceContext 필드(traceId, spanId, instanceKey)를 포함한다", async () => {
+    const eventBus = new RuntimeEventBusImpl();
+    const registry = new PipelineRegistryImpl(eventBus);
+    const conversationState = new ConversationStateImpl();
+    const turn: Turn = {
+      id: "turn-trace",
+      agentName: "coder",
+      inputEvent: createAgentEvent(),
+      messages: [],
+      steps: [],
+      status: "running",
+      metadata: {},
+    };
+
+    const captured: RuntimeEvent[] = [];
+    const unsubscribe = eventBus.on("step.started", async (event) => {
+      captured.push(event);
+    });
+
+    await registry.runStep(
+      {
+        agentName: "coder",
+        instanceKey: "inst-abc",
+        turnId: "turn-trace",
+        traceId: "aabb0011",
+        turn,
+        stepIndex: 2,
+        conversationState,
+        agents: mockMiddlewareAgentsApi,
+        emitMessageEvent: () => {},
+        toolCatalog: [],
+        metadata: {},
+      },
+      async () => ({
+        status: "completed",
+        hasToolCalls: false,
+        toolCalls: [],
+        toolResults: [],
+        metadata: {},
+      }),
+    );
+
+    unsubscribe();
+
+    expect(captured).toHaveLength(1);
+    const event = captured[0];
+    if (!event || event.type !== "step.started") {
+      throw new Error("step.started event not captured");
+    }
+    expect(event.traceId).toBe("aabb0011");
+    expect(event.instanceKey).toBe("inst-abc");
+    expect(event.spanId).toMatch(/^[0-9a-f]{16}$/);
+    expect(event.stepId).toBe("turn-trace-step-2");
+  });
+
+  it("turn → step → tool 이벤트의 span hierarchy가 올바르다", async () => {
+    const eventBus = new RuntimeEventBusImpl();
+    const registry = new PipelineRegistryImpl(eventBus);
+    const conversationState = new ConversationStateImpl();
+
+    const captured: RuntimeEvent[] = [];
+    for (const eventType of [
+      "turn.started",
+      "turn.completed",
+      "step.started",
+      "step.completed",
+      "tool.called",
+      "tool.completed",
+    ] as const) {
+      eventBus.on(eventType, async (event) => {
+        captured.push(event);
+      });
+    }
+
+    await registry.runTurn(
+      {
+        agentName: "planner",
+        instanceKey: "default",
+        turnId: "turn-span-h",
+        traceId: "trace-span-h",
+        inputEvent: createAgentEvent(),
+        conversationState,
+        agents: mockMiddlewareAgentsApi,
+        emitMessageEvent: () => {},
+        metadata: {},
+      },
+      async () => {
+        // Inside the turn, run a step
+        await registry.runStep(
+          {
+            agentName: "planner",
+            instanceKey: "default",
+            turnId: "turn-span-h",
+            traceId: "trace-span-h",
+            turn: {
+              id: "turn-span-h",
+              agentName: "planner",
+              inputEvent: createAgentEvent(),
+              messages: [],
+              steps: [],
+              status: "running",
+              metadata: {},
+            },
+            stepIndex: 0,
+            conversationState,
+            agents: mockMiddlewareAgentsApi,
+            emitMessageEvent: () => {},
+            toolCatalog: [],
+            metadata: {},
+          },
+          async () => {
+            // Inside the step, run a tool call
+            await registry.runToolCall(
+              {
+                agentName: "planner",
+                instanceKey: "default",
+                turnId: "turn-span-h",
+                traceId: "trace-span-h",
+                stepIndex: 0,
+                toolName: "search",
+                toolCallId: "tc-1",
+                args: {},
+                metadata: {},
+              },
+              async () => ({
+                status: "ok",
+                content: "found",
+                metadata: {},
+              }),
+            );
+
+            return {
+              status: "completed",
+              hasToolCalls: true,
+              toolCalls: [{ toolCallId: "tc-1", toolName: "search", args: {} }],
+              toolResults: [{ toolCallId: "tc-1", toolName: "search", status: "ok", content: "found", metadata: {} }],
+              metadata: {},
+            };
+          },
+        );
+
+        return { turnId: "turn-span-h", finishReason: "text_response" };
+      },
+    );
+
+    // Verify span hierarchy
+    const turnStarted = captured.find((e) => e.type === "turn.started");
+    const stepStarted = captured.find((e) => e.type === "step.started");
+    const toolCalled = captured.find((e) => e.type === "tool.called");
+    const turnCompleted = captured.find((e) => e.type === "turn.completed");
+
+    if (!turnStarted || !stepStarted || !toolCalled || !turnCompleted) {
+      throw new Error("Expected events not captured");
+    }
+
+    // All events share the same traceId
+    expect(turnStarted.traceId).toBe("trace-span-h");
+    expect(stepStarted.traceId).toBe("trace-span-h");
+    expect(toolCalled.traceId).toBe("trace-span-h");
+
+    // Turn has no parent
+    expect(turnStarted.parentSpanId).toBeUndefined();
+
+    // Step's parent is the turn's spanId
+    if (stepStarted.type !== "step.started") throw new Error("type guard");
+    expect(stepStarted.parentSpanId).toBe(turnStarted.spanId);
+
+    // Tool's parent is the step's spanId
+    if (toolCalled.type !== "tool.called") throw new Error("type guard");
+    expect(toolCalled.parentSpanId).toBe(stepStarted.spanId);
+
+    // turn.completed has correct stepCount
+    if (turnCompleted.type !== "turn.completed") throw new Error("type guard");
+    expect(turnCompleted.stepCount).toBe(1);
+    expect(turnCompleted.spanId).toBe(turnStarted.spanId);
+  });
 });

@@ -368,9 +368,10 @@ interface ExtensionEventsApi {
 **규칙:**
 
 1. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
-2. 이벤트는 프로세스 내(동일 AgentProcess) 범위에서만 전파되어야 한다(MUST).
+2. 이벤트는 프로세스 내(동일 AgentProcess) 범위에서만 전파되어야 한다(MUST). **Extension EventBus는 로컬 인메모리이며, 프로세스 간 통신이나 Orchestrator 레벨의 이벤트는 볼 수 없다.** 인과 체인 추적(O11y)은 Core(AgentProcess)가 `RuntimeEvent`로 담당한다.
 3. 이벤트 핸들러에서 발생한 예외는 다른 핸들러의 실행을 방해하지 않아야 한다(SHOULD).
-4. 표준 Runtime 이벤트 이름과 payload 구조는 `docs/specs/api.md` 9절을 단일 기준으로 따른다(MUST).
+4. 표준 Runtime 이벤트 이름과 payload 구조는 `docs/specs/shared-types.md` 9절(RuntimeEvent 계약)을 단일 기준으로 따른다(MUST). API 표면 정의는 `docs/specs/api.md` 9절을 참조한다.
+5. Extension이 `api.events.on('turn.completed', ...)`으로 구독하는 이벤트는 동일 AgentProcess 내에서 발행된 것만 수신한다(MUST). 다른 AgentProcess의 이벤트를 수신해서는 안 된다(MUST NOT).
 
 ### 5.6 Logger
 

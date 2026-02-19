@@ -176,17 +176,27 @@ When a change is detected, only the affected AgentProcesses are selectively rest
 After editing `goondan.yaml` (without `--watch`), apply changes by restarting:
 
 ```bash
+# Restart the entire Orchestrator
 gdn restart
+
+# Restart only a specific agent's process
+gdn restart --agent coder
+
+# Clear all state (message history, extension state) and restart fresh
+gdn restart --fresh
+
+# Restart a specific agent with state reset
+gdn restart --agent coder --fresh
 ```
 
-This:
+The default `gdn restart`:
 
 1. Reads the active Orchestrator from `runtime/active.json`
 2. Recalculates the instanceKey from the Swarm definition
 3. Starts a replacement runner process
 4. Terminates the old Orchestrator PID
 
-Conversation history is preserved by default.
+When `--agent` is specified, only that agent's process is restarted; other agents continue running undisturbed. Conversation history is preserved by default unless `--fresh` is used.
 
 > See [CLI Reference: `gdn restart`](../reference/cli-reference.md#gdn-restart) for all options.
 
@@ -254,12 +264,23 @@ Deleting an instance removes all its state: message history, extension state, an
 # Active instance orchestrator logs (last 200 lines)
 gdn logs
 
+# Filter by agent name
+gdn logs --agent coder
+
+# Follow a specific trace chain across all agents
+gdn logs --trace <traceId>
+
+# Combine agent and trace filters
+gdn logs --agent coder --trace <traceId>
+
 # Specific instance, stderr only
 gdn logs --instance-key session-001 --stream stderr --lines 100
 
 # Specific process logs (e.g., a connector)
 gdn logs --process connector-telegram
 ```
+
+The `--agent` and `--trace` flags are especially useful for multi-agent debugging. `--trace` follows a single causal chain (traceId) across all agents in the swarm, making it easy to understand _why_ a particular agent was invoked.
 
 Log files are stored at:
 
@@ -341,10 +362,14 @@ Ensure you are editing files within the project directory. Watch mode monitors `
 | Start the swarm | `gdn run` |
 | Start with watch mode | `gdn run --watch` |
 | Restart after config edit | `gdn restart` |
+| Restart a specific agent | `gdn restart --agent coder` |
+| Restart with state reset | `gdn restart --fresh` |
 | List instances | `gdn instance list` |
 | Restart an instance | `gdn instance restart <key>` |
 | Delete an instance | `gdn instance delete <key> --force` |
 | View logs | `gdn logs` |
+| View agent-specific logs | `gdn logs --agent coder` |
+| Follow a trace chain | `gdn logs --trace <traceId>` |
 | Diagnose environment | `gdn doctor` |
 
 ---

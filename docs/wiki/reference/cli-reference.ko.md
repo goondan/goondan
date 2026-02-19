@@ -279,15 +279,15 @@ gdn restart [options]
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--agent <name>` | `-a` | 호환용 필드 (현재 인스턴스 전체 재기동) | - |
-| `--fresh` | | 호환용 플래그 (인스턴스 재기동에 전달) | `false` |
+| `--agent <name>` | `-a` | 지정한 에이전트의 프로세스만 재시작 (선택적 재시작) | - |
+| `--fresh` | | 재시작 전에 메시지 히스토리와 Extension 상태를 초기화 | `false` |
 
 ### 동작 방식
 
 1. `runtime/active.json`에서 active Orchestrator 인스턴스를 읽음
 2. active Swarm 정의에서 instanceKey 재계산 (`Swarm.spec.instanceKey ?? Swarm.metadata.name`)
-3. replacement runner를 먼저 기동
-4. active PID를 새 값으로 갱신하고 기존 Orchestrator PID를 종료
+3. `--agent` 지정 시, Orchestrator에 해당 에이전트 프로세스만 재시작하도록 신호 전송
+4. 그 외에는 replacement runner를 먼저 기동하고, active PID를 갱신한 뒤 기존 Orchestrator PID를 종료
 
 ### 예시
 
@@ -295,11 +295,14 @@ gdn restart [options]
 # active Orchestrator 재기동
 gdn restart
 
-# agent 지정 (호환용)
+# 특정 에이전트 프로세스만 재시작
 gdn restart --agent coder
 
-# fresh 플래그 (호환용)
+# 모든 상태를 초기화하고 재시작
 gdn restart --fresh
+
+# 특정 에이전트를 상태 초기화와 함께 재시작
+gdn restart --agent coder --fresh
 ```
 
 ---
@@ -504,6 +507,8 @@ gdn logs [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--instance-key <key>` | `-i` | 조회할 인스턴스 키. 생략 시 `runtime/active.json`의 인스턴스 | active instance |
+| `--agent <name>` | `-a` | 에이전트 이름으로 이벤트 필터링 | - |
+| `--trace <traceId>` | | trace ID로 이벤트 필터링 (에이전트 간 단일 인과 체인 추적) | - |
 | `--process <name>` | `-p` | 프로세스 이름 | `orchestrator` |
 | `--stream <stdout\|stderr\|both>` | | 로그 스트림 선택 | `both` |
 | `--lines <n>` | `-l` | 각 로그 파일에서 마지막 N줄 | `200` |
@@ -520,6 +525,15 @@ gdn logs [options]
 ```bash
 # active 인스턴스의 orchestrator 로그 (최근 200줄)
 gdn logs
+
+# 에이전트 이름으로 필터링
+gdn logs --agent coder
+
+# 특정 trace 체인을 에이전트 간 추적
+gdn logs --trace abc-123-def
+
+# 에이전트와 trace 필터 결합
+gdn logs --agent coder --trace abc-123-def
 
 # 특정 인스턴스 stderr (최근 100줄)
 gdn logs --instance-key session-001 --stream stderr --lines 100

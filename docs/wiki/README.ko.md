@@ -96,7 +96,7 @@ Goondan은 AI 에이전트 스웜을 위한 선언형 오케스트레이션 프�
 | [핵심 개념](./explanation/core-concepts.ko.md) | 리소스 Kind, ObjectRef, instanceKey, Bundle, Package, 선언형 구성 모델 |
 | [Tool 시스템](./explanation/tool-system.ko.md) | 더블 언더스코어 네이밍, ToolContext, AgentProcess 내부 도구 실행 |
 | [Extension 파이프라인](./explanation/extension-pipeline.ko.md) | 미들웨어 Onion 모델, turn/step/toolCall 계층, ConversationState 이벤트 소싱 |
-| [런타임 모델](./explanation/runtime-model.ko.md) | Orchestrator, Process-per-Agent, IPC, Reconciliation Loop, Graceful Shutdown |
+| [런타임 모델](./explanation/runtime-model.ko.md) | Orchestrator, Process-per-Agent, IPC, OTel TraceContext, Reconciliation Loop, Graceful Shutdown |
 
 ### Reference -- _정보 지향_
 

@@ -9,11 +9,18 @@
 
 ### 1.1 배경 및 설계 동기
 
-Goondan Runtime은 **Process-per-Agent** 아키텍처를 사용한다. Orchestrator는 **상주 프로세스**로 전체 Swarm의 생명주기를 관리하고, 각 AgentInstance와 Connector는 **독립 Bun 프로세스**로 실행된다. 이를 통해:
+Goondan Runtime은 **Process-per-Agent** 아키텍처를 유일한 실행 모델로 사용한다. In-process 모델은 지원하지 않는다. Orchestrator는 **상주 프로세스(프로세스 매니저)**로 전체 Swarm의 생명주기를 관리하고, 각 AgentInstance와 Connector는 **독립 Bun 프로세스(실행 엔진)**로 실행된다. 이를 통해:
 
 - **크래시 격리**: 개별 에이전트의 비정상 종료가 다른 에이전트에 영향을 주지 않는다.
 - **독립 스케일링**: 각 에이전트 프로세스가 독립적으로 자원을 사용하고 관리된다.
 - **단순한 재시작**: 설정 변경 시 영향받는 프로세스만 선택적으로 재시작할 수 있다.
+- **Self-modification 지원**: 에이전트가 자기 manifest를 수정하면 해당 프로세스만 restart된다.
+- **중앙 관측**: 모든 인터-에이전트 통신이 Orchestrator IPC를 경유하므로 중앙에서 관측 가능하다.
+
+**Orchestrator와 AgentProcess의 책임 분리:**
+
+- **Orchestrator (프로세스 매니저)**: Config Plane 파싱/검증/로딩, AgentProcess/ConnectorProcess 스폰/감시/재시작, IPC 메시지 브로커, Reconciliation Loop, Watch 모드, Graceful Shutdown 조율. 에이전트의 Turn 실행 로직은 **일절 모른다** -- 단지 이벤트를 올바른 프로세스에 전달할 뿐이다.
+- **AgentProcess (실행 엔진)**: IPC로 이벤트를 받아 Turn/Step 루프 실행, LLM 호출, Tool 실행, Middleware Pipeline 운영, Extension 로딩/실행, Message State 관리, O11y 이벤트 발행. 인터-에이전트 통신은 Orchestrator IPC를 경유하며, 직접 다른 에이전트를 호출하지 않는다.
 
 설정 변경은 **Edit & Restart** 모델을 따른다. `goondan.yaml`을 직접 수정하고 Orchestrator가 프로세스를 재시작하여 변경을 반영한다.
 
@@ -45,6 +52,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 | **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
 | **Runtime 책임 최소화** | 코어는 실행 루프/이벤트/파이프라인만 담당하고, 메시지 윈도우/컴팩션 정책은 Extension이 담당 |
 | **Provider 중립성** | Runtime 코어는 provider 전용 대화 정규화 로직을 포함하지 않고, 모델 호출 어댑터만 제공 |
+| **O11y는 Core 책임** | O11y 이벤트 발행은 AgentProcess(Core)가 담당. Extension은 프로세스 간 통신/Orchestrator 레벨 관측 불가 |
+| **OTel 호환 추적** | TraceContext(traceId + spanId + parentSpanId)로 Turn/Step/Tool/인터-에이전트 인과 체인 추적 |
 
 ---
 
@@ -96,8 +105,9 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 5. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
 6. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
 7. Tool 실행은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수를 호출하는 방식이어야 한다(MUST).
-8. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST).
+8. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST). 인터-에이전트 호출로 시작된 Turn은 호출자의 `traceId`를 유지한다(MUST).
 9. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+10. Runtime은 Turn/Step/Tool Call마다 새 `spanId`를 생성하고, `parentSpanId`로 상위 실행 단위와 연결해야 한다(MUST). TraceContext 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
 
 ### 2.5 메시지 상태 규칙
 
@@ -110,11 +120,15 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 
 ### 2.6 Observability 규칙
 
-1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
+1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`와 `spanId`를 포함해야 한다(MUST).
 2. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
 3. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`를 기록해야 한다(SHOULD).
 4. Runtime은 Turn/Step/Tool 런타임 이벤트(`turn.*`, `step.*`, `tool.*`)를 인스턴스별 `messages/runtime-events.jsonl`에 append-only로 기록해야 한다(MUST).
 5. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
+6. 모든 RuntimeEvent에 `traceId`, `spanId`를 포함해야 한다(MUST). `parentSpanId`는 root span을 제외하고 포함한다(MUST).
+7. 모든 RuntimeEvent에 `instanceKey`를 포함해야 한다(MUST).
+8. `turn.completed`의 `stepCount`는 실제 실행된 Step 수를 반영해야 한다(MUST).
+9. RuntimeEvent 타입 계약의 SSOT는 `docs/specs/shared-types.md` 9절이다(MUST).
 
 ### 2.7 Edit & Restart 규칙
 
@@ -738,7 +752,38 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
 import type { TurnAuth } from './shared-types';
 ```
 
-`TurnAuth` 원형은 `docs/specs/shared-types.md` 5절을 따른다.
+`TurnAuth` 원형은 `docs/specs/shared-types.md` 6절을 따른다.
+
+### 7.5 TraceContext 전파
+
+Runtime은 Turn/Step/Tool 실행 시 OTel 호환 `TraceContext`를 생성하고 전파한다. 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
+
+**Turn 시작 시:**
+1. 입력 이벤트(`AgentEvent`)에 `traceId`가 있으면 그대로 사용한다(MUST). 없으면 새로 생성한다(MUST).
+2. Turn에 대해 새 `spanId`를 생성한다(MUST).
+3. 인터-에이전트 호출로 시작된 Turn의 경우, 호출자 Tool Call의 `spanId`를 `parentSpanId`로 설정한다(MUST). 외부 입력(Connector, CLI)이면 `parentSpanId`는 없다.
+
+**Step 시작 시:**
+1. Step에 대해 새 `spanId`를 생성한다(MUST).
+2. `parentSpanId`는 Turn의 `spanId`로 설정한다(MUST).
+
+**Tool Call 시작 시:**
+1. 각 Tool Call에 대해 새 `spanId`를 생성한다(MUST).
+2. `parentSpanId`는 Step의 `spanId`로 설정한다(MUST).
+
+**인터-에이전트 호출 시:**
+1. `traceId`를 피호출자에게 전달한다(MUST). **절대 재생성하지 않는다.**
+2. 호출자의 Tool Call `spanId`를 피호출자의 Turn `parentSpanId`로 전달한다(MUST).
+
+**예시 흐름:**
+```
+[Connector Event] traceId=aaa, spanId=없음
+  +-- [Agent A Turn] traceId=aaa, spanId=bbb, parentSpanId=없음
+       +-- [Step 0] traceId=aaa, spanId=ccc, parentSpanId=bbb
+            +-- [Tool: agents__request] traceId=aaa, spanId=ddd, parentSpanId=ccc
+                 +-- [Agent B Turn] traceId=aaa, spanId=eee, parentSpanId=ddd
+                      +-- [Step 0] traceId=aaa, spanId=fff, parentSpanId=eee
+```
 
 ---
 
@@ -921,8 +966,22 @@ gdn run --watch   # goondan.yaml/리소스 파일 변경 시 해당 에이전트
 **규칙:**
 
 1. Orchestrator가 `--watch` 플래그로 기동되면 `goondan.yaml` 및 관련 리소스 파일의 변경을 감시해야 한다(MUST).
-2. Orchestrator는 어떤 리소스가 변경되었는지 파악하여 영향받는 AgentProcess만 선택적으로 재시작하는 것을 권장한다(SHOULD).
+2. Orchestrator는 어떤 리소스가 변경되었는지 파악하여 영향받는 AgentProcess만 선택적으로 재시작해야 한다(MUST).
 3. Tool/Extension/Connector entry 파일 변경 시에도 해당 프로세스를 재시작해야 한다(SHOULD).
+
+**영향 범위 기반 선택적 재시작:**
+
+| 변경 대상 | 영향 범위 | 재시작 대상 |
+|-----------|-----------|-------------|
+| Agent 리소스 | 해당 Agent만 | 해당 Agent의 모든 AgentProcess |
+| Tool 리소스 또는 entry 파일 | 해당 Tool을 사용하는 Agent | Tool을 참조하는 Agent의 AgentProcess |
+| Extension 리소스 또는 entry 파일 | 해당 Extension을 사용하는 Agent | Extension을 참조하는 Agent의 AgentProcess |
+| Connector 리소스 또는 entry 파일 | 해당 Connector | 해당 ConnectorProcess |
+| Connection 리소스 | 해당 Connection이 참조하는 Connector | 해당 ConnectorProcess |
+| Swarm 리소스 | 전체 | 모든 AgentProcess + ConnectorProcess |
+| `goondan.yaml` (Bundle 루트) | 전체 | Config 재로딩 후 전체 재시작 |
+
+4. Self-modification 시나리오: 에이전트가 자기 Agent 리소스 manifest를 수정하면, watch 모드가 변경을 감지하고 해당 에이전트 프로세스만 graceful restart한다(MUST). 메시지 히스토리는 유지된다.
 
 ---
 
@@ -1023,17 +1082,50 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 ## 12. Observability
 
-### 12.1 로깅
+O11y 이벤트 발행은 AgentProcess(Core)의 책임이다. Extension은 자기가 등록된 파이프라인 안에서만 관측 가능하고, 프로세스 간 통신이나 Orchestrator 레벨의 이벤트는 볼 수 없으므로, 인과 체인 추적은 Core가 담당한다.
+
+### 12.1 TraceContext 기반 관측 모델
+
+Runtime은 OTel(OpenTelemetry) 호환 `TraceContext`를 사용하여 에이전트 스웜 실행의 인과 체인을 추적한다.
+
+`TraceContext` 타입과 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
+
+**핵심 원칙:**
+1. `traceId`는 최초 입력 시점에 한 번 생성되고, 인터-에이전트 호출을 포함한 전체 실행 체인에서 절대 재생성하지 않는다.
+2. 각 실행 단위(Turn, Step, Tool Call)는 새 `spanId`를 생성하되, `parentSpanId`로 상위와 연결한다.
+3. 모든 `RuntimeEvent`에 `traceId`, `spanId`, `parentSpanId`를 포함한다.
+
+### 12.2 RuntimeEvent 계약
+
+RuntimeEvent 타입 정의의 SSOT는 `docs/specs/shared-types.md` 9절이다. 이 문서에서는 발행 타이밍과 규칙만 다룬다.
+
+**발행 타이밍:**
+
+| 이벤트 | 발행 시점 |
+|--------|-----------|
+| `turn.started` | AgentProcess가 이벤트 큐에서 AgentEvent를 dequeue하여 Turn을 시작할 때 |
+| `turn.completed` | Turn의 모든 Step이 완료되고 events -> base 폴딩 전 |
+| `turn.failed` | Turn 실행 중 복구 불가능한 에러 발생 시 |
+| `step.started` | Step 시작 시 (LLM 호출 전) |
+| `step.completed` | Step의 LLM 호출과 모든 Tool 실행이 완료될 때 |
+| `step.failed` | Step 실행 중 에러 발생 시 |
+| `tool.called` | Tool 핸들러 호출 직전 |
+| `tool.completed` | Tool 핸들러가 정상 완료되거나 에러를 반환할 때 |
+| `tool.failed` | Tool 핸들러 실행 중 예외 발생 시 |
+
+### 12.3 로깅 규칙
 
 **규칙:**
 
-1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`를 포함해야 한다(MUST).
-2. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`(prompt/completion/total)를 기록해야 한다(SHOULD).
+1. Runtime은 Turn/Step/ToolCall 로그에 `traceId`와 `spanId`를 포함해야 한다(MUST).
+2. Runtime은 최소 `latencyMs`, `toolCallCount`, `errorCount`, `tokenUsage`(promptTokens/completionTokens/totalTokens)를 기록해야 한다(SHOULD).
 3. 민감값(access token, refresh token, secret)은 로그/메트릭에 평문으로 포함되어서는 안 된다(MUST).
 4. 각 프로세스(Orchestrator, AgentProcess, ConnectorProcess)는 stdout/stderr로 구조화된 로그를 출력해야 한다(SHOULD).
 5. Runtime 상태 점검(health check) 인터페이스를 제공하는 것을 권장한다(SHOULD).
+6. `turn.completed`의 `stepCount`는 실제 실행된 Step 수를 반영해야 한다(MUST). 항상 0으로 emit하는 것은 버그이다.
+7. `turn.completed`에 `tokenUsage`를 포함하는 것을 권장한다(SHOULD).
 
-### 12.2 프로세스별 로깅 모델
+### 12.4 프로세스별 로깅 모델
 
 프로세스별 로그는 stdout/stderr 기반으로 기록한다.
 
@@ -1041,31 +1133,35 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 
 1. Orchestrator, AgentProcess, ConnectorProcess는 각각 stdout/stderr로 구조화된 로그를 출력해야 한다(SHOULD).
 2. Orchestrator는 자식 프로세스의 stdout/stderr을 수집하여 통합 로그 출력을 제공할 수 있어야 한다(MAY).
-3. 로그에는 프로세스 식별 정보(agentName, instanceKey 등)와 `traceId`를 포함해야 한다(SHOULD).
+3. 로그에는 프로세스 식별 정보(agentName, instanceKey 등)와 `traceId`, `spanId`를 포함해야 한다(SHOULD).
 
-### 12.3 구조화된 로그 형식 예시
+### 12.5 구조화된 로그 형식 예시
 
 ```json
-{"level":"info","timestamp":"2026-02-05T10:30:00Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.started","turnId":"turn-001"}
-{"level":"info","timestamp":"2026-02-05T10:30:01Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"step.started","turnId":"turn-001","stepIndex":0}
-{"level":"info","timestamp":"2026-02-05T10:30:02Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"toolCall","turnId":"turn-001","toolName":"bash__exec","latencyMs":150}
-{"level":"info","timestamp":"2026-02-05T10:30:03Z","traceId":"trace-abc","agent":"coder","instanceKey":"user:123","event":"turn.completed","turnId":"turn-001","latencyMs":3000,"tokenUsage":{"prompt":150,"completion":30,"total":180}}
+{"level":"info","timestamp":"2026-02-05T10:30:00Z","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b","agent":"coder","instanceKey":"user:123","event":"turn.started","turnId":"turn-001"}
+{"level":"info","timestamp":"2026-02-05T10:30:01Z","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","agent":"coder","instanceKey":"user:123","event":"step.started","turnId":"turn-001","stepIndex":0}
+{"level":"info","timestamp":"2026-02-05T10:30:02Z","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c","agent":"coder","instanceKey":"user:123","event":"tool.called","turnId":"turn-001","toolName":"bash__exec"}
+{"level":"info","timestamp":"2026-02-05T10:30:03Z","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b","agent":"coder","instanceKey":"user:123","event":"turn.completed","turnId":"turn-001","duration":3000,"stepCount":1,"tokenUsage":{"promptTokens":150,"completionTokens":30,"totalTokens":180}}
 ```
 
-### 12.4 Runtime Event Stream 영속화
+### 12.6 Runtime Event Stream 영속화
 
 Runtime은 관측성 이벤트를 인스턴스별 `messages/runtime-events.jsonl`에 append-only로 기록한다.
 
 - 이벤트 종류: `turn.started/completed/failed`, `step.started/completed/failed`, `tool.called/completed/failed`
+- 모든 레코드에 `traceId`, `spanId`를 포함한다(MUST). `parentSpanId`는 root span을 제외하고 포함한다(MUST).
+- 모든 레코드에 `instanceKey`를 포함한다(MUST).
 - `step.started`는 관측 목적의 LLM 입력 메시지 요약(`llmInputMessages[]`)을 선택적으로 포함할 수 있다(MAY).
 - 레코드 단위: JSONL 1라인 1이벤트
 - 목적: Studio/운영 관측성 (메시지 상태 계산과 분리)
+- 이벤트 이름은 dot notation을 사용한다(MUST). `toolCall`(camelCase)이 아닌 `tool.called`(dot notation)을 사용한다.
 
 ```jsonl
-{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
-{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
-{"type":"tool.completed","timestamp":"2026-02-18T10:00:00.640Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","status":"ok","duration":290,"stepId":"turn-001-step-0","turnId":"turn-001"}
+{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
+{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
+{"type":"tool.completed","timestamp":"2026-02-18T10:00:00.640Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","status":"ok","duration":290,"stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
+{"type":"turn.completed","timestamp":"2026-02-18T10:00:01.200Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","stepCount":1,"duration":1200,"traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b","tokenUsage":{"promptTokens":150,"completionTokens":30,"totalTokens":180}}
 ```
 
 ---
@@ -1115,4 +1211,4 @@ Runtime은 관측성 이벤트를 인스턴스별 `messages/runtime-events.jsonl
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-18
+**최종 수정**: 2026-02-20

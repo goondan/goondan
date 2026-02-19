@@ -1,0 +1,108 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@test/e2e-basic"
+spec:
+  version: "0.0.1"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: test-model
+spec:
+  provider: anthropic
+  model: claude-haiku-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: echo
+spec:
+  description: "Echoes input back. For testing."
+  entry: "./tools/echo.ts"
+  parameters:
+    type: object
+    properties:
+      text:
+        type: string
+        description: "Text to echo"
+    required: ["text"]
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: crash
+spec:
+  description: "Deliberately crashes the agent process. For testing crash isolation."
+  entry: "./tools/crash.ts"
+  parameters:
+    type: object
+    properties:
+      exitCode:
+        type: number
+        description: "Exit code for process.exit()"
+---
+apiVersion: goondan.ai/v1
+kind: Tool
+metadata:
+  name: sleep
+spec:
+  description: "Sleeps for given milliseconds. For testing timeout."
+  entry: "./tools/sleep.ts"
+  parameters:
+    type: object
+    properties:
+      ms:
+        type: number
+        description: "Milliseconds to sleep"
+    required: ["ms"]
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: alpha
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    system: "You are Agent Alpha, a test agent. When asked to delegate, use the agents tool to request Agent Beta."
+  tools:
+    - ref: "Tool/echo"
+    - ref: "Tool/crash"
+    - ref: "Tool/sleep"
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: beta
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    system: "You are Agent Beta, a test agent. Respond concisely to requests."
+  tools:
+    - ref: "Tool/echo"
+    - ref: "Tool/sleep"
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: e2e-test
+spec:
+  entryAgent: "Agent/alpha"
+  agents:
+    - ref: "Agent/alpha"
+    - ref: "Agent/beta"
+  policy:
+    maxStepsPerTurn: 10

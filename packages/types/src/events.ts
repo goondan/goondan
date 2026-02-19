@@ -36,6 +36,7 @@ export type TurnAuth = TurnAuthBase & {
 
 export interface AgentEvent extends EventEnvelope {
   readonly input?: string;
+  readonly instanceKey?: string;
   readonly source: EventSource;
   readonly auth?: TurnAuth;
   readonly replyTo?: ReplyChannel;
@@ -174,6 +175,11 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
 
   const inputValue = value["input"];
   if (inputValue !== undefined && typeof inputValue !== "string") {
+    return false;
+  }
+
+  const instanceKeyValue = value["instanceKey"];
+  if (instanceKeyValue !== undefined && typeof instanceKeyValue !== "string") {
     return false;
   }
 

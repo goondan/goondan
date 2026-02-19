@@ -176,17 +176,27 @@ Watch 모드에서 Orchestrator는 다음을 감시합니다:
 `goondan.yaml`을 수정한 후 (`--watch` 미사용 시) 변경사항을 적용하려면:
 
 ```bash
+# Orchestrator 전체 재시작
 gdn restart
+
+# 특정 에이전트 프로세스만 재시작
+gdn restart --agent coder
+
+# 모든 상태(메시지 히스토리, Extension 상태) 초기화 후 재시작
+gdn restart --fresh
+
+# 특정 에이전트를 상태 초기화와 함께 재시작
+gdn restart --agent coder --fresh
 ```
 
-동작 순서:
+기본 `gdn restart` 동작:
 
 1. `runtime/active.json`에서 active Orchestrator 인스턴스를 읽음
 2. Swarm 정의에서 instanceKey를 재계산
 3. 대체 runner 프로세스를 먼저 기동
 4. 기존 Orchestrator PID를 종료
 
-대화 히스토리는 기본적으로 보존됩니다.
+`--agent` 지정 시 해당 에이전트의 프로세스만 재시작되며, 다른 에이전트는 중단 없이 계속 실행됩니다. 대화 히스토리는 `--fresh`를 사용하지 않는 한 기본적으로 보존됩니다.
 
 > 모든 옵션은 [CLI 레퍼런스: `gdn restart`](../reference/cli-reference.ko.md#gdn-restart)를 참고하세요.
 
@@ -254,12 +264,23 @@ gdn instance delete user:123 --force
 # active 인스턴스 orchestrator 로그 (최근 200줄)
 gdn logs
 
+# 에이전트 이름으로 필터링
+gdn logs --agent coder
+
+# 특정 trace 체인을 에이전트 간 추적
+gdn logs --trace <traceId>
+
+# 에이전트와 trace 필터 결합
+gdn logs --agent coder --trace <traceId>
+
 # 특정 인스턴스, stderr만
 gdn logs --instance-key session-001 --stream stderr --lines 100
 
 # 특정 프로세스 로그 (예: connector)
 gdn logs --process connector-telegram
 ```
+
+`--agent`와 `--trace` 플래그는 멀티 에이전트 디버깅에 특히 유용합니다. `--trace`는 스웜 내 모든 에이전트에 걸쳐 단일 인과 체인(traceId)을 추적하므로, 특정 에이전트가 _왜_ 호출되었는지 쉽게 파악할 수 있습니다.
 
 로그 파일 경로:
 
@@ -341,10 +362,14 @@ gdn logs --stream stderr
 | 스웜 시작 | `gdn run` |
 | Watch 모드로 시작 | `gdn run --watch` |
 | 설정 변경 후 재시작 | `gdn restart` |
+| 특정 에이전트 재시작 | `gdn restart --agent coder` |
+| 상태 초기화 후 재시작 | `gdn restart --fresh` |
 | 인스턴스 목록 | `gdn instance list` |
 | 인스턴스 재시작 | `gdn instance restart <key>` |
 | 인스턴스 삭제 | `gdn instance delete <key> --force` |
 | 로그 확인 | `gdn logs` |
+| 에이전트별 로그 확인 | `gdn logs --agent coder` |
+| trace 체인 추적 | `gdn logs --trace <traceId>` |
 | 환경 진단 | `gdn doctor` |
 
 ---

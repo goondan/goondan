@@ -295,6 +295,71 @@ If the grace period expires and SIGKILL is used, the AgentProcess may leave un-f
 
 ---
 
+## Observability: OTel-compatible TraceContext
+
+Goondan tracks the **causal chain** of execution across agents using an OpenTelemetry-compatible trace model. This is essential for multi-agent debugging: knowing not just _what_ happened, but _why_ and _because of what_.
+
+### TraceContext
+
+Every runtime event carries a `TraceContext` with three fields:
+
+| Field | Purpose |
+|-------|---------|
+| `traceId` | Created once at the first input (e.g., connector event) and preserved throughout the entire execution chain -- even across inter-agent calls |
+| `spanId` | A unique ID for the current execution unit (Turn, Step, or Tool call) |
+| `parentSpanId` | Links this execution unit to its parent, forming a tree |
+
+### Span hierarchy
+
+```
+[Connector Event]               <- root span (traceId created here)
+  +-- [Agent A Turn]            <- child span
+       +-- [Step 1]             <- child span
+       |    +-- [LLM call]      <- child span
+       |    +-- [Tool: bash]    <- child span
+       |    +-- [agents__request]  <- child span
+       |         +-- [Agent B Turn]   <- child span (same traceId!)
+       |              +-- [Step 1]    <- child span
+       |                   +-- [LLM call]  <- child span
+       +-- [Step 2]             <- child span
+            +-- [LLM call]      <- child span
+```
+
+### Key rules
+
+1. **traceId is never regenerated** during inter-agent calls. This guarantees end-to-end traceability across the entire swarm.
+2. Each execution unit (Turn, Step, Tool Call) generates a new `spanId` but links to its parent via `parentSpanId`.
+3. All `RuntimeEvent` records include the full `TraceContext`.
+
+### 9 runtime event types
+
+The runtime emits these structured events (all include `TraceContext`, `agentName`, and `instanceKey`):
+
+| Event | When emitted |
+|-------|-------------|
+| `turn.started` / `turn.completed` / `turn.failed` | Turn lifecycle |
+| `step.started` / `step.completed` / `step.failed` | Step lifecycle |
+| `tool.called` / `tool.completed` / `tool.failed` | Tool call lifecycle |
+
+### Querying traces
+
+```bash
+# Filter events by agent name
+gdn logs --agent coder
+
+# Follow a specific trace across all agents
+gdn logs --trace <traceId>
+
+# Combine both filters
+gdn logs --agent coder --trace <traceId>
+```
+
+Studio (`gdn studio`) reconstructs the span tree from these events and renders a causal-chain visualization. No heuristics -- all relationships are encoded in the events themselves.
+
+> For the precise type definitions of `TraceContext` and `RuntimeEvent`, see `docs/specs/shared-types.md` sections 5 and 9.
+
+---
+
 ## Turn and Step: the execution model
 
 Inside each AgentProcess, work is organized into **Turns** and **Steps**.
@@ -473,6 +538,7 @@ This architecture achieves:
 - **Data safety** through event sourcing and Graceful Shutdown
 - **Simplicity** through declarative configuration and Edit & Restart
 - **Extensibility** through the middleware pipeline
+- **Observability** through OTel-compatible TraceContext spanning the entire causal chain
 
 ---
 

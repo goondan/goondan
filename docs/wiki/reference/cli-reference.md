@@ -279,15 +279,15 @@ gdn restart [options]
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--agent <name>` | `-a` | Compatibility field (currently restarts the entire instance) | - |
-| `--fresh` | | Compatibility flag (passed to instance restart) | `false` |
+| `--agent <name>` | `-a` | Restart only the specified agent's process (selective restart) | - |
+| `--fresh` | | Clear message history and extension state before restarting | `false` |
 
 ### How It Works
 
 1. Reads the active Orchestrator instance from `runtime/active.json`
 2. Recalculates instanceKey from the active Swarm definition (`Swarm.spec.instanceKey ?? Swarm.metadata.name`)
-3. Starts a replacement runner first
-4. Updates the active PID and terminates the old Orchestrator PID
+3. If `--agent` is specified, signals the Orchestrator to restart only that agent's process
+4. Otherwise, starts a replacement runner first, updates the active PID, and terminates the old Orchestrator PID
 
 ### Examples
 
@@ -295,11 +295,14 @@ gdn restart [options]
 # Restart the active Orchestrator
 gdn restart
 
-# With agent flag (compatibility)
+# Restart only a specific agent's process
 gdn restart --agent coder
 
-# With fresh flag (compatibility)
+# Clear all state and restart fresh
 gdn restart --fresh
+
+# Restart a specific agent with state reset
+gdn restart --agent coder --fresh
 ```
 
 ---
@@ -504,6 +507,8 @@ gdn logs [options]
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--instance-key <key>` | `-i` | Instance key to query. Omit to use the active instance from `runtime/active.json` | active instance |
+| `--agent <name>` | `-a` | Filter events by agent name | - |
+| `--trace <traceId>` | | Filter events by trace ID (follows a single causal chain across agents) | - |
 | `--process <name>` | `-p` | Process name | `orchestrator` |
 | `--stream <stdout\|stderr\|both>` | | Log stream selection | `both` |
 | `--lines <n>` | `-l` | Last N lines from each log file | `200` |
@@ -520,6 +525,15 @@ gdn logs [options]
 ```bash
 # Active instance orchestrator logs (last 200 lines)
 gdn logs
+
+# Filter by agent name
+gdn logs --agent coder
+
+# Follow a specific trace chain across all agents
+gdn logs --trace abc-123-def
+
+# Combine agent and trace filters
+gdn logs --agent coder --trace abc-123-def
 
 # Specific instance stderr (last 100 lines)
 gdn logs --instance-key session-001 --stream stderr --lines 100

@@ -96,7 +96,7 @@ Conceptual articles that explain _why_ things work the way they do.
 | [Core Concepts](./explanation/core-concepts.md) | Resource Kinds, ObjectRef, instanceKey, Bundle, Package, and the declarative config model |
 | [Tool System](./explanation/tool-system.md) | Double-underscore naming, ToolContext, tool execution within AgentProcess |
 | [Extension Pipeline](./explanation/extension-pipeline.md) | Middleware onion model, turn/step/toolCall layers, ConversationState event sourcing |
-| [Runtime Model](./explanation/runtime-model.md) | Orchestrator, Process-per-Agent, IPC, Reconciliation Loop, Graceful Shutdown |
+| [Runtime Model](./explanation/runtime-model.md) | Orchestrator, Process-per-Agent, IPC, OTel TraceContext, Reconciliation Loop, Graceful Shutdown |
 
 ### Reference -- _Information-oriented_
 

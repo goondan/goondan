@@ -21,7 +21,9 @@
 - JSON 계열: `JsonPrimitive`, `JsonObject`, `JsonArray`, `JsonValue`
 - 참조/값 주입: `ObjectRefLike`, `ObjectRef`, `ValueSource`, `SecretRef`
 - 메시지/이벤트: `Message`, `MessageEvent`, `ConversationState`, `EventEnvelope`, `AgentEvent`, `EventSource`, `ReplyChannel`, `TurnAuth`
-- 런타임/도구: `ExecutionContext`, `ProcessStatus`, `IpcMessage`, `ToolCall`, `ToolCallResult`, `ToolContext`, `TurnResult`
+- 런타임/도구: `ExecutionContext`, `ProcessStatus`, `IpcMessage`, `ToolCall`, `ToolCallResult`, `ToolContext`, `TurnResult`, `AgentToolRuntime`, `AgentRuntime*` 타입군
+- 추적: `TraceContext`
+- 관측성: `RuntimeEvent`, `RuntimeEventType`, `RuntimeEventBase`, `TokenUsage` 및 9종 이벤트 타입
 
 `Resource<T>`, `ResourceMetadata` 및 Kind별 스키마는 `docs/specs/resources.md`를 따른다.
 
@@ -451,91 +453,39 @@ IPC 상세 규범(메시지 타입, 필드, 라우팅, drain/ack)은 `docs/specs
 ## 9. Runtime Events
 
 Runtime이 발행하는 표준 이벤트 목록. Extension은 `api.events.on()`으로 구독할 수 있다.
-표준 이벤트 이름과 최소 payload 키의 API 표면 정의는 이 문서를 단일 기준(Owner)으로 사용한다.
-이벤트 발행 타이밍/순서/관찰성 규범은 `docs/specs/runtime.md`를 따른다.
 
-### 9.1 표준 이벤트 타입
+### 9.1 타입 계약
 
-```typescript
-type RuntimeEventType =
-  | 'turn.started'
-  | 'turn.completed'
-  | 'turn.failed'
-  | 'step.started'
-  | 'step.completed'
-  | 'step.failed'
-  | 'tool.called'
-  | 'tool.completed'
-  | 'tool.failed';
-```
+`RuntimeEvent` 타입 계약(9종 이벤트, 공통 베이스, `TraceContext` 포함)의 SSOT는 `docs/specs/shared-types.md` 9절이다.
 
-### 9.2 이벤트 Payload 구조
+이 문서에서는 API 표면(Extension이 구독하는 이벤트 인터페이스)만 정의한다. 이벤트 발행 타이밍/순서/관찰성 규범은 `docs/specs/runtime.md` 12절을 따른다.
 
-```typescript
-interface TurnStartedEvent {
-  type: 'turn.started';
-  turnId: string;
-  agentName: string;
-  instanceKey: string;
-  timestamp: string;
-}
+### 9.2 주요 변경 (v0.0.3)
 
-interface TurnCompletedEvent {
-  type: 'turn.completed';
-  turnId: string;
-  agentName: string;
-  instanceKey: string;
-  stepCount: number;
-  duration: number;
-  timestamp: string;
-}
+기존 RuntimeEvent와 비교한 주요 변경 사항:
 
-interface StepStartedEvent {
-  type: 'step.started';
-  stepId: string;
-  stepIndex: number;
-  turnId: string;
-  agentName: string;
-  llmInputMessages?: Array<{
-    role: string;
-    content: string;
-  }>;
-  timestamp: string;
-}
+1. **TraceContext 추가**: 모든 RuntimeEvent에 `traceId`, `spanId`, `parentSpanId`가 포함된다. 이를 통해 Turn -> Step -> Tool -> 인터-에이전트 호출의 인과 체인을 추적할 수 있다.
+2. **instanceKey 필수**: 모든 RuntimeEvent에 `instanceKey`가 포함된다 (기존에는 Turn 이벤트에만 존재).
+3. **TokenUsage 추가**: `turn.completed`와 `step.completed`에 선택적 `tokenUsage` 필드가 추가된다.
+4. **stepCount 실측값**: `turn.completed`의 `stepCount`는 실제 실행된 Step 수를 반영한다.
 
-interface StepCompletedEvent {
-  type: 'step.completed';
-  stepId: string;
-  stepIndex: number;
-  turnId: string;
-  agentName: string;
-  toolCallCount: number;
-  duration: number;
-  timestamp: string;
-}
+### 9.3 Studio가 소비하는 계약
 
-interface ToolCalledEvent {
-  type: 'tool.called';
-  toolCallId: string;
-  toolName: string;
-  stepId: string;
-  turnId: string;
-  agentName: string;
-  timestamp: string;
-}
+Studio는 `runtime-events.jsonl`에서 구조화된 RuntimeEvent를 읽어 trace 기반 시각화를 구성한다.
 
-interface ToolCompletedEvent {
-  type: 'tool.completed';
-  toolCallId: string;
-  toolName: string;
-  status: 'ok' | 'error';
-  duration: number;
-  stepId: string;
-  turnId: string;
-  agentName: string;
-  timestamp: string;
-}
-```
+| Studio 기능 | 사용하는 RuntimeEvent 필드 |
+|------------|--------------------------|
+| Trace 트리 구성 | `traceId`, `spanId`, `parentSpanId` |
+| 에이전트별 그룹핑 | `agentName`, `instanceKey` |
+| 인과 체인 시각화 | `parentSpanId` 기반 parent-child 관계 |
+| 시간선(Timeline) | `timestamp`, `duration` |
+| 토큰 사용량 | `tokenUsage` |
+| LLM 입력 미리보기 | `step.started.llmInputMessages` |
+
+**규칙:**
+
+1. Studio는 `routeState` 기반 휴리스틱이 아닌, RuntimeEvent의 `TraceContext`로 인과 관계를 구성해야 한다(MUST).
+2. 모든 trace 정보는 이벤트 자체에 포함되어야 한다(MUST). 외부 추론/패턴 파싱에 의존해서는 안 된다.
 
 ---
 

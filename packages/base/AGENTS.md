@@ -1,39 +1,31 @@
 # packages/base
 
-`@goondan/base` 패키지는 Goondan v2 런타임에서 바로 사용할 수 있는 기본 Tool/Extension/Connector 구현과 리소스 샘플 매니페스트를 제공한다.
+`@goondan/base`는 Goondan 런타임이 즉시 사용할 수 있는 기본 Tool/Extension/Connector 묶음을 제공하는 기준 패키지다.
 
-## 배포 정책
+## 존재 이유
 
-- `@goondan/base`는 npm 배포 대상이 아니다.
-- 따라서 `npm publish`/`pnpm publish`로 `@goondan/base`를 배포하지 않는다.
-- `@goondan/base` 배포는 goondan 패키지 레지스트리로 `gdn package publish`를 사용한다 (예: `gdn package publish packages/base/goondan.yaml`).
+- 신규 번들이 최소 설정으로 실행되도록 기본 리소스 구현을 제공한다.
+- 스펙 계약의 실전 레퍼런스 구현을 한곳에서 유지한다.
 
-## 책임 범위
+## 구조적 결정
 
-- Tool 기본 구현: `bash`, `wait`(seconds), `file-system`, `agents`(request/send/spawn/list/catalog), `self-restart`(request), `http-fetch`, `json-query`, `text-transform`, `telegram`(send/edit/delete/react/setChatAction/downloadFile, parseMode normalize), `slack`(send/read/edit/delete/react/downloadFile)
-- Extension 기본 구현: `logging`, `message-window`, `message-compaction`, `tool-search` (`message-window`/`message-compaction`은 tool-call/tool-result 짝 정합성을 유지하도록 고아 tool-result를 정리)
-- Extension 타입 계약: `turn`/`step` 미들웨어 컨텍스트의 `ctx.agents`(request/send) 표면을 런타임과 동일하게 유지
-- Connector 기본 구현: `cli`, `webhook`, `telegram-polling`(bot-origin 메시지 무시로 self-feedback 방지, photo/image document file_id 메타 전달), `slack`(webhook port/path configurable, 첨부 image/file 참조 텍스트 보강), `discord`, `github`
-- 리소스 매니페스트 헬퍼: Tool/Extension/Connector/Connection 샘플 생성
-- `vitest` 기반 단위 테스트
+1. 배포는 `gdn package publish` 경로만 사용한다.
+이유: npm 패키지가 아니라 goondan 리소스 패키지로 유통되는 자산이기 때문.
+2. Tool/Extension/Connector 계약은 각 스펙 문서를 단일 기준으로 따른다.
+이유: 런타임과 계약 불일치가 누적되는 것을 막기 위해.
+3. 기본 메시지 정책은 tool-call/tool-result 정합성을 보존한다.
+이유: 장기 실행에서 대화 상태 붕괴를 방지하기 위해.
 
-## 구현 기준
+## 불변 규칙
 
-1. `docs/specs/tool.md`, `docs/specs/extension.md`, `docs/specs/connector.md`, `docs/specs/connection.md` 계약을 우선 반영한다.
-2. 공통 타입 계약은 `docs/specs/shared-types.md`를 따른다.
-3. Tool 이름 규칙은 `{resource}__{export}`를 유지한다.
-4. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 정확한 타입 정의로 구현한다.
-5. 테스트는 네트워크 의존 없이 로컬 재현 가능해야 한다.
-6. 이 패키지는 npm 배포를 수행하지 않는다.
-7. Tool manifest `parameters`는 속성별 `description`을 포함하고, 기본적으로 `additionalProperties: false`를 유지한다.
+- Tool 이름 규칙 `{resource}__{export}`를 유지한다.
+- Tool manifest 입력 스키마는 속성 설명(`description`)과 닫힌 스키마(`additionalProperties: false`) 원칙을 기본으로 유지한다.
+- `@goondan/base`는 npm publish를 수행하지 않는다.
 
-## 디렉토리 가이드
+## 참조
 
-- `goondan.yaml`: 로컬 의존성/검증 기준 Package 메타데이터 매니페스트
-- `build-manifest.mjs`: 빌드 후 `dist/goondan.yaml`(리소스 포함 배포 manifest) 생성 스크립트 (`goondan.yaml`의 Package name/version을 소스로 사용)
-- `src/types.ts`: base 패키지의 공통 타입 및 가드
-- `src/tools/*`: Tool 핸들러 구현 (`handlers` export)
-- `src/extensions/*`: Extension 등록 함수 및 미들웨어
-- `src/connectors/*`: Connector entry/skeleton 예시
-- `src/manifests/*`: 샘플 리소스 생성 헬퍼
-- `test/*`: Tool/Extension 동작 검증 테스트
+- `docs/specs/tool.md`
+- `docs/specs/extension.md`
+- `docs/specs/connector.md`
+- `docs/specs/connection.md`
+- `docs/specs/shared-types.md`

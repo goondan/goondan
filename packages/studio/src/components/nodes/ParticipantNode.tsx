@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import clsx from 'clsx';
 
@@ -13,7 +14,7 @@ function kindBadge(kind: string): string {
   return '?';
 }
 
-export default function ParticipantNode({ data }: ParticipantNodeProps) {
+export default memo(function ParticipantNode({ data }: ParticipantNodeProps) {
   return (
     <div
       className={clsx(
@@ -36,4 +37,4 @@ export default function ParticipantNode({ data }: ParticipantNodeProps) {
       />
     </div>
   );
-}
+});

@@ -544,6 +544,156 @@ body::before {
   opacity: 0.88;
 }
 
+/* ── Logs view ─────────────────────────────────── */
+
+.logs-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.logs-filters {
+  display: flex;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.logs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  background: rgba(18, 33, 68, 0.45);
+  color: var(--muted);
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.logs-chip:hover {
+  border-color: rgba(124, 245, 222, 0.4);
+  background: rgba(22, 42, 86, 0.6);
+}
+
+.logs-chip.is-active {
+  border-color: var(--accent);
+  background: rgba(124, 245, 222, 0.14);
+  color: var(--text);
+}
+
+.logs-chip-agent.is-active {
+  border-color: var(--node-agent);
+  background: rgba(255, 206, 110, 0.12);
+}
+
+.logs-chip-connector.is-active {
+  border-color: var(--node-connector);
+  background: rgba(142, 184, 255, 0.12);
+}
+
+.logs-chip-count {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--dim);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 6px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.logs-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+.log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-bottom: 1px solid rgba(145, 167, 226, 0.06);
+  transition: background 0.1s;
+}
+
+.log-row:hover {
+  background: rgba(124, 245, 222, 0.04);
+}
+
+.log-time {
+  color: var(--dim);
+  font-size: 11px;
+  flex-shrink: 0;
+  min-width: 62px;
+}
+
+.log-kind {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.log-kind-message {
+  background: rgba(124, 245, 222, 0.12);
+  color: var(--accent);
+}
+
+.log-kind-runtime-event {
+  background: rgba(255, 206, 110, 0.12);
+  color: var(--node-agent);
+}
+
+.log-kind-connector-log {
+  background: rgba(142, 184, 255, 0.12);
+  color: var(--node-connector);
+}
+
+.log-subtype {
+  color: var(--text);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.log-source {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.log-arrow {
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.log-target {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.log-detail {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* ── Utility ───────────────────────────────────── */
 
 .empty {

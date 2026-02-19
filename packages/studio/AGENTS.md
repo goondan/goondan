@@ -8,6 +8,7 @@
 - `gdn studio` 명령이 제공하는 런타임 관측 시각화 UI 구현
 - Graph 모드: @xyflow/react(React Flow) + dagre 자동 레이아웃 기반 에이전트/커넥터 노드 그래프, 줌/팬/미니맵/컨트롤, 간선 클릭으로 이력 확인, 실시간 활성 애니메이션
 - Flow 모드: 참여자 레인 기반 시퀀스 다이어그램, Tool 호출 인라인 스텝 표시, 아크 화살표
+- Logs 모드: 참여자별 필터 칩 + 시간순 로그 리스트, kind 뱃지(MSG/EVT/LOG), sticky auto-scroll
 - Flyout (오른쪽 드로어): 간선 이력(Edge History) 상세 조회, 스크림 오버레이
 - 1초 주기 폴링으로 인스턴스/시각화 데이터 실시간 반영
 - 빌드 시 Vite 결과물을 단일 HTML로 인라인(`scripts/embed.mjs`)하여 `packages/cli/src/studio/assets.ts`에 자동 생성
@@ -35,6 +36,7 @@ src/
 │   ├── TopBar.tsx                   # 상단 타이틀/모드 토글 바
 │   ├── GraphView.tsx                # React Flow 기반 Graph 시각화 (dagre 레이아웃)
 │   ├── FlowView.tsx                 # SVG 기반 Flow 시퀀스 다이어그램
+│   ├── LogsView.tsx                 # 참여자별 필터 로그 리스트 뷰
 │   ├── Flyout.tsx                   # 오른쪽 플라이아웃 드로어 + Edge History
 │   └── nodes/
 │       └── ParticipantNode.tsx      # React Flow 커스텀 노드 (agent/connector 구분)

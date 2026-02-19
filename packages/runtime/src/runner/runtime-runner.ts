@@ -12,6 +12,7 @@ import {
   stepCountIs,
   tool,
   type AssistantModelMessage,
+  type FinishReason,
   type LanguageModel,
   type ModelMessage,
   type ToolSet,
@@ -267,7 +268,7 @@ interface ToolRegistrationResult {
   catalogItems: ToolCatalogItem[];
 }
 
-interface ToolUseBlock {
+export interface ToolUseBlock {
   id: string;
   name: string;
   input: JsonObject;
@@ -277,11 +278,15 @@ type RunnerToolResultOutput =
   | { type: 'text'; value: string }
   | { type: 'json'; value: JsonValue };
 
-interface ModelStepParseResult {
+export interface ModelStepParseResult {
   assistantContent: unknown[];
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
+  finishReason: FinishReason;
+  rawFinishReason?: string;
 }
+
+export type ModelStepRetryKind = 'empty_output' | 'malformed_tool_calls';
 
 interface TurnExecutionResult {
   responseText: string;
@@ -295,6 +300,11 @@ const REPLACEMENT_STARTUP_TIMEOUT_MS = 5000;
 const CONNECTOR_CHILD_STARTUP_TIMEOUT_MS = 5000;
 const CONNECTOR_CHILD_SHUTDOWN_TIMEOUT_MS = 2000;
 const RESTART_FLAG_KEYS = ['restartRequested', 'runtimeRestart', '__goondanRestart'] as const;
+const STEP_METADATA_MODEL_FINISH_REASON_KEY = 'runtime.modelFinishReason';
+const STEP_METADATA_MODEL_RAW_FINISH_REASON_KEY = 'runtime.modelRawFinishReason';
+const STEP_METADATA_MODEL_RETRY_KIND_KEY = 'runtime.modelRetryKind';
+const MAX_EMPTY_OUTPUT_RETRY_COUNT = 2;
+const MAX_MALFORMED_TOOL_CALL_RETRY_COUNT = 2;
 
 function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
   if (!isJsonObject(message)) {
@@ -2820,6 +2830,73 @@ function toAssistantContent(messages: readonly ModelMessage[], fallbackText: str
   return assistantMessage.content;
 }
 
+function toAssistantToolCallContent(toolUseBlocks: readonly ToolUseBlock[]): unknown[] {
+  return toolUseBlocks.map((toolUse) => ({
+    type: 'tool-call',
+    toolCallId: toolUse.id,
+    toolName: toolUse.name,
+    input: toolUse.input,
+  }));
+}
+
+function normalizeRawFinishReason(rawFinishReason: string | undefined): string | undefined {
+  if (typeof rawFinishReason !== 'string') {
+    return undefined;
+  }
+  const trimmed = rawFinishReason.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function normalizeModelStepParseResult(input: {
+  responseMessages: readonly ModelMessage[];
+  text: string;
+  toolUseBlocks: ToolUseBlock[];
+  finishReason: FinishReason;
+  rawFinishReason: string | undefined;
+}): ModelStepParseResult {
+  const assistantContent = toAssistantContent(input.responseMessages, input.text);
+  const normalizedAssistantContent =
+    assistantContent.length > 0 || input.toolUseBlocks.length === 0
+      ? assistantContent
+      : toAssistantToolCallContent(input.toolUseBlocks);
+  const text = input.text.trim();
+  return {
+    assistantContent: normalizedAssistantContent,
+    textBlocks: text.length > 0 ? [text] : [],
+    toolUseBlocks: input.toolUseBlocks,
+    finishReason: input.finishReason,
+    rawFinishReason: normalizeRawFinishReason(input.rawFinishReason),
+  };
+}
+
+export function classifyModelStepRetryKind(input: {
+  assistantContent: unknown[];
+  textBlocks: string[];
+  toolUseBlocks: ToolUseBlock[];
+  finishReason: FinishReason;
+}): ModelStepRetryKind | undefined {
+  const hasToolCalls = input.toolUseBlocks.length > 0;
+  if (input.finishReason === 'tool-calls' && !hasToolCalls) {
+    return 'malformed_tool_calls';
+  }
+
+  const hasAssistantContent = input.assistantContent.length > 0;
+  const hasTextBlocks = input.textBlocks.length > 0;
+  if (!hasToolCalls && !hasAssistantContent && !hasTextBlocks) {
+    return 'empty_output';
+  }
+
+  return undefined;
+}
+
+function readModelStepRetryKind(metadata: Record<string, JsonValue>): ModelStepRetryKind | undefined {
+  const retryKind = metadata[STEP_METADATA_MODEL_RETRY_KIND_KEY];
+  if (retryKind === 'empty_output' || retryKind === 'malformed_tool_calls') {
+    return retryKind;
+  }
+  return undefined;
+}
+
 async function requestModelMessage(input: {
   provider: string;
   apiKey: string;
@@ -2850,13 +2927,13 @@ async function requestModelMessage(input: {
     });
   }
 
-  const textBlocks = result.text.trim().length > 0 ? [result.text.trim()] : [];
-
-  return {
-    assistantContent: toAssistantContent(result.response.messages, result.text),
-    textBlocks,
+  return normalizeModelStepParseResult({
+    responseMessages: result.response.messages,
+    text: result.text,
     toolUseBlocks,
-  };
+    finishReason: result.finishReason,
+    rawFinishReason: result.rawFinishReason,
+  });
 }
 
 async function withOptionalTimeout<T>(
@@ -3280,6 +3357,8 @@ async function runAgentTurn(input: {
     runtimeCatalog: buildRuntimeAgentCatalog(input.runnerPlan, input.plan.name),
   };
   let step = 0;
+  let emptyOutputRetryCount = 0;
+  let malformedToolCallRetryCount = 0;
   let turnResult: TurnResult;
   try {
     turnResult = await extensionEnvironment.pipelineRegistry.runTurn(
@@ -3369,16 +3448,53 @@ async function runAgentTurn(input: {
               turns: toConversationTurns(conversationState.nextMessages),
             });
 
-            conversationState.emitMessageEvent({
-              type: 'append',
-              message: createConversationAssistantMessage(
-                response.assistantContent,
-                `${input.turnId}-step-${step}`,
-              ),
-            });
+            stepMetadata[STEP_METADATA_MODEL_FINISH_REASON_KEY] = response.finishReason;
+            if (response.rawFinishReason !== undefined) {
+              stepMetadata[STEP_METADATA_MODEL_RAW_FINISH_REASON_KEY] = response.rawFinishReason;
+            }
+
+            if (response.assistantContent.length > 0) {
+              conversationState.emitMessageEvent({
+                type: 'append',
+                message: createConversationAssistantMessage(
+                  response.assistantContent,
+                  `${input.turnId}-step-${step}`,
+                ),
+              });
+            }
 
             if (response.textBlocks.length > 0) {
               lastText = response.textBlocks.join('\n').trim();
+            }
+
+            const retryKind = classifyModelStepRetryKind(response);
+            if (retryKind !== undefined) {
+              stepMetadata[STEP_METADATA_MODEL_RETRY_KIND_KEY] = retryKind;
+              if (retryKind === 'malformed_tool_calls') {
+                conversationState.emitMessageEvent({
+                  type: 'append',
+                  message: createConversationUserMessage(
+                    [
+                      '직전 응답이 tool-calls로 종료되었지만 tool-call 블록이 비어 있습니다.',
+                      '다음 응답에서는 유효한 tool call을 1개 이상 생성하거나, 도구가 필요 없다면 텍스트 답변을 작성하세요.',
+                    ].join('\n'),
+                  ),
+                });
+              } else {
+                conversationState.emitMessageEvent({
+                  type: 'append',
+                  message: createConversationUserMessage(
+                    '직전 응답이 비어 있습니다. 다음 응답에서는 텍스트 또는 tool-call 중 최소 하나를 반드시 생성하세요.',
+                  ),
+                });
+              }
+              return {
+                status: 'completed',
+                hasToolCalls: false,
+                toolCalls: [],
+                toolResults: [],
+                metadata: {},
+              };
             }
 
             if (response.toolUseBlocks.length === 0) {
@@ -3488,6 +3604,61 @@ async function runAgentTurn(input: {
             };
           },
         );
+
+        const retryKind = readModelStepRetryKind(stepMetadata);
+        if (retryKind !== undefined) {
+          if (retryKind === 'empty_output') {
+            emptyOutputRetryCount += 1;
+            malformedToolCallRetryCount = 0;
+            if (emptyOutputRetryCount > MAX_EMPTY_OUTPUT_RETRY_COUNT) {
+              const responseText =
+                '모델이 반복해서 빈 응답을 반환해 turn을 종료합니다. 다시 시도하거나 프롬프트를 더 구체적으로 지정해 주세요.';
+              conversationState.emitMessageEvent({
+                type: 'append',
+                message: createConversationAssistantMessage(
+                  responseText,
+                  `${input.turnId}-empty-output-guard`,
+                ),
+              });
+              finalResponseText = responseText;
+              return {
+                turnId: input.turnId,
+                finishReason: 'text_response',
+                responseMessage: createConversationAssistantMessage(
+                  responseText,
+                  `${input.turnId}-empty-output-guard`,
+                ),
+              };
+            }
+          } else {
+            malformedToolCallRetryCount += 1;
+            emptyOutputRetryCount = 0;
+            if (malformedToolCallRetryCount > MAX_MALFORMED_TOOL_CALL_RETRY_COUNT) {
+              const responseText =
+                '모델이 반복해서 잘못된 tool-calls 응답을 반환해 turn을 종료합니다. 잠시 후 다시 시도해 주세요.';
+              conversationState.emitMessageEvent({
+                type: 'append',
+                message: createConversationAssistantMessage(
+                  responseText,
+                  `${input.turnId}-tool-calls-guard`,
+                ),
+              });
+              finalResponseText = responseText;
+              return {
+                turnId: input.turnId,
+                finishReason: 'text_response',
+                responseMessage: createConversationAssistantMessage(
+                  responseText,
+                  `${input.turnId}-tool-calls-guard`,
+                ),
+              };
+            }
+          }
+          continue;
+        }
+
+        emptyOutputRetryCount = 0;
+        malformedToolCallRetryCount = 0;
 
         if (stepResult.hasToolCalls) {
           continue;

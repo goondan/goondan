@@ -12,7 +12,11 @@ import type {
   Turn,
   TurnResult,
 } from "../types.js";
-import type { RuntimeEventBus } from "../events/runtime-events.js";
+import {
+  STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
+  type RuntimeEventBus,
+  type StepStartedLlmInputMessage,
+} from "../events/runtime-events.js";
 
 export type PipelineType = "turn" | "step" | "toolCall";
 
@@ -83,6 +87,37 @@ interface ToolCallMutableState extends ExecutionContext {
   toolCallId: string;
   args: JsonObject;
   metadata: Record<string, JsonValue>;
+}
+
+function isJsonObjectValue(value: JsonValue): value is Record<string, JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readStepStartedLlmInputMessages(
+  metadata: Record<string, JsonValue>,
+): StepStartedLlmInputMessage[] | undefined {
+  const raw = metadata[STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY];
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const messages: StepStartedLlmInputMessage[] = [];
+  for (const item of raw) {
+    if (!isJsonObjectValue(item)) {
+      continue;
+    }
+    const role = item["role"];
+    const content = item["content"];
+    if (typeof role !== "string" || role.length === 0 || typeof content !== "string") {
+      continue;
+    }
+    messages.push({
+      role,
+      content,
+    });
+  }
+
+  return messages.length > 0 ? messages : undefined;
 }
 
 export interface PipelineRegistry {
@@ -230,6 +265,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
 
     const stepId = `${ctx.turnId}-step-${ctx.stepIndex}`;
     const startTime = Date.now();
+    const llmInputMessages = readStepStartedLlmInputMessages(state.metadata);
 
     if (this.eventBus !== undefined) {
       await this.eventBus.emit({
@@ -238,6 +274,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
         stepIndex: ctx.stepIndex,
         turnId: ctx.turnId,
         agentName: ctx.agentName,
+        llmInputMessages,
         timestamp: new Date().toISOString(),
       });
     }

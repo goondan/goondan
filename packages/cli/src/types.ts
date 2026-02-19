@@ -208,6 +208,10 @@ export interface StudioTimelineEntry {
   target?: string;
   subtype: string;
   detail: string;
+  llmInputMessages?: Array<{
+    role: string;
+    content: string;
+  }>;
 }
 
 export interface StudioVisualization {

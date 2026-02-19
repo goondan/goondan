@@ -81,6 +81,18 @@ describe('DefaultStudioService', () => {
         path.join(messageDir, 'runtime-events.jsonl'),
         [
           JSON.stringify({
+            type: 'step.started',
+            timestamp: '2026-02-18T12:00:03.500Z',
+            agentName: 'coder',
+            stepId: 's1',
+            stepIndex: 0,
+            turnId: 't1',
+            llmInputMessages: [
+              { role: 'system', content: 'You are coder.' },
+              { role: 'user', content: 'hello studio' },
+            ],
+          }),
+          JSON.stringify({
             type: 'tool.called',
             timestamp: '2026-02-18T12:00:04.000Z',
             agentName: 'coder',
@@ -133,6 +145,11 @@ describe('DefaultStudioService', () => {
       expect(visualization.interactions.length).toBeGreaterThan(0);
       expect(visualization.timeline.some((item) => item.subtype === 'tool.called')).toBe(true);
       expect(visualization.timeline.some((item) => item.subtype === 'connector.emitted')).toBe(true);
+      const stepStartedEvent = visualization.timeline.find((item) => item.subtype === 'step.started');
+      expect(stepStartedEvent?.llmInputMessages).toEqual([
+        { role: 'system', content: 'You are coder.' },
+        { role: 'user', content: 'hello studio' },
+      ]);
       expect(visualization.recentEvents.length).toBe(3);
     } finally {
       await rm(stateRoot, { recursive: true, force: true });

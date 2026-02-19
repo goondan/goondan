@@ -28,6 +28,7 @@ import {
   PipelineRegistryImpl,
   RUNTIME_EVENT_TYPES,
   RuntimeEventBusImpl,
+  STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
   buildToolName,
   createMinimalToolContext,
   isJsonObject,
@@ -303,6 +304,8 @@ const RESTART_FLAG_KEYS = ['restartRequested', 'runtimeRestart', '__goondanResta
 const STEP_METADATA_MODEL_FINISH_REASON_KEY = 'runtime.modelFinishReason';
 const STEP_METADATA_MODEL_RAW_FINISH_REASON_KEY = 'runtime.modelRawFinishReason';
 const STEP_METADATA_MODEL_RETRY_KIND_KEY = 'runtime.modelRetryKind';
+const STEP_STARTED_LLM_INPUT_MESSAGE_MAX_COUNT = 64;
+const STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS = 2000;
 const MAX_EMPTY_OUTPUT_RETRY_COUNT = 2;
 const MAX_MALFORMED_TOOL_CALL_RETRY_COUNT = 2;
 
@@ -2805,6 +2808,83 @@ function toModelMessages(turns: ConversationTurn[]): ModelMessage[] {
   return messages;
 }
 
+function trimRuntimeEventContent(content: string): string {
+  if (content.length <= STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS) {
+    return content;
+  }
+
+  return `${content.slice(0, STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS)}...`;
+}
+
+function summarizeModelMessageContentForRuntimeEvent(content: unknown): string {
+  if (typeof content === 'string') {
+    return trimRuntimeEventContent(content);
+  }
+
+  if (!Array.isArray(content)) {
+    return trimRuntimeEventContent(safeJsonStringify(content));
+  }
+
+  const parts: string[] = [];
+  for (const item of content) {
+    if (typeof item === 'string') {
+      parts.push(item);
+      continue;
+    }
+
+    if (isJsonObject(item)) {
+      if (item.type === 'text' && typeof item.text === 'string') {
+        parts.push(item.text);
+        continue;
+      }
+
+      if (item.type === 'tool-call') {
+        const toolName = typeof item.toolName === 'string' ? item.toolName : 'unknown';
+        const input = Object.hasOwn(item, 'input') ? safeJsonStringify(item.input) : '';
+        parts.push(`[tool-call:${toolName}] ${input}`);
+        continue;
+      }
+
+      if (item.type === 'tool-result') {
+        const toolName = typeof item.toolName === 'string' ? item.toolName : 'unknown';
+        const output = Object.hasOwn(item, 'output') ? safeJsonStringify(item.output) : '';
+        parts.push(`[tool-result:${toolName}] ${output}`);
+        continue;
+      }
+    }
+
+    parts.push(safeJsonStringify(item));
+  }
+
+  return trimRuntimeEventContent(parts.join('\n'));
+}
+
+function summarizeModelMessagesForRuntimeEvent(
+  messages: readonly ModelMessage[],
+  systemPrompt: string,
+): JsonObject[] {
+  const summarized: JsonObject[] = [];
+
+  if (systemPrompt.trim().length > 0) {
+    summarized.push({
+      role: 'system',
+      content: trimRuntimeEventContent(systemPrompt.trim()),
+    });
+  }
+
+  for (const message of messages) {
+    if (summarized.length >= STEP_STARTED_LLM_INPUT_MESSAGE_MAX_COUNT) {
+      break;
+    }
+    summarized.push({
+      role: message.role,
+      content: summarizeModelMessageContentForRuntimeEvent(message.content),
+    });
+  }
+
+  return summarized;
+}
+
 function toRunnerToolSet(catalog: ToolCatalogItem[]): ToolSet {
   const tools: ToolSet = {};
   for (const item of catalog) {
@@ -3410,6 +3490,10 @@ async function runAgentTurn(input: {
           extensionEnvironment.extensionToolRegistry.getCatalog(),
         );
         const stepMetadata: Record<string, JsonValue> = {};
+        stepMetadata[STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY] = summarizeModelMessagesForRuntimeEvent(
+          toModelMessages(toConversationTurns(conversationState.nextMessages)),
+          input.plan.systemPrompt,
+        );
         const turnSnapshot: Turn = {
           id: input.turnId,
           agentName: input.plan.name,

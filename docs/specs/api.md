@@ -496,6 +496,10 @@ interface StepStartedEvent {
   stepIndex: number;
   turnId: string;
   agentName: string;
+  llmInputMessages?: Array<{
+    role: string;
+    content: string;
+  }>;
   timestamp: string;
 }
 

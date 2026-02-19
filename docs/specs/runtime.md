@@ -1057,12 +1057,13 @@ export default async function (ctx: ConnectorContext): Promise<void> {
 Runtime은 관측성 이벤트를 인스턴스별 `messages/runtime-events.jsonl`에 append-only로 기록한다.
 
 - 이벤트 종류: `turn.started/completed/failed`, `step.started/completed/failed`, `tool.called/completed/failed`
+- `step.started`는 관측 목적의 LLM 입력 메시지 요약(`llmInputMessages[]`)을 선택적으로 포함할 수 있다(MAY).
 - 레코드 단위: JSONL 1라인 1이벤트
 - 목적: Studio/운영 관측성 (메시지 상태 계산과 분리)
 
 ```jsonl
 {"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
 {"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
 {"type":"tool.completed","timestamp":"2026-02-18T10:00:00.640Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","status":"ok","duration":290,"stepId":"turn-001-step-0","turnId":"turn-001"}
 ```

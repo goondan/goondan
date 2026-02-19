@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ConversationStateImpl } from "../src/conversation/state.js";
+import {
+  RuntimeEventBusImpl,
+  STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
+  type RuntimeEvent,
+} from "../src/events/runtime-events.js";
 import { PipelineRegistryImpl } from "../src/pipeline/registry.js";
 import type { MiddlewareAgentsApi, StepResult, Turn } from "../src/types.js";
 import { createAgentEvent } from "./helpers.js";
@@ -166,5 +171,77 @@ describe("PipelineRegistryImpl", () => {
 
     expect(sendAccepted).toBe(true);
     expect(requestResponse).toBe("reply:step-pre");
+  });
+
+  it("step.started 이벤트에 LLM 입력 메시지 목록을 포함한다", async () => {
+    const eventBus = new RuntimeEventBusImpl();
+    const registry = new PipelineRegistryImpl(eventBus);
+    const conversationState = new ConversationStateImpl();
+    const turn: Turn = {
+      id: "turn-step-events",
+      agentName: "coder",
+      inputEvent: createAgentEvent(),
+      messages: [],
+      steps: [],
+      status: "running",
+      metadata: {},
+    };
+
+    const captured: RuntimeEvent[] = [];
+    const unsubscribe = eventBus.on("step.started", async (event) => {
+      captured.push(event);
+    });
+
+    await registry.runStep(
+      {
+        agentName: "coder",
+        instanceKey: "default",
+        turnId: "turn-step-events",
+        traceId: "trace-step-events",
+        turn,
+        stepIndex: 0,
+        conversationState,
+        agents: mockMiddlewareAgentsApi,
+        emitMessageEvent: () => {},
+        toolCatalog: [],
+        metadata: {
+          [STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY]: [
+            {
+              role: "system",
+              content: "You are coder.",
+            },
+            {
+              role: "user",
+              content: "Fix this bug.",
+            },
+          ],
+        },
+      },
+      async () => ({
+        status: "completed",
+        hasToolCalls: false,
+        toolCalls: [],
+        toolResults: [],
+        metadata: {},
+      }),
+    );
+
+    unsubscribe();
+
+    expect(captured).toHaveLength(1);
+    const event = captured[0];
+    if (!event || event.type !== "step.started") {
+      throw new Error("step.started event not captured");
+    }
+    expect(event.llmInputMessages).toEqual([
+      {
+        role: "system",
+        content: "You are coder.",
+      },
+      {
+        role: "user",
+        content: "Fix this bug.",
+      },
+    ]);
   });
 });

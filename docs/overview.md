@@ -844,15 +844,19 @@ Registry (@goondan/registry)
 ### 11.1 Runtime
 
 **이전 (v1):**
-- 단일 프로세스 모델
+- 단일 프로세스 모델 (in-process)
 - Mutator + Middleware 13개 훅
+- traceId만 존재, spanId/parentSpanId 없음
 
 **현재 (v0.0.3):**
-- Process-per-Agent 아키텍처
-- Orchestrator 상주 프로세스
+- Process-per-Agent 아키텍처 (유일한 실행 모델, in-process 모델 제거)
+- Orchestrator (프로세스 매니저) vs AgentProcess (실행 엔진) 역할 분리
 - Middleware 3종 (`turn`, `step`, `toolCall`)
 - Reconciliation Loop
 - Graceful Shutdown Protocol
+- OTel 호환 TraceContext (traceId + spanId + parentSpanId) 도입
+- RuntimeEvent 타입 계약 `@goondan/types` 소유 (SSOT)
+- Self-modification 지원 (에이전트가 자기 manifest 수정 -> watch 감지 -> 해당 에이전트만 restart)
 
 ### 11.2 Config
 
@@ -905,6 +909,21 @@ Registry (@goondan/registry)
 - `Message` 래퍼 (id, metadata, createdAt, source)
 - MessageEvent 이벤트 소싱
 - `NextMessages = BaseMessages + SUM(Events)` 규칙
+
+### 11.7 Observability
+
+**이전:**
+- traceId만 Turn 단위로 생성
+- 인터-에이전트 호출 시 traceId 재생성 (추적 단절)
+- RuntimeEvent 타입이 `@goondan/runtime` 내부에 정의
+- Studio가 routeState 휴리스틱으로 인과 관계 추론
+
+**현재:**
+- OTel 호환 TraceContext (traceId + spanId + parentSpanId)
+- 인터-에이전트 호출 시 traceId 유지, spanId만 새로 생성 (end-to-end 추적)
+- RuntimeEvent 타입 계약을 `@goondan/types`로 이동 (SSOT 원칙)
+- Studio가 구조화된 TraceContext 기반으로 trace -> span 트리 구성
+- `gdn logs --agent <name>` / `gdn logs --trace <traceId>`로 이벤트 필터링
 
 ---
 
@@ -1043,20 +1062,55 @@ clientSecret:
 - Orchestrator, AgentProcess, ConnectorProcess 각각 stdout/stderr 출력
 - `gdn logs` 명령으로 통합 조회
 
-### 14.2 Trace Context
+### 14.2 OTel 호환 TraceContext
 
-- 모든 Turn에 `traceId` 생성/보존
-- 에이전트 간 통신 시 `replyTo.correlationId`로 추적
-- Turn/Step/ToolCall 로그에 traceId 포함
+Runtime은 OTel(OpenTelemetry) 호환 `TraceContext`를 사용하여 에이전트 스웜 실행의 **인과 체인**을 추적합니다.
 
-### 14.3 Runtime Events
+**TraceContext 구조:**
+```typescript
+interface TraceContext {
+  readonly traceId: string;       // 최초 입력부터 전체 실행 체인 끝까지 유지 (32자 hex)
+  readonly spanId: string;        // 현재 실행 단위의 고유 ID (16자 hex)
+  readonly parentSpanId?: string; // 상위 실행 단위의 spanId (root span은 없음)
+}
+```
 
-Extension은 `api.events.on()`으로 표준 이벤트를 구독할 수 있습니다.
+**핵심 규칙:**
+- `traceId`는 최초 입력 시점에 한 번 생성되고, 인터-에이전트 호출을 포함한 전체 실행 체인에서 **절대 재생성하지 않음**
+- 각 실행 단위(Turn, Step, Tool Call)는 새 `spanId`를 생성하되, `parentSpanId`로 상위와 연결
+- 모든 RuntimeEvent에 `traceId`, `spanId`, `parentSpanId`를 포함
+
+**Span 계층 구조:**
+```
+[Connector Event 수신]           <- root span (traceId 생성)
+  +-- [Agent A Turn]             <- child span
+       +-- [Step 1]              <- child span
+       |    +-- [Tool: bash]     <- child span
+       |    +-- [Tool: agents__request]  <- child span
+       |         +-- [Agent B Turn]      <- child span (같은 traceId!)
+       |              +-- [Step 1]       <- child span
+       +-- [Step 2]              <- child span
+```
+
+**인터-에이전트 호출 시:**
+- `traceId`를 피호출자에게 전달 (절대 재생성하지 않음)
+- 호출자의 Tool Call `spanId`를 피호출자의 Turn `parentSpanId`로 전달
+
+### 14.3 RuntimeEvent (9종)
+
+RuntimeEvent 타입 계약은 `@goondan/types`가 소유하며, Runtime은 발행자입니다.
 
 **주요 이벤트:**
 - `turn.started`, `turn.completed`, `turn.failed`
 - `step.started`, `step.completed`, `step.failed`
 - `tool.called`, `tool.completed`, `tool.failed`
+
+**모든 이벤트에 포함되는 공통 필드:**
+- `traceId`, `spanId`, `parentSpanId` (OTel 호환 추적)
+- `agentName`, `instanceKey` (에이전트 식별)
+- `timestamp` (ISO 8601)
+
+Extension은 `api.events.on()`으로 이벤트를 구독할 수 있습니다. `gdn logs --trace <traceId>`로 특정 추적 체인을 필터링하고, `gdn logs --agent <name>`으로 에이전트별 이벤트를 조회할 수 있습니다.
 
 ---
 
@@ -1604,4 +1658,4 @@ Goondan은 단순한 에이전트 프레임워크가 아니라 **생태계**를 
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-13
+**최종 수정**: 2026-02-20

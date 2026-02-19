@@ -29,7 +29,8 @@ function isToolStep(e: TimelineEntry): boolean {
 
 function summarize(e: TimelineEntry, max: number): string {
   const detail = e.detail || '';
-  const text = `${formatTimestamp(e.at)} \u00b7 ${e.subtype}${detail ? ` \u00b7 ${detail}` : ''}`;
+  const durationSuffix = e.duration !== undefined ? ` (${e.duration < 1000 ? Math.round(e.duration) + 'ms' : (e.duration / 1000).toFixed(1) + 's'})` : '';
+  const text = `${formatTimestamp(e.at)} \u00b7 ${e.subtype}${detail ? ` \u00b7 ${detail}` : ''}${durationSuffix}`;
   return text.length > max ? text.slice(0, max) + '\u2026' : text;
 }
 

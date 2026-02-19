@@ -2977,7 +2977,7 @@ function readModelStepRetryKind(metadata: Record<string, JsonValue>): ModelStepR
   return undefined;
 }
 
-async function requestModelMessage(input: {
+export async function requestModelMessage(input: {
   provider: string;
   apiKey: string;
   model: string;
@@ -4285,54 +4285,6 @@ function waitForShutdownSignal(): Promise<void> {
   });
 }
 
-function startWatchMode(runtime: RuntimeEngineState, plan: RunnerPlan): () => void {
-  const watchers: FSWatcher[] = [];
-  let restartInProgress = false;
-
-  const triggerRestart = (reason: string): void => {
-    if (restartInProgress) {
-      return;
-    }
-    restartInProgress = true;
-    void requestRuntimeRestart(runtime, reason).finally(() => {
-      restartInProgress = false;
-    });
-  };
-
-  const uniqueTargets = [...new Set(plan.watchTargets)].sort((left, right) => left.localeCompare(right));
-  for (const target of uniqueTargets) {
-    try {
-      const watcher = watchFs(target, (eventType, fileName) => {
-        const changedPath = typeof fileName === 'string' && fileName.length > 0
-          ? path.resolve(path.dirname(target), fileName)
-          : target;
-        console.info(`[goondan-runtime] watch change detected type=${eventType} path=${changedPath}`);
-        triggerRestart(`watch:${changedPath}`);
-      });
-      watcher.on('error', (error: unknown) => {
-        console.warn(
-          `[goondan-runtime] watch error path=${target}: ${unknownToErrorMessage(error)}`,
-        );
-      });
-      watchers.push(watcher);
-    } catch (error) {
-      console.warn(`[goondan-runtime] watch registration skipped path=${target}: ${unknownToErrorMessage(error)}`);
-    }
-  }
-
-  if (watchers.length > 0) {
-    console.info(`[goondan-runtime] watch mode enabled targets=${watchers.length}`);
-  } else {
-    console.warn('[goondan-runtime] watch mode enabled but no files are currently watchable.');
-  }
-
-  return () => {
-    watchers.forEach((watcher) => {
-      watcher.close();
-    });
-  };
-}
-
 function summarizeConnectorPlans(connectors: ConnectorRunPlan[]): string {
   if (connectors.length === 0) {
     return 'none';
@@ -4346,26 +4298,6 @@ function summarizeAgentPlans(agents: Map<string, AgentRuntimePlan>): string {
     return 'none';
   }
   return names.join(', ');
-}
-
-async function preloadAgentExtensions(
-  runtime: RuntimeEngineState,
-  plan: RunnerPlan,
-  instanceKey: string,
-): Promise<void> {
-  for (const [agentName, agentPlan] of plan.agents.entries()) {
-    if (agentPlan.extensionResources.length === 0) {
-      continue;
-    }
-
-    await getOrCreateAgentExtensionEnvironment({
-      runtime,
-      plan: agentPlan,
-      agentName,
-      instanceKey,
-      logger: console,
-    });
-  }
 }
 
 async function runLifecycle(runningConnectors: RunningConnector[]): Promise<void> {
@@ -4399,76 +4331,179 @@ async function preflight(args: RunnerArguments): Promise<RunnerPlan> {
 async function main(): Promise<void> {
   const args = parseRunnerArguments(process.argv.slice(2));
   const plan = await preflight(args);
+
+  // Process-per-Agent mode: Orchestrator가 AgentProcess/ConnectorProcess를 child process로 스폰
+  // Orchestrator는 프로세스 매니저 역할만 하고, 에이전트의 Turn 실행 로직은 AgentProcess가 담당
+  const { OrchestratorImpl } = await import('../orchestrator/orchestrator.js');
+  const { BunProcessSpawner } = await import('../orchestrator/bun-process-spawner.js');
+
+  const bundleDir = path.dirname(args.bundlePath);
+  const spawner = new BunProcessSpawner({
+    bundleDir,
+    stateRoot: args.stateRoot,
+    swarmName: plan.selectedSwarm.name,
+  });
+
+  const desiredAgents = [...plan.agents.keys()];
+  const desiredConnectors = plan.connectors.map((c) => c.connectorName);
+
+  const orchestrator = new OrchestratorImpl({
+    swarmName: plan.selectedSwarm.name,
+    bundleDir,
+    desiredAgents,
+    desiredConnectors,
+    spawner,
+    reconcileIntervalMs: 5000,
+  });
+
+  console.info(
+    `[goondan-orchestrator] started instanceKey=${args.instanceKey} pid=${process.pid} swarm=${plan.selectedSwarm.name}`,
+  );
+  console.info(`[goondan-orchestrator] desired agents: ${desiredAgents.join(', ')}`);
+  console.info(`[goondan-orchestrator] desired connectors: ${desiredConnectors.join(', ') || 'none'}`);
+
+  // Watch mode: file changes → selective restart via Orchestrator
+  const stopWatching = args.watch ? startOrchestratorWatchMode(orchestrator, plan) : () => {
+    // no-op
+  };
+
+  // Also keep legacy connector handling for backwards compatibility during transition
+  // The Orchestrator reconciliation loop will spawn ConnectorProcesses via the spawner
   const runtime = buildRuntimeEngine(args, plan);
   const detachRuntimeEventPersistence = attachRuntimeEventPersistence(runtime);
+
+  let runningConnectors: RunningConnector[] = [];
   try {
-    await preloadAgentExtensions(runtime, plan, args.instanceKey);
-    const stopWatching = args.watch ? startWatchMode(runtime, plan) : () => {
-      // no-op
+    // Start connectors using existing fork-based mechanism (transition period)
+    runningConnectors = await startConnectors(plan, runtime);
+
+    console.info(`[goondan-orchestrator] active connectors: ${summarizeConnectorPlans(plan.connectors)}`);
+    console.info(`[goondan-orchestrator] active agents: ${summarizeAgentPlans(plan.agents)}`);
+
+    const readyMessage: RunnerReadyMessage = {
+      type: 'ready',
+      instanceKey: args.instanceKey,
+      pid: process.pid,
     };
-    let runningConnectors: RunningConnector[] = [];
-    try {
-      runningConnectors = await startConnectors(plan, runtime);
+    sendMessage(readyMessage);
 
-      console.info(
-        `[goondan-runtime] started instanceKey=${args.instanceKey} pid=${process.pid} swarm=${plan.selectedSwarm.name} connectors=${runningConnectors.length}`,
-      );
-      console.info(`[goondan-runtime] active connectors: ${summarizeConnectorPlans(plan.connectors)}`);
-      console.info(`[goondan-runtime] active agents: ${summarizeAgentPlans(plan.agents)}`);
-
-      const readyMessage: RunnerReadyMessage = {
-        type: 'ready',
-        instanceKey: args.instanceKey,
-        pid: process.pid,
-      };
-      sendMessage(readyMessage);
-
-      await runLifecycle(runningConnectors);
-    } finally {
-      stopWatching();
-      await stopConnectors(runningConnectors);
-    }
-
-    if (runtime.restartRequestedReason !== undefined) {
-      const runnerModulePath = process.argv[1];
-      if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
-        throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
-      }
-
-      const reason = runtime.restartRequestedReason;
-      const replacementPlan = await buildRunnerPlan(runtime.runnerArgs);
-      const replacementInstanceKey = replacementPlan.selectedSwarm.instanceKey;
-      const replacementSwarmName = replacementPlan.selectedSwarm.name;
-      const replacementRunnerArgsWithInstanceKey = upsertRunnerOption(
-        process.argv.slice(2),
-        '--instance-key',
-        replacementInstanceKey,
-      );
-      const replacementRunnerArgs = upsertRunnerOption(
-        replacementRunnerArgsWithInstanceKey,
-        '--swarm',
-        replacementSwarmName,
-      );
-      const replacementPid = await spawnReplacementRunner({
-        runnerModulePath,
-        runnerArgs: replacementRunnerArgs,
-        stateRoot: runtime.runnerArgs.stateRoot,
-        instanceKey: replacementInstanceKey,
-        bundlePath: runtime.runnerArgs.bundlePath,
-        watch: runtime.runnerArgs.watch,
-        swarmName: replacementSwarmName,
-        env: process.env,
-      });
-
-      console.info(
-        `[goondan-runtime] replacement orchestrator started pid=${replacementPid} reason=${reason}`,
-      );
-    }
+    // Wait for shutdown signal or connector exit
+    await runLifecycle(runningConnectors);
   } finally {
+    stopWatching();
+    await stopConnectors(runningConnectors);
+    await orchestrator.shutdown();
     detachRuntimeEventPersistence();
   }
 
+  if (runtime.restartRequestedReason !== undefined) {
+    const runnerModulePath = process.argv[1];
+    if (typeof runnerModulePath !== 'string' || runnerModulePath.trim().length === 0) {
+      throw new Error('runtime-runner 모듈 경로를 확인할 수 없습니다.');
+    }
+
+    const reason = runtime.restartRequestedReason;
+    const replacementPlan = await buildRunnerPlan(runtime.runnerArgs);
+    const replacementInstanceKey = replacementPlan.selectedSwarm.instanceKey;
+    const replacementSwarmName = replacementPlan.selectedSwarm.name;
+    const replacementRunnerArgsWithInstanceKey = upsertRunnerOption(
+      process.argv.slice(2),
+      '--instance-key',
+      replacementInstanceKey,
+    );
+    const replacementRunnerArgs = upsertRunnerOption(
+      replacementRunnerArgsWithInstanceKey,
+      '--swarm',
+      replacementSwarmName,
+    );
+    const replacementPid = await spawnReplacementRunner({
+      runnerModulePath,
+      runnerArgs: replacementRunnerArgs,
+      stateRoot: runtime.runnerArgs.stateRoot,
+      instanceKey: replacementInstanceKey,
+      bundlePath: runtime.runnerArgs.bundlePath,
+      watch: runtime.runnerArgs.watch,
+      swarmName: replacementSwarmName,
+      env: process.env,
+    });
+
+    console.info(
+      `[goondan-orchestrator] replacement started pid=${replacementPid} reason=${reason}`,
+    );
+  }
+
   process.exit(0);
+}
+
+/**
+ * Orchestrator 기반 watch mode.
+ * 파일 변경 시 영향받는 에이전트만 Orchestrator를 통해 선택적 재시작.
+ */
+function startOrchestratorWatchMode(
+  orchestrator: import('../orchestrator/types.js').Orchestrator,
+  plan: RunnerPlan,
+): () => void {
+  const watchers: FSWatcher[] = [];
+  let restartInProgress = false;
+
+  const triggerRestart = (reason: string, affectedAgent?: string): void => {
+    if (restartInProgress) return;
+    restartInProgress = true;
+
+    const doRestart = async (): Promise<void> => {
+      try {
+        if (affectedAgent) {
+          console.info(`[goondan-orchestrator] watch: restarting agent=${affectedAgent} reason=${reason}`);
+          await orchestrator.restart(affectedAgent);
+        } else {
+          console.info(`[goondan-orchestrator] watch: restarting all reason=${reason}`);
+          await orchestrator.reloadAndRestartAll();
+        }
+      } catch (error) {
+        console.warn(`[goondan-orchestrator] watch restart failed: ${unknownToErrorMessage(error)}`);
+      } finally {
+        restartInProgress = false;
+      }
+    };
+
+    void doRestart();
+  };
+
+  const uniqueTargets = [...new Set(plan.watchTargets)].sort((left, right) => left.localeCompare(right));
+  for (const target of uniqueTargets) {
+    try {
+      const watcher = watchFs(target, (eventType, fileName) => {
+        const changedPath = typeof fileName === 'string' && fileName.length > 0
+          ? path.resolve(path.dirname(target), fileName)
+          : target;
+        console.info(`[goondan-orchestrator] watch change detected type=${eventType} path=${changedPath}`);
+
+        // Determine which agent is affected based on the changed file path
+        // For now, restart all agents (selective restart will be refined in Task 2.3)
+        triggerRestart(`watch:${changedPath}`);
+      });
+      watcher.on('error', (error: unknown) => {
+        console.warn(
+          `[goondan-orchestrator] watch error path=${target}: ${unknownToErrorMessage(error)}`,
+        );
+      });
+      watchers.push(watcher);
+    } catch (error) {
+      console.warn(`[goondan-orchestrator] watch registration skipped path=${target}: ${unknownToErrorMessage(error)}`);
+    }
+  }
+
+  if (watchers.length > 0) {
+    console.info(`[goondan-orchestrator] watch mode enabled targets=${watchers.length}`);
+  } else {
+    console.warn('[goondan-orchestrator] watch mode enabled but no files are currently watchable.');
+  }
+
+  return () => {
+    watchers.forEach((watcher) => {
+      watcher.close();
+    });
+  };
 }
 
 function isRuntimeRunnerEntryPoint(): boolean {

@@ -23,12 +23,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run test/e2e/ --testTimeout 60000"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.44",
     "@ai-sdk/google": "^3.0.29",
     "@ai-sdk/openai": "^3.0.29",
+    "@goondan/types": "workspace:^",
     "ai": "^6.0.86",
     "unique-names-generator": "^4.7.1"
   }

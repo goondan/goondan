@@ -295,6 +295,71 @@ Orchestrator                          AgentProcess
 
 ---
 
+## 관측성: OTel 호환 TraceContext
+
+Goondan은 OpenTelemetry 호환 trace 모델을 사용하여 에이전트 간 **인과 체인**을 추적합니다. 멀티 에이전트 환경에서 _무엇이_ 일어났는지뿐 아니라 _왜_, _어떤 원인으로_ 일어났는지를 파악하는 데 필수적입니다.
+
+### TraceContext
+
+모든 런타임 이벤트에는 세 가지 필드를 가진 `TraceContext`가 포함됩니다:
+
+| 필드 | 목적 |
+|------|------|
+| `traceId` | 최초 입력(예: connector 이벤트) 시 한 번 생성되며, 인터-에이전트 호출을 포함한 전체 실행 체인에서 유지 |
+| `spanId` | 현재 실행 단위(Turn, Step, Tool 호출)의 고유 ID |
+| `parentSpanId` | 상위 실행 단위와의 연결 — 트리 구조를 형성 |
+
+### Span 계층 구조
+
+```
+[Connector Event]               <- root span (traceId 생성)
+  +-- [Agent A Turn]            <- child span
+       +-- [Step 1]             <- child span
+       |    +-- [LLM 호출]      <- child span
+       |    +-- [Tool: bash]    <- child span
+       |    +-- [agents__request]  <- child span
+       |         +-- [Agent B Turn]   <- child span (동일 traceId!)
+       |              +-- [Step 1]    <- child span
+       |                   +-- [LLM 호출]  <- child span
+       +-- [Step 2]             <- child span
+            +-- [LLM 호출]      <- child span
+```
+
+### 핵심 규칙
+
+1. **traceId는 인터-에이전트 호출 시에도 재생성되지 않습니다.** 이로써 스웜 전체에 대한 end-to-end 추적이 보장됩니다.
+2. 각 실행 단위(Turn, Step, Tool Call)는 새 `spanId`를 생성하되, `parentSpanId`로 상위와 연결됩니다.
+3. 모든 `RuntimeEvent` 레코드에 전체 `TraceContext`가 포함됩니다.
+
+### 9종 런타임 이벤트
+
+런타임은 다음 구조화된 이벤트를 발행합니다 (모두 `TraceContext`, `agentName`, `instanceKey` 포함):
+
+| 이벤트 | 발행 시점 |
+|--------|-----------|
+| `turn.started` / `turn.completed` / `turn.failed` | Turn 생명주기 |
+| `step.started` / `step.completed` / `step.failed` | Step 생명주기 |
+| `tool.called` / `tool.completed` / `tool.failed` | Tool 호출 생명주기 |
+
+### Trace 조회
+
+```bash
+# 에이전트 이름으로 이벤트 필터링
+gdn logs --agent coder
+
+# 특정 trace를 모든 에이전트에 걸쳐 추적
+gdn logs --trace <traceId>
+
+# 두 필터를 결합
+gdn logs --agent coder --trace <traceId>
+```
+
+Studio (`gdn studio`)는 이 이벤트들에서 span 트리를 재구성하여 인과 관계 시각화를 렌더링합니다. 모든 관계가 이벤트 자체에 인코딩되어 있으므로 휴리스틱이 필요 없습니다.
+
+> `TraceContext`와 `RuntimeEvent`의 정확한 타입 정의는 `docs/specs/shared-types.md` 5절과 9절을 참조하세요.
+
+---
+
 ## Turn과 Step: 실행 모델
 
 각 AgentProcess 내부에서 작업은 **Turn**과 **Step**으로 구조화됩니다.
@@ -473,6 +538,7 @@ AgentProcess (격리된 Bun 프로세스)
 - 이벤트 소싱과 Graceful Shutdown을 통한 **데이터 안전성**
 - 선언형 설정과 Edit & Restart를 통한 **단순성**
 - 미들웨어 파이프라인을 통한 **확장성**
+- 전체 인과 체인을 아우르는 OTel 호환 TraceContext를 통한 **관측성**
 
 ---
 

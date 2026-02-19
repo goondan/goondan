@@ -25,3 +25,12 @@ export function resolveRuntimeRunnerConnectorChildPath(): string {
 
   return fileURLToPath(new URL('./runtime-runner-connector-child.ts', import.meta.url));
 }
+
+export function resolveAgentRunnerPath(): string {
+  const jsPath = fileURLToPath(new URL('./agent-runner.js', import.meta.url));
+  if (existsSync(jsPath)) {
+    return jsPath;
+  }
+
+  return fileURLToPath(new URL('./agent-runner.ts', import.meta.url));
+}

@@ -45,6 +45,36 @@ describe('executeCli router', () => {
     expect(state.restartRequests[0].fresh).toBe(true);
   });
 
+  it('restart --agent 출력에 에이전트 이름이 포함된다', async () => {
+    const { deps, state } = createMockDeps({
+      restartResult: {
+        restarted: ['coder'],
+        instanceKey: 'default',
+        pid: 9999,
+      },
+    });
+
+    const code = await executeCli(['restart', '--agent', 'coder'], deps);
+
+    expect(code).toBe(0);
+    expect(state.outs.join('\n')).toContain('agent "coder" restarted');
+  });
+
+  it('restart --fresh 출력에 상태 초기화 표시가 포함된다', async () => {
+    const { deps, state } = createMockDeps({
+      restartResult: {
+        restarted: ['all'],
+        instanceKey: 'default',
+        pid: 9999,
+      },
+    });
+
+    const code = await executeCli(['restart', '--fresh'], deps);
+
+    expect(code).toBe(0);
+    expect(state.outs.join('\n')).toContain('fresh, state cleared');
+  });
+
   it('logs 명령을 logs.read로 라우팅한다', async () => {
     const { deps, state } = createMockDeps();
 
@@ -56,6 +86,28 @@ describe('executeCli router', () => {
     expect(state.logRequests[0].process).toBe('orchestrator');
     expect(state.logRequests[0].lines).toBe(50);
     expect(state.outs.join('\n')).toContain('Logs instance=instance-abc');
+  });
+
+  it('logs --agent 옵션을 logs.read에 전달한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['logs', '--agent', 'coder'], deps);
+
+    expect(code).toBe(0);
+    expect(state.logRequests.length).toBe(1);
+    expect(state.logRequests[0].agent).toBe('coder');
+    expect(state.outs.join('\n')).toContain('agent=coder');
+  });
+
+  it('logs --trace 옵션을 logs.read에 전달한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['logs', '--trace', 'abc-123'], deps);
+
+    expect(code).toBe(0);
+    expect(state.logRequests.length).toBe(1);
+    expect(state.logRequests[0].trace).toBe('abc-123');
+    expect(state.outs.join('\n')).toContain('trace=abc-123');
   });
 
   it('studio 명령을 studio.startServer로 라우팅한다', async () => {

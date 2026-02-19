@@ -31,14 +31,22 @@
 ### 스펙 문서 목록 (`docs/specs/`)
 `help.md`(스펙 운영 규칙) · `shared-types.md`(공통 타입 SSOT) · `layers.md`(패키지 계층) · `resources.md`(Config 리소스) · `bundle.md`(Bundle YAML) · `bundle_package.md`(Package) · `runtime.md`(실행 모델) · `pipeline.md`(미들웨어 파이프라인) · `tool.md`(Tool 시스템) · `extension.md`(Extension 시스템) · `connector.md`(Connector) · `connection.md`(Connection) · `workspace.md`(Workspace/Storage) · `cli.md`(CLI gdn) · `api.md`(Runtime/SDK API) · `oauth.md`(OAuth 범위)
 
+## 핵심 아키텍처 결정
+
+- **Process-per-Agent**: 에이전트마다 독립 child process로 실행 (크래시 격리, 선택적 재시작, Self-modification 지원)
+- **Orchestrator = 프로세스 매니저**: Config 로딩, AgentProcess 스폰/감시/재시작, IPC 브로커, Reconciliation Loop
+- **AgentProcess = 실행 엔진**: Turn/Step 루프, LLM 호출, Tool 실행, Pipeline, Extension, Message State
+- **OTel 호환 TraceContext**: 모든 RuntimeEvent에 traceId/spanId/parentSpanId 포함, 인터-에이전트 호출 시 traceId 유지
+- **타입 계약 SSOT**: RuntimeEvent/TraceContext/AgentRuntime* 타입은 `@goondan/types`가 소유, Runtime은 re-export만
+
 ## 패키지 구조
 
 | 패키지 | 역할 | 배포 |
 |--------|------|------|
-| `packages/types` | 공통 타입 계약 (SSOT) | npm |
-| `packages/runtime` | Orchestrator 런타임 | npm |
+| `packages/types` | 공통 타입 계약 (SSOT) — RuntimeEvent, TraceContext, AgentRuntime* 포함 | npm |
+| `packages/runtime` | Orchestrator + AgentProcess 런타임 엔진 | npm |
 | `packages/cli` | CLI 도구 (`gdn`) | npm |
-| `packages/studio` | Studio 웹 UI (React + Vite SPA) | npm |
+| `packages/studio` | Studio 웹 UI (React + Vite SPA) — trace 기반 인과 관계 시각화 | npm |
 | `packages/base` | 기본 Extension/Connector/Tool 묶음 | `gdn package publish` (군단 레지스트리) |
 | `packages/registry` | 패키지 레지스트리 서버 | Cloudflare Worker (`wrangler deploy`, 필요 시) |
 | `samples/` | 에이전트 샘플 모음 | — |

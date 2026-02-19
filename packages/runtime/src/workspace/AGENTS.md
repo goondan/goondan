@@ -15,6 +15,8 @@
 이유: 상태 복원 정확도와 관측성 요구를 동시에 만족하기 위해.
 3. workspace 식별은 instanceKey 기반 결정론적 매핑을 사용한다.
 이유: 동일 인스턴스의 상태 경로를 환경에 무관하게 일관되게 찾기 위해.
+4. runtime-events.jsonl 레코드에 TraceContext(traceId/spanId/parentSpanId)가 포함된다.
+이유: Studio와 CLI가 trace 기반 인과 관계를 구성하는 데 필수 데이터.
 
 ## 불변 규칙
 

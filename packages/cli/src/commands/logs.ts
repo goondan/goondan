@@ -16,13 +16,20 @@ export async function handleLogs({ cmd, deps, globals }: LogsContext): Promise<E
 
   const result = await deps.logs.read({
     instanceKey: cmd.instanceKey ?? undefined,
+    agent: cmd.agent ?? undefined,
+    trace: cmd.trace ?? undefined,
     process: processName,
     stream,
     lines,
     stateRoot: globals.stateRoot ?? undefined,
   });
 
-  deps.io.out(`Logs instance=${result.instanceKey} process=${result.process} stream=${stream} lines=${lines}`);
+  const filters: string[] = [];
+  if (cmd.agent) filters.push(`agent=${cmd.agent}`);
+  if (cmd.trace) filters.push(`trace=${cmd.trace}`);
+  const filterLabel = filters.length > 0 ? ` [${filters.join(', ')}]` : '';
+
+  deps.io.out(`Logs instance=${result.instanceKey} process=${result.process} stream=${stream} lines=${lines}${filterLabel}`);
   for (const chunk of result.chunks) {
     deps.io.out(`--- ${chunk.stream} (${chunk.path}) ---`);
     if (chunk.lines.length === 0) {

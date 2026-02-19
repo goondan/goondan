@@ -1,13 +1,36 @@
-export type RuntimeEventType =
-  | "turn.started"
-  | "turn.completed"
-  | "turn.failed"
-  | "step.started"
-  | "step.completed"
-  | "step.failed"
-  | "tool.called"
-  | "tool.completed"
-  | "tool.failed";
+/**
+ * RuntimeEvent 타입 및 EventBus 구현.
+ *
+ * 타입 계약은 @goondan/types가 SSOT. 여기서는 re-export하고,
+ * runtime 고유 상수 및 EventBus 구현체만 정의한다.
+ */
+
+// ---------------------------------------------------------------------------
+// Re-export: @goondan/types가 소유하는 타입 계약
+// ---------------------------------------------------------------------------
+
+export type {
+  RuntimeEventType,
+  RuntimeEventBase,
+  TokenUsage,
+  StepStartedLlmInputMessage,
+  TurnStartedEvent,
+  TurnCompletedEvent,
+  TurnFailedEvent,
+  StepStartedEvent,
+  StepCompletedEvent,
+  StepFailedEvent,
+  ToolCalledEvent,
+  ToolCompletedEvent,
+  ToolFailedEvent,
+  RuntimeEvent,
+} from "@goondan/types";
+
+import type { RuntimeEvent, RuntimeEventType } from "@goondan/types";
+
+// ---------------------------------------------------------------------------
+// Runtime 고유 상수
+// ---------------------------------------------------------------------------
 
 export const STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY = "runtime.llmInputMessages";
 
@@ -23,103 +46,9 @@ export const RUNTIME_EVENT_TYPES: RuntimeEventType[] = [
   "tool.failed",
 ];
 
-interface RuntimeEventBase {
-  type: RuntimeEventType;
-  timestamp: string;
-  agentName: string;
-}
-
-export interface StepStartedLlmInputMessage {
-  role: string;
-  content: string;
-}
-
-export interface TurnStartedEvent extends RuntimeEventBase {
-  type: "turn.started";
-  turnId: string;
-  instanceKey: string;
-}
-
-export interface TurnCompletedEvent extends RuntimeEventBase {
-  type: "turn.completed";
-  turnId: string;
-  instanceKey: string;
-  stepCount: number;
-  duration: number;
-}
-
-export interface TurnFailedEvent extends RuntimeEventBase {
-  type: "turn.failed";
-  turnId: string;
-  instanceKey: string;
-  duration: number;
-  errorMessage: string;
-}
-
-export interface StepStartedEvent extends RuntimeEventBase {
-  type: "step.started";
-  stepId: string;
-  stepIndex: number;
-  turnId: string;
-  llmInputMessages?: StepStartedLlmInputMessage[];
-}
-
-export interface StepCompletedEvent extends RuntimeEventBase {
-  type: "step.completed";
-  stepId: string;
-  stepIndex: number;
-  turnId: string;
-  toolCallCount: number;
-  duration: number;
-}
-
-export interface StepFailedEvent extends RuntimeEventBase {
-  type: "step.failed";
-  stepId: string;
-  stepIndex: number;
-  turnId: string;
-  duration: number;
-  errorMessage: string;
-}
-
-export interface ToolCalledEvent extends RuntimeEventBase {
-  type: "tool.called";
-  toolCallId: string;
-  toolName: string;
-  stepId: string;
-  turnId: string;
-}
-
-export interface ToolCompletedEvent extends RuntimeEventBase {
-  type: "tool.completed";
-  toolCallId: string;
-  toolName: string;
-  status: "ok" | "error";
-  duration: number;
-  stepId: string;
-  turnId: string;
-}
-
-export interface ToolFailedEvent extends RuntimeEventBase {
-  type: "tool.failed";
-  toolCallId: string;
-  toolName: string;
-  duration: number;
-  stepId: string;
-  turnId: string;
-  errorMessage: string;
-}
-
-export type RuntimeEvent =
-  | TurnStartedEvent
-  | TurnCompletedEvent
-  | TurnFailedEvent
-  | StepStartedEvent
-  | StepCompletedEvent
-  | StepFailedEvent
-  | ToolCalledEvent
-  | ToolCompletedEvent
-  | ToolFailedEvent;
+// ---------------------------------------------------------------------------
+// Runtime 고유 EventBus 인터페이스 및 구현체
+// ---------------------------------------------------------------------------
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void | Promise<void>;
 

@@ -129,16 +129,23 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 ### 2.1 Orchestrator - AgentProcess/ConnectorProcess 프로세스 구조
 
 ```
-                    ┌─────────────────────────────────────────────┐
-                    │          Orchestrator (상주 프로세스)          │
-                    │                                             │
-                    │  - goondan.yaml 파싱/리소스 로딩             │
-                    │  - 프로세스 스폰/감시/재시작                  │
-                    │  - IPC 메시지 브로커 (AgentEvent 통합 라우팅)  │
-                    │  - 설정 변경 감지 (--watch)                  │
-                    └───────┬──────────────┬──────────────┬───────┘
+                    ┌──────────────────────────────────────────────────┐
+                    │           Orchestrator (상주 프로세스)              │
+                    │                                                  │
+                    │  - goondan.yaml 파싱/리소스 로딩                  │
+                    │  - 프로세스 스폰/감시/재시작                       │
+                    │  - IPC 메시지 브로커 (AgentEvent 통합 라우팅)       │
+                    │  - TraceContext 손실 없이 전달                     │
+                    │  - Reconciliation Loop (desired vs actual 조정)   │
+                    │  - 설정 변경 감지 (--watch → 선택적 재시작)        │
+                    │  - Graceful Shutdown 조율                         │
+                    │                                                  │
+                    │  ※ Turn 실행 로직은 일절 모름 (이벤트 전달만)       │
+                    └───────┬──────────────┬──────────────┬────────────┘
                             │              │              │
                      IPC    │       IPC    │       IPC    │
+               (TraceContext │  (TraceContext│  (ConnectorEvent
+                   전파)     │     전파)    │    + instanceKey)
                             │              │              │
                     ┌───────▼──────┐ ┌─────▼──────┐ ┌────▼─────────────┐
                     │ AgentProcess │ │ AgentProcess│ │ ConnectorProcess │
@@ -146,7 +153,32 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
                     │              │ │             │ │                  │
                     │ Turn → Step  │ │ Turn → Step │ │ 자체 HTTP 서버   │
                     │   루프 실행  │ │   루프 실행 │ │ /cron 등 프로토콜│
+                    │ O11y 이벤트  │ │ O11y 이벤트 │ │                  │
+                    │   발행       │ │   발행      │ │                  │
                     └──────────────┘ └─────────────┘ └──────────────────┘
+```
+
+### 2.1.1 IPC TraceContext 전파 흐름
+
+```
+ConnectorProcess ──[ConnectorEvent]──> Orchestrator
+                                          │
+                                          ├── traceId 생성 (최초 입력)
+                                          ├── Connection ingress.rules 매칭
+                                          ├── instanceKey로 AgentProcess 조회/스폰
+                                          │
+                                          └──[AgentEvent + traceId]──> AgentProcess A
+                                                                          │
+                                                 Turn spanId=bbb          │
+                                                   Step spanId=ccc        │
+                                                     Tool: agents__request spanId=ddd
+                                                       │
+                                    [IPC event + traceId + parentSpanId=ddd]
+                                                       │
+                                                       ▼
+                                               AgentProcess B
+                                                 Turn spanId=eee, parentSpanId=ddd
+                                                   (같은 traceId 유지!)
 ```
 
 ### 2.2 AgentProcess 내부: Turn - Step 실행 흐름과 3-Layer 미들웨어
@@ -350,7 +382,13 @@ middleware request 흐름:
 3. Orchestrator가 대상 AgentProcess로 라우팅한다 (필요시 스폰).
 4. 대상 Agent의 응답이 원 미들웨어로 반환된다.
 
-trace 컨텍스트는 `replyTo.correlationId`로 보존되며, 프로세스 격리를 유지하면서 IPC를 통해서만 통신한다.
+**TraceContext 전파:**
+- 인터-에이전트 호출 시 `traceId`를 피호출자에게 전달한다 (절대 재생성하지 않음)
+- 호출자의 Tool Call `spanId`를 피호출자의 Turn `parentSpanId`로 설정한다
+- 이를 통해 end-to-end 인과 체인을 추적할 수 있다: `gdn logs --trace <traceId>`
+- Orchestrator는 IPC 라우팅 시 `TraceContext`를 손실 없이 전달한다
+
+trace 컨텍스트는 `replyTo.correlationId`로 응답 매칭이 보장되며, `traceId`로 전체 실행 체인의 인과 관계가 추적된다. 프로세스 격리를 유지하면서 IPC를 통해서만 통신한다.
 
 ### 3.5 MCP Extension 패턴
 
@@ -494,4 +532,4 @@ DAG 의존성, lockfile 재현성, values 병합 우선순위 등 패키징 요�
 ---
 
 **문서 버전**: v0.0.3
-**최종 수정**: 2026-02-18
+**최종 수정**: 2026-02-20

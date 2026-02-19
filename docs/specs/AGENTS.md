@@ -13,8 +13,12 @@
 이유: 기능 확장 시 우발적 동작 변경을 줄이기 위해.
 2. 공통 타입 소유권은 `shared-types.md`, 운영 공통 규칙 소유권은 `help.md`에 둔다.
 이유: 문서 간 중복 재정의와 타입 드리프트를 방지하기 위해.
-3. 사용자 가이드는 스펙을 재서술하지 않고 참조 중심으로 연결한다.
-이유: 계약 변경 시 유지보수 비용과 불일치를 줄이기 위해.
+3. `runtime.md`는 Process-per-Agent를 유일한 실행 모델로 정의하며, Orchestrator vs AgentProcess 책임 분리를 명시한다.
+이유: 이전에 두 런타임 모델이 공존하여 혼란이 발생했던 문제를 원천 차단.
+4. `shared-types.md`가 RuntimeEvent, TraceContext, AgentRuntime* 타입 계약을 소유한다.
+이유: 여러 패키지가 공유하는 계약의 SSOT를 단일 문서로 유지.
+5. 에이전트 통신 API 계약은 `shared-types.md`에서 단일 정의하고, `pipeline.md`와 `tool.md`는 참조만 한다.
+이유: pipeline/tool 간 계약 불일치를 방지.
 
 ## 불변 규칙
 

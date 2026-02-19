@@ -297,29 +297,40 @@ gdn restart [options]
 
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
-| `--agent <name>` | `-a` | 호환용 필드. 현재 구현은 인스턴스 전체를 재기동 | - |
-| `--fresh` | | 호환용 플래그(현재 구현은 인스턴스 재기동에 전달) | `false` |
+| `--agent <name>` | `-a` | 특정 에이전트 프로세스만 재시작. 미지정 시 전체 Orchestrator 재기동 | - |
+| `--fresh` | | 상태 초기화 후 재시작. 메시지 히스토리, 이벤트 로그 등 인스턴스 상태를 클리어 | `false` |
 
 ### 5.3 동작 방식
 
+**전체 재시작 (`gdn restart`):**
 1. `runtime/active.json`의 active Orchestrator 인스턴스를 읽는다.
 2. active 상태의 Swarm 정의에서 instanceKey(`Swarm.spec.instanceKey ?? Swarm.metadata.name`)를 재계산한다.
 3. 계산된 `instanceKey`/bundle로 replacement runner를 먼저 기동한다.
 4. active pid를 새 값으로 갱신하고, 기존 Orchestrator PID를 종료한다.
 
+**선택적 재시작 (`gdn restart --agent <name>`):**
+1. Orchestrator IPC를 통해 해당 AgentProcess에 shutdown 신호를 전달한다.
+2. AgentProcess는 현재 Turn을 완료한 뒤 graceful shutdown한다.
+3. Orchestrator가 해당 에이전트의 새 AgentProcess를 스폰한다.
+4. 다른 에이전트/커넥터 프로세스는 영향받지 않는다.
+
+**상태 초기화 (`--fresh`):**
+1. workspace의 instance state(메시지 히스토리, 이벤트 로그)를 초기화한다.
+2. 초기화 후 재시작하여 에이전트가 빈 상태에서 시작한다.
+
 ### 5.4 예시
 
 ```bash
-# active Orchestrator 인스턴스 재기동
+# active Orchestrator 인스턴스 전체 재기동
 gdn restart
 
-# agent 지정(호환용)
+# 특정 에이전트만 재시작
 gdn restart --agent coder
 
-# fresh 플래그 전달(호환용)
+# 상태 초기화 후 재시작
 gdn restart --fresh
 
-# agent 지정 + fresh(호환용)
+# 특정 에이전트 상태 초기화 후 재시작
 gdn restart --agent coder --fresh
 ```
 
@@ -671,9 +682,13 @@ gdn logs [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--instance-key <key>` | `-i` | 조회할 인스턴스 키. 생략 시 `runtime/active.json`의 인스턴스 | active instance |
+| `--agent <name>` | `-a` | 특정 에이전트의 RuntimeEvent만 필터링 (`agentName` 기준) | - |
+| `--trace <traceId>` | | 특정 traceId의 RuntimeEvent만 필터링 | - |
 | `--process <name>` | `-p` | 프로세스 이름 | `orchestrator` |
 | `--stream <stdout\|stderr\|both>` | | 로그 스트림 선택 | `both` |
 | `--lines <n>` | `-l` | 각 로그 파일에서 마지막 N줄 | `200` |
+
+`--agent`와 `--trace`는 `runtime-events.jsonl` 파일의 RuntimeEvent 레코드를 JSONL 파싱하여 필터링한다. 두 옵션을 동시에 지정하면 AND 조건으로 동작한다. `--agent`/`--trace` 지정 시 `--process`와 `--stream`은 무시되고, 이벤트 JSONL만 출력한다.
 
 ### 9.3 로그 파일 경로
 
@@ -682,6 +697,12 @@ gdn logs [options]
 ```text
 ~/.goondan/runtime/logs/<instanceKey>/<process>.stdout.log
 ~/.goondan/runtime/logs/<instanceKey>/<process>.stderr.log
+```
+
+이벤트 필터링 시 사용하는 경로:
+
+```text
+~/.goondan/workspaces/<instanceKey>/messages/runtime-events.jsonl
 ```
 
 ### 9.4 예시
@@ -695,6 +716,15 @@ gdn logs --instance-key session-001 --stream stderr --lines 100
 
 # 특정 프로세스 로그 조회
 gdn logs --instance-key session-001 --process connector-telegram
+
+# 특정 에이전트의 이벤트만 필터링
+gdn logs --agent coder
+
+# 특정 traceId의 이벤트 체인 추적
+gdn logs --trace abc-123-def
+
+# 에이전트 + traceId 동시 필터링
+gdn logs --agent coder --trace abc-123-def
 ```
 
 ---

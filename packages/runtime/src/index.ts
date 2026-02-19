@@ -20,6 +20,7 @@ export * from "./workspace/instance-manager.js";
 export * from "./orchestrator/types.js";
 export * from "./orchestrator/orchestrator.js";
 export * from "./orchestrator/event-queue.js";
+export { BunProcessSpawner } from "./orchestrator/bun-process-spawner.js";
 
 export * from "./events/runtime-events.js";
 

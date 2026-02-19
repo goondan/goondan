@@ -25,6 +25,16 @@ function stripPrefix(id: string): string {
   return idx >= 0 ? id.slice(idx + 1) : id;
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTokens(total: number): string {
+  if (total >= 1000) return `${(total / 1000).toFixed(1)}k`;
+  return String(total);
+}
+
 function summarizeRoleLabel(role: string): string {
   if (role === 'user') return 'USER';
   if (role === 'assistant') return 'ASSISTANT';
@@ -131,7 +141,30 @@ export default function LogsView({ viz }: LogsViewProps) {
                 {entry.detail && (
                   <span className="log-detail">{entry.detail}</span>
                 )}
+                {entry.duration !== undefined && (
+                  <span className="log-duration">{formatDuration(entry.duration)}</span>
+                )}
+                {entry.tokenUsage && (
+                  <span className="log-tokens">{formatTokens(entry.tokenUsage.totalTokens)} tok</span>
+                )}
               </div>
+              {entry.traceId && (
+                <div className="log-trace">
+                  <span className="log-trace-id" title={entry.traceId}>
+                    trace:{entry.traceId.slice(0, 8)}
+                  </span>
+                  {entry.spanId && (
+                    <span className="log-span-id" title={entry.spanId}>
+                      span:{entry.spanId.slice(0, 8)}
+                    </span>
+                  )}
+                  {entry.parentSpanId && (
+                    <span className="log-parent-span" title={entry.parentSpanId}>
+                      parent:{entry.parentSpanId.slice(0, 8)}
+                    </span>
+                  )}
+                </div>
+              )}
               {entry.llmInputMessages && entry.llmInputMessages.length > 0 && (
                 <div className="log-llm-panel">
                   <div className="log-llm-title">

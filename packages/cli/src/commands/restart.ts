@@ -10,17 +10,24 @@ interface RestartContext {
 }
 
 export async function handleRestart({ cmd, deps, globals }: RestartContext): Promise<ExitCode> {
+  const agent = cmd.agent ?? undefined;
+  const fresh = cmd.fresh ?? false;
+
   const result = await deps.runtime.restart({
-    agent: cmd.agent ?? undefined,
-    fresh: cmd.fresh ?? false,
+    agent,
+    fresh,
     stateRoot: globals.stateRoot ?? undefined,
   });
 
   if (result.instanceKey && typeof result.pid === 'number') {
-    deps.io.out(`Orchestrator restarted: ${result.instanceKey} (pid: ${result.pid})`);
+    const target = agent ? `agent "${agent}"` : 'Orchestrator';
+    const freshLabel = fresh ? ' (fresh, state cleared)' : '';
+    deps.io.out(`${target} restarted: ${result.instanceKey} (pid: ${result.pid})${freshLabel}`);
     return 0;
   }
 
-  deps.io.out(`Restart requested for: ${result.restarted.join(', ')}`);
+  const target = agent ? `agent "${agent}"` : result.restarted.join(', ');
+  const freshLabel = fresh ? ' (fresh, state cleared)' : '';
+  deps.io.out(`Restart requested for: ${target}${freshLabel}`);
   return 0;
 }

@@ -324,7 +324,26 @@ spec:
 - 필요에 따라 선택적으로 추가하세요
 - 장기 실행 Swarm은 메시지 정책 Extension 권장 (토큰 비용 절감)
 
-### 4.6 Telegram 연결 예시
+### 4.6 Watch 모드와 Self-modification
+
+**Watch 모드 (개발 시 권장):**
+```bash
+gdn run --watch   # 파일 변경 시 해당 에이전트만 자동 재시작
+```
+
+Watch 모드에서 Orchestrator는 `goondan.yaml` 및 리소스 파일의 변경을 감시하고, 영향받는 AgentProcess만 선택적으로 재시작합니다. 대화 히스토리는 유지됩니다.
+
+**Self-modification 시나리오:**
+에이전트가 `file-system` 도구로 자기 manifest를 수정하고, `bash` 도구로 `gdn validate`를 실행해 유효성을 확인하면, watch 모드가 변경을 감지하여 해당 에이전트 프로세스만 graceful restart합니다. 메시지 히스토리가 보존되어 에이전트는 "이전의 나"가 왜 수정했는지를 알 수 있습니다.
+
+**선택적 재시작 (`gdn restart`):**
+```bash
+gdn restart --agent coder    # 특정 에이전트만 재시작
+gdn restart --fresh           # 상태 초기화 후 전체 재시작
+gdn restart --agent coder --fresh  # 특정 에이전트 상태 초기화 후 재시작
+```
+
+### 4.7 Telegram 연결 예시
 
 `.env`:
 
@@ -495,23 +514,30 @@ gdn package install              # 패키지 설치
 ```bash
 gdn validate                # 설정 검증 (실행 전 필수)
 gdn run --foreground        # CLI로 대화하며 테스트
+gdn run --watch             # 파일 변경 시 해당 에이전트 자동 재시작
 gdn logs                    # 로그 확인
+gdn studio                  # Studio UI로 trace 기반 시각화 (127.0.0.1:4317)
 ```
 
 ### 6.3 배포/운영
 ```bash
 gdn run                     # 백그라운드 실행
 gdn instance list           # 실행 중인 인스턴스 확인
-gdn restart                 # 설정 변경 후 재시작
+gdn restart                 # 설정 변경 후 전체 재시작
+gdn restart --agent coder   # 특정 에이전트 프로세스만 재시작
+gdn restart --fresh         # 상태 초기화 후 재시작
 gdn instance restart <key>  # 특정 인스턴스만 재시작
 ```
 
 ### 6.4 문제 해결
 ```bash
-gdn instance list           # 현재 상태 확인
-gdn logs --lines 200        # 최근 로그 확인
-gdn validate                # 설정 검증
-gdn instance delete <key>   # 문제 있는 인스턴스 제거
+gdn instance list                  # 현재 상태 확인
+gdn logs --lines 200               # 최근 로그 확인
+gdn logs --agent coder             # 특정 에이전트 이벤트만 필터링
+gdn logs --trace <traceId>         # 특정 traceId의 이벤트 체인 추적
+gdn logs --agent coder --trace abc # 에이전트 + traceId 동시 필터링
+gdn validate                       # 설정 검증
+gdn instance delete <key>          # 문제 있는 인스턴스 제거
 ```
 
 ### 6.5 명령어 빠른 참조
@@ -522,37 +548,115 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 | `gdn package add` | 패키지 추가 | |
 | `gdn package install` | 패키지 설치 | |
 | `gdn validate` | 설정 검증 | `--format json` |
-| `gdn run` | 실행 | `--foreground`, `--swarm <name>` |
-| `gdn restart` | 재시작 | |
-| `gdn logs` | 로그 확인 | `--lines N`, `--instance-key <key>` |
+| `gdn run` | 실행 | `--foreground`, `--watch`, `--swarm <name>` |
+| `gdn restart` | 재시작 | `--agent <name>`, `--fresh` |
+| `gdn logs` | 로그 확인 | `--lines N`, `--agent <name>`, `--trace <traceId>` |
+| `gdn studio` | 시각화 UI | `--port <port>`, `--no-open` |
 | `gdn instance list` | 인스턴스 목록 | |
 | `gdn instance restart` | 인스턴스 재시작 | |
 | `gdn instance delete` | 인스턴스 제거 | `--force` |
 
 ---
 
-## 7. 더 깊게 볼 때 (문제별 진입 가이드)
+## 7. 테스트
 
-### 7.1 실행 실패 시
+### 7.1 테스트 구조
+
+Goondan은 **단위 테스트**와 **E2E 테스트**를 분리하여 관리한다.
+
+| 레벨 | 위치 | 실행 | 목적 |
+|-------|------|------|------|
+| 단위 테스트 | `packages/*/test/**/*.test.ts` | `pnpm -r test` | 개별 모듈/함수 단위 검증 |
+| E2E 테스트 | `packages/runtime/test/e2e/*.test.ts` | `pnpm --filter @goondan/runtime test:e2e` | Orchestrator + IPC + 멀티에이전트 통합 검증 |
+
+### 7.2 테스트 실행
+
+```bash
+# 전체 단위 테스트
+pnpm -r test
+
+# Runtime E2E 테스트
+pnpm --filter @goondan/runtime test:e2e
+```
+
+E2E 테스트는 `--testTimeout 60000`(60초)로 실행된다.
+
+### 7.3 E2E 테스트 구조
+
+E2E 테스트는 `FakeProcessSpawner`/`FakeChildProcess`를 통해 실제 프로세스를 띄우지 않고 Orchestrator의 IPC 라우팅, 크래시 격리, Graceful Shutdown 등을 검증한다.
+
+```
+packages/runtime/test/e2e/
+├── helpers.ts              # E2E 공통 유틸 (createE2EOrchestrator, 페이로드 생성 등)
+├── architecture.test.ts    # Process-per-Agent 아키텍처 (스폰, 크래시 격리, 백오프, Graceful Shutdown)
+├── observability.test.ts   # OTel TraceContext 전파, RuntimeEvent 발행
+├── inter-agent.test.ts     # IPC request/send/response, 순환 감지, auth 전파
+└── fixtures/               # 테스트 fixture (goondan.yaml, mock tool 등)
+```
+
+**3가지 테스트 카테고리:**
+
+| 카테고리 | 파일 | 검증 대상 |
+|----------|------|-----------|
+| Architecture | `architecture.test.ts` | 프로세스 스폰/크래시 격리/재스폰/백오프/Watch 재시작/Graceful Shutdown |
+| Observability | `observability.test.ts` | TraceContext 전파/traceId 유지/span 계층/RuntimeEvent 무결성 |
+| Inter-agent | `inter-agent.test.ts` | request-response/fire-and-forget/correlationId/순환 감지/auth 전파 |
+
+### 7.4 새 E2E 테스트 추가
+
+1. `packages/runtime/test/e2e/` 아래에 `*.test.ts` 파일 생성
+2. `helpers.ts`의 `createE2EOrchestrator()`로 Orchestrator 세트업
+3. `FakeChildProcess`의 IPC 이벤트를 주입/검증
+
+```typescript
+import { describe, expect, it } from "vitest";
+import { createE2EOrchestrator, spawnAllAgents } from "./helpers.js";
+
+describe("My E2E Test", () => {
+  it("should verify something", async () => {
+    const { orchestrator, spawner } = createE2EOrchestrator({
+      desiredAgents: ["agent-a", "agent-b"],
+    });
+
+    await spawnAllAgents(orchestrator, ["agent-a", "agent-b"]);
+
+    // FakeChildProcess에서 IPC 메시지 검증
+    const agentA = spawner.getProcess("agent-a");
+    expect(agentA).toBeDefined();
+  });
+});
+```
+
+---
+
+## 8. 더 깊게 볼 때 (문제별 진입 가이드)
+
+### 8.1 실행 실패 시
 - **`gdn run` 또는 `validate` 실패**: `docs/specs/resources.md` → 리소스 필드 정의 확인
 - **런타임 오류**: `docs/specs/runtime.md` → 런타임 동작 모델 이해
 - **CLI 명령어 상세**: `docs/specs/cli.md` → 전체 명령어 레퍼런스
 
-### 7.2 설계/의사결정 시
+### 8.2 설계/의사결정 시
 - **전체 아키텍처 이해**: `docs/architecture.md` → 시스템 개요, 핵심 개념, 설계 패턴
 - **리소스 간 관계**: `docs/specs/resources.md` → Kind별 스키마, ObjectRef, ValueSource
 - **실행 모델 이해**: `docs/specs/runtime.md` → Process-per-Agent, IPC, Reconciliation Loop
 
-### 7.3 확장 적용 시
+### 8.3 확장 적용 시
 - **Tool 개발**: `docs/specs/tool.md` → Tool 시스템 스펙, 더블 언더스코어 네이밍
 - **Extension 개발**: `docs/specs/extension.md` → ExtensionApi, 미들웨어 파이프라인
 - **Connector 개발**: `docs/specs/connector.md` → Connector 프로세스 모델
 - **Connection 설정**: `docs/specs/connection.md` → Ingress 라우팅, 서명 검증
 
-### 7.4 패키지 관리
+### 8.4 관측/디버깅
+- **Trace 추적 이해**: `docs/specs/shared-types.md` 5절 → OTel 호환 TraceContext, Span 계층 구조
+- **RuntimeEvent 확인**: `docs/specs/shared-types.md` 9절 → 9종 이벤트 계약
+- **Studio 시각화**: `gdn studio` → trace 기반 Graph/Flow 뷰로 에이전트 상호작용 관찰
+- **이벤트 필터링**: `gdn logs --agent <name> --trace <traceId>` → 에이전트별/trace별 이벤트 조회
+
+### 8.5 패키지 관리
 - **패키지 생성/배포**: `docs/specs/bundle_package.md` → Package 스펙, 레지스트리 API
 
-### 7.5 전체 문서 목록
+### 8.6 전체 문서 목록
 - `docs/architecture.md` - 아키텍처 개요
 - `docs/specs/cli.md` - CLI 도구 스펙
 - `docs/specs/resources.md` - 리소스 정의

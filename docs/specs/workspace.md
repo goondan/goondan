@@ -426,10 +426,12 @@ Runtime은 Turn/Step/Tool 실행 관측성 이벤트를 `runtime-events.jsonl`�
 
 **레코드 형식:**
 
+모든 레코드는 `RuntimeEventBase` 필드(`type`, `timestamp`, `agentName`, `instanceKey`, `traceId`, `spanId`, `parentSpanId?`)를 포함한다. 타입 계약의 SSOT는 `docs/specs/shared-types.md` 9절이다.
+
 ```jsonl
-{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
-{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
+{"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
+{"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
 ```
 
 **규칙:**
@@ -437,6 +439,8 @@ Runtime은 Turn/Step/Tool 실행 관측성 이벤트를 `runtime-events.jsonl`�
 1. `runtime-events.jsonl`은 관측성 로그이며 메시지 상태 계산(`Base + SUM(Events)`)에 포함되지 않아야 한다(MUST NOT).
 2. Runtime Event는 append-only로 기록해야 한다(MUST).
 3. Turn/Step/Tool 이벤트 타입은 런타임 이벤트 계약(`turn.*`, `step.*`, `tool.*`)을 따라야 한다(MUST).
+4. 모든 레코드에 `traceId`, `spanId`를 포함해야 한다(MUST). `parentSpanId`는 root span을 제외하고 포함한다(MUST).
+5. 모든 레코드에 `instanceKey`를 포함해야 한다(MUST).
 
 #### 7.3.4 Turn 종료 시 폴드-커밋
 

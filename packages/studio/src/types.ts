@@ -6,12 +6,44 @@ export interface InstanceSummary {
   updatedAt: string;
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface TraceSpan {
+  spanId: string;
+  parentSpanId?: string;
+  traceId: string;
+  type: string;
+  agentName: string;
+  instanceKey: string;
+  startedAt: string;
+  completedAt?: string;
+  duration?: number;
+  status: 'started' | 'completed' | 'failed';
+  children: TraceSpan[];
+  tokenUsage?: TokenUsage;
+  detail?: string;
+}
+
+export interface Trace {
+  traceId: string;
+  rootSpans: TraceSpan[];
+  agentNames: string[];
+  startedAt: string;
+  completedAt?: string;
+  totalDuration?: number;
+}
+
 export interface Visualization {
   instanceKey: string;
   participants: Participant[];
   interactions: Interaction[];
   timeline: TimelineEntry[];
   recentEvents: TimelineEntry[];
+  traces: Trace[];
 }
 
 export interface Participant {
@@ -51,4 +83,10 @@ export interface TimelineEntry {
     role: string;
     content: string;
   }>;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  instanceKey?: string;
+  duration?: number;
+  tokenUsage?: TokenUsage;
 }

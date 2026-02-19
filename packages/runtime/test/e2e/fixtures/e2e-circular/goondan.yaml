@@ -1,0 +1,75 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@test/e2e-circular"
+spec:
+  version: "0.0.1"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: test-model
+spec:
+  provider: anthropic
+  model: claude-haiku-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: agent-a
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    system: "Always delegate to agent-b using agents__request."
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: agent-b
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    system: "Always delegate to agent-c using agents__request."
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: agent-c
+spec:
+  modelConfig:
+    modelRef: "Model/test-model"
+  prompts:
+    system: "Always delegate to agent-a using agents__request."
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: circular-test
+spec:
+  entryAgent: "Agent/agent-a"
+  agents:
+    - ref: "Agent/agent-a"
+    - ref: "Agent/agent-b"
+    - ref: "Agent/agent-c"
+  policy:
+    maxStepsPerTurn: 5

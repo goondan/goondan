@@ -28,6 +28,20 @@ export interface ReconciliationResult {
   toRespawn: Array<{ agentName: string; instanceKey: string; backoffMs: number }>;
 }
 
+/**
+ * Tracks a pending request for correlationId-based response routing.
+ * When AgentA sends a request to AgentB via Orchestrator, we store:
+ * - from: the requester agent name (to route the response back)
+ * - fromInstanceKey: requester's instance key (for routing precision)
+ * - callChain: the chain of agents in this request path (for cycle detection)
+ */
+export interface PendingRequest {
+  readonly from: string;
+  readonly fromInstanceKey: string;
+  readonly correlationId: string;
+  readonly callChain: readonly string[];
+}
+
 export interface Orchestrator {
   readonly swarmName: string;
   readonly bundleDir: string;

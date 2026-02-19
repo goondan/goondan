@@ -1,10 +1,11 @@
-import type { IpcMessage, JsonValue, ProcessStatus, ShutdownReason } from "../types.js";
+import type { IpcMessage, JsonObject, ProcessStatus, ShutdownReason } from "../types.js";
 import { isJsonObject } from "../types.js";
 import type {
   AgentProcessHandle,
   ManagedChildProcess,
   Orchestrator,
   OrchestratorOptions,
+  PendingRequest,
   ReconciliationResult,
   ShutdownOptions,
 } from "./types.js";
@@ -47,6 +48,13 @@ export class OrchestratorImpl implements Orchestrator {
   private readonly clearTimeoutFn: (handle: NodeJS.Timeout) => void;
   private readonly setIntervalFn: (handler: () => void, timeoutMs: number) => NodeJS.Timeout;
   private readonly clearIntervalFn: (handle: NodeJS.Timeout) => void;
+
+  /**
+   * Pending inter-agent requests: correlationId -> PendingRequest.
+   * Used to route response events back to the correct requester
+   * and to detect circular call chains.
+   */
+  private readonly pendingRequests = new Map<string, PendingRequest>();
 
   private reconcileTimer: NodeJS.Timeout | null = null;
 
@@ -244,12 +252,73 @@ export class OrchestratorImpl implements Orchestrator {
       return;
     }
 
-    const target = message.to === "orchestrator" ? inferTargetFromPayload(message.payload) : message.to;
+    const payload = isJsonObject(message.payload) ? message.payload : undefined;
+    if (payload === undefined) {
+      return;
+    }
+
+    // --- Response routing (metadata.inReplyTo) ---
+    // If this is a response event, route it back to the original requester
+    const inReplyTo = extractInReplyTo(payload);
+    if (inReplyTo !== undefined) {
+      this.routeResponse(message, payload, inReplyTo);
+      return;
+    }
+
+    // --- Request routing ---
+    const replyTo = extractReplyTo(payload);
+    const target = this.resolveTarget(message, payload);
     if (target === undefined) {
       return;
     }
 
-    const instanceKey = inferInstanceKey(message.payload);
+    // If this is a request (has replyTo), register pending and check for cycles
+    if (replyTo !== undefined) {
+      const callChain = extractCallChain(payload);
+      const newCallChain = [...callChain, message.from];
+
+      // Circular call detection: if target is already in the call chain
+      if (newCallChain.includes(target)) {
+        this.sendErrorResponse(replyTo.target, replyTo.correlationId, message.from, {
+          code: "CIRCULAR_CALL_DETECTED",
+          message: `Circular call detected: ${[...newCallChain, target].join(" -> ")}`,
+          target,
+        });
+        return;
+      }
+
+      // Register pending request for response routing
+      const fromInstanceKey = inferInstanceKey(payload) === "default"
+        ? this.findInstanceKeyForAgent(message.from)
+        : "default";
+
+      this.pendingRequests.set(replyTo.correlationId, {
+        from: replyTo.target,
+        fromInstanceKey,
+        correlationId: replyTo.correlationId,
+        callChain: newCallChain,
+      });
+
+      // Inject call chain into payload for downstream cycle detection
+      const enrichedPayload: JsonObject = {
+        ...payload,
+        __callChain: newCallChain,
+      };
+
+      // Propagate auth field from the event
+      const instanceKey = typeof payload.instanceKey === "string" ? payload.instanceKey : "default";
+      const handle = this.spawn(target, instanceKey);
+      handle.send({
+        type: "event",
+        from: message.from,
+        to: target,
+        payload: enrichedPayload,
+      });
+      return;
+    }
+
+    // --- Fire-and-forget routing ---
+    const instanceKey = inferInstanceKey(payload);
     const handle = this.spawn(target, instanceKey);
 
     handle.send({
@@ -259,6 +328,127 @@ export class OrchestratorImpl implements Orchestrator {
       payload: message.payload,
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Response routing
+  // -------------------------------------------------------------------------
+
+  private routeResponse(message: IpcMessage, payload: JsonObject, inReplyTo: string): void {
+    const pending = this.pendingRequests.get(inReplyTo);
+
+    if (pending !== undefined) {
+      // Route to the original requester using pending request info
+      this.pendingRequests.delete(inReplyTo);
+      const requesterInstanceKey = this.findInstanceKeyForAgent(pending.from);
+      const handle = this.spawn(pending.from, requesterInstanceKey);
+
+      handle.send({
+        type: "event",
+        from: message.from,
+        to: pending.from,
+        payload,
+      });
+      return;
+    }
+
+    // Fallback: try to infer target from replyTo field if present
+    const replyTo = extractReplyTo(payload);
+    if (replyTo !== undefined) {
+      const instanceKey = inferInstanceKey(payload);
+      const handle = this.spawn(replyTo.target, instanceKey);
+      handle.send({
+        type: "event",
+        from: message.from,
+        to: replyTo.target,
+        payload,
+      });
+      return;
+    }
+
+    // Last resort: if message.to is not orchestrator, forward directly
+    if (message.to !== "orchestrator") {
+      const instanceKey = inferInstanceKey(payload);
+      const handle = this.spawn(message.to, instanceKey);
+      handle.send({
+        type: "event",
+        from: message.from,
+        to: message.to,
+        payload,
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Error response generation
+  // -------------------------------------------------------------------------
+
+  private sendErrorResponse(
+    requesterAgent: string,
+    correlationId: string,
+    from: string,
+    error: { code: string; message: string; target: string },
+  ): void {
+    const requesterInstanceKey = this.findInstanceKeyForAgent(requesterAgent);
+    const handle = this.agents.get(buildAgentKey(requesterAgent, requesterInstanceKey));
+
+    if (handle === undefined) {
+      return;
+    }
+
+    const errorPayload: JsonObject = {
+      id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "error_response",
+      source: { kind: "agent", name: from },
+      metadata: {
+        inReplyTo: correlationId,
+        errorCode: error.code,
+        errorMessage: error.message,
+      },
+      instanceKey: requesterInstanceKey,
+    };
+
+    handle.send({
+      type: "event",
+      from: "orchestrator",
+      to: requesterAgent,
+      payload: errorPayload,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Target resolution
+  // -------------------------------------------------------------------------
+
+  private resolveTarget(message: IpcMessage, payload: JsonObject): string | undefined {
+    // If message has explicit target (not orchestrator), use it
+    if (message.to !== "orchestrator") {
+      return message.to;
+    }
+
+    // For request events, target is derived from `to` field in the payload
+    // or from the replyTo.target if it's a request targeting a specific agent
+    const replyTo = extractReplyTo(payload);
+    if (replyTo !== undefined) {
+      // The target of the request is the `to` field of the message,
+      // but since to=orchestrator, we need to look at the payload.
+      // The request target is typically encoded differently.
+      // When AgentA sends a request, `to` is set to `orchestrator`
+      // and the actual target is in `payload.target` or derived from context.
+    }
+
+    // Try extracting from explicit target field in payload
+    if (typeof payload.target === "string") {
+      return payload.target;
+    }
+
+    // Try extracting from the `to` field redirect pattern
+    // When `to` is "orchestrator", the Orchestrator acts as a broker
+    return inferTargetFromPayload(payload);
+  }
+
+  // -------------------------------------------------------------------------
+  // Handle creation and process management
+  // -------------------------------------------------------------------------
 
   private createHandle(state: AgentRuntimeState): AgentProcessHandle {
     return {
@@ -470,6 +660,15 @@ export class OrchestratorImpl implements Orchestrator {
     return false;
   }
 
+  private findInstanceKeyForAgent(agentName: string): string {
+    for (const state of this.agentState.values()) {
+      if (state.agentName === agentName) {
+        return state.instanceKey;
+      }
+    }
+    return "default";
+  }
+
   private resetCrashTracking(state: AgentRuntimeState): void {
     state.consecutiveCrashes = 0;
     state.nextSpawnAllowedAt = undefined;
@@ -494,11 +693,57 @@ function buildAgentKey(agentName: string, instanceKey: string): string {
   return `${agentName}:${instanceKey}`;
 }
 
-function inferTargetFromPayload(payload: JsonValue): string | undefined {
-  if (!isJsonObject(payload)) {
+/**
+ * Extracts metadata.inReplyTo from the payload.
+ * If present, this event is a response to a prior request.
+ */
+function extractInReplyTo(payload: JsonObject): string | undefined {
+  const metadata = payload.metadata;
+  if (!isJsonObject(metadata)) {
     return undefined;
   }
 
+  const inReplyTo = metadata.inReplyTo;
+  return typeof inReplyTo === "string" ? inReplyTo : undefined;
+}
+
+/**
+ * Extracts the replyTo channel from the payload.
+ * If present, the target agent should send a response back.
+ */
+function extractReplyTo(payload: JsonObject): { target: string; correlationId: string } | undefined {
+  const replyTo = payload.replyTo;
+  if (!isJsonObject(replyTo)) {
+    return undefined;
+  }
+
+  if (typeof replyTo.target !== "string" || typeof replyTo.correlationId !== "string") {
+    return undefined;
+  }
+
+  return { target: replyTo.target, correlationId: replyTo.correlationId };
+}
+
+/**
+ * Extracts the call chain from the payload (__callChain field).
+ * Used for circular call detection.
+ */
+function extractCallChain(payload: JsonObject): string[] {
+  const chain = payload.__callChain;
+  if (!Array.isArray(chain)) {
+    return [];
+  }
+
+  const result: string[] = [];
+  for (const item of chain) {
+    if (typeof item === "string") {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function inferTargetFromPayload(payload: JsonObject): string | undefined {
   const replyTo = payload.replyTo;
   if (isJsonObject(replyTo) && typeof replyTo.target === "string") {
     return replyTo.target;
@@ -507,11 +752,7 @@ function inferTargetFromPayload(payload: JsonValue): string | undefined {
   return undefined;
 }
 
-function inferInstanceKey(payload: JsonValue): string {
-  if (!isJsonObject(payload)) {
-    return "default";
-  }
-
+function inferInstanceKey(payload: JsonObject): string {
   const value = payload.instanceKey;
   if (typeof value === "string" && value.length > 0) {
     return value;

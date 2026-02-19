@@ -54,6 +54,8 @@ export type LogStream = 'stdout' | 'stderr' | 'both';
 
 export interface LogReadRequest {
   instanceKey?: string;
+  agent?: string;
+  trace?: string;
   process: string;
   stream: LogStream;
   lines: number;
@@ -212,6 +214,43 @@ export interface StudioTimelineEntry {
     role: string;
     content: string;
   }>;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  instanceKey?: string;
+  duration?: number;
+  tokenUsage?: StudioTokenUsage;
+}
+
+export interface StudioTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface StudioTraceSpan {
+  spanId: string;
+  parentSpanId?: string;
+  traceId: string;
+  type: string;
+  agentName: string;
+  instanceKey: string;
+  startedAt: string;
+  completedAt?: string;
+  duration?: number;
+  status: 'started' | 'completed' | 'failed';
+  children: StudioTraceSpan[];
+  tokenUsage?: StudioTokenUsage;
+  detail?: string;
+}
+
+export interface StudioTrace {
+  traceId: string;
+  rootSpans: StudioTraceSpan[];
+  agentNames: string[];
+  startedAt: string;
+  completedAt?: string;
+  totalDuration?: number;
 }
 
 export interface StudioVisualization {
@@ -220,6 +259,7 @@ export interface StudioVisualization {
   interactions: StudioInteraction[];
   timeline: StudioTimelineEntry[];
   recentEvents: StudioTimelineEntry[];
+  traces: StudioTrace[];
 }
 
 export interface StudioInstancesRequest {

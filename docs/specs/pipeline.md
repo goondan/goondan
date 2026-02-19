@@ -227,31 +227,47 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
 
 `turn`/`step` 미들웨어는 `ctx.agents`를 통해 다른 Agent를 호출할 수 있다. 이 API는 기존 Tool API(`agents__request`, `agents__send`)와 동일한 라우팅/자동 스폰 규칙을 따르며, Orchestrator IPC 경로를 재사용한다.
 
-```typescript
-interface MiddlewareAgentsApi {
-  request(params: {
-    target: string;
-    input?: string;
-    instanceKey?: string;
-    timeoutMs?: number; // default: 15000
-    metadata?: JsonObject;
-  }): Promise<{ target: string; response: string }>;
+`MiddlewareAgentsApi`의 타입 정의는 `docs/specs/shared-types.md` 8.3절을 단일 기준으로 따른다. 여기서는 파이프라인 관점의 시맨틱스와 규칙만 정의한다.
 
-  send(params: {
-    target: string;
-    input?: string;
-    instanceKey?: string;
-    metadata?: JsonObject;
-  }): Promise<{ accepted: boolean }>;
-}
-```
+#### 4.4.1 `request` 블로킹 시맨틱스
 
-**규칙:**
+`ctx.agents.request()`는 **블로킹 호출**이다. 다음 규칙이 적용된다:
+
+1. **블로킹 범위**: `request()`는 현재 미들웨어의 실행을 블로킹한다(MUST). `turn` 미들웨어에서 호출하면 해당 turn 미들웨어 체인이 블로킹되고, `step` 미들웨어에서 호출하면 해당 step 미들웨어 체인이 블로킹된다. 블로킹은 `await` 시점에서 발생하며, 호출자 프로세스의 이벤트 루프 자체를 차단하지는 않는다.
+2. **Timeout 반환**: `timeoutMs` 내에 응답이 도착하지 않으면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
+   ```typescript
+   {
+     name: 'AgentRequestTimeoutError';
+     message: string;  // 예: "Agent request to 'agentB' timed out after 15000ms"
+     code: 'AGENT_REQUEST_TIMEOUT';
+     target: string;
+     timeoutMs: number;
+   }
+   ```
+3. **에러 반환**: 대상 에이전트가 존재하지 않거나, 순환 호출이 감지되거나, IPC 전달에 실패하면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
+   ```typescript
+   {
+     name: 'AgentRequestError';
+     message: string;
+     code: 'AGENT_NOT_FOUND' | 'CIRCULAR_CALL_DETECTED' | 'IPC_DELIVERY_FAILED';
+     target: string;
+   }
+   ```
+4. **기본 타임아웃**: `timeoutMs` 기본값은 15000ms이다(MUST).
+5. **순환 호출 감지**: Runtime은 `request`에 대해 순환 호출을 감지하고 즉시 예외를 반환해야 한다(MUST).
+
+#### 4.4.2 `send` 시맨틱스
+
+`ctx.agents.send()`는 **비블로킹 호출(fire-and-forget)**이다.
+
+1. `send()`는 Orchestrator에 이벤트 전달을 위임하고 즉시 `{ accepted: boolean }`을 반환한다(MUST).
+2. `accepted: true`는 이벤트가 Orchestrator에 수신되었음만 보장하며, 대상 에이전트의 처리 완료를 의미하지 않는다.
+3. 대상 에이전트가 존재하지 않아도 예외를 던지지 않는다(SHOULD NOT). `accepted: false`로 반환한다.
+
+#### 4.4.3 제공 범위 규칙
 
 1. `ctx.agents`는 `turn`/`step` 미들웨어에서만 제공되어야 한다(MUST).
-2. `toolCall` 미들웨어에서는 `ctx.agents`를 제공하지 않아야 한다(MUST NOT).
-3. `request` 기본 타임아웃은 15000ms여야 한다(MUST).
-4. Runtime은 `request`에 대해 순환 호출을 감지하고 오류를 반환해야 한다(MUST).
+2. `toolCall` 미들웨어에서는 `ctx.agents`를 제공하지 않아야 한다(MUST NOT). 사유: `toolCall` 미들웨어는 개별 도구 실행을 감싸는 동기적 래퍼 레이어로, 블로킹 인터-에이전트 호출이 이 레이어에서 발생하면 단일 도구 실행의 시맨틱스를 벗어나고, 도구 결과 타임아웃과 인터-에이전트 타임아웃이 중첩되어 예측 불가능한 실행 시간이 발생한다. 에이전트 간 통신은 도구 핸들러(`ToolContext.runtime`) 또는 `turn`/`step` 미들웨어에서 수행해야 한다.
 
 ### 4.5 ConversationState
 

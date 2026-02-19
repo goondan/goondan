@@ -10,7 +10,7 @@ import { handleInstanceInteractive } from './commands/instance-interactive.js';
 import type { InstanceInteractiveGlobals } from './commands/instance-interactive.js';
 import { handleStudio } from './commands/studio.js';
 import { handleLogs } from './commands/logs.js';
-import { handlePackageAdd, handlePackageInstall, handlePackagePublish } from './commands/package.js';
+import { handlePackageAdd, handlePackageInstall, handlePackagePublish, handlePackageUpdate } from './commands/package.js';
 import { handleRestart } from './commands/restart.js';
 import { handleRun } from './commands/run.js';
 import { handleValidate } from './commands/validate.js';
@@ -117,6 +117,8 @@ async function dispatchCommand(
       return handlePackageAdd({ cmd, deps, globals });
     case 'package.install':
       return handlePackageInstall({ cmd, deps, globals });
+    case 'package.update':
+      return handlePackageUpdate({ cmd, deps, globals });
     case 'package.publish':
       return handlePackagePublish({ cmd, deps, globals });
     case 'doctor':

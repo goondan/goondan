@@ -24,7 +24,7 @@
 - .claude/skills -> .agents/skills : 스킬 호환용 심볼릭 링크
 
 ### 구현 스펙 문서 (docs/specs/)
-- docs/specs/cli.md : **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/publish, doctor, studio)
+- docs/specs/cli.md : **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/update/publish, doctor, studio)
 - docs/specs/api.md : Runtime/SDK API 스펙 v0.0.3 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, `turn`/`step` 미들웨어 `ctx.agents` API, 통합 이벤트 모델, Runtime Events API 표면)
 - docs/specs/help.md : 스펙 운영 도움말 v0.0.3 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, 기본 레지스트리 `https://goondan-registry.yechanny.workers.dev`, package 도움말 기준, 문서 링크 자동 점검 체크리스트)
 - docs/specs/layers.md : 구성 계층 역할 개요 v0.0.3 (`runtime`, `types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)

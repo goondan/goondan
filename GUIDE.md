@@ -166,6 +166,7 @@ Package는 위 리소스들을 묶어 배포/실행 단위를 만드는 패키�
 ```bash
 gdn package add @goondan/base
 gdn package install
+gdn package update
 gdn validate
 gdn run --foreground
 ```
@@ -497,6 +498,7 @@ gdn init my-project            # 새 프로젝트 생성
 cd my-project
 gdn package add @goondan/base   # 기본 패키지 추가
 gdn package install              # 패키지 설치
+gdn package update               # 의존성 최신 버전 갱신
 ```
 
 ### 6.2 개발/테스트
@@ -530,6 +532,7 @@ gdn instance delete <key>   # 문제 있는 인스턴스 제거
 | `gdn init` | 프로젝트 생성 | `--template <name>` |
 | `gdn package add` | 패키지 추가 | |
 | `gdn package install` | 패키지 설치 | |
+| `gdn package update` | 패키지 최신화 | `--exact`, `--registry <url>` |
 | `gdn validate` | 설정 검증 | `--format json` |
 | `gdn run` | 실행 | `--foreground`, `--swarm <name>` |
 | `gdn restart` | 재시작 | |

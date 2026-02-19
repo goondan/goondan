@@ -12,6 +12,10 @@ import type {
   PackageInstallResult,
   PackagePublishRequest,
   PackagePublishResult,
+  PackageUpdateChange,
+  PackageUpdateRequest,
+  PackageUpdateResult,
+  PackageUpdateSkipped,
   PackageService,
   RegistryClient,
 } from '../types.js';
@@ -147,6 +151,93 @@ function updateDependenciesInPackageDoc(doc: string, entry: DependencyEntry): { 
   };
 }
 
+function updateDependencyVersionsInPackageDoc(
+  doc: string,
+  nextVersionsByName: Map<string, string>,
+): { doc: string; updatedNames: Set<string> } {
+  if (nextVersionsByName.size === 0) {
+    return {
+      doc,
+      updatedNames: new Set<string>(),
+    };
+  }
+
+  const lines = doc.split('\n');
+  let inSpec = false;
+  let inDependencies = false;
+  let currentDependencyName: string | undefined;
+  const updatedNames = new Set<string>();
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (typeof line !== 'string') {
+      continue;
+    }
+    const trimmed = line.trim();
+
+    if (trimmed === 'spec:') {
+      inSpec = true;
+      inDependencies = false;
+      currentDependencyName = undefined;
+      continue;
+    }
+
+    if (lineIsTopLevel(line)) {
+      inSpec = false;
+      inDependencies = false;
+      currentDependencyName = undefined;
+      continue;
+    }
+
+    if (!inSpec) {
+      continue;
+    }
+
+    if (trimmed === 'dependencies:') {
+      inDependencies = true;
+      currentDependencyName = undefined;
+      continue;
+    }
+
+    if (!inDependencies) {
+      continue;
+    }
+
+    if (!line.startsWith('    ') && trimmed.length > 0) {
+      inDependencies = false;
+      currentDependencyName = undefined;
+      continue;
+    }
+
+    if (trimmed.startsWith('- name:')) {
+      currentDependencyName = trimQuotes(trimmed.slice('- name:'.length).trim());
+      continue;
+    }
+
+    if (!currentDependencyName) {
+      continue;
+    }
+
+    if (trimmed.startsWith('version:')) {
+      const nextVersion = nextVersionsByName.get(currentDependencyName);
+      if (!nextVersion) {
+        continue;
+      }
+
+      const indentMatch = line.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1] : '';
+      lines[i] = `${indent}version: ${quoteYaml(nextVersion)}`;
+      updatedNames.add(currentDependencyName);
+      continue;
+    }
+  }
+
+  return {
+    doc: lines.join('\n'),
+    updatedNames,
+  };
+}
+
 function parsePackageManifest(packageDoc: string): PackageManifestMeta {
   const lines = packageDoc.split('\n');
 
@@ -242,6 +333,25 @@ function chooseDependencyVersion(requested: string | undefined, resolved: string
   }
 
   return `^${resolved}`;
+}
+
+function chooseUpdatedDependencyVersion(current: string, resolved: string, exact: boolean): string {
+  if (exact) {
+    return resolved;
+  }
+
+  const trimmed = current.trim();
+  if (trimmed.startsWith('^')) {
+    return `^${resolved}`;
+  }
+  if (trimmed.startsWith('~')) {
+    return `~${resolved}`;
+  }
+  if (trimmed.length === 0) {
+    return `^${resolved}`;
+  }
+
+  return resolved;
 }
 
 function serializeYamlDocuments(documents: string[]): string {
@@ -740,6 +850,89 @@ export class DefaultPackageService implements PackageService {
     return {
       installed: installedRecords.size,
       lockfilePath,
+    };
+  }
+
+  async updateDependencies(request: PackageUpdateRequest): Promise<PackageUpdateResult> {
+    const manifestPath = resolveManifestPath(this.cwd, request.bundlePath);
+    const manifestExists = await exists(manifestPath);
+    if (!manifestExists) {
+      throw configError(`Bundle 파일을 찾을 수 없습니다: ${manifestPath}`, 'goondan.yaml 경로를 확인하세요.');
+    }
+
+    const source = normalizeNewline(await readFile(manifestPath, 'utf8'));
+    const docs = splitYamlDocuments(source);
+    const firstDoc = docs[0];
+    if (docs.length === 0 || typeof firstDoc !== 'string' || !isPackageDoc(firstDoc)) {
+      throw configError('Package 문서를 찾을 수 없습니다.', 'goondan.yaml 첫 번째 문서에 kind: Package를 선언하세요.');
+    }
+
+    const manifest = parsePackageManifest(firstDoc);
+    const total = manifest.dependencies.length;
+    if (total === 0) {
+      return {
+        manifestPath,
+        total,
+        updated: 0,
+        changes: [],
+        skipped: [],
+      };
+    }
+
+    const stateRoot = resolveStateRoot(request.stateRoot, this.env);
+    const config = await readCliConfig(stateRoot);
+    const nextVersionsByName = new Map<string, string>();
+    const changes: PackageUpdateChange[] = [];
+    const skipped: PackageUpdateSkipped[] = [];
+
+    for (const dependency of manifest.dependencies) {
+      try {
+        const registryUrl = resolveRegistryUrl(request.registry, this.env, config, dependency.name);
+        const token = resolveRegistryToken(registryUrl, this.env, config);
+        const metadata = await this.registryClient.resolvePackage(dependency.name, registryUrl, token);
+        const nextVersion = chooseUpdatedDependencyVersion(dependency.version, metadata.latestVersion, request.exact);
+
+        if (nextVersion === dependency.version) {
+          continue;
+        }
+
+        nextVersionsByName.set(dependency.name, nextVersion);
+        changes.push({
+          name: dependency.name,
+          previousVersion: dependency.version,
+          nextVersion,
+          resolvedVersion: metadata.latestVersion,
+        });
+      } catch (error) {
+        skipped.push({
+          name: dependency.name,
+          version: dependency.version,
+          reason: readCommandError(error),
+        });
+      }
+    }
+
+    if (nextVersionsByName.size === 0) {
+      return {
+        manifestPath,
+        total,
+        updated: 0,
+        changes: [],
+        skipped,
+      };
+    }
+
+    const updatedPackageDoc = updateDependencyVersionsInPackageDoc(firstDoc, nextVersionsByName);
+    docs[0] = updatedPackageDoc.doc;
+    await writeFile(manifestPath, serializeYamlDocuments(docs), 'utf8');
+
+    const appliedChanges = changes.filter((change) => updatedPackageDoc.updatedNames.has(change.name));
+    return {
+      manifestPath,
+      total,
+      updated: appliedChanges.length,
+      changes: appliedChanges,
+      skipped,
     };
   }
 

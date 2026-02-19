@@ -13,7 +13,7 @@ import { handleValidate } from './commands/validate.js';
 import { handleInstanceList, handleInstanceDelete, handleInstanceRestart } from './commands/instance.js';
 import { handleInstanceInteractive } from './commands/instance-interactive.js';
 import type { InstanceInteractiveGlobals } from './commands/instance-interactive.js';
-import { handlePackageAdd, handlePackageInstall, handlePackagePublish } from './commands/package.js';
+import { handlePackageAdd, handlePackageInstall, handlePackagePublish, handlePackageUpdate } from './commands/package.js';
 import { handleDoctor } from './commands/doctor.js';
 import { handleLogs } from './commands/logs.js';
 import { handleStudio } from './commands/studio.js';
@@ -122,6 +122,9 @@ async function main(): Promise<void> {
         break;
       case 'package.install':
         exitCode = await handlePackageInstall({ cmd, deps, globals });
+        break;
+      case 'package.update':
+        exitCode = await handlePackageUpdate({ cmd, deps, globals });
         break;
       case 'package.publish':
         exitCode = await handlePackagePublish({ cmd, deps, globals });

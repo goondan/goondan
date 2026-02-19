@@ -56,7 +56,7 @@ gdn <command> [subcommand] [options]
 | `gdn validate` | Bundle 구성 검증 |
 | `gdn instance` | 인스턴스 관리 (list, restart, delete) |
 | `gdn logs` | 프로세스 로그 조회 |
-| `gdn package` | 패키지 관리 (add, install, publish) |
+| `gdn package` | 패키지 관리 (add, install, update, publish) |
 | `gdn doctor` | 환경 진단 및 문제 확인 |
 | `gdn studio` | Studio 서버 실행 및 인스턴스 상호작용 시각화 |
 
@@ -513,6 +513,7 @@ Package를 관리한다.
 |--------|------|
 | `gdn package add <ref>` | 의존성 추가 |
 | `gdn package install` | 의존성 설치 |
+| `gdn package update` | 의존성 최신 버전 갱신 |
 | `gdn package publish` | 패키지 발행 |
 
 `gdn package` 명령어 표면의 단일 기준은 `docs/specs/help.md` 5절을 따른다.
@@ -580,7 +581,34 @@ gdn package install
 gdn package install --frozen-lockfile
 ```
 
-### 8.4 gdn package publish
+### 8.4 gdn package update
+
+`goondan.yaml`의 Package 의존성을 레지스트리에서 resolve 가능한 최신 버전으로 갱신하고, 설치/lockfile 동기화까지 수행한다.
+
+**사용법:**
+
+```bash
+gdn package update [options]
+```
+
+**옵션:**
+
+| 옵션 | 단축 | 설명 | 기본값 |
+|------|------|------|--------|
+| `--exact` | `-E` | 범위 접두사(`^`, `~`)를 쓰지 않고 정확한 버전으로 갱신 | `false` |
+| `--registry <url>` | | 커스텀 레지스트리 | 설정 파일 기준 |
+
+**예시:**
+
+```bash
+# 의존성 최신 버전 갱신 + 설치
+gdn package update
+
+# 정확한 버전으로 고정 갱신
+gdn package update --exact
+```
+
+### 8.5 gdn package publish
 
 패키지를 레지스트리에 발행한다.
 

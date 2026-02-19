@@ -123,6 +123,15 @@ const packageInstallCommand = command(
   }),
 );
 
+const packageUpdateCommand = command(
+  'update',
+  object({
+    action: constant('package.update' as const),
+    exact: optional(option('-E', '--exact')),
+    registry: optional(option('--registry', string({ metavar: 'URL' }))),
+  }),
+);
+
 const packagePublishCommand = command(
   'publish',
   object({
@@ -135,7 +144,10 @@ const packagePublishCommand = command(
   }),
 );
 
-const packageCommand = command('package', or(packageAddCommand, packageInstallCommand, packagePublishCommand));
+const packageCommand = command(
+  'package',
+  or(packageAddCommand, packageInstallCommand, packageUpdateCommand, packagePublishCommand),
+);
 
 const doctorCommand = command(
   'doctor',

@@ -57,7 +57,7 @@ scripts/
 ## 구현 규칙
 
 1. 타입 단언(`as`, `as unknown as`) 없이 타입 가드와 명시 타입으로 구현합니다.
-2. 이 패키지는 `private: true`이며 npm에 배포하지 않습니다.
+2. npm 공개 배포 대상 패키지이므로 `package.json`의 `publishConfig.access = "public"`을 유지합니다.
 3. API 응답 타입은 `src/types.ts`에 정의하며 CLI 서비스의 응답 스키마와 동기화합니다.
 4. 컴포넌트는 함수형 + hooks 패턴으로 구현합니다.
 5. Graph 뷰의 레이아웃 캐시는 `structureKey`(participant/interaction ID 기반)로 관리하여 폴링 시 불필요한 재계산을 방지합니다.

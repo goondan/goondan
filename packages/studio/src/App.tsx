@@ -3,8 +3,10 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { useStudioData } from './hooks/useStudioData';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
+import type { ViewMode } from './components/TopBar';
 import GraphView from './components/GraphView';
 import FlowView from './components/FlowView';
+import LogsView from './components/LogsView';
 import Flyout from './components/Flyout';
 
 export default function App() {
@@ -17,7 +19,7 @@ export default function App() {
     interactions,
     pulseEvents,
   } = useStudioData();
-  const [mode, setMode] = useState<'graph' | 'flow'>('graph');
+  const [mode, setMode] = useState<ViewMode>('graph');
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
 
   const handleSelectInstance = useCallback(
@@ -36,6 +38,26 @@ export default function App() {
     setSelectedEdgeKey(null);
   }, []);
 
+  function renderView() {
+    switch (mode) {
+      case 'graph':
+        return (
+          <GraphView
+            instanceKey={viz?.instanceKey ?? null}
+            participants={participants}
+            interactions={interactions}
+            selectedEdgeKey={selectedEdgeKey}
+            pulseEvents={pulseEvents}
+            onEdgeClick={handleEdgeClick}
+          />
+        );
+      case 'flow':
+        return <FlowView viz={viz} />;
+      case 'logs':
+        return <LogsView viz={viz} />;
+    }
+  }
+
   return (
     <ReactFlowProvider>
       <div className="studio-shell">
@@ -52,20 +74,7 @@ export default function App() {
             mode={mode}
             onModeChange={setMode}
           />
-          <section className="visual-stage">
-            {mode === 'graph' ? (
-              <GraphView
-                instanceKey={viz?.instanceKey ?? null}
-                participants={participants}
-                interactions={interactions}
-                selectedEdgeKey={selectedEdgeKey}
-                pulseEvents={pulseEvents}
-                onEdgeClick={handleEdgeClick}
-              />
-            ) : (
-              <FlowView viz={viz} />
-            )}
-          </section>
+          <section className="visual-stage">{renderView()}</section>
         </main>
       </div>
       <Flyout

@@ -1,10 +1,20 @@
+import clsx from 'clsx';
+
+export type ViewMode = 'graph' | 'flow' | 'logs';
+
 interface TopBarProps {
   instanceKey?: string;
   participantCount: number;
   eventCount: number;
-  mode: 'graph' | 'flow';
-  onModeChange: (mode: 'graph' | 'flow') => void;
+  mode: ViewMode;
+  onModeChange: (mode: ViewMode) => void;
 }
+
+const MODES: { value: ViewMode; label: string }[] = [
+  { value: 'graph', label: 'Graph' },
+  { value: 'flow', label: 'Flow' },
+  { value: 'logs', label: 'Logs' },
+];
 
 export default function TopBar({
   instanceKey,
@@ -24,20 +34,16 @@ export default function TopBar({
         </p>
       </div>
       <div className="mode-toggle">
-        <button
-          type="button"
-          className={`mode-btn${mode === 'graph' ? ' is-active' : ''}`}
-          onClick={() => onModeChange('graph')}
-        >
-          Graph
-        </button>
-        <button
-          type="button"
-          className={`mode-btn${mode === 'flow' ? ' is-active' : ''}`}
-          onClick={() => onModeChange('flow')}
-        >
-          Flow
-        </button>
+        {MODES.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            className={clsx('mode-btn', mode === m.value && 'is-active')}
+            onClick={() => onModeChange(m.value)}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
     </header>
   );

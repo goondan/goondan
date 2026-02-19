@@ -1,12 +1,16 @@
 {
   "name": "@goondan/studio",
-  "version": "0.0.3-alpha14",
-  "private": true,
+  "version": "0.0.3-alpha15",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/embed.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",

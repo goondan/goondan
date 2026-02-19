@@ -31,13 +31,14 @@
 - 런타임/레지스트리/검증 계층과의 연동 인터페이스
 - `package publish` 시 `pnpm pack` 기반 tarball 생성 및 레지스트리 publish payload 구성
 - `package install` 시 tarball 다운로드/무결성 검증/압축 해제 및 lockfile 갱신
+- `package update` 시 Package 의존성의 최신 resolve 버전 갱신 및 설치/lockfile 동기화
 - CLI 단위 테스트(vitest)
 
 ## 파서 아키텍처 (Optique 기반)
 
 - **`@optique/core`** + **`@optique/run`** 패키지 사용 (type-safe combinatorial CLI parser)
 - `src/parser.ts`: Optique 파서 정의 + 타입 추론 (`gdnParser`, `GdnArgs`, `GdnCommand`)
-  - 13개 action discriminated union: `init`, `run`, `restart`, `validate`, `instance.list`, `instance.restart`, `instance.delete`, `package.add`, `package.install`, `package.publish`, `doctor`, `logs`, `studio`
+  - 14개 action discriminated union: `init`, `run`, `restart`, `validate`, `instance.list`, `instance.restart`, `instance.delete`, `package.add`, `package.install`, `package.update`, `package.publish`, `doctor`, `logs`, `studio`
   - `parseArgv(argv)`: 테스트용 래퍼 (no process.exit, `Result<GdnArgs>` 반환)
   - `formatParseError(result)`: 파싱 에러 메시지 변환
 - `src/bin.ts`: `run()` (from `@optique/run`) 사용 — `--help`, `--version`, completion, 에러 포맷 자동 처리

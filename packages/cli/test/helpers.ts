@@ -17,6 +17,8 @@ import type {
   PackageInstallResult,
   PackagePublishRequest,
   PackagePublishResult,
+  PackageUpdateRequest,
+  PackageUpdateResult,
   RuntimeRestartRequest,
   RuntimeRestartResult,
   RuntimeStartRequest,
@@ -41,6 +43,7 @@ export interface MockState {
   deleteRequests: DeleteInstanceRequest[];
   addRequests: PackageAddRequest[];
   installRequests: PackageInstallRequest[];
+  updateRequests: PackageUpdateRequest[];
   publishRequests: PackagePublishRequest[];
   studioListRequests: StudioInstancesRequest[];
   studioVisualizationRequests: StudioInstanceRequest[];
@@ -110,6 +113,7 @@ export interface MockOverrides {
   addResult?: PackageAddResult;
   installResult?: PackageInstallResult;
   publishResult?: PackagePublishResult;
+  updateResult?: PackageUpdateResult;
   doctorResult?: DoctorReport;
   logResult?: LogReadResult;
   initResult?: InitResult;
@@ -147,6 +151,7 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
     deleteRequests: [],
     addRequests: [],
     installRequests: [],
+    updateRequests: [],
     publishRequests: [],
     studioListRequests: [],
     studioVisualizationRequests: [],
@@ -222,6 +227,25 @@ export function createMockDeps(overrides?: MockOverrides): { deps: CliDependenci
           overrides?.installResult ?? {
             installed: 1,
             lockfilePath: '/tmp/project/goondan.lock.yaml',
+          }
+        );
+      }),
+      updateDependencies: vi.fn(async (request: PackageUpdateRequest): Promise<PackageUpdateResult> => {
+        state.updateRequests.push(request);
+        return (
+          overrides?.updateResult ?? {
+            manifestPath: '/tmp/project/goondan.yaml',
+            total: 1,
+            updated: 1,
+            changes: [
+              {
+                name: '@goondan/base',
+                previousVersion: '^1.0.0',
+                nextVersion: '^1.2.0',
+                resolvedVersion: '1.2.0',
+              },
+            ],
+            skipped: [],
           }
         );
       }),

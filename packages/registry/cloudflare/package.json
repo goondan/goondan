@@ -1,6 +1,6 @@
 {
   "name": "@goondan/registry-cloudflare",
-  "version": "0.0.3-alpha13",
+  "version": "0.0.3-alpha14",
   "private": true,
   "type": "module",
   "scripts": {

@@ -14,6 +14,7 @@ describe('package subcommands', () => {
     expect(state.addRequests[0].exact).toBe(true);
     expect(state.installRequests.length).toBe(1);
     expect(state.installRequests[0].frozenLockfile).toBe(false);
+    expect(state.updateRequests.length).toBe(0);
     expect(state.publishRequests.length).toBe(0);
   });
 
@@ -25,6 +26,23 @@ describe('package subcommands', () => {
     expect(code).toBe(0);
     expect(state.installRequests.length).toBe(1);
     expect(state.installRequests[0].frozenLockfile).toBe(true);
+    expect(state.addRequests.length).toBe(0);
+    expect(state.updateRequests.length).toBe(0);
+    expect(state.publishRequests.length).toBe(0);
+  });
+
+  it('package update 분기를 수행한다', async () => {
+    const { deps, state } = createMockDeps();
+
+    const code = await executeCli(['package', 'update', '--exact', '--registry', 'https://r.example'], deps);
+
+    expect(code).toBe(0);
+    expect(state.updateRequests.length).toBe(1);
+    expect(state.updateRequests[0].exact).toBe(true);
+    expect(state.updateRequests[0].registry).toBe('https://r.example');
+    expect(state.installRequests.length).toBe(1);
+    expect(state.installRequests[0].registry).toBe('https://r.example');
+    expect(state.installRequests[0].frozenLockfile).toBe(false);
     expect(state.addRequests.length).toBe(0);
     expect(state.publishRequests.length).toBe(0);
   });
@@ -40,5 +58,6 @@ describe('package subcommands', () => {
     expect(state.publishRequests[0].dryRun).toBe(true);
     expect(state.addRequests.length).toBe(0);
     expect(state.installRequests.length).toBe(0);
+    expect(state.updateRequests.length).toBe(0);
   });
 });

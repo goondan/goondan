@@ -44,6 +44,20 @@ describe('parseArgv', () => {
     }
   });
 
+  it('package update 명령 옵션을 파싱한다', () => {
+    const result = parseArgv(['package', 'update', '-E', '--registry', 'https://r.example']);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.value.command.action).toBe('package.update');
+      const cmd = result.value.command;
+      if (cmd.action === 'package.update') {
+        expect(cmd.exact).toBe(true);
+        expect(cmd.registry).toBe('https://r.example');
+      }
+    }
+  });
+
   it('logs 명령의 옵션을 파싱한다', () => {
     const result = parseArgv(['logs', '--instance-key', 'inst-1', '--process', 'orchestrator', '--stream', 'stderr', '--lines', '40']);
 

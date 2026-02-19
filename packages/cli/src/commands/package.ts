@@ -3,6 +3,7 @@ import type { GdnArgs, GdnCommand } from '../parser.js';
 
 type PackageAddCommand = Extract<GdnCommand, { action: 'package.add' }>;
 type PackageInstallCommand = Extract<GdnCommand, { action: 'package.install' }>;
+type PackageUpdateCommand = Extract<GdnCommand, { action: 'package.update' }>;
 type PackagePublishCommand = Extract<GdnCommand, { action: 'package.publish' }>;
 
 interface PackageAddContext {
@@ -19,6 +20,12 @@ interface PackageInstallContext {
 
 interface PackagePublishContext {
   cmd: PackagePublishCommand;
+  deps: CliDependencies;
+  globals: Omit<GdnArgs, 'command'>;
+}
+
+interface PackageUpdateContext {
+  cmd: PackageUpdateCommand;
   deps: CliDependencies;
   globals: Omit<GdnArgs, 'command'>;
 }
@@ -64,6 +71,47 @@ export async function handlePackageInstall({ cmd, deps, globals }: PackageInstal
   if (result.lockfilePath) {
     deps.io.out(`Lockfile: ${result.lockfilePath}`);
   }
+  return 0;
+}
+
+export async function handlePackageUpdate({ cmd, deps, globals }: PackageUpdateContext): Promise<ExitCode> {
+  const bundlePath = globals.config;
+  const registry = cmd.registry ?? undefined;
+
+  const updateResult = await deps.packages.updateDependencies({
+    exact: cmd.exact ?? false,
+    bundlePath,
+    registry,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
+
+  const installResult = await deps.packages.installDependencies({
+    frozenLockfile: false,
+    bundlePath,
+    registry,
+    stateRoot: globals.stateRoot ?? undefined,
+  });
+
+  deps.io.out(`Updated dependencies: ${updateResult.updated}/${updateResult.total}`);
+  deps.io.out(`Manifest: ${updateResult.manifestPath}`);
+  for (const change of updateResult.changes) {
+    deps.io.out(
+      `- ${change.name}: ${change.previousVersion} -> ${change.nextVersion} (resolved ${change.resolvedVersion})`,
+    );
+  }
+
+  if (updateResult.skipped.length > 0) {
+    deps.io.out(`Skipped dependencies: ${updateResult.skipped.length}`);
+    for (const skipped of updateResult.skipped) {
+      deps.io.out(`- ${skipped.name}@${skipped.version}: ${skipped.reason}`);
+    }
+  }
+
+  deps.io.out(`Installed dependencies: ${installResult.installed}`);
+  if (installResult.lockfilePath) {
+    deps.io.out(`Lockfile: ${installResult.lockfilePath}`);
+  }
+
   return 0;
 }
 

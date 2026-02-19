@@ -115,6 +115,7 @@
 |--------|------|
 | `gdn package add <ref>` | 의존성 추가 |
 | `gdn package install` | 의존성 설치 |
+| `gdn package update` | 의존성 최신 버전 갱신 |
 | `gdn package publish` | 패키지 발행 |
 
 ---

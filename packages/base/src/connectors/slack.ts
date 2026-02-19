@@ -5,6 +5,7 @@ import type { ConnectorContext, ConnectorEvent } from '../types.js';
 export interface SlackConnectorConfig {
   port?: number;
   webhookPath?: string;
+  messageMode?: 'mention' | 'all' | 'channel_and_threads';
 }
 
 export interface SlackRequestOptions {
@@ -72,6 +73,21 @@ function normalizeWebhookPath(value: unknown): string {
 function resolveSlackWebhookPath(config: Record<string, string>): string {
   return normalizeWebhookPath(config.SLACK_WEBHOOK_PATH);
 }
+
+function resolveMessageMode(config: Record<string, string>): 'mention' | 'all' | 'channel_and_threads' {
+  const mode = readString(config.SLACK_MESSAGE_MODE)?.toLowerCase();
+  if (mode === 'all') {
+    return 'all';
+  }
+  if (mode === 'channel_and_threads') {
+    return 'channel_and_threads';
+  }
+  if (mode === 'mention') {
+    return 'mention';
+  }
+  return 'all';
+}
+
 
 function parseRequestPath(requestPath: string | undefined): string {
   if (typeof requestPath !== 'string' || requestPath.length === 0) {
@@ -377,7 +393,10 @@ function composeMessageText(
   return `${text}\n${attachmentText}`;
 }
 
-function parseSlackEvent(body: unknown): ConnectorEvent | null {
+function parseSlackEvent(
+  body: unknown,
+  messageMode: 'mention' | 'all' | 'channel_and_threads' = 'all',
+): ConnectorEvent | null {
   if (!isRecord(body)) {
     return null;
   }
@@ -388,9 +407,20 @@ function parseSlackEvent(body: unknown): ConnectorEvent | null {
   }
 
   const eventType = readString(slackEvent.type);
-  if (!eventType || (eventType !== 'app_mention' && eventType !== 'message')) {
-    return null;
+
+  // Filter based on message mode
+  if (messageMode === 'mention') {
+    // Only app_mention events
+    if (eventType !== 'app_mention') {
+      return null;
+    }
+  } else if (messageMode === 'channel_and_threads') {
+    // Channel messages and thread messages
+    if (eventType !== 'app_mention' && eventType !== 'message') {
+      return null;
+    }
   }
+  // messageMode === 'all': accept both app_mention and message
 
   const eventRecords = collectSlackEventRecords(slackEvent);
   const subtype = pickFirstString(eventRecords, 'subtype');
@@ -503,7 +533,8 @@ export async function handleSlackRequest(
   }
 
   // Parse and emit event
-  const event = parseSlackEvent(body);
+  const messageMode = resolveMessageMode(ctx.config);
+  const event = parseSlackEvent(body, messageMode);
   if (!event) {
     return Response.json({ ok: true, ignored: true });
   }

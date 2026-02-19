@@ -121,6 +121,34 @@ export interface PackageInstallResult {
   lockfilePath?: string;
 }
 
+export interface PackageUpdateRequest {
+  exact: boolean;
+  bundlePath: string;
+  registry?: string;
+  stateRoot?: string;
+}
+
+export interface PackageUpdateChange {
+  name: string;
+  previousVersion: string;
+  nextVersion: string;
+  resolvedVersion: string;
+}
+
+export interface PackageUpdateSkipped {
+  name: string;
+  version: string;
+  reason: string;
+}
+
+export interface PackageUpdateResult {
+  manifestPath: string;
+  total: number;
+  updated: number;
+  changes: PackageUpdateChange[];
+  skipped: PackageUpdateSkipped[];
+}
+
 export interface PackagePublishRequest {
   path: string;
   tag: string;
@@ -291,6 +319,7 @@ export interface InstanceStore {
 export interface PackageService {
   addDependency(request: PackageAddRequest): Promise<PackageAddResult>;
   installDependencies(request: PackageInstallRequest): Promise<PackageInstallResult>;
+  updateDependencies(request: PackageUpdateRequest): Promise<PackageUpdateResult>;
   publishPackage(request: PackagePublishRequest): Promise<PackagePublishResult>;
 }
 

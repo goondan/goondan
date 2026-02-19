@@ -335,16 +335,85 @@ body::before {
 .flow-wrap {
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Sticky participant header */
+.flow-header {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-strong);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.flow-header-lane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  flex-shrink: 0;
+}
+
+.flow-header-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.flow-badge-agent {
+  background: var(--node-agent);
+  color: #1a1200;
+}
+
+.flow-badge-connector {
+  background: var(--node-connector);
+  color: #001a3a;
+}
+
+.flow-badge-tool {
+  background: var(--node-default);
+  color: #0b1326;
+}
+
+.flow-badge-user,
+.flow-badge-system,
+.flow-badge-unknown,
+.flow-badge-extension {
+  background: var(--node-default);
+  color: #0b1326;
+}
+
+.flow-header-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+/* Scrollable event body */
+.flow-body {
+  flex: 1;
   overflow: auto;
+  min-height: 0;
 }
 
 .flow-svg {
   display: block;
-}
-
-.flow-label {
-  fill: var(--muted);
-  font-size: 11px;
 }
 
 .flow-event {

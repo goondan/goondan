@@ -12,7 +12,7 @@
 - `src/config/bundle-loader.ts`: 로컬 번들 + 설치된 dependency 패키지(`~/.goondan/packages`) 리소스 병합 로딩 (manifest는 `dist/goondan.yaml` 우선, 경로 기준은 Package Root, 로컬 스캔 시 `dist/node_modules/.git` 제외)
 - `src/workspace/*`: `messages/base.jsonl`, `messages/events.jsonl`, `messages/runtime-events.jsonl`, extension state 저장소, FileInstanceManager(list/delete)
 - `src/orchestrator/*`: spawn/restart/reconcile/shutdown, process status, crash backoff, graceful shutdown ack 모델, desired state reconcile(누락 agent 자동 spawn/불필요 connector 정리), crashLoopBackOff 구조화 로그, AgentEventQueue(FIFO)
-- `src/runner/runtime-runner.ts`: watch/tool 신호 기반 self-restart 시 shutdown(Connector 종료) 이후 replacement runner 기동으로 포트 충돌을 회피, Extension `ctx.agents`를 기존 IPC 경로에 연결, request 순환 호출 감지, tool error를 code/suggestion/helpUrl 포함 텍스트로 LLM에 전달, RuntimeEvent를 인스턴스별 `runtime-events.jsonl`에 append-only 영속화, inbound user 메시지에 `metadata.__goondanInbound`를 기록해 발신자(agent/connector) 컨텍스트를 구조적으로 보존
+- `src/runner/runtime-runner.ts`: watch/tool 신호 기반 self-restart 시 shutdown(Connector 종료) 이후 replacement runner 기동으로 포트 충돌을 회피, Extension `ctx.agents`를 기존 IPC 경로에 연결, request 순환 호출 감지, tool error를 code/suggestion/helpUrl 포함 텍스트로 LLM에 전달, RuntimeEvent를 인스턴스별 `runtime-events.jsonl`에 append-only 영속화(`step.started.llmInputMessages` 포함), inbound user 메시지에 `metadata.__goondanInbound`를 기록해 발신자(agent/connector) 컨텍스트를 구조적으로 보존
 - `src/events/*`: Runtime 표준 이벤트 버스 인터페이스(`turn.*`, `step.*`, `tool.*` 계약)
 - `test/*`: Node 환경(vitest) 테스트
 

@@ -9,7 +9,10 @@ import type {
 import { fetchInstances, fetchVisualization } from '../api';
 
 function eventKey(e: TimelineEntry): string {
-  return [e.at, e.source, e.target ?? '', e.subtype, e.detail].join('|');
+  const llmMessagesKey = (e.llmInputMessages ?? [])
+    .map((item) => `${item.role}:${item.content}`)
+    .join('\n');
+  return [e.at, e.source, e.target ?? '', e.subtype, e.detail, llmMessagesKey].join('|');
 }
 
 /** participant 구조 핑거프린트 — id/kind/label 변경 시에만 갱신 */

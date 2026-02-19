@@ -9,6 +9,8 @@ export type RuntimeEventType =
   | "tool.completed"
   | "tool.failed";
 
+export const STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY = "runtime.llmInputMessages";
+
 export const RUNTIME_EVENT_TYPES: RuntimeEventType[] = [
   "turn.started",
   "turn.completed",
@@ -25,6 +27,11 @@ interface RuntimeEventBase {
   type: RuntimeEventType;
   timestamp: string;
   agentName: string;
+}
+
+export interface StepStartedLlmInputMessage {
+  role: string;
+  content: string;
 }
 
 export interface TurnStartedEvent extends RuntimeEventBase {
@@ -54,6 +61,7 @@ export interface StepStartedEvent extends RuntimeEventBase {
   stepId: string;
   stepIndex: number;
   turnId: string;
+  llmInputMessages?: StepStartedLlmInputMessage[];
 }
 
 export interface StepCompletedEvent extends RuntimeEventBase {

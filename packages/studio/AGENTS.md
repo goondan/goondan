@@ -9,6 +9,7 @@
 - Graph 모드: @xyflow/react(React Flow) + dagre 자동 레이아웃 기반 에이전트/커넥터 노드 그래프, 줌/팬/미니맵/컨트롤, 간선 클릭으로 이력 확인, 실시간 활성 애니메이션
 - Flow 모드: 참여자 레인 기반 시퀀스 다이어그램, Tool 호출 인라인 스텝 표시, 아크 화살표
 - Logs 모드: 참여자별 필터 칩 + 시간순 로그 리스트, kind 뱃지(MSG/EVT/LOG), sticky auto-scroll
+- Logs 모드: `step.started.llmInputMessages` payload를 인라인 패널로 렌더링해 LLM 호출 입력 메시지 목록을 확인
 - Flyout (오른쪽 드로어): 간선 이력(Edge History) 상세 조회, 스크림 오버레이
 - 1초 주기 폴링으로 인스턴스/시각화 데이터 실시간 반영
 - 빌드 시 Vite 결과물을 단일 HTML로 인라인(`scripts/embed.mjs`)하여 `packages/cli/src/studio/assets.ts`에 자동 생성

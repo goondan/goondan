@@ -25,6 +25,14 @@ function stripPrefix(id: string): string {
   return idx >= 0 ? id.slice(idx + 1) : id;
 }
 
+function summarizeRoleLabel(role: string): string {
+  if (role === 'user') return 'USER';
+  if (role === 'assistant') return 'ASSISTANT';
+  if (role === 'tool') return 'TOOL';
+  if (role === 'system') return 'SYSTEM';
+  return role.toUpperCase();
+}
+
 export default function LogsView({ viz }: LogsViewProps) {
   const participants = viz?.participants ?? [];
   const timeline = viz?.timeline ?? [];
@@ -107,20 +115,37 @@ export default function LogsView({ viz }: LogsViewProps) {
               key={i}
               className={clsx('log-row', `log-row-${entry.kind}`)}
             >
-              <span className="log-time">{formatTime(entry.at)}</span>
-              <span className={clsx('log-kind', `log-kind-${entry.kind}`)}>
-                {kindLabel(entry.kind)}
-              </span>
-              <span className="log-subtype">{entry.subtype}</span>
-              <span className="log-source">{stripPrefix(entry.source)}</span>
-              {entry.target && (
-                <>
-                  <span className="log-arrow">&rarr;</span>
-                  <span className="log-target">{stripPrefix(entry.target)}</span>
-                </>
-              )}
-              {entry.detail && (
-                <span className="log-detail">{entry.detail}</span>
+              <div className="log-main">
+                <span className="log-time">{formatTime(entry.at)}</span>
+                <span className={clsx('log-kind', `log-kind-${entry.kind}`)}>
+                  {kindLabel(entry.kind)}
+                </span>
+                <span className="log-subtype">{entry.subtype}</span>
+                <span className="log-source">{stripPrefix(entry.source)}</span>
+                {entry.target && (
+                  <>
+                    <span className="log-arrow">&rarr;</span>
+                    <span className="log-target">{stripPrefix(entry.target)}</span>
+                  </>
+                )}
+                {entry.detail && (
+                  <span className="log-detail">{entry.detail}</span>
+                )}
+              </div>
+              {entry.llmInputMessages && entry.llmInputMessages.length > 0 && (
+                <div className="log-llm-panel">
+                  <div className="log-llm-title">
+                    LLM input messages ({entry.llmInputMessages.length})
+                  </div>
+                  <ol className="log-llm-list">
+                    {entry.llmInputMessages.map((message, msgIndex) => (
+                      <li key={`${msgIndex}-${message.role}`} className="log-llm-item">
+                        <span className="log-llm-role">{summarizeRoleLabel(message.role)}</span>
+                        <pre className="log-llm-content">{message.content}</pre>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
               )}
             </div>
           ))

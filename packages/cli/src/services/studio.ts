@@ -467,7 +467,12 @@ function fromMessageToRoute(
 
 function runtimeEventRoute(
   event: Record<string, unknown>,
-): { from: string; to: string; detail: string } | undefined {
+): {
+  from: string;
+  to: string;
+  detail: string;
+  llmInputMessages?: Array<{ role: string; content: string }>;
+} | undefined {
   const type = event['type'];
   const agentName = event['agentName'];
   if (typeof type !== 'string' || typeof agentName !== 'string') {
@@ -475,6 +480,7 @@ function runtimeEventRoute(
   }
 
   const agentId = `agent:${agentName}`;
+  const llmInputMessages = parseLlmInputMessages(event['llmInputMessages']);
 
   if (type === 'tool.called') {
     const toolName = event['toolName'];
@@ -482,6 +488,7 @@ function runtimeEventRoute(
       from: agentId,
       to: `tool:${typeof toolName === 'string' ? toolName : 'unknown'}`,
       detail: typeof toolName === 'string' ? toolName : '',
+      llmInputMessages,
     };
   }
 
@@ -493,6 +500,7 @@ function runtimeEventRoute(
       from: `tool:${typeof toolName === 'string' ? toolName : 'unknown'}`,
       to: agentId,
       detail: `${typeof toolName === 'string' ? toolName : 'unknown'}${suffix}`,
+      llmInputMessages,
     };
   }
 
@@ -500,7 +508,31 @@ function runtimeEventRoute(
     from: agentId,
     to: 'system:runtime',
     detail: type,
+    llmInputMessages,
   };
+}
+
+function parseLlmInputMessages(
+  value: unknown,
+): Array<{ role: string; content: string }> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const messages: Array<{ role: string; content: string }> = [];
+  for (const item of value) {
+    if (!isObjectRecord(item)) {
+      continue;
+    }
+    const role = item['role'];
+    const content = item['content'];
+    if (typeof role !== 'string' || role.length === 0 || typeof content !== 'string') {
+      continue;
+    }
+    messages.push({ role, content });
+  }
+
+  return messages.length > 0 ? messages : undefined;
 }
 
 function parseConnectorLogLine(line: string, fallbackEpochMs: number): ConnectorLogEvent | undefined {
@@ -978,6 +1010,7 @@ export class DefaultStudioService implements StudioService {
             target: routed.to,
             subtype,
             detail: routed.detail,
+            llmInputMessages: routed.llmInputMessages,
           },
           sequence,
         );

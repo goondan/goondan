@@ -428,7 +428,7 @@ Runtime은 Turn/Step/Tool 실행 관측성 이벤트를 `runtime-events.jsonl`�
 
 ```jsonl
 {"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001"}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
 {"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001"}
 ```
 

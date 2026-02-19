@@ -798,26 +798,23 @@ export class DefaultStudioService implements StudioService {
     const timeline: TimelineEnvelope[] = [];
     let sequence = 0;
 
-    const defaultAgentId = 'agent:orchestrator';
-    registerParticipant(participants, defaultAgentId, 'orchestrator', 'agent', nowIso());
     registerParticipant(participants, `user:${request.instanceKey}`, 'user', 'user', nowIso(1));
 
-    const knownAgents = new Set<string>(['orchestrator']);
+    const knownAgents = new Set<string>();
 
     for (const location of instanceLocations) {
       const metadataPath = path.join(location.instancePath, 'metadata.json');
       const metadataRaw = await readTextFileIfExists(metadataPath);
       const metadataAgent = metadataRaw ? parseInstanceMetadataAgent(metadataRaw) : undefined;
-      if (metadataAgent) {
-        knownAgents.add(metadataAgent);
-        registerParticipant(
-          participants,
-          `agent:${metadataAgent}`,
-          metadataAgent,
-          'agent',
-          nowIso(sequence),
-        );
-      }
+      const resolvedAgent = metadataAgent ?? path.basename(location.instancePath);
+      knownAgents.add(resolvedAgent);
+      registerParticipant(
+        participants,
+        `agent:${resolvedAgent}`,
+        resolvedAgent,
+        'agent',
+        nowIso(sequence),
+      );
 
       const basePath = path.join(location.instancePath, 'messages', 'base.jsonl');
       const eventsPath = path.join(location.instancePath, 'messages', 'events.jsonl');
@@ -836,7 +833,7 @@ export class DefaultStudioService implements StudioService {
           continue;
         }
         const at = normalizeTimestamp(message.createdAt, baseFallbackMs + sequence);
-        const principalAgent = metadataAgent ?? 'orchestrator';
+        const principalAgent = resolvedAgent;
         const principalAgentId = `agent:${principalAgent}`;
         registerParticipant(participants, principalAgentId, principalAgent, 'agent', at);
         const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId, routeState);
@@ -888,7 +885,7 @@ export class DefaultStudioService implements StudioService {
             continue;
           }
           const at = normalizeTimestamp(message.createdAt, eventsFallbackMs + sequence);
-          const principalAgent = metadataAgent ?? 'orchestrator';
+          const principalAgent = resolvedAgent;
           const principalAgentId = `agent:${principalAgent}`;
           const routed = fromMessageToRoute(message, request.instanceKey, principalAgentId, routeState);
 
@@ -933,7 +930,7 @@ export class DefaultStudioService implements StudioService {
             at,
             kind: 'message',
             source: 'system:runtime',
-            target: metadataAgent ? `agent:${metadataAgent}` : defaultAgentId,
+            target: `agent:${resolvedAgent}`,
             subtype: `event.${eventType}`,
             detail: `message event: ${eventType}`,
           },
@@ -994,7 +991,7 @@ export class DefaultStudioService implements StudioService {
       request.instanceKey,
       includesWorkspaceFallback,
     );
-    const primaryAgent = knownAgents.values().next().value ?? 'orchestrator';
+    const primaryAgent = knownAgents.values().next().value ?? request.instanceKey;
     const primaryAgentId = `agent:${primaryAgent}`;
 
     for (const event of connectorEvents) {

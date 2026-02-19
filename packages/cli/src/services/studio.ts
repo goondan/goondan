@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
-import { STUDIO_CSS, STUDIO_HTML, STUDIO_JS } from '../studio/assets.js';
+import { STUDIO_HTML } from '../studio/assets.js';
 import type {
   InstanceStore,
   ListInstancesRequest,
@@ -1093,15 +1093,6 @@ export class DefaultStudioService implements StudioService {
       return;
     }
 
-    if (method === 'GET' && pathname === '/studio.css') {
-      writeText(res, 200, 'text/css; charset=utf-8', STUDIO_CSS);
-      return;
-    }
-
-    if (method === 'GET' && pathname === '/studio.js') {
-      writeText(res, 200, 'text/javascript; charset=utf-8', STUDIO_JS);
-      return;
-    }
 
     const segments = pathname
       .split('/')

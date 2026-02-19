@@ -1,9 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { InstanceSummary, Visualization, TimelineEntry } from '../types';
+import type {
+  InstanceSummary,
+  Visualization,
+  TimelineEntry,
+  Participant,
+  Interaction,
+} from '../types';
 import { fetchInstances, fetchVisualization } from '../api';
 
 function eventKey(e: TimelineEntry): string {
   return [e.at, e.source, e.target ?? '', e.subtype, e.detail].join('|');
+}
+
+/** participant 구조 핑거프린트 — id/kind/label 변경 시에만 갱신 */
+function participantFingerprint(list: Participant[]): string {
+  return list
+    .map((p) => `${p.id}:${p.kind}:${p.label}`)
+    .sort()
+    .join(',');
+}
+
+/** interaction 구조 핑거프린트 — key/total 변경 시에만 갱신 */
+function interactionFingerprint(list: Interaction[]): string {
+  return list
+    .map((i) => `${i.key}:${i.total}`)
+    .sort()
+    .join(',');
 }
 
 export function useStudioData() {
@@ -11,6 +33,12 @@ export function useStudioData() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [viz, setViz] = useState<Visualization | null>(null);
   const [pulseEvents, setPulseEvents] = useState<TimelineEntry[]>([]);
+
+  // 안정적 참조: 구조가 실제로 변경될 때만 setState 호출
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const participantFpRef = useRef('');
+  const interactionFpRef = useRef('');
 
   const seenKeys = useRef(new Set<string>());
   const keyQueue = useRef<string[]>([]);
@@ -21,7 +49,11 @@ export function useStudioData() {
     seenKeys.current.clear();
     keyQueue.current = [];
     hydrated.current = false;
+    participantFpRef.current = '';
+    interactionFpRef.current = '';
     setPulseEvents([]);
+    setParticipants([]);
+    setInteractions([]);
   }, []);
 
   // Instance polling
@@ -53,6 +85,10 @@ export function useStudioData() {
   useEffect(() => {
     if (!selectedKey) {
       setViz(null);
+      setParticipants([]);
+      setInteractions([]);
+      participantFpRef.current = '';
+      interactionFpRef.current = '';
       return;
     }
     let active = true;
@@ -63,6 +99,20 @@ export function useStudioData() {
         if (!active) return;
         setViz(data);
 
+        // 구조 핑거프린트 비교 — 변경 시에만 참조 갱신
+        const pFp = participantFingerprint(data.participants);
+        if (pFp !== participantFpRef.current) {
+          participantFpRef.current = pFp;
+          setParticipants(data.participants);
+        }
+
+        const iFp = interactionFingerprint(data.interactions);
+        if (iFp !== interactionFpRef.current) {
+          interactionFpRef.current = iFp;
+          setInteractions(data.interactions);
+        }
+
+        // Pulse event tracking
         const recent = data.recentEvents ?? [];
         if (!hydrated.current) {
           for (const e of recent) {
@@ -100,5 +150,13 @@ export function useStudioData() {
     };
   }, [selectedKey]);
 
-  return { instances, selectedKey, selectInstance, viz, pulseEvents };
+  return {
+    instances,
+    selectedKey,
+    selectInstance,
+    viz,
+    participants,
+    interactions,
+    pulseEvents,
+  };
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from 'react';
+import { memo, useMemo, useCallback } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -8,32 +8,36 @@ import {
 } from '@xyflow/react';
 import type { Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { Visualization, TimelineEntry } from '../types';
+import type { Participant, Interaction, TimelineEntry } from '../types';
 import { computeGraphLayout } from '../utils/layout';
 import ParticipantNode from './nodes/ParticipantNode';
 
 const nodeTypes = { participant: ParticipantNode };
 
 interface GraphViewProps {
-  viz: Visualization | null;
+  instanceKey: string | null;
+  participants: Participant[];
+  interactions: Interaction[];
   selectedEdgeKey: string | null;
   pulseEvents: TimelineEntry[];
   onEdgeClick: (edgeKey: string) => void;
 }
 
-export default function GraphView({
-  viz,
+export default memo(function GraphView({
+  instanceKey,
+  participants,
+  interactions,
   selectedEdgeKey,
   pulseEvents,
   onEdgeClick,
 }: GraphViewProps) {
-  const interactions = viz?.interactions ?? [];
-  const participants = viz?.participants ?? [];
-  const layoutCacheKey = useRef('');
-  const layoutCache = useRef<ReturnType<typeof computeGraphLayout> | null>(
-    null,
-  );
+  // participants/interactions는 useStudioData에서 구조 변경 시에만 갱신되는 안정적 참조
+  const layout = useMemo(() => {
+    if (participants.length === 0) return { nodes: [], edges: [] };
+    return computeGraphLayout(participants, interactions);
+  }, [participants, interactions]);
 
+  // pulseEvents는 새 이벤트 발생 시에만 갱신
   const { activeNodes, activeEdges } = useMemo(() => {
     const nodes = new Set<string>();
     const edges = new Set<string>();
@@ -54,30 +58,20 @@ export default function GraphView({
     return { activeNodes: nodes, activeEdges: edges };
   }, [pulseEvents, interactions]);
 
-  const { nodes, edges } = useMemo(() => {
-    if (!viz || participants.length === 0) {
-      return { nodes: [], edges: [] };
-    }
+  const nodes = useMemo(
+    () =>
+      layout.nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, isActive: activeNodes.has(n.id) },
+      })),
+    [layout.nodes, activeNodes],
+  );
 
-    const structureKey =
-      participants.map((p) => p.id).sort().join(',') +
-      '|' +
-      interactions.map((i) => i.key).sort().join(',');
-
-    if (structureKey !== layoutCacheKey.current || !layoutCache.current) {
-      layoutCacheKey.current = structureKey;
-      layoutCache.current = computeGraphLayout(participants, interactions);
-    }
-
-    const updatedNodes = layoutCache.current.nodes.map((n) => ({
-      ...n,
-      data: { ...n.data, isActive: activeNodes.has(n.id) },
-    }));
-
-    const updatedEdges: Edge[] = layoutCache.current.edges.map((e) => {
+  const edges = useMemo(() => {
+    const result: Edge[] = layout.edges.map((e) => {
       const isSelected = selectedEdgeKey === e.id;
       const isActive = activeEdges.has(e.id);
-      const result: Edge = {
+      const edge: Edge = {
         ...e,
         animated: isActive,
         style: {
@@ -95,11 +89,10 @@ export default function GraphView({
           fontWeight: 600,
         },
       };
-      return result;
+      return edge;
     });
-
-    return { nodes: updatedNodes, edges: updatedEdges };
-  }, [viz, participants, interactions, selectedEdgeKey, activeNodes, activeEdges]);
+    return result;
+  }, [layout.edges, selectedEdgeKey, activeEdges]);
 
   const handleEdgeClick = useCallback(
     (_event: React.MouseEvent, edge: Edge) => {
@@ -115,7 +108,7 @@ export default function GraphView({
   return (
     <div className="graph-wrap">
       <ReactFlow
-        key={viz?.instanceKey}
+        key={instanceKey}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -145,4 +138,4 @@ export default function GraphView({
       </ReactFlow>
     </div>
   );
-}
+});

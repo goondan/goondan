@@ -8,8 +8,15 @@ import FlowView from './components/FlowView';
 import Flyout from './components/Flyout';
 
 export default function App() {
-  const { instances, selectedKey, selectInstance, viz, pulseEvents } =
-    useStudioData();
+  const {
+    instances,
+    selectedKey,
+    selectInstance,
+    viz,
+    participants,
+    interactions,
+    pulseEvents,
+  } = useStudioData();
   const [mode, setMode] = useState<'graph' | 'flow'>('graph');
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
 
@@ -40,7 +47,7 @@ export default function App() {
         <main className="main-panel">
           <TopBar
             instanceKey={viz?.instanceKey}
-            participantCount={viz?.participants?.length ?? 0}
+            participantCount={participants.length}
             eventCount={viz?.timeline?.length ?? 0}
             mode={mode}
             onModeChange={setMode}
@@ -48,7 +55,9 @@ export default function App() {
           <section className="visual-stage">
             {mode === 'graph' ? (
               <GraphView
-                viz={viz}
+                instanceKey={viz?.instanceKey ?? null}
+                participants={participants}
+                interactions={interactions}
                 selectedEdgeKey={selectedEdgeKey}
                 pulseEvents={pulseEvents}
                 onEdgeClick={handleEdgeClick}

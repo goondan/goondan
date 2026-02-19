@@ -361,11 +361,8 @@ describe('DefaultStudioService', () => {
       const indexText = await indexRes.text();
       expect(indexRes.status).toBe(200);
       expect(indexText).toContain('Goondan Studio');
-
-      const cssRes = await fetch(`${server.url}/studio.css`);
-      const cssText = await cssRes.text();
-      expect(cssRes.status).toBe(200);
-      expect(cssText).toContain('--bg-0');
+      // CSS is now inlined in the HTML (React SPA single-file embed)
+      expect(indexText).toContain('<style>');
 
       const instancesRes = await fetch(`${server.url}/api/instances`);
       const instancesPayload = (await instancesRes.json()) as { items?: Array<{ key: string }> };

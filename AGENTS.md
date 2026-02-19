@@ -27,7 +27,7 @@
 - docs/specs/cli.md : **[v0.0.3]** CLI 도구(gdn) 스펙 (설계 동기 보강, run: Orchestrator 상주 프로세스, restart: active Orchestrator 재기동, validate, instance list/restart/delete, package add/install/update/publish, doctor, studio)
 - docs/specs/api.md : Runtime/SDK API 스펙 v0.0.3 (ExtensionApi, ToolHandler/ToolContext, ConnectorContext, ConnectionSpec, Orchestrator/AgentProcess/IPC API, `turn`/`step` 미들웨어 `ctx.agents` API, 통합 이벤트 모델, Runtime Events API 표면)
 - docs/specs/help.md : 스펙 운영 도움말 v0.0.3 (문서 소유권 매트릭스, 공통 계약, 레지스트리 설정 우선순위, 기본 레지스트리 `https://goondan-registry.yechanny.workers.dev`, package 도움말 기준, 문서 링크 자동 점검 체크리스트)
-- docs/specs/layers.md : 구성 계층 역할 개요 v0.0.3 (`runtime`, `types`, `base`, `cli`, `registry`의 추상 역할, 관계 모델, 책임 경계)
+- docs/specs/layers.md : 구성 계층 역할 개요 v0.0.3 (`runtime`, `types`, `base`, `cli`, `studio`, `registry`의 추상 역할, 관계 모델, 책임 경계)
 - docs/specs/shared-types.md : 공통 타입 스펙 v0.0.3 (Json/ObjectRef/ValueSource/MessageEvent/AgentEvent/**EventEnvelope/ExecutionContext**/ProcessStatus/IpcMessage/TurnResult/ToolCallResult SSOT)
 - docs/specs/resources.md : Config Plane 리소스 정의 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, apiVersion: goondan.ai/v1, 8종 Kind, ObjectRef, Selector+Overrides, ValueSource, Kind별 스키마, **SwarmPolicy.shutdown**, 검증 오류 형식)
 - docs/specs/bundle.md : Bundle YAML 스펙 v0.0.3 (설계 철학/핵심 규칙 통합, goondan.yaml 구조, 8종 Kind, 로딩/검증 규칙, **Config 참조 모델(ObjectRef/Selector/ValueSource) 사용 문맥**, YAML 보안, 분할 파일 구성)
@@ -52,6 +52,7 @@
 - packages/base/src/* : 기본 Extension/Connector/Tool 묶음 (`wait` Tool: seconds(지정 초 대기), `self-restart` Tool: request(restart signal), `telegram` Tool: send/edit/delete/react/setChatAction/downloadFile + parseMode, `slack` Tool: send/read/edit/delete/react/downloadFile, Tool manifest의 속성별 description + `additionalProperties: false` 스키마 유지, `slack` Connector: webhook port/path 설정 + 첨부 image/file 참조 텍스트 보강 지원, `telegram-polling` bot-origin self-feedback 필터 + photo/image document file_id 메타 전달 포함, `message-window`/`message-compaction`의 tool-call/tool-result 정합성 보정)
 - packages/base/goondan.yaml : `@goondan/base` Package 매니페스트 (로컬 의존성/검증용 메타데이터)
 - packages/base/build-manifest.mjs : `dist/goondan.yaml` 생성 스크립트 (`files: ["dist"]` 배포 대응, Package name/version은 `packages/base/goondan.yaml` 기준)
+- packages/studio/src/* : Studio 웹 UI (React + Vite SPA, 빌드 시 단일 HTML로 인라인하여 CLI의 `src/studio/assets.ts`에 자동 생성, Graph/Flow 시각화 + 오른쪽 Flyout 드로어)
 - packages/registry/src/* : 패키지 레지스트리 API 서버/클라이언트 구현 (HTTP + 파일시스템 저장소 기본 구현)
 - samples/* : 에이전트 샘플 모음
   - brain-persona: 단일 인격체 멀티 전문 에이전트 샘플 (coordinator + 동적 인스턴스 spawn + Telegram polling + Slack webhook + Tool 기반 채널 출력 + self-restart signal)

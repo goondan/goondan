@@ -4019,11 +4019,16 @@ async function startConnector(
   runtime: RuntimeEngineState,
 ): Promise<RunningConnector> {
   const logger = createConnectorLogger(plan);
+  const pipeStdin = process.stdin.readable;
   const child = fork(connectorChildRunnerPath(), [], {
     cwd: path.dirname(plan.connectorEntryPath),
     env: process.env,
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    stdio: [pipeStdin ? 'pipe' : 'ignore', 'inherit', 'inherit', 'ipc'],
   });
+
+  if (pipeStdin && child.stdin) {
+    process.stdin.pipe(child.stdin);
+  }
 
   if (!child.pid || child.pid <= 0) {
     throw new Error(`Connector/${plan.connectorName} child process를 시작하지 못했습니다.`);
@@ -4099,10 +4104,19 @@ async function startConnector(
     rejectExit?.(error);
   };
 
+  const inflightEvents: Promise<void>[] = [];
+
   const onMessage = (message: unknown): void => {
     if (isConnectorChildEventMessage(message)) {
-      void handleConnectorEvent(runtime, runnerPlan, plan, message.event).catch((error) => {
+      const handling = handleConnectorEvent(runtime, runnerPlan, plan, message.event).catch((error) => {
         logger.warn(`event handling failed: ${unknownToErrorMessage(error)}`);
+      });
+      inflightEvents.push(handling);
+      void handling.finally(() => {
+        const idx = inflightEvents.indexOf(handling);
+        if (idx >= 0) {
+          inflightEvents.splice(idx, 1);
+        }
       });
       return;
     }
@@ -4139,7 +4153,10 @@ async function startConnector(
     }
 
     if (code === 0) {
-      settleExitFailure(new Error(`Connector/${plan.connectorName} (connection=${plan.connectionName})가 예기치 않게 종료되었습니다.`));
+      // Connector exited cleanly (e.g., CLI stdin EOF). Wait for in-flight event handling before settling.
+      void Promise.allSettled(inflightEvents).then(() => {
+        settleExitSuccess();
+      });
       return;
     }
 

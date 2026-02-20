@@ -31,6 +31,8 @@
 - 모든 RuntimeEvent emit에 TraceContext(traceId/spanId/parentSpanId)와 instanceKey를 포함한다.
 - 인터-에이전트 호출 시 traceId는 유지하고 spanId만 새로 생성한다.
 - 공개 API는 루트 export 경계에서 관리한다.
+- Connector child 프로세스의 stdin은 Orchestrator의 stdin이 읽기 가능할 때(foreground 모드) `pipe`로 전달하고, 불가할 때(detached 모드) `ignore`로 설정한다.
+- Connector child가 exit code 0으로 종료하면(startup 이후) in-flight 이벤트 처리를 기다린 뒤 정상 종료로 간주한다.
 
 ## 참조
 

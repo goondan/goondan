@@ -6,7 +6,7 @@ spec:
   version: "0.1.0"
   dependencies:
     - name: "@goondan/base"
-      version: "^0.0.3-alpha17"
+      version: "0.0.3-alpha17"
 ---
 apiVersion: goondan.ai/v1
 kind: Model
@@ -38,6 +38,27 @@ spec:
   entry: "./extensions/context-injector.mjs"
 ---
 apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: worker-lifecycle
+spec:
+  entry: "./extensions/worker-lifecycle.mjs"
+---
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: idle-monitor
+spec:
+  entry: "./extensions/idle-monitor.mjs"
+---
+apiVersion: goondan.ai/v1
+kind: Extension
+metadata:
+  name: date-helper
+spec:
+  entry: "./extensions/date-helper.mjs"
+---
+apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
   name: coordinator
@@ -56,6 +77,7 @@ spec:
         name: message-compaction
         package: "@goondan/base"
     - ref: "Extension/context-injector"
+    - ref: "Extension/idle-monitor"
   requiredTools:
     - "telegram__send"
     - "slack__send"
@@ -72,6 +94,10 @@ spec:
         kind: Tool
         name: slack
         package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: wait
+        package: "@goondan/base"
     # watch 모드(--watch) 사용 시 불필요 — manifest 변경을 자동 감지하여 해당 에이전트만 restart
     - ref:
         kind: Tool
@@ -81,37 +107,19 @@ spec:
 apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
-  name: researcher
+  name: worker
 spec:
   modelConfig:
     modelRef: "Model/default-model"
   prompts:
-    systemRef: "./prompts/researcher.system.md"
+    systemRef: "./prompts/worker.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
         package: "@goondan/base"
-  tools:
-    - ref:
-        kind: Tool
-        name: agents
-        package: "@goondan/base"
----
-apiVersion: goondan.ai/v1
-kind: Agent
-metadata:
-  name: builder
-spec:
-  modelConfig:
-    modelRef: "Model/default-model"
-  prompts:
-    systemRef: "./prompts/builder.system.md"
-  extensions:
-    - ref:
-        kind: Extension
-        name: message-window
-        package: "@goondan/base"
+    - ref: "Extension/worker-lifecycle"
+    - ref: "Extension/date-helper"
   tools:
     - ref:
         kind: Tool
@@ -125,16 +133,28 @@ spec:
         kind: Tool
         name: file-system
         package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: http-fetch
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: json-query
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: text-transform
+        package: "@goondan/base"
 ---
 apiVersion: goondan.ai/v1
 kind: Agent
 metadata:
-  name: reviewer
+  name: unconscious
 spec:
   modelConfig:
-    modelRef: "Model/default-model"
+    modelRef: "Model/fast-model"
   prompts:
-    systemRef: "./prompts/reviewer.system.md"
+    systemRef: "./prompts/unconscious.system.md"
   extensions:
     - ref:
         kind: Extension
@@ -145,6 +165,94 @@ spec:
         kind: Tool
         name: agents
         package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: bash
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: observer
+spec:
+  modelConfig:
+    modelRef: "Model/fast-model"
+  prompts:
+    systemRef: "./prompts/observer.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: reflection
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemRef: "./prompts/reflection.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: bash
+        package: "@goondan/base"
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: dream
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemRef: "./prompts/dream.system.md"
+  extensions:
+    - ref:
+        kind: Extension
+        name: message-window
+        package: "@goondan/base"
+  tools:
+    - ref:
+        kind: Tool
+        name: agents
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: file-system
+        package: "@goondan/base"
+    - ref:
+        kind: Tool
+        name: bash
+        package: "@goondan/base"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -154,11 +262,11 @@ spec:
   entryAgent: "Agent/coordinator"
   agents:
     - ref: "Agent/coordinator"
-    - ref: "Agent/researcher"
-    - ref: "Agent/builder"
-    - ref: "Agent/reviewer"
-  policy:
-    maxStepsPerTurn: 24
+    - ref: "Agent/worker"
+    - ref: "Agent/unconscious"
+    - ref: "Agent/observer"
+    - ref: "Agent/reflection"
+    - ref: "Agent/dream"
 ---
 apiVersion: goondan.ai/v1
 kind: Connection
@@ -193,7 +301,7 @@ spec:
   swarmRef: "Swarm/brain"
   config:
     SLACK_WEBHOOK_PORT:
-      value: "8787"
+      value: "3102"
   ingress:
     rules:
       - match:
@@ -204,3 +312,21 @@ spec:
           event: app_mention
         route:
           instanceKey: "brain-persona-shared"
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: cli-to-brain
+spec:
+  connectorRef:
+    kind: Connector
+    name: cli
+    package: "@goondan/base"
+  swarmRef: "Swarm/brain"
+  ingress:
+    rules:
+      - match:
+          event: stdin_message
+        route:
+          agentRef: "Agent/coordinator"
+          instanceKey: "cli-test"

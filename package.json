@@ -14,7 +14,7 @@
     "build:cli": "pnpm --filter @goondan/cli build",
     "build:base": "pnpm --filter @goondan/base build",
     "build:studio": "pnpm --filter @goondan/studio build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --filter='@goondan/*' test",
     "test:runtime": "pnpm --filter @goondan/runtime test",
     "test:types": "pnpm --filter @goondan/types test",
     "test:registry": "pnpm --filter @goondan/registry test",
@@ -36,7 +36,11 @@
     "deploy:cli": "pnpm --filter @goondan/studio build && pnpm --filter @goondan/cli build && pnpm --filter @goondan/cli publish --access public",
     "deploy:studio": "pnpm --filter @goondan/studio publish --access public",
     "gdn": "node ./packages/cli/dist/bin.js",
-    "validate": "pnpm gdn validate"
+    "validate": "pnpm gdn validate",
+    "e2e": "pnpm --filter e2e test",
+    "e2e:anthropic": "EVAL_PROVIDER=anthropic pnpm --filter e2e test",
+    "e2e:openai": "EVAL_PROVIDER=openai pnpm --filter e2e test",
+    "e2e:google": "EVAL_PROVIDER=google pnpm --filter e2e test"
   },
   "devDependencies": {
     "@types/node": "^22.19.7",

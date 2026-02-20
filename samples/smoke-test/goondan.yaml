@@ -1,0 +1,58 @@
+apiVersion: goondan.ai/v1
+kind: Package
+metadata:
+  name: "@samples/smoke-test"
+spec:
+  version: "0.1.0"
+  dependencies:
+    - name: "@goondan/base"
+      version: "^0.0.3-alpha17"
+---
+apiVersion: goondan.ai/v1
+kind: Model
+metadata:
+  name: default-model
+spec:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  apiKey:
+    valueFrom:
+      env: ANTHROPIC_API_KEY
+---
+apiVersion: goondan.ai/v1
+kind: Agent
+metadata:
+  name: assistant
+spec:
+  modelConfig:
+    modelRef: "Model/default-model"
+  prompts:
+    systemPrompt: "You are a helpful assistant. Reply concisely in one sentence."
+---
+apiVersion: goondan.ai/v1
+kind: Swarm
+metadata:
+  name: smoke
+spec:
+  entryAgent: "Agent/assistant"
+  agents:
+    - ref: "Agent/assistant"
+  policy:
+    maxStepsPerTurn: 4
+---
+apiVersion: goondan.ai/v1
+kind: Connection
+metadata:
+  name: cli-to-smoke
+spec:
+  connectorRef:
+    kind: Connector
+    name: cli
+    package: "@goondan/base"
+  swarmRef: "Swarm/smoke"
+  ingress:
+    rules:
+      - match:
+          event: stdin_message
+        route:
+          instanceKey: "smoke-test"

@@ -194,7 +194,6 @@ interface AgentRuntimePlan {
   maxTokens: number;
   temperature: number;
   maxSteps: number;
-  requiredToolNames: string[];
   toolCatalog: ToolCatalogItem[];
   extensionResources: RuntimeResource<RuntimeExtensionSpec>[];
 }
@@ -1714,27 +1713,6 @@ function toExtensionResource(resource: RuntimeResource): RuntimeResource<Runtime
   };
 }
 
-function parseAgentRequiredTools(agent: RuntimeResource): string[] {
-  const spec = readSpecRecord(agent);
-  const requiredToolsValue = spec.requiredTools;
-  if (requiredToolsValue === undefined) {
-    return [];
-  }
-
-  if (!Array.isArray(requiredToolsValue)) {
-    throw new Error(`Agent/${agent.metadata.name} spec.requiredTools 형식이 올바르지 않습니다.`);
-  }
-
-  const names: string[] = [];
-  for (const value of requiredToolsValue) {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`Agent/${agent.metadata.name} spec.requiredTools에는 비어있지 않은 문자열만 허용됩니다.`);
-    }
-    names.push(value.trim());
-  }
-
-  return [...new Set(names)];
-}
 
 async function registerToolResource(
   resource: RuntimeResource,
@@ -2188,7 +2166,6 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     const modelParams = parseAgentModelParams(agentResource);
     const toolRefs = parseAgentToolRefs(agentResource);
     const extensionRefs = parseAgentExtensionRefs(agentResource);
-    const requiredToolNames = parseAgentRequiredTools(agentResource);
 
     const agentToolCatalog: ToolCatalogItem[] = [];
     for (const toolRef of toolRefs) {
@@ -2245,19 +2222,9 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       maxTokens: modelParams.maxTokens,
       temperature: modelParams.temperature,
       maxSteps: maxStepsPerTurn,
-      requiredToolNames,
       toolCatalog: agentToolCatalog,
       extensionResources,
     };
-
-    for (const requiredToolName of requiredToolNames) {
-      const existsInCatalog = agentToolCatalog.some((item) => item.name === requiredToolName);
-      if (!existsInCatalog) {
-        throw new Error(
-          `Agent/${agentResource.metadata.name} spec.requiredTools(${requiredToolName})가 toolCatalog에 없습니다.`,
-        );
-      }
-    }
 
     agentPlans.set(agentResource.metadata.name, plan);
   }
@@ -3405,11 +3372,6 @@ async function runAgentTurn(input: {
   let finalResponseText = '응답 텍스트를 생성하지 못했습니다.';
   let restartRequested = false;
   let restartReason: string | undefined;
-  const calledToolNames = new Set<string>();
-  const requiredToolNames = input.plan.requiredToolNames;
-  const enforceRequiredTools = requiredToolNames.length > 0;
-  const hasSatisfiedRequiredTools = (): boolean =>
-    requiredToolNames.length === 0 || requiredToolNames.some((name) => calledToolNames.has(name));
   const agentRuntime = createAgentToolRuntime({
     runtime: input.runtime,
     runnerPlan: input.runnerPlan,
@@ -3460,8 +3422,6 @@ async function runAgentTurn(input: {
         if (step >= input.plan.maxSteps) {
           const responseText = buildStepLimitResponse({
             maxSteps: input.plan.maxSteps,
-            requiredToolNames,
-            calledToolNames,
             lastText,
           });
           if (responseText !== lastText) {
@@ -3574,7 +3534,7 @@ async function runAgentTurn(input: {
               }
               return {
                 status: 'completed',
-                hasToolCalls: false,
+                shouldContinue: false,
                 toolCalls: [],
                 toolResults: [],
                 metadata: {},
@@ -3584,7 +3544,7 @@ async function runAgentTurn(input: {
             if (response.toolUseBlocks.length === 0) {
               return {
                 status: 'completed',
-                hasToolCalls: false,
+                shouldContinue: false,
                 toolCalls: [],
                 toolResults: [],
                 metadata: {},
@@ -3644,7 +3604,6 @@ async function runAgentTurn(input: {
 
               toolResults.push(toolResult);
               if (toolResult.status === 'ok') {
-                calledToolNames.add(toolUse.name);
                 const restartSignal = readRuntimeRestartSignal(toolResult.output);
                 if (restartSignal?.requested) {
                   restartRequested = true;
@@ -3681,7 +3640,7 @@ async function runAgentTurn(input: {
 
             return {
               status: 'completed',
-              hasToolCalls: true,
+              shouldContinue: true,
               toolCalls,
               toolResults,
               metadata: {},
@@ -3744,23 +3703,8 @@ async function runAgentTurn(input: {
         emptyOutputRetryCount = 0;
         malformedToolCallRetryCount = 0;
 
-        if (stepResult.hasToolCalls) {
+        if (stepResult.shouldContinue) {
           continue;
-        }
-
-        if (enforceRequiredTools) {
-          if (!hasSatisfiedRequiredTools()) {
-            const enforcementMessage = [
-              '필수 도구 호출 규칙 위반: 최종 답변 전에 아래 도구 중 최소 하나를 반드시 호출해야 합니다.',
-              ...requiredToolNames.map((name) => `- ${name}`),
-              '텍스트 답변을 종료하지 말고, 지금 즉시 위 도구 중 하나를 tool call로 호출하세요.',
-            ].join('\n');
-            conversationState.emitMessageEvent({
-              type: 'append',
-              message: createConversationUserMessage(enforcementMessage),
-            });
-            continue;
-          }
         }
 
         const responseText = lastText.length > 0 ? lastText : '응답 텍스트를 생성하지 못했습니다.';

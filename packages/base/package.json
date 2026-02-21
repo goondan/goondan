@@ -1,6 +1,6 @@
 {
   "name": "@goondan/base",
-  "version": "0.0.3-alpha17",
+  "version": "0.0.3-alpha19",
   "description": "Goondan base tools, extensions, connectors, and manifest helpers",
   "type": "module",
   "main": "./dist/index.js",

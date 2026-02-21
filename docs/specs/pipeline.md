@@ -83,7 +83,7 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 
 **역할:**
 - `next()` 호출 전: Tool Catalog 조작, ConversationState 접근, MessageEvent 발행, 메타데이터 설정, 필요 시 다른 Agent 요청
-- `next()` 호출 후: Step 결과 검사/변환, 로깅, 재시도 판단
+- `next()` 호출 후: Step 결과 검사/변환, 로깅, 재시도 판단, `shouldContinue` override (turn 루프 계속 여부 제어)
 
 **컨텍스트 필드:**
 
@@ -109,7 +109,8 @@ Step(LLM 호출 + 도구 실행)을 감싸는 미들웨어이다. Turn 내에서
 3. `next()` 호출 전에 `toolCatalog`를 조작하면, 변경된 카탈로그가 해당 Step의 LLM 호출에 반영되어야 한다(MUST).
 4. `ctx.agents.request/send`을 통해 다른 Agent에 요청/알림을 보낼 수 있어야 한다(MUST).
 5. `next()` 호출 후 `StepResult`를 검사하여 재시도 여부를 판단할 수 있다(MAY). 재시도 시 `next()`를 다시 호출하는 것이 아니라, 미들웨어가 적절한 결과를 반환하거나 예외를 던져야 한다(SHOULD).
-6. `next()`를 반드시 한 번 호출해야 한다(MUST).
+6. `next()` 호출 후 반환된 `StepResult.shouldContinue`를 override하여 turn 루프 계속 여부를 제어할 수 있다(MAY). override 시 `{ ...result, shouldContinue: <value> }` 형태로 반환해야 한다.
+7. `next()`를 반드시 한 번 호출해야 한다(MUST).
 
 ### 3.3 `toolCall` 미들웨어
 
@@ -293,8 +294,12 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
 interface StepResult {
   /** Step 상태 */
   status: 'completed' | 'failed';
-  /** LLM 응답에 tool call이 있으면 true (다음 Step 필요) */
-  hasToolCalls: boolean;
+  /**
+   * turn 루프 계속 여부.
+   * Core 기본값: toolCalls.length > 0.
+   * step 미들웨어 post에서 이 값을 override하여 turn 루프를 제어할 수 있다(MAY).
+   */
+  shouldContinue: boolean;
   /** tool call 목록 */
   toolCalls: ToolCall[];
   /** tool 실행 결과 목록 */
@@ -828,7 +833,7 @@ api.pipeline.register('step', async (ctx) => {
    |     |    ExtB.step.post           |   |
    |     |  ExtA.step.post             |   |
    |     |                             |   |
-   |     | continue if hasToolCalls    |   |
+   |     | continue if shouldContinue  |   |
    |     +-----------------------------+   |
    |   ExtB.turn.post                      |
    | ExtA.turn.post                        |

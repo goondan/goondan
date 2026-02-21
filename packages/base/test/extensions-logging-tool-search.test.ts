@@ -74,7 +74,7 @@ describe('logging extension', () => {
         async next() {
           return {
             status: 'completed',
-            hasToolCalls: false,
+            shouldContinue: false,
             toolCalls: [],
             toolResults: [],
             metadata: {},
@@ -163,7 +163,7 @@ describe('tool-search extension', () => {
       async next() {
         return {
           status: 'completed',
-          hasToolCalls: false,
+          shouldContinue: false,
           toolCalls: [],
           toolResults: [],
           metadata: {},

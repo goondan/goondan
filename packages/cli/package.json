@@ -1,6 +1,6 @@
 {
   "name": "@goondan/cli",
-  "version": "0.0.3-alpha18",
+  "version": "0.0.3-alpha19",
   "description": "Goondan CLI (gdn)",
   "type": "module",
   "bin": {

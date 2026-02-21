@@ -110,35 +110,6 @@ describe("validateResources", () => {
     expect(errors.some((error) => error.code === "E_CONFIG_PACKAGE_DOC_DUPLICATED")).toBe(true);
   });
 
-  it("Agent.requiredTools 형식이 잘못되면 오류를 반환한다", () => {
-    const resources: RuntimeResource[] = [
-      createResource({
-        kind: "Model",
-        metadata: { name: "claude" },
-        spec: { provider: "anthropic", model: "claude-3-5-sonnet" },
-        docIndex: 0,
-      }),
-      createResource({
-        kind: "Agent",
-        metadata: { name: "coordinator" },
-        spec: {
-          modelConfig: { modelRef: "Model/claude" },
-          prompts: { systemPrompt: "You are coordinator." },
-          requiredTools: ["channel-dispatch__send", ""],
-        },
-        docIndex: 1,
-      }),
-    ];
-
-    const errors = validateResources(resources);
-    expect(
-      errors.some(
-        (error) =>
-          error.code === "E_CONFIG_SCHEMA_INVALID" &&
-          error.path.endsWith(".spec.requiredTools[1]"),
-      ),
-    ).toBe(true);
-  });
 
   it("Swarm.instanceKey 형식이 잘못되면 오류를 반환한다", () => {
     const resources: RuntimeResource[] = [

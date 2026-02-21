@@ -103,11 +103,12 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 3. Turn은 `TurnResult`를 출력으로 생성해야 한다(MUST).
 4. Step은 LLM에 메시지를 전달하고 응답을 받는 단위여야 한다(MUST).
 5. LLM 응답에 도구 호출이 포함되면 도구를 실행한 뒤 다음 Step을 실행해야 한다(MUST).
-6. LLM 응답이 텍스트 응답만 포함하면 Turn을 종료해야 한다(MUST).
-7. Tool 실행은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수를 호출하는 방식이어야 한다(MUST).
-8. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST). 인터-에이전트 호출로 시작된 Turn은 호출자의 `traceId`를 유지한다(MUST).
-9. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
-10. Runtime은 Turn/Step/Tool Call마다 새 `spanId`를 생성하고, `parentSpanId`로 상위 실행 단위와 연결해야 한다(MUST). TraceContext 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
+6. `StepResult.shouldContinue`가 `false`이면 Turn을 종료해야 한다(MUST).
+7. Core는 StepResult 생성 후 `shouldContinue`를 `toolCalls.length > 0`으로 초기화해야 한다(MUST). step 미들웨어 post에서 이 값을 override할 수 있다.
+8. Tool 실행은 AgentProcess(Bun) 내부에서 `spec.entry` 모듈 로드 후 핸들러 함수를 호출하는 방식이어야 한다(MUST).
+9. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST). 인터-에이전트 호출로 시작된 Turn은 호출자의 `traceId`를 유지한다(MUST).
+10. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
+11. Runtime은 Turn/Step/Tool Call마다 새 `spanId`를 생성하고, `parentSpanId`로 상위 실행 단위와 연결해야 한다(MUST). TraceContext 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
 
 ### 2.5 메시지 상태 규칙
 
@@ -697,34 +698,20 @@ async function runTurn(event: AgentEvent, state: ConversationState): Promise<Tur
   state.emitMessageEvent({ type: 'append', message: createUserMessage(event.input) });
 
   let stepIndex = 0;
-  const requiredTools = process.agent.requiredTools ?? [];
-  const calledTools = new Set<string>();
   while (true) {
     // Step 미들웨어 실행 (tool catalog 조작 등)
-    const step = await runStep(stepIndex, state);
-    turn.steps.push(step);
-    for (const result of step.toolResults) {
-      if (result.status === 'ok') {
-        calledTools.add(result.toolName);
-      }
-    }
+    const result = await runStep(stepIndex, state);
+    // Core: shouldContinue 기본값 초기화 (미들웨어 post에서 override 가능)
+    result.shouldContinue ??= result.toolCalls.length > 0;
+    turn.steps.push(result);
 
-    // LLM 응답이 텍스트만이면 Turn 종료 (requiredTools 미충족 시 종료 금지)
-    if (step.toolCalls.length === 0) {
-      const requiredSatisfied = requiredTools.length === 0
-        || requiredTools.some((name) => calledTools.has(name));
-      if (!requiredSatisfied) {
-        state.emitMessageEvent({
-          type: 'append',
-          message: createUserMessage('필수 Tool 호출이 필요합니다. requiredTools 중 하나를 호출하세요.'),
-        });
-        continue;
-      }
+    // shouldContinue가 false이면 Turn 종료
+    if (!result.shouldContinue) {
       turn.status = 'completed';
       break;
     }
 
-    // maxStepsPerTurn 검사 (requiredTools보다 우선)
+    // maxStepsPerTurn 검사
     stepIndex++;
     if (stepIndex >= maxStepsPerTurn) {
       turn.status = 'completed';

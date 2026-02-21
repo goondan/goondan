@@ -62,7 +62,7 @@ describe("PipelineRegistryImpl", () => {
 
     const stepResult: StepResult = {
       status: "completed",
-      hasToolCalls: false,
+      shouldContinue: false,
       toolCalls: [],
       toolResults: [],
       metadata: {},
@@ -162,7 +162,7 @@ describe("PipelineRegistryImpl", () => {
       },
       async () => ({
         status: "completed",
-        hasToolCalls: false,
+        shouldContinue: false,
         toolCalls: [],
         toolResults: [],
         metadata: {},
@@ -219,7 +219,7 @@ describe("PipelineRegistryImpl", () => {
       },
       async () => ({
         status: "completed",
-        hasToolCalls: false,
+        shouldContinue: false,
         toolCalls: [],
         toolResults: [],
         metadata: {},
@@ -280,7 +280,7 @@ describe("PipelineRegistryImpl", () => {
       },
       async () => ({
         status: "completed",
-        hasToolCalls: false,
+        shouldContinue: false,
         toolCalls: [],
         toolResults: [],
         metadata: {},
@@ -378,7 +378,7 @@ describe("PipelineRegistryImpl", () => {
 
             return {
               status: "completed",
-              hasToolCalls: true,
+              shouldContinue: true,
               toolCalls: [{ toolCallId: "tc-1", toolName: "search", args: {} }],
               toolResults: [{ toolCallId: "tc-1", toolName: "search", status: "ok", content: "found", metadata: {} }],
               metadata: {},

@@ -14,7 +14,7 @@ describe('manifest helpers', () => {
     const connectors = createBaseConnectorManifests();
 
     expect(tools.length).toBe(10);
-    expect(extensions.length).toBe(4);
+    expect(extensions.length).toBe(5);
     expect(connectors.length).toBe(6);
 
     expect(tools.every((item) => item.kind === 'Tool')).toBe(true);

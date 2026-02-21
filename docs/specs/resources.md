@@ -634,8 +634,6 @@ interface AgentSpec {
   prompts: AgentPrompts;
   /** 사용할 Tool 목록 */
   tools?: RefItem[];
-  /** Turn 종료 전에 반드시 호출되어야 하는 Tool 이름 목록 */
-  requiredTools?: string[];
   /** 사용할 Extension 목록 */
   extensions?: RefItem[];
 }
@@ -696,9 +694,6 @@ spec:
     - ref: "Tool/bash"
     - ref: "Tool/file-system"
 
-  requiredTools:
-    - "channel-dispatch__send"
-
   extensions:
     - ref: "Extension/logging"
     - ref: "Extension/skills"
@@ -738,14 +733,12 @@ spec:
 | `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
 | `prompts.systemRef` | MAY | string | 파일 경로 |
 | `tools` | MAY | array | RefItem 배열 |
-| `requiredTools` | MAY | array | 비어있지 않은 Tool 이름 문자열 배열 |
 | `extensions` | MAY | array | RefItem 배열 |
 
 **추가 검증 규칙:**
 - `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
-- `requiredTools`가 지정되면 Runtime은 `policy.maxStepsPerTurn` 범위 내에서 Turn 종료 전 해당 목록 중 최소 1개 도구의 **성공 결과**가 나오도록 호출을 강제해야 한다 (MUST).
-- `policy.maxStepsPerTurn`은 `requiredTools`보다 우선하며, 필수 도구가 미충족이어도 step 한도에 도달하면 Turn을 종료해야 한다 (MUST).
 - Agent 리소스에는 `hooks` 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다 (MUST).
+- 특정 Tool 호출을 Turn 종료 조건으로 강제하려면 Extension을 사용해야 한다. `docs/specs/extension.md` 8.7절 "Required Tools Guard 패턴" 참조.
 
 ---
 

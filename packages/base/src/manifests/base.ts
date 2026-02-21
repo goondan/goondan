@@ -774,6 +774,10 @@ export function createBaseExtensionManifests(): BaseExtensionManifest[] {
       minQueryLength: 1,
       persistSelection: true,
     }),
+    createExtensionManifest('required-tools-guard', './src/extensions/required-tools-guard.ts', {
+      requiredTools: [],
+      errorMessage: '',
+    }),
   ];
 }
 

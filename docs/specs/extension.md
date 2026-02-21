@@ -700,6 +700,61 @@ export function register(api: ExtensionApi): void {
 }
 ```
 
+### 8.7 Required Tools Guard 패턴
+
+`requiredTools` 강제는 Extension으로 구현한다. Extension config에 `requiredTools`와 `errorMessage`를 선언하고, step 미들웨어에서 `ctx.turn.steps` + 현재 `result.toolResults`를 조합해 체크 후, 미충족 시 메시지 주입 + `shouldContinue: true`를 반환하여 turn 루프를 강제 지속시킨다.
+
+```typescript
+export function register(api: ExtensionApi): void {
+  const { requiredTools = [], errorMessage } = api.config as { requiredTools?: string[]; errorMessage?: string };
+
+  api.pipeline.register('step', async (ctx) => {
+    const result = await ctx.next();
+
+    if (!result.shouldContinue) {
+      const calledTools = [
+        ...ctx.turn.steps.flatMap(s => s.toolResults),
+        ...result.toolResults,
+      ]
+        .filter(r => r.status === 'ok')
+        .map(r => r.toolName);
+
+      const satisfied =
+        requiredTools.length === 0 ||
+        requiredTools.some(t => calledTools.includes(t));
+
+      if (!satisfied) {
+        ctx.emitMessageEvent({
+          type: 'append',
+          message: createUserMessage(
+            errorMessage ?? `다음 도구 중 하나를 반드시 호출하세요: ${requiredTools.join(', ')}`
+          ),
+        });
+        return { ...result, shouldContinue: true };
+      }
+    }
+
+    return result;
+  });
+}
+```
+
+**YAML 설정 예시:**
+
+```yaml
+extensions:
+  - ref: "Extension/required-tools-guard"
+    config:
+      requiredTools:
+        - "channel-dispatch__send"
+      errorMessage: "반드시 채널로 결과를 전송해야 합니다."
+```
+
+**설계 의도:**
+- Core turn loop는 `StepResult.shouldContinue`만 보고 루프 계속 여부를 결정한다.
+- `requiredTools` 강제 로직은 Core의 책임이 아니며, Extension step 미들웨어에서 `shouldContinue`를 override함으로써 구현한다.
+- `policy.maxStepsPerTurn` 한도에 도달하면 Core가 turn을 강제 종료하며, 이는 `requiredTools` 미충족 상태에서도 동일하게 적용된다.
+
 ---
 
 ## 9. 미들웨어 컨텍스트 요약

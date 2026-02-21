@@ -113,7 +113,7 @@ async function runFullTurnAndCapture(options: {
 
           return {
             status: "completed",
-            hasToolCalls: true,
+            shouldContinue: true,
             toolCalls: [{ id: "tc-1", name: "echo", args: { text: "hello" } }],
             toolResults: [{ toolCallId: "tc-1", toolName: "echo", status: "ok", output: "hello" }],
             metadata: {},
@@ -396,7 +396,7 @@ describe("E2E Observability", () => {
             },
             async () => ({
               status: "completed",
-              hasToolCalls: false,
+              shouldContinue: false,
               toolCalls: [],
               toolResults: [],
               metadata: {

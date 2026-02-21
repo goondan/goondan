@@ -329,7 +329,6 @@ interface AgentProcessPlan {
   maxTokens: number;
   temperature: number;
   maxSteps: number;
-  requiredToolNames: string[];
   toolCatalog: ToolCatalogItem[];
   extensionResources: RuntimeResource<{ entry: string; config?: Record<string, unknown> }>[];
   toolExecutor: ToolExecutor;
@@ -375,7 +374,6 @@ async function executeTurn(
 
     let finalResponseText = '';
     let step = 0;
-    const calledToolNames = new Set<string>();
     let lastText = '';
 
     await pipelineRegistry.runTurn(
@@ -401,8 +399,6 @@ async function executeTurn(
           if (step >= plan.maxSteps) {
             const responseText = buildStepLimitResponse({
               maxSteps: plan.maxSteps,
-              requiredToolNames: plan.requiredToolNames,
-              calledToolNames,
               lastText,
             });
             finalResponseText = responseText;
@@ -474,7 +470,7 @@ async function executeTurn(
               if (response.toolUseBlocks.length === 0) {
                 return {
                   status: 'completed',
-                  hasToolCalls: false,
+                  shouldContinue: false,
                   toolCalls: [],
                   toolResults: [],
                   metadata: {},
@@ -528,9 +524,6 @@ async function executeTurn(
                 );
 
                 toolResults.push(toolResult);
-                if (toolResult.status === 'ok') {
-                  calledToolNames.add(toolUse.name);
-                }
               }
 
               // Append tool results as user messages
@@ -550,7 +543,7 @@ async function executeTurn(
 
               return {
                 status: 'completed',
-                hasToolCalls: true,
+                shouldContinue: true,
                 toolCalls,
                 toolResults,
                 metadata: {},
@@ -558,7 +551,7 @@ async function executeTurn(
             },
           );
 
-          if (stepResult.hasToolCalls) continue;
+          if (stepResult.shouldContinue) continue;
 
           const responseText = lastText.length > 0 ? lastText : '';
           finalResponseText = responseText;

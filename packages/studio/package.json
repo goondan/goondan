@@ -1,6 +1,6 @@
 {
   "name": "@goondan/studio",
-  "version": "0.0.3-alpha17",
+  "version": "0.0.3-alpha19",
   "type": "module",
   "publishConfig": {
     "access": "public"

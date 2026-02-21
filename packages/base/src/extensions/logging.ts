@@ -106,7 +106,7 @@ export function registerLoggingExtension(
           turnId: ctx.turnId,
           stepIndex: ctx.stepIndex,
           durationMs: Date.now() - startedAt,
-          hasToolCalls: result.hasToolCalls,
+          shouldContinue: result.shouldContinue,
         });
       }
       return result;

@@ -285,7 +285,8 @@ export interface TurnResult {
 
 export interface StepResult {
   status: "completed" | "failed";
-  hasToolCalls: boolean;
+  /** turn 루프를 계속할지 여부. 기본값: toolCalls.length > 0. step 미들웨어에서 override 가능. */
+  shouldContinue: boolean;
   toolCalls: ToolCall[];
   toolResults: ToolCallResult[];
   metadata: Record<string, JsonValue>;

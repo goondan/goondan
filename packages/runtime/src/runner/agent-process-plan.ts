@@ -288,12 +288,6 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
-function parseAgentRequiredTools(agent: RuntimeResource): string[] {
-  const spec = readSpecRecord(agent);
-  const required = spec.requiredTools;
-  if (!Array.isArray(required)) return [];
-  return required.filter((item): item is string => typeof item === 'string');
-}
 
 function isObjectRefLike(value: unknown): value is ObjectRefLike {
   if (typeof value === 'string') return true;
@@ -524,8 +518,6 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
     extensionResources.push(toExtensionResource(rawExtResource));
   }
 
-  const requiredToolNames = parseAgentRequiredTools(agentResource);
-
   return {
     name: args.agentName,
     swarmInstanceKey,
@@ -536,7 +528,6 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
     maxTokens: modelParams.maxTokens,
     temperature: modelParams.temperature,
     maxSteps: maxStepsPerTurn,
-    requiredToolNames,
     toolCatalog: agentToolCatalog,
     extensionResources,
     toolExecutor,

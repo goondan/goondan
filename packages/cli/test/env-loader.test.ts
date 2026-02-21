@@ -36,7 +36,7 @@ describe('loadRuntimeEnv', () => {
         },
       );
 
-      expect(env.SHARED).toBe('from-system');
+      expect(env.SHARED).toBe('from-custom');
       expect(env.SYSTEM_ONLY).toBe('system');
       expect(env.CUSTOM_ONLY).toBe('custom-file');
       expect(env.LOCAL_ONLY).toBe('dot-env-local');

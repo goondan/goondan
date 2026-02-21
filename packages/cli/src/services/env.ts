@@ -23,7 +23,21 @@ function resolveEnvFilePath(projectRoot: string, inputPath: string): string {
 }
 
 function buildEnvFileQueue(projectRoot: string, envFile: string | undefined): RuntimeEnvFile[] {
-  const queue: RuntimeEnvFile[] = [];
+  // Precedence (higher wins):
+  //   --env-file > .env.local > .env > system env
+  // Implementation strategy:
+  //   - Start from system env
+  //   - Apply low-precedence dotenv files first, then override upward
+  const queue: RuntimeEnvFile[] = [
+    {
+      filePath: path.join(projectRoot, '.env'),
+      required: false,
+    },
+    {
+      filePath: path.join(projectRoot, '.env.local'),
+      required: false,
+    },
+  ];
 
   if (envFile && envFile.trim().length > 0) {
     queue.push({
@@ -32,33 +46,19 @@ function buildEnvFileQueue(projectRoot: string, envFile: string | undefined): Ru
     });
   }
 
-  queue.push(
-    {
-      filePath: path.join(projectRoot, '.env.local'),
-      required: false,
-    },
-    {
-      filePath: path.join(projectRoot, '.env'),
-      required: false,
-    },
-  );
-
-  const deduped = new Set<string>();
-  const uniqueQueue: RuntimeEnvFile[] = [];
+  // Dedupe while keeping the last occurrence (so a user-provided --env-file
+  // can replace the default path and still be treated as required).
+  const byPath = new Map<string, RuntimeEnvFile>();
   for (const item of queue) {
-    if (deduped.has(item.filePath)) {
-      continue;
-    }
-    deduped.add(item.filePath);
-    uniqueQueue.push(item);
+    byPath.set(item.filePath, item);
   }
 
-  return uniqueQueue;
+  return [...byPath.values()];
 }
 
 function mergeDotEnvValues(target: NodeJS.ProcessEnv, parsed: NodeJS.Dict<string>): void {
   for (const [key, value] of Object.entries(parsed)) {
-    if (target[key] !== undefined || value === undefined) {
+    if (value === undefined) {
       continue;
     }
 

@@ -174,7 +174,7 @@ Notes:
 
 - `ctx.agents` is available only in `turn` and `step` middleware.
 - `toolCall` middleware does not expose `ctx.agents`.
-- `request` defaults to `15000ms` timeout when omitted.
+- `request` defaults to `60000ms` timeout when omitted.
 
 **Checklist:**
 

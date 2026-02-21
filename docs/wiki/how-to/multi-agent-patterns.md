@@ -95,7 +95,7 @@ Notes:
 
 - Available only in `turn` / `step` middleware contexts.
 - `toolCall` context does not expose `ctx.agents`.
-- Default `request` timeout is `15000ms` if omitted.
+- Default `request` timeout is `60000ms` if omitted.
 - Cyclic request chains are detected by runtime and return an error.
 
 ---
@@ -129,7 +129,7 @@ The LLM calls the `agents__request` tool with:
 | `target` | `string` | Yes | Name of the target agent (e.g., `"researcher"`) |
 | `input` | `string` | No | Text message to send to the target |
 | `instanceKey` | `string` | No | Target instance key (defaults to caller's instanceKey) |
-| `timeoutMs` | `number` | No | Timeout in milliseconds (default: 15000) |
+| `timeoutMs` | `number` | No | Timeout in milliseconds (default: 60000) |
 | `metadata` | `object` | No | Additional metadata to pass with the event |
 
 ### Example scenario

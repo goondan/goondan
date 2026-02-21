@@ -239,7 +239,7 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
    ```typescript
    {
      name: 'AgentRequestTimeoutError';
-     message: string;  // 예: "Agent request to 'agentB' timed out after 15000ms"
+     message: string;  // 예: "Agent request to 'agentB' timed out after 60000ms"
      code: 'AGENT_REQUEST_TIMEOUT';
      target: string;
      timeoutMs: number;
@@ -254,7 +254,7 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
      target: string;
    }
    ```
-4. **기본 타임아웃**: `timeoutMs` 기본값은 15000ms이다(MUST).
+4. **기본 타임아웃**: `timeoutMs` 기본값은 60000ms이다(MUST).
 5. **순환 호출 감지**: Runtime은 `request`에 대해 순환 호출을 감지하고 즉시 예외를 반환해야 한다(MUST).
 
 #### 4.4.2 `send` 시맨틱스

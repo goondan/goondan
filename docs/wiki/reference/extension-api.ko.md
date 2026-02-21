@@ -297,7 +297,7 @@ interface MiddlewareAgentsApi {
     target: string;
     input?: string;
     instanceKey?: string;
-    timeoutMs?: number; // 기본값: 15000
+    timeoutMs?: number; // 기본값: 60000
     metadata?: Record<string, unknown>;
   }): Promise<{ target: string; response: string }>;
 
@@ -314,7 +314,7 @@ interface MiddlewareAgentsApi {
 
 - `turn`, `step` 컨텍스트에서만 사용 가능합니다.
 - `toolCall` 컨텍스트에서는 제공되지 않습니다.
-- `request` 기본 타임아웃은 `15000ms`입니다.
+- `request` 기본 타임아웃은 `60000ms`입니다.
 - 런타임은 순환 요청 체인을 감지하고 오류를 반환합니다.
 
 예제:

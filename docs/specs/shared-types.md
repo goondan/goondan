@@ -336,7 +336,7 @@ interface MiddlewareAgentsApi {
     target: string;
     input?: string;
     instanceKey?: string;
-    timeoutMs?: number; // default: 15000
+    timeoutMs?: number; // default: 60000
     metadata?: JsonObject;
   }): Promise<{ target: string; response: string }>;
 
@@ -366,7 +366,7 @@ type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> |
 ### 8.5 에이전트 통신 계약 규칙
 
 1. `AgentToolRuntime`과 `MiddlewareAgentsApi`는 동일한 Orchestrator IPC 라우팅 경로를 재사용한다(MUST).
-2. `request`의 기본 타임아웃은 15000ms이다(MUST).
+2. `request`의 기본 타임아웃은 60000ms이다(MUST).
 3. Runtime은 `request`에 대해 순환 호출을 감지하고 오류를 반환해야 한다(MUST).
 4. `MiddlewareAgentsApi`는 `turn`/`step` 미들웨어에서만 제공된다(MUST). `toolCall` 미들웨어에서는 제공하지 않는다(MUST NOT).
 5. `AgentToolRuntime`은 `ToolContext.runtime`을 통해 제공되며, agents tool에서만 사용된다(SHOULD).

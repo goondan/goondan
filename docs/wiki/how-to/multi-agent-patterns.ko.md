@@ -95,7 +95,7 @@ api.pipeline.register('turn', async (ctx) => {
 
 - `turn` / `step` 미들웨어 컨텍스트에서만 사용 가능합니다.
 - `toolCall` 컨텍스트에는 `ctx.agents`가 없습니다.
-- `request` 타임아웃을 생략하면 기본값은 `15000ms`입니다.
+- `request` 타임아웃을 생략하면 기본값은 `60000ms`입니다.
 - 런타임은 순환 요청 체인을 감지해 오류를 반환합니다.
 
 ---
@@ -129,7 +129,7 @@ LLM이 `agents__request` 도구를 호출할 때 사용하는 파라미터:
 | `target` | `string` | 예 | 대상 에이전트 이름 (예: `"researcher"`) |
 | `input` | `string` | 아니오 | 대상에게 보낼 텍스트 메시지 |
 | `instanceKey` | `string` | 아니오 | 대상 인스턴스 키 (기본값: 호출자의 instanceKey) |
-| `timeoutMs` | `number` | 아니오 | 타임아웃 밀리초 (기본값: 15000) |
+| `timeoutMs` | `number` | 아니오 | 타임아웃 밀리초 (기본값: 60000) |
 | `metadata` | `object` | 아니오 | 이벤트와 함께 전달할 추가 메타데이터 |
 
 ### 시나리오 예시

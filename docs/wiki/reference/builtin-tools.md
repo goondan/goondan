@@ -478,7 +478,7 @@ Send a request event to another agent and wait for a response. The target agent 
 | `input` | string | No | -- | Message text to send |
 | `instanceKey` | string | No | caller's `instanceKey` | Target instance key |
 | `eventType` | string | No | `"agent.request"` | Custom event type |
-| `timeoutMs` | number | No | `15000` | Response timeout in milliseconds |
+| `timeoutMs` | number | No | `60000` | Response timeout in milliseconds |
 | `metadata` | object | No | -- | Additional metadata attached to the event |
 
 **Returns:**

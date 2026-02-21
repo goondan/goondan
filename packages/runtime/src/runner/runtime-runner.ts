@@ -77,6 +77,7 @@ import {
   type ParsedConnectorEvent,
 } from './runtime-routing.js';
 import { buildStepLimitResponse } from './turn-policy.js';
+import { resolveAgentRequestTimeoutMs } from './agent-request-timeout.js';
 import {
   toConversationTurns,
   toPersistentMessages,
@@ -125,7 +126,6 @@ interface ConnectorChildEventMessage {
   event: unknown;
 }
 
-const DEFAULT_MIDDLEWARE_AGENT_REQUEST_TIMEOUT_MS = 15_000;
 const EXTENSION_AGENT_CALL_SOURCE = 'extension-middleware';
 const AGENT_CALL_STACK_METADATA_KEY = '__goondanAgentCallStack';
 const INBOUND_MESSAGE_METADATA_KEY = '__goondanInbound';
@@ -1995,15 +1995,7 @@ function normalizeMiddlewareInstanceKey(instanceKey: string | undefined, fallbac
 }
 
 function normalizeMiddlewareTimeoutMs(timeoutMs: number | undefined): number {
-  if (
-    typeof timeoutMs === 'number' &&
-    Number.isFinite(timeoutMs) &&
-    Number.isInteger(timeoutMs) &&
-    timeoutMs > 0
-  ) {
-    return timeoutMs;
-  }
-  return DEFAULT_MIDDLEWARE_AGENT_REQUEST_TIMEOUT_MS;
+  return resolveAgentRequestTimeoutMs(timeoutMs);
 }
 
 function createMiddlewareAgentsApi(input: {
@@ -3169,7 +3161,7 @@ function createAgentToolRuntime(input: {
         metadata: withAgentCallStack(parsed.metadata, currentCallStack),
       };
 
-      const timeoutMs = options?.timeoutMs;
+      const timeoutMs = resolveAgentRequestTimeoutMs(options?.timeoutMs);
       const turnResult = await withOptionalTimeout(
         executeInboundTurn({
           runtime: input.runtime,

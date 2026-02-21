@@ -174,7 +174,7 @@ api.pipeline.register('turn', async (ctx) => {
 
 - `ctx.agents`는 `turn`, `step` 미들웨어에서만 제공됩니다.
 - `toolCall` 미들웨어에는 `ctx.agents`가 없습니다.
-- `request` 타임아웃을 생략하면 기본값은 `15000ms`입니다.
+- `request` 타임아웃을 생략하면 기본값은 `60000ms`입니다.
 
 **체크리스트:**
 

@@ -478,7 +478,7 @@ JSON 경로의 요소 수를 셉니다.
 | `input` | string | 아니오 | -- | 보낼 메시지 텍스트 |
 | `instanceKey` | string | 아니오 | 호출자의 `instanceKey` | 대상 인스턴스 키 |
 | `eventType` | string | 아니오 | `"agent.request"` | 커스텀 이벤트 타입 |
-| `timeoutMs` | number | 아니오 | `15000` | 응답 타임아웃 (밀리초) |
+| `timeoutMs` | number | 아니오 | `60000` | 응답 타임아웃 (밀리초) |
 | `metadata` | object | 아니오 | -- | 이벤트에 첨부할 추가 메타데이터 |
 
 **반환값:**

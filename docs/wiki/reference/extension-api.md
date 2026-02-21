@@ -297,7 +297,7 @@ interface MiddlewareAgentsApi {
     target: string;
     input?: string;
     instanceKey?: string;
-    timeoutMs?: number; // default: 15000
+    timeoutMs?: number; // default: 60000
     metadata?: Record<string, unknown>;
   }): Promise<{ target: string; response: string }>;
 
@@ -314,7 +314,7 @@ Rules:
 
 - Available only in `turn` and `step` contexts.
 - Not available in `toolCall` context.
-- `request` default timeout is `15000ms`.
+- `request` default timeout is `60000ms`.
 - The runtime detects cyclic request chains and returns an error.
 
 Example:

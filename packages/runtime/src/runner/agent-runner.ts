@@ -44,6 +44,7 @@ import {
   type TurnResult,
 } from '../index.js';
 import { buildStepLimitResponse } from './turn-policy.js';
+import { resolveAgentRequestTimeoutMs } from './agent-request-timeout.js';
 import {
   toConversationTurns,
   toPersistentMessages,
@@ -656,7 +657,7 @@ function createIpcAgentToolRuntime(
         payload,
       });
 
-      const timeoutMs = options?.timeoutMs ?? 15000;
+      const timeoutMs = resolveAgentRequestTimeoutMs(options?.timeoutMs);
       return waitForIpcResponse(correlationId, target, timeoutMs);
     },
     send: async (target, event) => {
@@ -744,7 +745,7 @@ function createIpcMiddlewareAgentsApi(
         payload,
       });
 
-      const timeoutMs = params.timeoutMs ?? 15000;
+      const timeoutMs = resolveAgentRequestTimeoutMs(params.timeoutMs);
       const result = await waitForIpcResponse(correlationId, params.target, timeoutMs);
       const response = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
       return { target: params.target, response };

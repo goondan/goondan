@@ -85,6 +85,18 @@ describe('classifyModelStepRetryKind', () => {
     expect(retryKind).toBe('empty_output');
   });
 
+  it('직전 입력이 tool-result 전용이면 빈 응답을 재시도 분류하지 않는다', () => {
+    const retryKind = classifyModelStepRetryKind({
+      assistantContent: [],
+      textBlocks: [],
+      toolUseBlocks: [],
+      finishReason: 'stop',
+      lastInputMessageWasToolResult: true,
+    });
+
+    expect(retryKind).toBeUndefined();
+  });
+
   it('유효한 텍스트가 있으면 재시도 분류를 하지 않는다', () => {
     const retryKind = classifyModelStepRetryKind({
       assistantContent: [{ type: 'text', text: '완료' }],

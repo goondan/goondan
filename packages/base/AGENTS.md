@@ -21,6 +21,7 @@
 - Tool 이름 규칙 `{resource}__{export}`를 유지한다.
 - Tool manifest 입력 스키마는 속성 설명(`description`)과 닫힌 스키마(`additionalProperties: false`) 원칙을 기본으로 유지한다.
 - `@goondan/base`는 npm publish를 수행하지 않는다.
+- `packages/base/goondan.yaml`의 `spec.version`은 루트 `@goondan/*` npm 버전과 항상 동일해야 하며, 불일치 상태로 배포하지 않는다.
 
 ## 참조
 

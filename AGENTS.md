@@ -69,6 +69,7 @@
 - 요구사항 반영 후 `docs/specs/*.md` 및 `docs/architecture.md` 수정 필요 여부를 검토할 것
 - 스펙이 바뀌면 `GUIDE.md` 반영 여부도 검토할 것
 - `@goondan/*` 패키지 버전은 단일 버전으로 통일 관리, 변경 시 일괄 갱신할 것
+- 군단 패키지(`packages/base/goondan.yaml`의 `spec.version`)와 npm 패키지(`packages/*/package.json`의 `version`)는 항상 동일 버전으로 맞춰 배포할 것
 - npm 공개 배포 패키지는 `publishConfig.access = "public"` 유지 (스코프 패키지 402 방지)
 - 변경에 맞는 테스트를 항상 작성/보완하고, 완료 시 빌드 및 테스트를 실행할 것
 - 타입 단언(`as`, `as unknown as`) 금지 — 타입 가드/정확한 타입 정의로 해결할 것
@@ -80,6 +81,7 @@
   gdn package publish packages/base/goondan.yaml
   # 기본 레지스트리: https://goondan-registry.yechanny.workers.dev
   ```
+- **배포는 버전 동기 상태에서만 진행할 것.** `packages/base/goondan.yaml`의 `spec.version`과 `packages/*/package.json` `version`이 다르면 먼저 버전을 맞춘다.
 - **배포 인증 토큰은 `packages/registry/cloudflare/.deploy.token`을 기준으로 사용할 것.** 배포 전 `GOONDAN_REGISTRY_TOKEN`/npm 토큰을 해당 파일에서 로드하고 실행한다.
   ```
   export GOONDAN_REGISTRY_TOKEN="$(cat packages/registry/cloudflare/.deploy.token)"

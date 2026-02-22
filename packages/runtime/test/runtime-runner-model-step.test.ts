@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { ModelMessage } from 'ai';
 
 import {
+  buildMalformedToolCallRetryMessage,
   classifyModelStepRetryKind,
   normalizeModelStepParseResult,
+  type ToolCallInputIssue,
   type ToolUseBlock,
 } from '../src/runner/runtime-runner.js';
 
@@ -60,6 +62,27 @@ describe('normalizeModelStepParseResult', () => {
     expect(result.textBlocks).toEqual(['ok']);
     expect(result.rawFinishReason).toBeUndefined();
   });
+
+  it('toolCallInputIssues를 결과에 포함한다', () => {
+    const issues: ToolCallInputIssue[] = [
+      {
+        toolCallId: 'tool-2',
+        toolName: 'agents__send',
+        reason: 'non_object_input',
+      },
+    ];
+
+    const result = normalizeModelStepParseResult({
+      responseMessages: [],
+      text: '',
+      toolUseBlocks: [],
+      toolCallInputIssues: issues,
+      finishReason: 'tool-calls',
+      rawFinishReason: 'tool_use',
+    });
+
+    expect(result.toolCallInputIssues).toEqual(issues);
+  });
 });
 
 describe('classifyModelStepRetryKind', () => {
@@ -69,6 +92,32 @@ describe('classifyModelStepRetryKind', () => {
       textBlocks: [],
       toolUseBlocks: [],
       finishReason: 'tool-calls',
+    });
+
+    expect(retryKind).toBe('malformed_tool_calls');
+  });
+
+  it('toolCallInputIssues가 있으면 malformed_tool_calls로 분류한다', () => {
+    const retryKind = classifyModelStepRetryKind({
+      assistantContent: [{ type: 'text', text: 'x' }],
+      textBlocks: ['x'],
+      toolUseBlocks: [
+        {
+          id: 'tool-1',
+          name: 'agents__send',
+          input: {
+            target: 'coordinator',
+          },
+        },
+      ],
+      toolCallInputIssues: [
+        {
+          toolCallId: 'tool-1',
+          toolName: 'agents__send',
+          reason: 'non_object_input',
+        },
+      ],
+      finishReason: 'stop',
     });
 
     expect(retryKind).toBe('malformed_tool_calls');
@@ -106,5 +155,21 @@ describe('classifyModelStepRetryKind', () => {
     });
 
     expect(retryKind).toBeUndefined();
+  });
+});
+
+describe('buildMalformedToolCallRetryMessage', () => {
+  it('agents__send 이슈가 있으면 input 문자열 예시를 포함한다', () => {
+    const message = buildMalformedToolCallRetryMessage([
+      {
+        toolCallId: 'tool-1',
+        toolName: 'agents__send',
+        reason: 'non_object_input',
+        inputPreview: '"hello"',
+      },
+    ]);
+
+    expect(message).toContain('agents__send/agents__request 예시');
+    expect(message).toContain('"input":"작업 결과 문자열"');
   });
 });

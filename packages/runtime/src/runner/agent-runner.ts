@@ -432,7 +432,7 @@ async function executeTurn(
       },
       async (): Promise<TurnResult> => {
         // Import model step utilities
-        const { requestModelMessage } =
+        const { requestModelMessage, classifyModelStepRetryKind, buildMalformedToolCallRetryMessage } =
           await import('./runtime-runner.js');
 
         while (true) {
@@ -509,6 +509,38 @@ async function executeTurn(
                 lastText = response.textBlocks.join('\n').trim();
               }
 
+              const retryKind = classifyModelStepRetryKind({
+                assistantContent: response.assistantContent,
+                textBlocks: response.textBlocks,
+                toolUseBlocks: response.toolUseBlocks,
+                toolCallInputIssues: response.toolCallInputIssues,
+                finishReason: response.finishReason,
+              });
+              if (retryKind !== undefined) {
+                if (retryKind === 'malformed_tool_calls') {
+                  conversationState.emitMessageEvent({
+                    type: 'append',
+                    message: createConversationUserMessage(
+                      buildMalformedToolCallRetryMessage(response.toolCallInputIssues),
+                    ),
+                  });
+                } else {
+                  conversationState.emitMessageEvent({
+                    type: 'append',
+                    message: createConversationUserMessage(
+                      '직전 응답이 비어 있습니다. 다음 응답에서는 텍스트 또는 tool-call 중 최소 하나를 반드시 생성하세요.',
+                    ),
+                  });
+                }
+                return {
+                  status: 'completed',
+                  shouldContinue: true,
+                  toolCalls: [],
+                  toolResults: [],
+                  metadata: {},
+                };
+              }
+
               if (response.toolUseBlocks.length === 0) {
                 return {
                   status: 'completed',
@@ -523,7 +555,7 @@ async function executeTurn(
               const toolResults: ToolCallResult[] = [];
 
               for (const toolUse of response.toolUseBlocks) {
-                const toolArgs = ensureJsonObject(toolUse.input);
+                const toolArgs = cloneAsJsonObject(toolUse.input);
                 toolCalls.push({ id: toolUse.id, name: toolUse.name, args: toolArgs });
 
                 const toolResult = await pipelineRegistry.runToolCall(

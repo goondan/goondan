@@ -276,6 +276,13 @@ export interface ToolUseBlock {
   input: JsonObject;
 }
 
+export interface ToolCallInputIssue {
+  toolCallId: string;
+  toolName: string;
+  reason: 'invalid_tool_call' | 'non_object_input';
+  inputPreview?: string;
+}
+
 type RunnerToolResultOutput =
   | { type: 'text'; value: string }
   | { type: 'json'; value: JsonValue };
@@ -284,6 +291,7 @@ export interface ModelStepParseResult {
   assistantContent: unknown[];
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
+  toolCallInputIssues: ToolCallInputIssue[];
   finishReason: FinishReason;
   rawFinishReason?: string;
 }
@@ -325,6 +333,7 @@ const STEP_STARTED_LLM_INPUT_MESSAGE_MAX_COUNT = 64;
 const STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS = 2000;
 const MAX_EMPTY_OUTPUT_RETRY_COUNT = 2;
 const MAX_MALFORMED_TOOL_CALL_RETRY_COUNT = 2;
+const TOOL_CALL_INPUT_PREVIEW_MAX_CHARS = 240;
 
 function isRunnerReadyMessage(message: unknown): message is RunnerReadyMessage {
   if (!isJsonObject(message)) {
@@ -3126,10 +3135,53 @@ function normalizeRawFinishReason(rawFinishReason: string | undefined): string |
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function summarizeToolCallInputPreview(value: unknown): string | undefined {
+  const rawText = typeof value === 'string' ? value : safeJsonStringify(value);
+  const normalized = rawText.replace(/\s+/g, ' ').trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  if (normalized.length <= TOOL_CALL_INPUT_PREVIEW_MAX_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, TOOL_CALL_INPUT_PREVIEW_MAX_CHARS)}...`;
+}
+
+export function buildMalformedToolCallRetryMessage(issues: readonly ToolCallInputIssue[]): string {
+  const lines = [
+    '직전 tool-call 인자가 유효한 JSON object 형태가 아닙니다.',
+    '도구 호출 args는 반드시 객체여야 하며, 문자열 payload는 객체의 input 필드 문자열로 전달해야 합니다.',
+  ];
+
+  const hasAgentsToolIssue = issues.some(
+    (issue) => issue.toolName === 'agents__send' || issue.toolName === 'agents__request',
+  );
+  if (hasAgentsToolIssue) {
+    lines.push('agents__send/agents__request 예시: {"target":"coordinator","input":"작업 결과 문자열"}');
+  }
+
+  const visibleIssues = issues.slice(0, 3);
+  for (const issue of visibleIssues) {
+    const reason =
+      issue.reason === 'non_object_input'
+        ? 'args가 object가 아닙니다.'
+        : 'SDK가 invalid tool-call로 판정했습니다.';
+    const previewText = issue.inputPreview ? ` input=${issue.inputPreview}` : '';
+    lines.push(`- ${issue.toolName}(${issue.toolCallId}): ${reason}${previewText}`);
+  }
+  if (issues.length > visibleIssues.length) {
+    lines.push(`- ... +${issues.length - visibleIssues.length}건`);
+  }
+
+  lines.push('다음 응답에서는 스키마에 맞는 tool call만 생성하세요.');
+  return lines.join('\n');
+}
+
 export function normalizeModelStepParseResult(input: {
   responseMessages: readonly ModelMessage[];
   text: string;
   toolUseBlocks: ToolUseBlock[];
+  toolCallInputIssues?: ToolCallInputIssue[];
   finishReason: FinishReason;
   rawFinishReason: string | undefined;
 }): ModelStepParseResult {
@@ -3143,6 +3195,7 @@ export function normalizeModelStepParseResult(input: {
     assistantContent: normalizedAssistantContent,
     textBlocks: text.length > 0 ? [text] : [],
     toolUseBlocks: input.toolUseBlocks,
+    toolCallInputIssues: input.toolCallInputIssues ?? [],
     finishReason: input.finishReason,
     rawFinishReason: normalizeRawFinishReason(input.rawFinishReason),
   };
@@ -3152,9 +3205,14 @@ export function classifyModelStepRetryKind(input: {
   assistantContent: unknown[];
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
+  toolCallInputIssues?: readonly ToolCallInputIssue[];
   finishReason: FinishReason;
   lastInputMessageWasToolResult?: boolean;
 }): ModelStepRetryKind | undefined {
+  if ((input.toolCallInputIssues?.length ?? 0) > 0) {
+    return 'malformed_tool_calls';
+  }
+
   const hasToolCalls = input.toolUseBlocks.length > 0;
   if (input.finishReason === 'tool-calls' && !hasToolCalls) {
     return 'malformed_tool_calls';
@@ -3202,7 +3260,29 @@ export async function requestModelMessage(input: {
   });
 
   const toolUseBlocks: ToolUseBlock[] = [];
+  const toolCallInputIssues: ToolCallInputIssue[] = [];
   for (const toolCall of result.toolCalls) {
+    const inputPreview = summarizeToolCallInputPreview(toolCall.input);
+    if (toolCall.invalid === true) {
+      toolCallInputIssues.push({
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        reason: 'invalid_tool_call',
+        inputPreview,
+      });
+      continue;
+    }
+
+    if (!isJsonObject(toolCall.input)) {
+      toolCallInputIssues.push({
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        reason: 'non_object_input',
+        inputPreview,
+      });
+      continue;
+    }
+
     toolUseBlocks.push({
       id: toolCall.toolCallId,
       name: toolCall.toolName,
@@ -3214,6 +3294,7 @@ export async function requestModelMessage(input: {
     responseMessages: result.response.messages,
     text: result.text,
     toolUseBlocks,
+    toolCallInputIssues,
     finishReason: result.finishReason,
     rawFinishReason: result.rawFinishReason,
   });
@@ -3824,10 +3905,7 @@ async function runAgentTurn(input: {
                 conversationState.emitMessageEvent({
                   type: 'append',
                   message: createConversationUserMessage(
-                    [
-                      '직전 응답이 tool-calls로 종료되었지만 tool-call 블록이 비어 있습니다.',
-                      '다음 응답에서는 유효한 tool call을 1개 이상 생성하거나, 도구가 필요 없다면 텍스트 답변을 작성하세요.',
-                    ].join('\n'),
+                    buildMalformedToolCallRetryMessage(response.toolCallInputIssues),
                   ),
                 });
               } else {
@@ -3862,7 +3940,7 @@ async function runAgentTurn(input: {
             const toolResultBlocks: unknown[] = [];
 
             for (const toolUse of response.toolUseBlocks) {
-              const toolArgs = ensureJsonObject(toolUse.input);
+              const toolArgs = toolUse.input;
               toolCalls.push({
                 id: toolUse.id,
                 name: toolUse.name,

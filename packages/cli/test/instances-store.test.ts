@@ -1,6 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -23,6 +23,44 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function isPidAlive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readPidFromFile(pidFilePath: string): Promise<number | undefined> {
+  try {
+    const raw = await readFile(pidFilePath, 'utf8');
+    const parsed = Number.parseInt(raw.trim(), 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+async function waitForPidFromFile(pidFilePath: string, timeoutMs: number): Promise<number | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = await readPidFromFile(pidFilePath);
+    if (pid !== undefined) {
+      return pid;
+    }
+    await sleep(25);
+  }
+  return undefined;
 }
 
 async function spawnMockRuntimeRunner(instanceKey: string, stateRoot: string): Promise<{
@@ -53,6 +91,52 @@ async function spawnMockRuntimeRunner(instanceKey: string, stateRoot: string): P
   };
 
   return { child, cleanup };
+}
+
+async function spawnMockRuntimeRunnerWithChild(instanceKey: string, stateRoot: string): Promise<{
+  child: ReturnType<typeof spawn>;
+  childPidPath: string;
+  cleanup: () => Promise<void>;
+}> {
+  const runnerDir = await mkdtemp(path.join(os.tmpdir(), 'goondan-instance-runner-tree-'));
+  const runnerPath = path.join(runnerDir, 'runtime-runner.js');
+  const workerPath = path.join(runnerDir, 'agent-or-connector-child.js');
+  const childPidPath = path.join(runnerDir, 'child.pid');
+
+  await writeFile(workerPath, "setInterval(() => {}, 1000);\n", 'utf8');
+
+  const runnerScript = [
+    "const { spawn } = require('node:child_process');",
+    "const { writeFileSync } = require('node:fs');",
+    `const child = spawn(process.execPath, [${JSON.stringify(workerPath)}], { stdio: 'ignore' });`,
+    `writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid ?? ''), 'utf8');`,
+    'setInterval(() => {}, 1000);',
+    '',
+  ].join('\n');
+  await writeFile(runnerPath, runnerScript, 'utf8');
+
+  const child = spawn(
+    process.execPath,
+    [
+      runnerPath,
+      '--instance-key',
+      instanceKey,
+      '--state-root',
+      stateRoot,
+    ],
+    {
+      stdio: 'ignore',
+    },
+  );
+
+  const cleanup = async (): Promise<void> => {
+    const childPid = await readPidFromFile(childPidPath);
+    await terminateProcess(childPid);
+    await terminateProcess(child.pid);
+    await rm(runnerDir, { recursive: true, force: true });
+  };
+
+  return { child, childPidPath, cleanup };
 }
 
 async function terminateProcess(pid: number | undefined): Promise<void> {
@@ -355,13 +439,37 @@ describe('FileInstanceStore.list', () => {
       expect(deleted).toBe(true);
 
       await sleep(80);
-      let alive = true;
-      try {
-        process.kill(runtime.child.pid, 0);
-      } catch {
-        alive = false;
+      expect(isPidAlive(runtime.child.pid)).toBe(false);
+    } finally {
+      await runtime.cleanup();
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('force 삭제 시 runtime-runner의 자식 프로세스도 함께 종료한다', async () => {
+    const stateRoot = await createTempStateRoot();
+    const key = 'instance-detached-delete-tree';
+    const runtime = await spawnMockRuntimeRunnerWithChild(key, stateRoot);
+
+    try {
+      const childPid = await waitForPidFromFile(runtime.childPidPath, 1_000);
+      expect(childPid).toBeDefined();
+      if (childPid === undefined) {
+        throw new Error('mock child pid를 읽지 못했습니다.');
       }
-      expect(alive).toBe(false);
+
+      const store = new FileInstanceStore({});
+      const deleted = await store.delete({
+        key,
+        force: true,
+        stateRoot,
+      });
+
+      expect(deleted).toBe(true);
+
+      await sleep(120);
+      expect(isPidAlive(runtime.child.pid)).toBe(false);
+      expect(isPidAlive(childPid)).toBe(false);
     } finally {
       await runtime.cleanup();
       await rm(stateRoot, { recursive: true, force: true });

@@ -485,7 +485,7 @@ gdn instance restart default
 
 ### 7.4 gdn instance delete
 
-인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다. 대상 key가 active가 아니어도 동일 `state-root`에서 실행 중인 managed runtime-runner PID를 찾아 종료해야 한다(SHOULD).
+인스턴스 상태를 삭제한다. 메시지 히스토리, Extension 상태 등 인스턴스 디렉터리 전체를 제거한다. 대상 key가 active가 아니어도 동일 `state-root`에서 실행 중인 managed runtime-runner PID를 찾아 종료해야 한다(SHOULD). 이때 runtime-runner의 자식 프로세스(agent/connector child 포함)도 함께 종료되어 orphan process가 남지 않아야 한다(MUST).
 
 **사용법:**
 

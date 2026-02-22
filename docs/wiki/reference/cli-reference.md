@@ -464,7 +464,7 @@ gdn instance restart default
 
 ### `gdn instance delete`
 
-Delete an instance and its state. Removes message history, extension state, and the entire instance workspace directory. Terminates managed runtime-runner PIDs under the same state-root regardless of active status.
+Delete an instance and its state. Removes message history, extension state, and the entire instance workspace directory. Terminates managed runtime-runner PIDs under the same state-root regardless of active status, and also cleans up child processes (including agent/connector children) spawned by that runtime-runner.
 
 ```bash
 gdn instance delete <key> [options]

@@ -362,10 +362,10 @@ ToolSearch는 LLM이 "다음 Step에서 필요한 도구"를 선택하도록 돕
 
 ### 3.4 통합 이벤트 기반 에이전트 통신 패턴
 
-에이전트 간 통신은 통합 이벤트 모델(`AgentEvent`)을 사용하며, Orchestrator를 경유하는 IPC로 구현된다. 두 가지 패턴을 지원한다:
+에이전트 간 통신은 통합 이벤트 모델(`AgentEvent`)을 사용하며, Orchestrator를 경유하는 IPC로 구현된다. request는 `async` 옵션을 지원한다:
 
-- **request (tool 경로)**: `agents__request` 도구 호출로 요청-응답을 매칭한다.
-- **request (middleware 경로)**: `turn`/`step` 미들웨어에서 `ctx.agents.request`로 요청-응답을 매칭한다.
+- **request (`async=false`, 기본값)**: 블로킹 요청-응답. `agents__request` 또는 `ctx.agents.request`가 응답을 직접 반환한다.
+- **request (`async=true`)**: 즉시 ack 반환. 실제 응답은 메시지 inbox에 적재되고, 응답 수신 직후 다음 Step 시작 전에 주입된다.
 - **send** (fire-and-forget): `AgentEvent.replyTo`를 생략하여 단방향 알림을 보낸다.
 - **보조 운영 API**: `agents__spawn`(인스턴스 준비), `agents__list`(spawn 목록 복원), `agents__catalog`(호출 가능한 Agent 카탈로그 조회)
 

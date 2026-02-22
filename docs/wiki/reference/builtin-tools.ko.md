@@ -470,15 +470,16 @@ JSON 경로의 요소 수를 셉니다.
 
 ### agents__request
 
-다른 에이전트에게 요청 이벤트를 보내고 응답을 기다립니다. 대상 에이전트가 실행 중이 아니면 자동으로 스폰됩니다.
+다른 에이전트에게 요청 이벤트를 보냅니다. 기본은 응답 대기(`async=false`)이며, `async=true`를 주면 즉시 반환하고 응답은 호출자 메시지 inbox에 큐잉됩니다.
 
 | 파라미터 | 타입 | 필수 | 기본값 | 설명 |
 |----------|------|------|--------|------|
 | `target` | string | 예 | -- | 대상 에이전트 이름 |
-| `input` | string | 아니오 | -- | 보낼 메시지 텍스트 |
+| `input` | string | 예 | -- | 보낼 메시지 텍스트 |
 | `instanceKey` | string | 아니오 | 호출자의 `instanceKey` | 대상 인스턴스 키 |
 | `eventType` | string | 아니오 | `"agent.request"` | 커스텀 이벤트 타입 |
 | `timeoutMs` | number | 아니오 | `60000` | 응답 타임아웃 (밀리초) |
+| `async` | boolean | 아니오 | `false` | `false`: 블로킹 응답, `true`: 즉시 ack + 응답 큐잉 |
 | `metadata` | object | 아니오 | -- | 이벤트에 첨부할 추가 메타데이터 |
 
 **반환값:**
@@ -488,9 +489,13 @@ JSON 경로의 요소 수를 셉니다.
   "target": "researcher",
   "eventId": "agent_event_abc123",
   "correlationId": "corr_xyz789",
+  "accepted": true,
+  "async": false,
   "response": "연구 결과입니다..."
 }
 ```
+
+`async=true`일 때 호출 시점의 `response`는 `null`일 수 있으며, 실제 응답은 `metadata.__goondanInterAgentResponse`를 가진 user 메시지로 주입됩니다.
 
 ### agents__send
 
@@ -499,7 +504,7 @@ JSON 경로의 요소 수를 셉니다.
 | 파라미터 | 타입 | 필수 | 기본값 | 설명 |
 |----------|------|------|--------|------|
 | `target` | string | 예 | -- | 대상 에이전트 이름 |
-| `input` | string | 아니오 | -- | 보낼 메시지 텍스트 |
+| `input` | string | 예 | -- | 보낼 메시지 텍스트 |
 | `instanceKey` | string | 아니오 | 호출자의 `instanceKey` | 대상 인스턴스 키 |
 | `eventType` | string | 아니오 | `"agent.send"` | 커스텀 이벤트 타입 |
 | `metadata` | object | 아니오 | -- | 이벤트에 첨부할 추가 메타데이터 |

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { closeSync, openSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -186,6 +186,87 @@ function isProcessAlive(pid: number | undefined): boolean {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeInstanceDirectoryKey(instanceKey: string): string {
+  return instanceKey.replace(/[^a-zA-Z0-9_:-]/g, '-').slice(0, 128);
+}
+
+async function collectMessageStoreTargets(stateRoot: string, instanceKey: string): Promise<string[]> {
+  const names = new Set<string>();
+  const trimmed = instanceKey.trim();
+  if (trimmed.length > 0) {
+    names.add(trimmed);
+    const sanitized = sanitizeInstanceDirectoryKey(trimmed);
+    if (sanitized.length > 0) {
+      names.add(sanitized);
+    }
+  }
+
+  const targets = new Set<string>();
+  for (const name of names) {
+    targets.add(path.join(stateRoot, 'workspaces', name, 'messages'));
+    targets.add(path.join(stateRoot, 'instances', name, 'messages'));
+  }
+
+  const workspacesRoot = path.join(stateRoot, 'workspaces');
+  if (await exists(workspacesRoot)) {
+    const workspaces = await readdir(workspacesRoot, { withFileTypes: true });
+    for (const workspace of workspaces) {
+      if (!workspace.isDirectory()) {
+        continue;
+      }
+
+      for (const name of names) {
+        targets.add(path.join(workspacesRoot, workspace.name, 'instances', name, 'messages'));
+      }
+    }
+  }
+
+  const legacyInstancesRoot = path.join(stateRoot, 'instances');
+  if (await exists(legacyInstancesRoot)) {
+    const workspaces = await readdir(legacyInstancesRoot, { withFileTypes: true });
+    for (const workspace of workspaces) {
+      if (!workspace.isDirectory()) {
+        continue;
+      }
+
+      for (const name of names) {
+        targets.add(path.join(legacyInstancesRoot, workspace.name, name, 'messages'));
+      }
+    }
+  }
+
+  return [...targets];
+}
+
+async function clearPersistedMessageHistory(stateRoot: string, instanceKeys: string[]): Promise<void> {
+  const normalizedKeys = new Set<string>();
+  for (const instanceKey of instanceKeys) {
+    const trimmed = instanceKey.trim();
+    if (trimmed.length > 0) {
+      normalizedKeys.add(trimmed);
+    }
+  }
+
+  if (normalizedKeys.size === 0) {
+    return;
+  }
+
+  const targets = new Set<string>();
+  for (const instanceKey of normalizedKeys) {
+    const keyTargets = await collectMessageStoreTargets(stateRoot, instanceKey);
+    for (const target of keyTargets) {
+      targets.add(target);
+    }
+  }
+
+  for (const target of targets) {
+    if (!(await exists(target))) {
+      continue;
+    }
+    await rm(target, { recursive: true, force: true });
+  }
 }
 
 async function terminatePreviousProcess(previousPid: number | undefined, replacementPid?: number): Promise<void> {
@@ -502,6 +583,9 @@ export class LocalRuntimeController implements RuntimeController {
     const identity = await resolveRuntimeStartIdentity(manifestPath, stateRoot, state.swarm);
 
     await terminatePreviousProcess(state.pid);
+    if (request.fresh) {
+      await clearPersistedMessageHistory(stateRoot, [state.instanceKey, identity.instanceKey]);
+    }
 
     const runner = await this.startDetachedRunner({
       manifestPath,

@@ -95,17 +95,21 @@ describe('base tools', () => {
 
   it('agents__request/send call runtime abstraction', async () => {
     const captured: AgentEvent[] = [];
+    const capturedRequestOptions: Array<{ timeoutMs?: number; async?: boolean } | undefined> = [];
     const capturedSpawns: Array<{ target: string; instanceKey?: string; cwd?: string }> = [];
 
     const runtime: AgentToolRuntime = {
-      async request(target, event) {
+      async request(target, event, options) {
         captured.push(event);
+        capturedRequestOptions.push(options);
         const correlationId = event.replyTo ? event.replyTo.correlationId : 'missing';
         return {
           eventId: event.id,
           target,
           correlationId,
           response: { ok: true, target },
+          accepted: true,
+          async: options?.async ?? false,
         };
       },
       async send(target, event) {
@@ -164,6 +168,16 @@ describe('base tools', () => {
       const requestOutput = assertJsonObject(requestResult);
       expect(requestOutput.target).toBe('reviewer');
       expect(requestOutput.response).toEqual({ ok: true, target: 'reviewer' });
+      expect(requestOutput.async).toBe(false);
+
+      const asyncRequestResult = await agentsHandlers.request(ctx, {
+        target: 'reviewer',
+        input: 'check async',
+        async: true,
+      });
+      const asyncRequestOutput = assertJsonObject(asyncRequestResult);
+      expect(asyncRequestOutput.async).toBe(true);
+      expect(asyncRequestOutput.accepted).toBe(true);
 
       await expect(
         agentsHandlers.request(ctx, {
@@ -184,16 +198,21 @@ describe('base tools', () => {
         }),
       ).rejects.toThrow("'input' must be a non-empty string");
 
-      expect(captured.length).toBe(2);
+      expect(captured.length).toBe(3);
       const firstCaptured = captured[0];
       const secondCaptured = captured[1];
-      if (!firstCaptured || !secondCaptured) {
-        throw new Error('Expected two captured events');
+      const thirdCaptured = captured[2];
+      if (!firstCaptured || !secondCaptured || !thirdCaptured) {
+        throw new Error('Expected three captured events');
       }
       expect(firstCaptured.replyTo).toBeDefined();
-      expect(secondCaptured.replyTo).toBeUndefined();
+      expect(secondCaptured.replyTo).toBeDefined();
+      expect(thirdCaptured.replyTo).toBeUndefined();
       expect(firstCaptured.instanceKey).toBe('instance-1');
       expect(secondCaptured.instanceKey).toBe('instance-1');
+      expect(thirdCaptured.instanceKey).toBe('instance-1');
+      expect(capturedRequestOptions[0]).toEqual({ timeoutMs: 60_000, async: false });
+      expect(capturedRequestOptions[1]).toEqual({ timeoutMs: 60_000, async: true });
 
       const spawnResult = await agentsHandlers.spawn(ctx, {
         target: 'reviewer',

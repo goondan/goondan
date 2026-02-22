@@ -44,7 +44,8 @@ export const request: ToolHandler = async (ctx: ToolContext, input: JsonObject):
   const instanceKey = optionalString(input, 'instanceKey') ?? ctx.instanceKey;
   const eventType = optionalString(input, 'eventType') ?? 'agent.request';
   const metadata = optionalJsonObject(input, 'metadata');
-  const timeoutMs = optionalNumber(input, 'timeoutMs', 15_000) ?? 15_000;
+  const timeoutMs = optionalNumber(input, 'timeoutMs', 60_000) ?? 60_000;
+  const asyncMode = optionalBoolean(input, 'async', false) ?? false;
 
   const correlationId = createId('corr');
   const event = {
@@ -55,12 +56,14 @@ export const request: ToolHandler = async (ctx: ToolContext, input: JsonObject):
     },
   };
 
-  const response = await runtime.request(target, event, { timeoutMs });
+  const response = await runtime.request(target, event, { timeoutMs, async: asyncMode });
 
   return {
     target,
     eventId: response.eventId,
     correlationId: response.correlationId,
+    accepted: response.accepted ?? true,
+    async: response.async ?? asyncMode,
     response: response.response ?? null,
   };
 };

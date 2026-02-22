@@ -129,6 +129,8 @@ interface ConnectorChildEventMessage {
 const EXTENSION_AGENT_CALL_SOURCE = 'extension-middleware';
 const AGENT_CALL_STACK_METADATA_KEY = '__goondanAgentCallStack';
 const INBOUND_MESSAGE_METADATA_KEY = '__goondanInbound';
+const INTER_AGENT_RESPONSE_METADATA_KEY = '__goondanInterAgentResponse';
+const MAX_RUNTIME_ASYNC_RESPONSE_INBOX_SIZE = 256;
 
 interface RunnerArguments {
   bundlePath: string;
@@ -293,6 +295,22 @@ interface TurnExecutionResult {
   restartRequested: boolean;
   restartReason?: string;
   nextConversation: ConversationTurn[];
+}
+
+interface RuntimeAsyncResponseInboxEntry {
+  requestId: string;
+  requestEventId: string;
+  requestEventType: string;
+  responseEventId?: string;
+  fromAgentId: string;
+  toAgentId: string;
+  status: 'ok' | 'error' | 'timeout';
+  receivedAt: string;
+  response: JsonValue;
+  traceId?: string;
+  requestMetadata?: JsonObject;
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 const ORCHESTRATOR_PROCESS_NAME = 'orchestrator';
@@ -2020,6 +2038,7 @@ function createMiddlewareAgentsApi(input: {
       const target = normalizeMiddlewareTarget(params.target);
       const targetInstanceKey = normalizeMiddlewareInstanceKey(params.instanceKey, input.callerInstanceKey);
       const timeoutMs = normalizeMiddlewareTimeoutMs(params.timeoutMs);
+      const asyncMode = params.async === true;
       const correlationId = createId('corr');
       const event = createMiddlewareAgentEvent({
         callerAgentName: input.callerAgentName,
@@ -2031,10 +2050,13 @@ function createMiddlewareAgentsApi(input: {
         correlationId,
       });
 
-      const result = await input.runtime.request(target, event, { timeoutMs });
+      const result = await input.runtime.request(target, event, { timeoutMs, async: asyncMode });
       return {
         target: result.target,
         response: toMiddlewareAgentResponseText(result.response),
+        correlationId: result.correlationId,
+        accepted: result.accepted ?? true,
+        async: result.async ?? asyncMode,
       };
     },
     send: async (params: MiddlewareAgentSendParams) => {
@@ -2436,6 +2458,92 @@ function createInboundMessageMetadata(event: AgentEvent): Record<string, JsonVal
   return {
     [INBOUND_MESSAGE_METADATA_KEY]: inboundPayload,
   };
+}
+
+function enqueueRuntimeAsyncResponse(
+  inbox: RuntimeAsyncResponseInboxEntry[],
+  entry: RuntimeAsyncResponseInboxEntry,
+): void {
+  inbox.push(entry);
+  while (inbox.length > MAX_RUNTIME_ASYNC_RESPONSE_INBOX_SIZE) {
+    inbox.shift();
+  }
+}
+
+function flushRuntimeAsyncResponses(
+  inbox: RuntimeAsyncResponseInboxEntry[],
+  conversationState: ConversationStateImpl,
+): void {
+  while (inbox.length > 0) {
+    const response = inbox.shift();
+    if (!response) {
+      continue;
+    }
+    const metadata: Record<string, JsonValue> = {
+      [INTER_AGENT_RESPONSE_METADATA_KEY]: createRuntimeInterAgentResponseMetadata(response),
+    };
+    if (response.traceId) {
+      metadata.traceId = response.traceId;
+    }
+    conversationState.emitMessageEvent({
+      type: 'append',
+      message: createConversationUserMessage(createRuntimeInterAgentResponseContent(response), metadata),
+    });
+  }
+}
+
+function createRuntimeInterAgentResponseContent(entry: RuntimeAsyncResponseInboxEntry): JsonObject {
+  const content: JsonObject = {
+    type: 'inter_agent_response',
+    requestId: entry.requestId,
+    fromAgentId: entry.fromAgentId,
+    toAgentId: entry.toAgentId,
+    status: entry.status,
+  };
+  if (entry.status === 'ok') {
+    content.response = entry.response;
+    return content;
+  }
+  content.error = {
+    code: entry.errorCode ?? 'AGENT_REQUEST_ERROR',
+    message: entry.errorMessage ?? 'agent request failed',
+  };
+  return content;
+}
+
+function createRuntimeInterAgentResponseMetadata(
+  entry: RuntimeAsyncResponseInboxEntry,
+): JsonObject {
+  const metadata: JsonObject = {
+    kind: 'inter_agent_response',
+    version: 1,
+    requestId: entry.requestId,
+    requestEventId: entry.requestEventId,
+    fromAgentId: entry.fromAgentId,
+    toAgentId: entry.toAgentId,
+    async: true,
+    status: entry.status,
+    receivedAt: entry.receivedAt,
+  };
+  if (entry.responseEventId) {
+    metadata.responseEventId = entry.responseEventId;
+  }
+  if (entry.traceId) {
+    metadata.traceId = entry.traceId;
+  }
+  if (entry.requestEventType.length > 0) {
+    metadata.requestEventType = entry.requestEventType;
+  }
+  if (entry.requestMetadata) {
+    metadata.requestMetadata = entry.requestMetadata;
+  }
+  if (entry.errorCode) {
+    metadata.errorCode = entry.errorCode;
+  }
+  if (entry.errorMessage) {
+    metadata.errorMessage = entry.errorMessage;
+  }
+  return metadata;
 }
 
 function createToolContextMessage(content: string): Message {
@@ -3114,6 +3222,7 @@ function createAgentToolRuntime(input: {
   callerAgentName: string;
   callerInstanceKey: string;
   logger: Console;
+  enqueueAsyncResponse?: (entry: RuntimeAsyncResponseInboxEntry) => void;
 }): AgentToolRuntime {
   const resolveTargetPlan = (target: string): AgentRuntimePlan => {
     const targetPlan = input.runnerPlan.agents.get(target);
@@ -3161,24 +3270,82 @@ function createAgentToolRuntime(input: {
         metadata: withAgentCallStack(parsed.metadata, currentCallStack),
       };
 
+      const correlationId = parsed.correlationId ?? createId('corr');
       const timeoutMs = resolveAgentRequestTimeoutMs(options?.timeoutMs);
-      const turnResult = await withOptionalTimeout(
-        executeInboundTurn({
-          runtime: input.runtime,
-          runnerPlan: input.runnerPlan,
-          targetAgentName: target,
-          event: inboundEvent,
-          logger: input.logger,
-        }),
-        timeoutMs,
-        `agent request timeout (${timeoutMs}ms): target=${target}`,
-      );
+      const executeRequest = (): Promise<TurnExecutionResult> =>
+        withOptionalTimeout(
+          executeInboundTurn({
+            runtime: input.runtime,
+            runnerPlan: input.runnerPlan,
+            targetAgentName: target,
+            event: inboundEvent,
+            logger: input.logger,
+          }),
+          timeoutMs,
+          `agent request timeout (${timeoutMs}ms): target=${target}`,
+        );
+
+      if (options?.async === true) {
+        void executeRequest()
+          .then((turnResult) => {
+            if (!input.enqueueAsyncResponse) {
+              return;
+            }
+            input.enqueueAsyncResponse({
+              requestId: correlationId,
+              requestEventId: parsed.id,
+              requestEventType: parsed.type,
+              fromAgentId: target,
+              toAgentId: input.callerAgentName,
+              status: 'ok',
+              receivedAt: new Date().toISOString(),
+              response: turnResult.responseText,
+              traceId: event.traceId,
+              requestMetadata: parsed.metadata,
+            });
+          })
+          .catch((error) => {
+            const message = unknownToErrorMessage(error);
+            const timeoutPrefix = `agent request timeout (${timeoutMs}ms):`;
+            const status: 'error' | 'timeout' = message.includes(timeoutPrefix) ? 'timeout' : 'error';
+            const errorCode = status === 'timeout' ? 'AGENT_REQUEST_TIMEOUT' : 'AGENT_REQUEST_ERROR';
+            if (input.enqueueAsyncResponse) {
+              input.enqueueAsyncResponse({
+                requestId: correlationId,
+                requestEventId: parsed.id,
+                requestEventType: parsed.type,
+                fromAgentId: target,
+                toAgentId: input.callerAgentName,
+                status,
+                receivedAt: new Date().toISOString(),
+                response: null,
+                traceId: event.traceId,
+                requestMetadata: parsed.metadata,
+                errorCode,
+                errorMessage: message,
+              });
+            }
+            input.logger.warn(`agents__request(async) target=${target} failed: ${message}`);
+          });
+        return {
+          eventId: parsed.id,
+          target,
+          response: undefined,
+          correlationId,
+          accepted: true,
+          async: true,
+        };
+      }
+
+      const turnResult = await executeRequest();
 
       return {
         eventId: parsed.id,
         target,
         response: turnResult.responseText,
-        correlationId: parsed.correlationId ?? createId('corr'),
+        correlationId,
+        accepted: true,
+        async: false,
       };
     },
     send: async (target: string, event: AgentEvent): Promise<AgentRuntimeSendResult> => {
@@ -3355,11 +3522,13 @@ async function runAgentTurn(input: {
   logger: Console;
 }): Promise<TurnExecutionResult> {
   const conversationState = createConversationStateFromTurns(input.conversation);
+  const asyncResponseInbox: RuntimeAsyncResponseInboxEntry[] = [];
   const inboundMessageMetadata = createInboundMessageMetadata(input.inputEvent);
   conversationState.emitMessageEvent({
     type: 'append',
     message: createConversationUserMessage(input.userInputText, inboundMessageMetadata),
   });
+  flushRuntimeAsyncResponses(asyncResponseInbox, conversationState);
   let lastText = '';
   let finalResponseText = '응답 텍스트를 생성하지 못했습니다.';
   let restartRequested = false;
@@ -3370,6 +3539,9 @@ async function runAgentTurn(input: {
     callerAgentName: input.plan.name,
     callerInstanceKey: input.instanceKey,
     logger: input.logger,
+    enqueueAsyncResponse(entry) {
+      enqueueRuntimeAsyncResponse(asyncResponseInbox, entry);
+    },
   });
   const middlewareAgentsApi = createMiddlewareAgentsApi({
     runtime: agentRuntime,
@@ -3411,6 +3583,7 @@ async function runAgentTurn(input: {
       },
       async (): Promise<TurnResult> => {
         while (true) {
+        flushRuntimeAsyncResponses(asyncResponseInbox, conversationState);
         if (step >= input.plan.maxSteps) {
           const responseText = buildStepLimitResponse({
             maxSteps: input.plan.maxSteps,

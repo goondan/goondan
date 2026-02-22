@@ -137,6 +137,40 @@ interface AgentProcessState {
   processing: boolean;
 }
 
+const INTER_AGENT_RESPONSE_METADATA_KEY = '__goondanInterAgentResponse';
+
+type InterAgentAsyncResponseStatus = 'ok' | 'error' | 'timeout';
+
+interface PendingAsyncEntry {
+  requesterAgentName: string;
+  requesterInstanceKey: string;
+  correlationId: string;
+  target: string;
+  requestEventId: string;
+  requestEventType: string;
+  requestMetadata?: JsonObject;
+  traceId?: string;
+  timeoutMs: number;
+  createdAt: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface AsyncResponseInboxEntry {
+  requestId: string;
+  requestEventId: string;
+  requestEventType: string;
+  responseEventId?: string;
+  fromAgentId: string;
+  toAgentId: string;
+  status: InterAgentAsyncResponseStatus;
+  receivedAt: string;
+  response: JsonValue;
+  traceId?: string;
+  requestMetadata?: JsonObject;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Main entry
 // ---------------------------------------------------------------------------
@@ -244,6 +278,10 @@ async function main(): Promise<void> {
 
     if (message.type === 'event') {
       if (state.draining) return; // Don't accept new events during drain
+      const payload = isJsonObject(message.payload) ? message.payload : null;
+      if (payload && isPendingResponsePayload(payload)) {
+        return;
+      }
 
       const agentEvent = parseAgentEventFromIpc(message);
       if (!agentEvent) {
@@ -367,6 +405,7 @@ async function executeTurn(
       type: 'append',
       message: createConversationUserMessage(userInputText, inboundMessageMetadata),
     });
+    appendAsyncResponsesToConversation(queueKey, conversationState);
 
     // Create agent runtime that sends IPC messages for inter-agent communication
     // Propagate auth from inbound event for inter-agent calls
@@ -397,6 +436,8 @@ async function executeTurn(
           await import('./runtime-runner.js');
 
         while (true) {
+          appendAsyncResponsesToConversation(queueKey, conversationState);
+
           if (step >= plan.maxSteps) {
             const responseText = buildStepLimitResponse({
               maxSteps: plan.maxSteps,
@@ -650,6 +691,24 @@ function createIpcAgentToolRuntime(
         payload.auth = inboundAuth;
       }
 
+      const timeoutMs = resolveAgentRequestTimeoutMs(options?.timeoutMs);
+      let responsePromise: Promise<AgentRuntimeRequestResult> | undefined;
+      if (options?.async === true) {
+        registerPendingAsyncResponse({
+          requesterAgentName: args.agentName,
+          requesterInstanceKey: args.instanceKey,
+          correlationId,
+          target,
+          requestEventId: event.id,
+          requestEventType: event.type,
+          requestMetadata: event.metadata,
+          traceId: event.traceId,
+          timeoutMs,
+        });
+      } else {
+        responsePromise = waitForIpcResponse(correlationId, target, timeoutMs);
+      }
+
       sendIpc({
         type: 'event',
         from: args.agentName,
@@ -657,8 +716,20 @@ function createIpcAgentToolRuntime(
         payload,
       });
 
-      const timeoutMs = resolveAgentRequestTimeoutMs(options?.timeoutMs);
-      return waitForIpcResponse(correlationId, target, timeoutMs);
+      if (options?.async === true) {
+        return {
+          eventId: event.id,
+          target,
+          response: undefined,
+          correlationId,
+          accepted: true,
+          async: true,
+        };
+      }
+      if (!responsePromise) {
+        throw new Error('request response promise was not prepared');
+      }
+      return responsePromise;
     },
     send: async (target, event) => {
       const payload: JsonObject = {
@@ -717,13 +788,29 @@ function createIpcMiddlewareAgentsApi(
   args: AgentRunnerArguments,
   traceId: string,
   inboundAuth: JsonObject | undefined,
-): { request: (params: { target: string; input?: string; instanceKey?: string; timeoutMs?: number; metadata?: JsonObject }) => Promise<{ target: string; response: string }>; send: (params: { target: string; input?: string; instanceKey?: string; metadata?: JsonObject }) => Promise<{ accepted: boolean }> } {
+): {
+  request: (params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    timeoutMs?: number;
+    async?: boolean;
+    metadata?: JsonObject;
+  }) => Promise<{ target: string; response: string; correlationId?: string; accepted?: boolean; async?: boolean }>;
+  send: (params: {
+    target: string;
+    input?: string;
+    instanceKey?: string;
+    metadata?: JsonObject;
+  }) => Promise<{ accepted: boolean }>;
+} {
   return {
     request: async (params) => {
       const correlationId = createId('corr');
       const instanceKey = params.instanceKey ?? 'default';
+      const requestEventId = createId('evt');
       const payload: JsonObject = {
-        id: createId('evt'),
+        id: requestEventId,
         type: 'request',
         input: params.input ?? '',
         source: { kind: 'agent', name: args.agentName },
@@ -738,6 +825,24 @@ function createIpcMiddlewareAgentsApi(
         payload.auth = inboundAuth;
       }
 
+      const timeoutMs = resolveAgentRequestTimeoutMs(params.timeoutMs);
+      let responsePromise: Promise<AgentRuntimeRequestResult> | undefined;
+      if (params.async === true) {
+        registerPendingAsyncResponse({
+          requesterAgentName: args.agentName,
+          requesterInstanceKey: args.instanceKey,
+          correlationId,
+          target: params.target,
+          requestEventId,
+          requestEventType: 'agent.request',
+          requestMetadata: params.metadata,
+          traceId,
+          timeoutMs,
+        });
+      } else {
+        responsePromise = waitForIpcResponse(correlationId, params.target, timeoutMs);
+      }
+
       sendIpc({
         type: 'event',
         from: args.agentName,
@@ -745,10 +850,30 @@ function createIpcMiddlewareAgentsApi(
         payload,
       });
 
-      const timeoutMs = resolveAgentRequestTimeoutMs(params.timeoutMs);
-      const result = await waitForIpcResponse(correlationId, params.target, timeoutMs);
-      const response = typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
-      return { target: params.target, response };
+      if (params.async === true) {
+        return {
+          target: params.target,
+          response: '',
+          correlationId,
+          accepted: true,
+          async: true,
+        };
+      }
+      if (!responsePromise) {
+        throw new Error('middleware request response promise was not prepared');
+      }
+      const result = await responsePromise;
+      const response =
+        typeof result.response === 'string'
+          ? result.response
+          : JSON.stringify(result.response ?? null);
+      return {
+        target: params.target,
+        response,
+        correlationId: result.correlationId,
+        accepted: true,
+        async: false,
+      };
     },
     send: async (params) => {
       const instanceKey = params.instanceKey ?? 'default';
@@ -784,6 +909,7 @@ function createIpcMiddlewareAgentsApi(
 
 const MAX_PENDING_RESPONSES = 100;
 const STALE_THRESHOLD_MS = 60_000;
+const MAX_ASYNC_RESPONSE_INBOX_SIZE = 256;
 
 interface PendingEntry {
   resolve: (result: AgentRuntimeRequestResult) => void;
@@ -794,6 +920,8 @@ interface PendingEntry {
 }
 
 const pendingResponses = new Map<string, PendingEntry>();
+const pendingAsyncResponses = new Map<string, PendingAsyncEntry>();
+const asyncResponseInboxes = new Map<string, AsyncResponseInboxEntry[]>();
 
 function evictStalePendingResponses(): void {
   if (pendingResponses.size <= MAX_PENDING_RESPONSES) return;
@@ -839,6 +967,164 @@ function waitForIpcResponse(
   });
 }
 
+function isPendingResponsePayload(payload: JsonObject): boolean {
+  const metadata = isJsonObject(payload.metadata) ? payload.metadata : null;
+  if (!metadata) return false;
+  const inReplyTo = typeof metadata.inReplyTo === 'string' ? metadata.inReplyTo : null;
+  if (!inReplyTo) return false;
+  return pendingResponses.has(inReplyTo) || pendingAsyncResponses.has(inReplyTo);
+}
+
+function registerPendingAsyncResponse(input: {
+  requesterAgentName: string;
+  requesterInstanceKey: string;
+  correlationId: string;
+  target: string;
+  requestEventId: string;
+  requestEventType: string;
+  requestMetadata?: JsonObject;
+  traceId?: string;
+  timeoutMs: number;
+}): void {
+  if (pendingAsyncResponses.size >= MAX_PENDING_RESPONSES) {
+    throw new AgentRequestError(
+      'IPC_DELIVERY_FAILED',
+      input.target,
+      `Too many pending async agent requests (limit=${MAX_PENDING_RESPONSES})`,
+    );
+  }
+
+  const existing = pendingAsyncResponses.get(input.correlationId);
+  if (existing) {
+    clearTimeout(existing.timer);
+    pendingAsyncResponses.delete(input.correlationId);
+  }
+
+  const timer = setTimeout(() => {
+    const pending = pendingAsyncResponses.get(input.correlationId);
+    if (!pending) return;
+    pendingAsyncResponses.delete(input.correlationId);
+    enqueueAsyncResponse(createConversationKey(pending.requesterAgentName, pending.requesterInstanceKey), {
+      requestId: pending.correlationId,
+      requestEventId: pending.requestEventId,
+      requestEventType: pending.requestEventType,
+      fromAgentId: pending.target,
+      toAgentId: pending.requesterAgentName,
+      status: 'timeout',
+      receivedAt: new Date().toISOString(),
+      response: null,
+      traceId: pending.traceId,
+      requestMetadata: pending.requestMetadata,
+      errorCode: 'AGENT_REQUEST_TIMEOUT',
+      errorMessage: `Agent request to '${pending.target}' timed out after ${pending.timeoutMs}ms`,
+    });
+  }, input.timeoutMs);
+
+  pendingAsyncResponses.set(input.correlationId, {
+    requesterAgentName: input.requesterAgentName,
+    requesterInstanceKey: input.requesterInstanceKey,
+    correlationId: input.correlationId,
+    target: input.target,
+    requestEventId: input.requestEventId,
+    requestEventType: input.requestEventType,
+    requestMetadata: input.requestMetadata,
+    traceId: input.traceId,
+    timeoutMs: input.timeoutMs,
+    createdAt: Date.now(),
+    timer,
+  });
+}
+
+function enqueueAsyncResponse(queueKey: string, entry: AsyncResponseInboxEntry): void {
+  const current = asyncResponseInboxes.get(queueKey);
+  const queue = current ? [...current, entry] : [entry];
+  while (queue.length > MAX_ASYNC_RESPONSE_INBOX_SIZE) {
+    queue.shift();
+  }
+  asyncResponseInboxes.set(queueKey, queue);
+}
+
+function takeAsyncResponses(queueKey: string): AsyncResponseInboxEntry[] {
+  const queue = asyncResponseInboxes.get(queueKey);
+  if (!queue || queue.length === 0) return [];
+  asyncResponseInboxes.delete(queueKey);
+  return queue;
+}
+
+function appendAsyncResponsesToConversation(
+  queueKey: string,
+  conversationState: { emitMessageEvent(event: MessageEvent): void },
+): void {
+  const responses = takeAsyncResponses(queueKey);
+  for (const response of responses) {
+    const metadata: Record<string, JsonValue> = {
+      [INTER_AGENT_RESPONSE_METADATA_KEY]: createInterAgentResponseMetadata(response),
+    };
+    if (response.traceId) {
+      metadata.traceId = response.traceId;
+    }
+    conversationState.emitMessageEvent({
+      type: 'append',
+      message: createConversationUserMessage(createInterAgentResponseMessageContent(response), metadata),
+    });
+  }
+}
+
+function createInterAgentResponseMessageContent(entry: AsyncResponseInboxEntry): JsonObject {
+  const content: JsonObject = {
+    type: 'inter_agent_response',
+    requestId: entry.requestId,
+    fromAgentId: entry.fromAgentId,
+    toAgentId: entry.toAgentId,
+    status: entry.status,
+  };
+
+  if (entry.status === 'ok') {
+    content.response = entry.response;
+    return content;
+  }
+
+  const error: JsonObject = {
+    code: entry.errorCode ?? 'AGENT_REQUEST_ERROR',
+    message: entry.errorMessage ?? 'agent request failed',
+  };
+  content.error = error;
+  return content;
+}
+
+function createInterAgentResponseMetadata(entry: AsyncResponseInboxEntry): JsonObject {
+  const metadata: JsonObject = {
+    kind: 'inter_agent_response',
+    version: 1,
+    requestId: entry.requestId,
+    requestEventId: entry.requestEventId,
+    fromAgentId: entry.fromAgentId,
+    toAgentId: entry.toAgentId,
+    async: true,
+    status: entry.status,
+    receivedAt: entry.receivedAt,
+  };
+  if (entry.responseEventId) {
+    metadata.responseEventId = entry.responseEventId;
+  }
+  if (entry.traceId) {
+    metadata.traceId = entry.traceId;
+  }
+  if (entry.requestEventType.length > 0) {
+    metadata.requestEventType = entry.requestEventType;
+  }
+  if (entry.requestMetadata) {
+    metadata.requestMetadata = entry.requestMetadata;
+  }
+  if (entry.errorCode) {
+    metadata.errorCode = entry.errorCode;
+  }
+  if (entry.errorMessage) {
+    metadata.errorMessage = entry.errorMessage;
+  }
+  return metadata;
+}
+
 // Handle response events from orchestrator (including error responses)
 process.on('message', (raw: unknown) => {
   if (!isIpcMessage(raw)) return;
@@ -854,35 +1140,80 @@ process.on('message', (raw: unknown) => {
   const inReplyTo = typeof metadata.inReplyTo === 'string' ? metadata.inReplyTo : null;
   if (!inReplyTo) return;
 
+  const source = isJsonObject(payload.source) ? payload.source : null;
+  const sourceName = source && typeof source.name === 'string' ? source.name : 'unknown';
+
   const pending = pendingResponses.get(inReplyTo);
-  if (!pending) return;
+  if (pending) {
+    // Handle error responses from Orchestrator (e.g., CIRCULAR_CALL_DETECTED)
+    if (payload.type === 'error_response') {
+      const errorCode = typeof metadata.errorCode === 'string' ? metadata.errorCode : 'IPC_DELIVERY_FAILED';
+      const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : 'IPC delivery failed';
 
-  // Handle error responses from Orchestrator (e.g., CIRCULAR_CALL_DETECTED)
-  if (payload.type === 'error_response') {
-    const errorCode = typeof metadata.errorCode === 'string' ? metadata.errorCode : 'IPC_DELIVERY_FAILED';
-    const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : 'IPC delivery failed';
-    const source = isJsonObject(payload.source) ? payload.source : null;
-    const targetName = source && typeof source.name === 'string' ? source.name : 'unknown';
+      const validCodes = ['AGENT_NOT_FOUND', 'CIRCULAR_CALL_DETECTED', 'IPC_DELIVERY_FAILED'] as const;
+      type ErrorCode = typeof validCodes[number];
+      const isValidCode = (code: string): code is ErrorCode => {
+        return validCodes.some((c) => c === code);
+      };
+      const code = isValidCode(errorCode) ? errorCode : 'IPC_DELIVERY_FAILED';
 
-    const validCodes = ['AGENT_NOT_FOUND', 'CIRCULAR_CALL_DETECTED', 'IPC_DELIVERY_FAILED'] as const;
-    type ErrorCode = typeof validCodes[number];
-    const isValidCode = (code: string): code is ErrorCode => {
-      return validCodes.some((c) => c === code);
-    };
-    const code = isValidCode(errorCode) ? errorCode : 'IPC_DELIVERY_FAILED';
+      pending.reject(new AgentRequestError(code, sourceName, errorMessage));
+      return;
+    }
 
-    pending.reject(new AgentRequestError(code, targetName, errorMessage));
+    pending.resolve({
+      eventId: typeof payload.id === 'string' ? payload.id : '',
+      target: sourceName,
+      response: payload.input ?? null,
+      correlationId: inReplyTo,
+      accepted: true,
+      async: false,
+    });
     return;
   }
 
-  // Normal response
-  const source = isJsonObject(payload.source) ? payload.source : null;
-  const sourceName = source && typeof source.name === 'string' ? source.name : '';
-  pending.resolve({
-    eventId: typeof payload.id === 'string' ? payload.id : '',
-    target: sourceName,
+  const pendingAsync = pendingAsyncResponses.get(inReplyTo);
+  if (!pendingAsync) return;
+
+  clearTimeout(pendingAsync.timer);
+  pendingAsyncResponses.delete(inReplyTo);
+
+  const queueKey = createConversationKey(pendingAsync.requesterAgentName, pendingAsync.requesterInstanceKey);
+  const responseEventId = typeof payload.id === 'string' ? payload.id : undefined;
+  const traceId = typeof payload.traceId === 'string' ? payload.traceId : pendingAsync.traceId;
+  if (payload.type === 'error_response') {
+    const errorCode = typeof metadata.errorCode === 'string' ? metadata.errorCode : 'IPC_DELIVERY_FAILED';
+    const errorMessage = typeof metadata.errorMessage === 'string' ? metadata.errorMessage : 'IPC delivery failed';
+    enqueueAsyncResponse(queueKey, {
+      requestId: inReplyTo,
+      requestEventId: pendingAsync.requestEventId,
+      requestEventType: pendingAsync.requestEventType,
+      responseEventId,
+      fromAgentId: sourceName,
+      toAgentId: pendingAsync.requesterAgentName,
+      status: 'error',
+      receivedAt: new Date().toISOString(),
+      response: null,
+      traceId,
+      requestMetadata: pendingAsync.requestMetadata,
+      errorCode,
+      errorMessage,
+    });
+    return;
+  }
+
+  enqueueAsyncResponse(queueKey, {
+    requestId: inReplyTo,
+    requestEventId: pendingAsync.requestEventId,
+    requestEventType: pendingAsync.requestEventType,
+    responseEventId,
+    fromAgentId: sourceName,
+    toAgentId: pendingAsync.requesterAgentName,
+    status: 'ok',
+    receivedAt: new Date().toISOString(),
     response: payload.input ?? null,
-    correlationId: inReplyTo,
+    traceId,
+    requestMetadata: pendingAsync.requestMetadata,
   });
 });
 

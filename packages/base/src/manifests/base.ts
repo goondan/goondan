@@ -236,14 +236,17 @@ export function createBaseToolManifests(): BaseToolManifest[] {
       exports: [
         {
           name: 'request',
-          description: 'Send request event to another agent and wait for response',
+          description: 'Send request event to another agent (blocking or async queued response)',
           parameters: createParameters(
             {
               target: stringProperty('Target agent resource name to request.'),
               input: stringProperty('Text payload sent to the target agent.'),
               instanceKey: stringProperty('Optional target instance key. Defaults to current instanceKey.'),
               eventType: stringProperty('Custom event type string (default: "agent.request").'),
-              timeoutMs: numberProperty('Response timeout in milliseconds (default: 15000).'),
+              timeoutMs: numberProperty('Response timeout in milliseconds (default: 60000).'),
+              async: booleanProperty(
+                'When true, return immediately and queue response into message inbox for the next step (default: false).'
+              ),
               metadata: objectProperty('Optional metadata object attached to the request event.'),
             },
             ['target', 'input']
@@ -778,6 +781,7 @@ export function createBaseExtensionManifests(): BaseExtensionManifest[] {
       requiredTools: [],
       errorMessage: '',
     }),
+    createExtensionManifest('inter-agent-response-format', './src/extensions/inter-agent-response-format.ts'),
   ];
 }
 

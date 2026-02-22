@@ -182,7 +182,7 @@ gdn restart
 # 특정 에이전트 프로세스만 재시작
 gdn restart --agent coder
 
-# 모든 상태(메시지 히스토리, Extension 상태) 초기화 후 재시작
+# persisted message history(base/events/runtime-events) 초기화 후 재시작
 gdn restart --fresh
 
 # 특정 에이전트를 상태 초기화와 함께 재시작

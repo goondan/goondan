@@ -21,7 +21,7 @@ Agents in a Goondan swarm communicate exclusively through the Orchestrator using
 
 | Operation | Pattern | Description |
 |-----------|---------|-------------|
-| `agents__request` | Request-response | Send a message and wait for a response |
+| `agents__request` | Request-response / Async queued response | `async=false`: wait for response, `async=true`: immediate ack + queued response |
 | `agents__send` | Fire-and-forget | Send a message without waiting |
 | `agents__spawn` | Instance preparation | Prepare a new agent instance |
 | `agents__list` | Discovery | List spawned agent instances |
@@ -33,7 +33,7 @@ In addition to LLM tool calls, `turn` / `step` middleware can call agents progra
 
 | Middleware API | Pattern | Description |
 |----------------|---------|-------------|
-| `ctx.agents.request` | Request-response | Extension middleware sends a request and waits for response |
+| `ctx.agents.request` | Request-response / Async queued response | `async=false`: wait for response, `async=true`: immediate ack + queued response |
 | `ctx.agents.send` | Fire-and-forget | Extension middleware sends an async notification |
 
 `ctx.agents` currently supports `request` / `send` only. Instance preparation/discovery (`spawn`, `list`, `catalog`) stays on the `agents` tool path.
@@ -96,6 +96,8 @@ Notes:
 - Available only in `turn` / `step` middleware contexts.
 - `toolCall` context does not expose `ctx.agents`.
 - Default `request` timeout is `60000ms` if omitted.
+- `request(async=true)` returns immediately and injects the actual response before the next step starts.
+- Queued async response messages include `metadata.__goondanInterAgentResponse`.
 - Cyclic request chains are detected by runtime and return an error.
 
 ---
@@ -127,9 +129,10 @@ The LLM calls the `agents__request` tool with:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `target` | `string` | Yes | Name of the target agent (e.g., `"researcher"`) |
-| `input` | `string` | No | Text message to send to the target |
+| `input` | `string` | Yes | Text message to send to the target |
 | `instanceKey` | `string` | No | Target instance key (defaults to caller's instanceKey) |
 | `timeoutMs` | `number` | No | Timeout in milliseconds (default: 60000) |
+| `async` | `boolean` | No | `false`: blocking response, `true`: immediate ack + queued response |
 | `metadata` | `object` | No | Additional metadata to pass with the event |
 
 ### Example scenario

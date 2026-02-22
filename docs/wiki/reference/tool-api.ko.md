@@ -148,13 +148,13 @@ interface AgentToolRuntime {
 
 ### request(target, event, options?)
 
-다른 에이전트에 동기 요청을 보내고 응답을 기다립니다 (요청-응답 패턴).
+다른 에이전트에 요청을 보냅니다. `async=false`(기본)는 블로킹 요청-응답이며, `async=true`는 즉시 ack를 반환하고 실제 응답을 다음 step 시작 전에 큐잉 주입합니다.
 
 | 매개변수 | 타입 | 설명 |
 |---------|------|------|
 | `target` | `string` | 대상 에이전트 이름 (예: `"coder"`) |
 | `event` | `AgentEvent` | 입력 메시지를 포함하는 이벤트 페이로드 |
-| `options` | `AgentRuntimeRequestOptions` | 선택. `{ timeoutMs?: number }` |
+| `options` | `AgentRuntimeRequestOptions` | 선택. `{ timeoutMs?: number; async?: boolean }` |
 
 **반환:** `Promise<AgentRuntimeRequestResult>`
 
@@ -164,6 +164,8 @@ interface AgentRuntimeRequestResult {
   target: string;         // 대상 에이전트 이름
   response?: JsonValue;   // 대상 에이전트의 응답 페이로드
   correlationId: string;  // 추적 매칭을 위한 상관관계 ID
+  accepted?: boolean;     // 전달 수락 여부
+  async?: boolean;        // async 모드 사용 여부
 }
 ```
 

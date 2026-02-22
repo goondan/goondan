@@ -1,7 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createServer } from 'node:net';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { LocalRuntimeController } from '../src/services/runtime.js';
 
@@ -103,6 +103,23 @@ async function waitForFile(filePath: string, timeoutMs = 5000): Promise<string> 
   }
 
   throw new Error(`파일 생성 대기 시간 초과: ${filePath}`);
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function expectFileMarkerCleared(filePath: string, marker: string): Promise<void> {
+  if (!(await pathExists(filePath))) {
+    return;
+  }
+  const value = await readFile(filePath, 'utf8');
+  expect(value).not.toContain(marker);
 }
 
 async function waitForFileContains(filePath: string, needle: string, timeoutMs = 5000): Promise<void> {
@@ -1147,6 +1164,91 @@ describe('LocalRuntimeController.startOrchestrator', () => {
       await waitForProcessExit(previousPid, 10_000);
       expect(isProcessAlive(previousPid)).toBe(false);
       await waitForConnectorParentPid(markerPath, restarted.pid, 10_000);
+    } finally {
+      if (runningPid && isProcessAlive(runningPid)) {
+        process.kill(runningPid, 'SIGTERM');
+        await waitForProcessExit(runningPid);
+      }
+      await rm(fixture.rootDir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('instance restart --fresh는 persisted message history를 초기화한다', async () => {
+    const fixture = await createRuntimeFixture(basicBundle);
+    let runningPid: number | undefined;
+
+    try {
+      const controller = new LocalRuntimeController(fixture.bundleDir, {
+        ANTHROPIC_API_KEY: 'test-key',
+      });
+
+      const started = await controller.startOrchestrator({
+        bundlePath: fixture.bundleDir,
+        watch: false,
+        interactive: false,
+        noInstall: false,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!started.pid) {
+        throw new Error('start pid가 없습니다.');
+      }
+
+      const previousPid = started.pid;
+      runningPid = previousPid;
+
+      const canonicalMessagesDir = path.join(
+        fixture.stateRoot,
+        'workspaces',
+        started.instanceKey,
+        'instances',
+        started.instanceKey,
+        'messages',
+      );
+      await mkdir(canonicalMessagesDir, { recursive: true });
+
+      const basePath = path.join(canonicalMessagesDir, 'base.jsonl');
+      const eventsPath = path.join(canonicalMessagesDir, 'events.jsonl');
+      const runtimeEventsPath = path.join(canonicalMessagesDir, 'runtime-events.jsonl');
+      await writeFile(basePath, '{"marker":"old-base-marker"}\n', 'utf8');
+      await writeFile(eventsPath, '{"marker":"old-events-marker"}\n', 'utf8');
+      await writeFile(runtimeEventsPath, '{"marker":"old-runtime-marker"}\n', 'utf8');
+
+      const legacyWorkspaceMessagesDir = path.join(fixture.stateRoot, 'workspaces', started.instanceKey, 'messages');
+      await mkdir(legacyWorkspaceMessagesDir, { recursive: true });
+      await writeFile(path.join(legacyWorkspaceMessagesDir, 'legacy.jsonl'), 'legacy\n', 'utf8');
+
+      const legacyInstancesMessagesDir = path.join(
+        fixture.stateRoot,
+        'instances',
+        'legacy-workspace',
+        started.instanceKey,
+        'messages',
+      );
+      await mkdir(legacyInstancesMessagesDir, { recursive: true });
+      await writeFile(path.join(legacyInstancesMessagesDir, 'legacy.jsonl'), 'legacy\n', 'utf8');
+
+      const restarted = await controller.restart({
+        instanceKey: started.instanceKey,
+        fresh: true,
+        stateRoot: fixture.stateRoot,
+      });
+
+      if (!restarted.pid) {
+        throw new Error('restart pid가 없습니다.');
+      }
+
+      runningPid = restarted.pid;
+      expect(restarted.pid).not.toBe(previousPid);
+      await waitForProcessExit(previousPid, 10_000);
+      expect(isProcessAlive(previousPid)).toBe(false);
+
+      await expectFileMarkerCleared(basePath, 'old-base-marker');
+      await expectFileMarkerCleared(eventsPath, 'old-events-marker');
+      await expectFileMarkerCleared(runtimeEventsPath, 'old-runtime-marker');
+
+      expect(await pathExists(legacyWorkspaceMessagesDir)).toBe(false);
+      expect(await pathExists(legacyInstancesMessagesDir)).toBe(false);
     } finally {
       if (runningPid && isProcessAlive(runningPid)) {
         process.kill(runningPid, 'SIGTERM');

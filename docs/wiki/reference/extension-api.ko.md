@@ -298,8 +298,15 @@ interface MiddlewareAgentsApi {
     input?: string;
     instanceKey?: string;
     timeoutMs?: number; // 기본값: 60000
+    async?: boolean;    // 기본값: false
     metadata?: Record<string, unknown>;
-  }): Promise<{ target: string; response: string }>;
+  }): Promise<{
+    target: string;
+    response: string;
+    correlationId?: string;
+    accepted?: boolean;
+    async?: boolean;
+  }>;
 
   send(params: {
     target: string;
@@ -315,6 +322,8 @@ interface MiddlewareAgentsApi {
 - `turn`, `step` 컨텍스트에서만 사용 가능합니다.
 - `toolCall` 컨텍스트에서는 제공되지 않습니다.
 - `request` 기본 타임아웃은 `60000ms`입니다.
+- `request(async=true)`는 즉시 반환하고, 실제 응답은 큐에 적재된 뒤 다음 step 시작 전에 주입됩니다.
+- 큐잉된 async 응답 메시지는 `metadata.__goondanInterAgentResponse`를 포함합니다.
 - 런타임은 순환 요청 체인을 감지하고 오류를 반환합니다.
 
 예제:

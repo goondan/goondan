@@ -280,7 +280,7 @@ gdn restart [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--agent <name>` | `-a` | 지정한 에이전트의 프로세스만 재시작 (선택적 재시작) | - |
-| `--fresh` | | 재시작 전에 메시지 히스토리와 Extension 상태를 초기화 | `false` |
+| `--fresh` | | 재시작 전에 persisted message history(`base/events/runtime-events`)를 초기화 | `false` |
 
 ### 동작 방식
 
@@ -452,7 +452,9 @@ gdn instance restart <key> [options]
 
 | 옵션 | 설명 | 기본값 |
 |------|------|--------|
-| `--fresh` | fresh restart 플래그 | `false` |
+| `--fresh` | 재시작 전에 persisted message history(`base/events/runtime-events`)를 초기화 | `false` |
+
+`gdn instance restart --fresh`를 사용하면 Studio가 읽는 메시지/런타임 이벤트 이력이 함께 비워져 새로고침 시 빈 상태로 시작됩니다.
 
 **예시:**
 

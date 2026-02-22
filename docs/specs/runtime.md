@@ -569,7 +569,11 @@ AgentA → Orchestrator:
 7. Orchestrator는 대상 AgentProcess가 존재하지 않으면 자동 스폰해야 한다(MUST).
 8. Orchestrator는 대상 Agent의 `instanceKey` 결정 규칙을 적용해야 한다(MUST).
 9. Runtime은 `request` 호출에서 순환 요청 체인을 감지하면 즉시 오류를 반환해야 한다(MUST).
-10. 요청 실패는 구조화된 ToolCallResult(`status="error"`) 또는 미들웨어 예외로 반환해야 한다(MUST).
+10. `request(async=false)`는 블로킹 응답을 직접 반환해야 한다(MUST).
+11. `request(async=true)`는 즉시 ack를 반환하고, 실제 응답은 메시지 큐(inbox)에 적재해야 한다(MUST).
+12. `request(async=true)` 응답은 수신 직후의 다음 Step 시작 전에 `conversationState`에 주입해야 하며, 다음 Turn까지 지연되면 안 된다(MUST).
+13. `request(async=true)`로 주입된 메시지는 `metadata.__goondanInterAgentResponse`를 포함해야 한다(MUST).
+14. 요청 실패는 구조화된 ToolCallResult(`status="error"`) 또는 미들웨어 예외로 반환해야 한다(MUST).
 
 ### 6.3 IPC 전송 메커니즘
 

@@ -260,6 +260,7 @@ If both are present, `systemRef` content is appended after `systemPrompt`.
 ### Rules
 
 - `requiredTools` entries refer to the full tool name (e.g., `channel-dispatch__send`).
+- `requiredTools` satisfaction is evaluated per turn; successful calls from a previous turn never satisfy the current turn.
 - `requiredTools` is bounded by `policy.maxStepsPerTurn` -- if the step limit is reached before a required tool succeeds, the turn ends regardless.
 - There is no `hooks` field on Agent. All lifecycle interception is done via Extension middleware.
 

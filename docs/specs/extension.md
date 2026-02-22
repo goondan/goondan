@@ -703,40 +703,74 @@ export function register(api: ExtensionApi): void {
 
 ### 8.7 Required Tools Guard 패턴
 
-`requiredTools` 강제는 Extension으로 구현한다. Extension config에 `requiredTools`와 `errorMessage`를 선언하고, step 미들웨어에서 `ctx.turn.steps` + 현재 `result.toolResults`를 조합해 체크 후, 미충족 시 메시지 주입 + `shouldContinue: true`를 반환하여 turn 루프를 강제 지속시킨다.
+`requiredTools` 강제는 Extension으로 구현한다. 핵심은 **턴 단위 상태를 명시적으로 관리**해서 이전 turn의 성공 호출이 다음 turn으로 누수되지 않게 하는 것이다. Extension config에 `requiredTools`와 `errorMessage`를 선언하고, turn 미들웨어에서 상태를 초기화/정리하며, toolCall 미들웨어에서 성공 호출을 누적한 뒤, step 미들웨어에서 종료 직전 만족 여부를 검사한다.
 
 ```typescript
 export function register(api: ExtensionApi): void {
-  const { requiredTools = [], errorMessage } = api.config as { requiredTools?: string[]; errorMessage?: string };
+  const { requiredTools = [], errorMessage } = readConfig(api);
+  if (requiredTools.length === 0) return;
+
+  const calledToolsPerTurn = new Map<string, Set<string>>();
+
+  api.pipeline.register('turn', async (ctx) => {
+    calledToolsPerTurn.clear();
+    calledToolsPerTurn.set(ctx.turnId, new Set());
+    try {
+      return await ctx.next();
+    } finally {
+      calledToolsPerTurn.delete(ctx.turnId);
+      calledToolsPerTurn.clear();
+    }
+  });
+
+  api.pipeline.register('toolCall', async (ctx) => {
+    const result = await ctx.next();
+    if (result.status === 'ok') {
+      const calledTools = calledToolsPerTurn.get(ctx.turnId) ?? new Set<string>();
+      calledTools.add(ctx.toolName);
+      calledToolsPerTurn.set(ctx.turnId, calledTools);
+    }
+    return result;
+  });
 
   api.pipeline.register('step', async (ctx) => {
     const result = await ctx.next();
+    if (result.shouldContinue) return result;
 
-    if (!result.shouldContinue) {
-      const calledTools = [
-        ...ctx.turn.steps.flatMap(s => s.toolResults),
-        ...result.toolResults,
-      ]
-        .filter(r => r.status === 'ok')
-        .map(r => r.toolName);
+    const calledTools = calledToolsPerTurn.get(ctx.turnId) ?? new Set<string>();
+    for (const tr of result.toolResults) {
+      if (tr.status === 'ok') calledTools.add(tr.toolName);
+    }
 
-      const satisfied =
-        requiredTools.length === 0 ||
-        requiredTools.some(t => calledTools.includes(t));
-
-      if (!satisfied) {
-        ctx.emitMessageEvent({
-          type: 'append',
-          message: createUserMessage(
-            errorMessage ?? `다음 도구 중 하나를 반드시 호출하세요: ${requiredTools.join(', ')}`
-          ),
-        });
-        return { ...result, shouldContinue: true };
-      }
+    const satisfied = requiredTools.some(t => calledTools.has(t));
+    if (!satisfied) {
+      ctx.emitMessageEvent({
+        type: 'append',
+        message: createUserMessage(
+          errorMessage ?? `다음 도구 중 하나를 반드시 호출하세요: ${requiredTools.join(', ')}`
+        ),
+      });
+      return { ...result, shouldContinue: true };
     }
 
     return result;
   });
+}
+```
+
+```typescript
+function readConfig(api: ExtensionApi): { requiredTools?: string[]; errorMessage?: string } {
+  const raw = Reflect.get(api, 'config');
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+
+  return {
+    requiredTools: Array.isArray(raw.requiredTools)
+      ? raw.requiredTools.filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        )
+      : [],
+    errorMessage: typeof raw.errorMessage === 'string' ? raw.errorMessage : undefined,
+  };
 }
 ```
 
@@ -754,6 +788,7 @@ extensions:
 **설계 의도:**
 - Core turn loop는 `StepResult.shouldContinue`만 보고 루프 계속 여부를 결정한다.
 - `requiredTools` 강제 로직은 Core의 책임이 아니며, Extension step 미들웨어에서 `shouldContinue`를 override함으로써 구현한다.
+- `requiredTools` 만족 여부는 **현재 turn 범위에서만** 평가해야 하며, turn 경계에서 상태를 반드시 초기화/정리해야 한다.
 - `policy.maxStepsPerTurn` 한도에 도달하면 Core가 turn을 강제 종료하며, 이는 `requiredTools` 미충족 상태에서도 동일하게 적용된다.
 
 ---

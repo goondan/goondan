@@ -430,7 +430,7 @@ Runtime은 Turn/Step/Tool 실행 관측성 이벤트를 `runtime-events.jsonl`�
 
 ```jsonl
 {"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant.","contentSource":"verbatim","parts":[{"type":"text","text":"You are assistant."}]},{"role":"tool","content":"[tool-result:bash__exec] {\"stdout\":\"ok\"}","contentSource":"summary","parts":[{"type":"tool-result","toolCallId":"call-1","toolName":"bash__exec","output":"{\"stdout\":\"ok\"}"}]}]}
 {"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
 ```
 

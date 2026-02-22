@@ -797,6 +797,12 @@ body::before {
   gap: 4px;
 }
 
+.log-llm-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .log-llm-role {
   font-size: 10px;
   font-weight: 700;
@@ -804,8 +810,90 @@ body::before {
   color: var(--accent);
 }
 
+.log-llm-source {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.log-llm-source.is-verbatim {
+  color: var(--node-agent);
+  background: rgba(255, 206, 110, 0.2);
+}
+
+.log-llm-source.is-summary {
+  color: var(--node-connector);
+  background: rgba(142, 184, 255, 0.2);
+}
+
 .log-llm-content {
   margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  opacity: 0.9;
+  font-family: inherit;
+}
+
+.log-llm-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-llm-tool-accordion {
+  border: 1px solid rgba(142, 184, 255, 0.24);
+  border-radius: 6px;
+  background: rgba(8, 20, 44, 0.52);
+  overflow: hidden;
+}
+
+.log-llm-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 8px;
+}
+
+.log-llm-tool-summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-llm-tool-kind {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.log-llm-tool-name {
+  font-size: 11px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.log-llm-tool-id {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.log-llm-tool-truncated {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--warn);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.log-llm-tool-body {
+  margin: 0;
+  padding: 0 8px 8px;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);

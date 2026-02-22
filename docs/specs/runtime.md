@@ -1143,14 +1143,14 @@ Runtime은 관측성 이벤트를 인스턴스별 `messages/runtime-events.jsonl
 - 이벤트 종류: `turn.started/completed/failed`, `step.started/completed/failed`, `tool.called/completed/failed`
 - 모든 레코드에 `traceId`, `spanId`를 포함한다(MUST). `parentSpanId`는 root span을 제외하고 포함한다(MUST).
 - 모든 레코드에 `instanceKey`를 포함한다(MUST).
-- `step.started`는 관측 목적의 LLM 입력 메시지 요약(`llmInputMessages[]`)을 선택적으로 포함할 수 있다(MAY).
+- `step.started`는 관측 목적의 LLM 입력 메시지 요약(`llmInputMessages[]`)을 선택적으로 포함할 수 있다(MAY). 각 메시지는 `contentSource(verbatim|summary)` 및 구조화 파트(`parts[]`: `text`/`tool-call`/`tool-result`)를 포함할 수 있다(MAY).
 - 레코드 단위: JSONL 1라인 1이벤트
 - 목적: Studio/운영 관측성 (메시지 상태 계산과 분리)
 - 이벤트 이름은 dot notation을 사용한다(MUST). `toolCall`(camelCase)이 아닌 `tool.called`(dot notation)을 사용한다.
 
 ```jsonl
 {"type":"turn.started","timestamp":"2026-02-18T10:00:00.000Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b"}
-{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant."},{"role":"user","content":"hello"}]}
+{"type":"step.started","timestamp":"2026-02-18T10:00:00.120Z","agentName":"assistant","instanceKey":"local","stepId":"turn-001-step-0","stepIndex":0,"turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"2b3c4d5e6f7a8b9c","parentSpanId":"1a2b3c4d5e6f7a8b","llmInputMessages":[{"role":"system","content":"You are assistant.","contentSource":"verbatim","parts":[{"type":"text","text":"You are assistant."}]},{"role":"tool","content":"[tool-result:bash__exec] {\"stdout\":\"ok\"}","contentSource":"summary","parts":[{"type":"tool-result","toolCallId":"call-1","toolName":"bash__exec","output":"{\"stdout\":\"ok\"}"}]}]}
 {"type":"tool.called","timestamp":"2026-02-18T10:00:00.350Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
 {"type":"tool.completed","timestamp":"2026-02-18T10:00:00.640Z","agentName":"assistant","instanceKey":"local","toolCallId":"call-1","toolName":"bash__exec","status":"ok","duration":290,"stepId":"turn-001-step-0","turnId":"turn-001","traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"3c4d5e6f7a8b9c0d","parentSpanId":"2b3c4d5e6f7a8b9c"}
 {"type":"turn.completed","timestamp":"2026-02-18T10:00:01.200Z","agentName":"assistant","instanceKey":"local","turnId":"turn-001","stepCount":1,"duration":1200,"traceId":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","spanId":"1a2b3c4d5e6f7a8b","tokenUsage":{"promptTokens":150,"completionTokens":30,"totalTokens":180}}

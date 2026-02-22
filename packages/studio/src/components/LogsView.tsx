@@ -43,6 +43,18 @@ function summarizeRoleLabel(role: string): string {
   return role.toUpperCase();
 }
 
+function summarizeContentSourceLabel(source?: 'verbatim' | 'summary'): string {
+  if (source === 'verbatim') return 'verbatim';
+  if (source === 'summary') return 'summary';
+  return 'unknown';
+}
+
+function summarizeContentSourceBadge(source?: 'verbatim' | 'summary'): string {
+  if (source === 'verbatim') return 'RAW';
+  if (source === 'summary') return 'PREVIEW';
+  return 'UNKNOWN';
+}
+
 export default function LogsView({ viz }: LogsViewProps) {
   const participants = viz?.participants ?? [];
   const timeline = viz?.timeline ?? [];
@@ -168,15 +180,55 @@ export default function LogsView({ viz }: LogsViewProps) {
               {entry.llmInputMessages && entry.llmInputMessages.length > 0 && (
                 <div className="log-llm-panel">
                   <div className="log-llm-title">
-                    LLM input messages ({entry.llmInputMessages.length})
+                    LLM input messages ({entry.llmInputMessages.length}) · runtime snapshot
                   </div>
                   <ol className="log-llm-list">
-                    {entry.llmInputMessages.map((message, msgIndex) => (
-                      <li key={`${msgIndex}-${message.role}`} className="log-llm-item">
-                        <span className="log-llm-role">{summarizeRoleLabel(message.role)}</span>
-                        <pre className="log-llm-content">{message.content}</pre>
-                      </li>
-                    ))}
+                    {entry.llmInputMessages.map((message, msgIndex) => {
+                      const toolParts = (message.parts ?? []).filter(
+                        (part) => part.type === 'tool-call' || part.type === 'tool-result',
+                      );
+                      return (
+                        <li key={`${msgIndex}-${message.role}`} className="log-llm-item">
+                          <div className="log-llm-item-head">
+                            <span className="log-llm-role">{summarizeRoleLabel(message.role)}</span>
+                            <span
+                              className={clsx(
+                                'log-llm-source',
+                                message.contentSource === 'verbatim' ? 'is-verbatim' : 'is-summary',
+                              )}
+                              title={`content source: ${summarizeContentSourceLabel(message.contentSource)}`}
+                            >
+                              {summarizeContentSourceBadge(message.contentSource)}
+                            </span>
+                          </div>
+                          <pre className="log-llm-content">{message.content}</pre>
+                          {toolParts.length > 0 && (
+                            <div className="log-llm-tools">
+                              {toolParts.map((part, partIndex) => (
+                                <details
+                                  key={`${msgIndex}-${part.type}-${part.toolCallId}-${partIndex}`}
+                                  className="log-llm-tool-accordion"
+                                >
+                                  <summary className="log-llm-tool-summary">
+                                    <span className="log-llm-tool-kind">
+                                      {part.type === 'tool-call' ? 'tool call' : 'tool result'}
+                                    </span>
+                                    <span className="log-llm-tool-name">{part.toolName}</span>
+                                    <span className="log-llm-tool-id">{part.toolCallId}</span>
+                                    {part.truncated && (
+                                      <span className="log-llm-tool-truncated">truncated</span>
+                                    )}
+                                  </summary>
+                                  <pre className="log-llm-tool-body">
+                                    {part.type === 'tool-call' ? part.input : part.output}
+                                  </pre>
+                                </details>
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ol>
                 </div>
               )}

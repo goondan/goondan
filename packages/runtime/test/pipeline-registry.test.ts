@@ -300,6 +300,88 @@ describe("PipelineRegistryImpl", () => {
     expect(event.stepId).toBe("turn-trace-step-2");
   });
 
+  it("step.started 이벤트가 llmInputMessages의 contentSource/parts 메타데이터를 보존한다", async () => {
+    const eventBus = new RuntimeEventBusImpl();
+    const registry = new PipelineRegistryImpl(eventBus);
+    const conversationState = new ConversationStateImpl();
+    const turn: Turn = {
+      id: "turn-step-structured-llm",
+      agentName: "coder",
+      inputEvent: createAgentEvent(),
+      messages: [],
+      steps: [],
+      status: "running",
+      metadata: {},
+    };
+
+    const captured: RuntimeEvent[] = [];
+    const unsubscribe = eventBus.on("step.started", async (event) => {
+      captured.push(event);
+    });
+
+    await registry.runStep(
+      {
+        agentName: "coder",
+        instanceKey: "default",
+        turnId: "turn-step-structured-llm",
+        traceId: "trace-step-structured-llm",
+        turn,
+        stepIndex: 0,
+        conversationState,
+        agents: mockMiddlewareAgentsApi,
+        emitMessageEvent: () => {},
+        toolCatalog: [],
+        metadata: {
+          [STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY]: [
+            {
+              role: "tool",
+              content: "[tool-result:slack__send] {\"ok\":true}",
+              contentSource: "summary",
+              parts: [
+                {
+                  type: "tool-result",
+                  toolCallId: "tc-1",
+                  toolName: "slack__send",
+                  output: "{\"ok\":true}",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      async () => ({
+        status: "completed",
+        shouldContinue: false,
+        toolCalls: [],
+        toolResults: [],
+        metadata: {},
+      }),
+    );
+
+    unsubscribe();
+
+    expect(captured).toHaveLength(1);
+    const event = captured[0];
+    if (!event || event.type !== "step.started") {
+      throw new Error("step.started event not captured");
+    }
+    expect(event.llmInputMessages).toEqual([
+      {
+        role: "tool",
+        content: "[tool-result:slack__send] {\"ok\":true}",
+        contentSource: "summary",
+        parts: [
+          {
+            type: "tool-result",
+            toolCallId: "tc-1",
+            toolName: "slack__send",
+            output: "{\"ok\":true}",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("turn → step → tool 이벤트의 span hierarchy가 올바르다", async () => {
     const eventBus = new RuntimeEventBusImpl();
     const registry = new PipelineRegistryImpl(eventBus);

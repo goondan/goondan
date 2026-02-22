@@ -203,6 +203,42 @@ export interface StudioInteraction {
   history: StudioInteractionHistory[];
 }
 
+export type StudioLlmInputMessageContentSource = 'verbatim' | 'summary';
+
+export interface StudioLlmInputTextPart {
+  type: 'text';
+  text: string;
+  truncated?: true;
+}
+
+export interface StudioLlmInputToolCallPart {
+  type: 'tool-call';
+  toolCallId: string;
+  toolName: string;
+  input: string;
+  truncated?: true;
+}
+
+export interface StudioLlmInputToolResultPart {
+  type: 'tool-result';
+  toolCallId: string;
+  toolName: string;
+  output: string;
+  truncated?: true;
+}
+
+export type StudioLlmInputMessagePart =
+  | StudioLlmInputTextPart
+  | StudioLlmInputToolCallPart
+  | StudioLlmInputToolResultPart;
+
+export interface StudioLlmInputMessage {
+  role: string;
+  content: string;
+  contentSource?: StudioLlmInputMessageContentSource;
+  parts?: StudioLlmInputMessagePart[];
+}
+
 export interface StudioTimelineEntry {
   at: string;
   kind: 'message' | 'runtime-event' | 'connector-log';
@@ -210,10 +246,7 @@ export interface StudioTimelineEntry {
   target?: string;
   subtype: string;
   detail: string;
-  llmInputMessages?: Array<{
-    role: string;
-    content: string;
-  }>;
+  llmInputMessages?: StudioLlmInputMessage[];
   traceId?: string;
   spanId?: string;
   parentSpanId?: string;

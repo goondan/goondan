@@ -356,6 +356,8 @@ gdn logs --agent coder --trace <traceId>
 
 Studio (`gdn studio`) reconstructs the span tree from these events and renders a causal-chain visualization. No heuristics -- all relationships are encoded in the events themselves.
 
+`step.started.llmInputMessages` can also include `contentSource` (`verbatim` | `summary`) and structured `parts[]` (`text` / `tool-call` / `tool-result`), so Studio Logs can clearly distinguish raw-vs-summarized LLM inputs and render tool calls/results structurally.
+
 > For the precise type definitions of `TraceContext` and `RuntimeEvent`, see `docs/specs/shared-types.md` sections 5 and 9.
 
 ---

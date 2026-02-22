@@ -10,6 +10,12 @@ import type {
   StudioInstancesRequest,
   StudioInteraction,
   StudioInteractionHistory,
+  StudioLlmInputMessage,
+  StudioLlmInputMessageContentSource,
+  StudioLlmInputMessagePart,
+  StudioLlmInputTextPart,
+  StudioLlmInputToolCallPart,
+  StudioLlmInputToolResultPart,
   StudioParticipant,
   StudioServerRequest,
   StudioServerSession,
@@ -474,7 +480,7 @@ interface RuntimeEventRouteResult {
   from: string;
   to: string;
   detail: string;
-  llmInputMessages?: Array<{ role: string; content: string }>;
+  llmInputMessages?: StudioLlmInputMessage[];
   traceId?: string;
   spanId?: string;
   parentSpanId?: string;
@@ -565,12 +571,12 @@ function runtimeEventRoute(
 
 function parseLlmInputMessages(
   value: unknown,
-): Array<{ role: string; content: string }> | undefined {
+): StudioLlmInputMessage[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
 
-  const messages: Array<{ role: string; content: string }> = [];
+  const messages: StudioLlmInputMessage[] = [];
   for (const item of value) {
     if (!isObjectRecord(item)) {
       continue;
@@ -580,10 +586,101 @@ function parseLlmInputMessages(
     if (typeof role !== 'string' || role.length === 0 || typeof content !== 'string') {
       continue;
     }
-    messages.push({ role, content });
+    const message: StudioLlmInputMessage = { role, content };
+    const contentSource = parseLlmInputMessageContentSource(item['contentSource']);
+    if (contentSource !== undefined) {
+      message.contentSource = contentSource;
+    }
+    const parts = parseLlmInputMessageParts(item['parts']);
+    if (parts !== undefined) {
+      message.parts = parts;
+    }
+    messages.push(message);
   }
 
   return messages.length > 0 ? messages : undefined;
+}
+
+function parseLlmInputMessageContentSource(
+  value: unknown,
+): StudioLlmInputMessageContentSource | undefined {
+  if (value === 'verbatim' || value === 'summary') {
+    return value;
+  }
+  return undefined;
+}
+
+function parseLlmInputMessageParts(value: unknown): StudioLlmInputMessagePart[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const parts: StudioLlmInputMessagePart[] = [];
+  for (const item of value) {
+    if (!isObjectRecord(item)) {
+      continue;
+    }
+
+    const type = item['type'];
+    const truncated = item['truncated'] === true ? true : undefined;
+
+    if (type === 'text') {
+      const text = item['text'];
+      if (typeof text !== 'string') {
+        continue;
+      }
+      const part: StudioLlmInputTextPart = {
+        type: 'text',
+        text,
+      };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+      continue;
+    }
+
+    if (type === 'tool-call') {
+      const toolCallId = item['toolCallId'];
+      const toolName = item['toolName'];
+      const input = item['input'];
+      if (typeof toolCallId !== 'string' || typeof toolName !== 'string' || typeof input !== 'string') {
+        continue;
+      }
+      const part: StudioLlmInputToolCallPart = {
+        type: 'tool-call',
+        toolCallId,
+        toolName,
+        input,
+      };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+      continue;
+    }
+
+    if (type === 'tool-result') {
+      const toolCallId = item['toolCallId'];
+      const toolName = item['toolName'];
+      const output = item['output'];
+      if (typeof toolCallId !== 'string' || typeof toolName !== 'string' || typeof output !== 'string') {
+        continue;
+      }
+      const part: StudioLlmInputToolResultPart = {
+        type: 'tool-result',
+        toolCallId,
+        toolName,
+        output,
+      };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+    }
+  }
+
+  return parts.length > 0 ? parts : undefined;
 }
 
 function parseConnectorLogLine(line: string, fallbackEpochMs: number): ConnectorLogEvent | undefined {

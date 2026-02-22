@@ -480,12 +480,13 @@ Studio는 `runtime-events.jsonl`에서 구조화된 RuntimeEvent를 읽어 trace
 | 인과 체인 시각화 | `parentSpanId` 기반 parent-child 관계 |
 | 시간선(Timeline) | `timestamp`, `duration` |
 | 토큰 사용량 | `tokenUsage` |
-| LLM 입력 미리보기 | `step.started.llmInputMessages` |
+| LLM 입력 미리보기 | `step.started.llmInputMessages` (`contentSource`, `parts[]` 포함 가능) |
 
 **규칙:**
 
 1. Studio는 `routeState` 기반 휴리스틱이 아닌, RuntimeEvent의 `TraceContext`로 인과 관계를 구성해야 한다(MUST).
 2. 모든 trace 정보는 이벤트 자체에 포함되어야 한다(MUST). 외부 추론/패턴 파싱에 의존해서는 안 된다.
+3. Studio는 `llmInputMessages[].contentSource`를 사용해 원문/요약 여부를 표시해야 하며, `parts[]`(`text`/`tool-call`/`tool-result`)가 있을 때 구조화 렌더링을 제공할 수 있어야 한다(SHOULD).
 
 ---
 

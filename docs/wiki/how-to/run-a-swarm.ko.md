@@ -252,7 +252,7 @@ gdn instance delete user:123
 gdn instance delete user:123 --force
 ```
 
-인스턴스를 삭제하면 모든 상태(메시지 히스토리, Extension 상태, 워크스페이스 디렉터리)가 제거됩니다. 해당 인스턴스의 실행 중인 runtime-runner PID도 종료됩니다.
+인스턴스를 삭제하면 모든 상태(메시지 히스토리, Extension 상태, 워크스페이스 디렉터리)가 제거됩니다. 해당 인스턴스의 실행 중인 runtime-runner PID와 그 자식 프로세스(agent/connector child 포함)도 함께 종료됩니다.
 
 > 자세한 내용은 [CLI 레퍼런스: `gdn instance`](../reference/cli-reference.ko.md#gdn-instance)를 참고하세요.
 

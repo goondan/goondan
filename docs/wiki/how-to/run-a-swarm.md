@@ -252,7 +252,7 @@ gdn instance delete user:123
 gdn instance delete user:123 --force
 ```
 
-Deleting an instance removes all its state: message history, extension state, and the workspace directory. Any running runtime-runner PIDs for that instance are terminated.
+Deleting an instance removes all its state: message history, extension state, and the workspace directory. Any running runtime-runner PIDs for that instance are terminated, along with their child processes (including agent/connector children).
 
 > See [CLI Reference: `gdn instance`](../reference/cli-reference.md#gdn-instance) for details.
 

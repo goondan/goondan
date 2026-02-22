@@ -82,6 +82,128 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isAnyProcessAlive(pids: readonly number[]): boolean {
+  const seen = new Set<number>();
+  for (const pid of pids) {
+    if (!Number.isInteger(pid) || pid <= 0 || seen.has(pid)) {
+      continue;
+    }
+    seen.add(pid);
+    if (isProcessAlive(pid)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function listDescendantProcessIds(rootPid: number): Promise<number[]> {
+  let stdout = '';
+  try {
+    const result = await execFileAsync('ps', ['-ax', '-o', 'pid=,ppid=']);
+    stdout = typeof result.stdout === 'string' ? result.stdout : '';
+  } catch {
+    return [];
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  const lines = stdout.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    const columns = trimmed.split(/\s+/u);
+    if (columns.length < 2) {
+      continue;
+    }
+
+    const pid = Number.parseInt(columns[0] ?? '', 10);
+    const ppid = Number.parseInt(columns[1] ?? '', 10);
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(ppid) || ppid <= 0) {
+      continue;
+    }
+
+    const children = childrenByParent.get(ppid);
+    if (!children) {
+      childrenByParent.set(ppid, [pid]);
+      continue;
+    }
+    children.push(pid);
+  }
+
+  const descendants: number[] = [];
+  const seen = new Set<number>();
+  const queue: number[] = [rootPid];
+
+  while (queue.length > 0) {
+    const parentPid = queue.shift();
+    if (parentPid === undefined) {
+      continue;
+    }
+
+    const children = childrenByParent.get(parentPid);
+    if (!children) {
+      continue;
+    }
+
+    for (const childPid of children) {
+      if (childPid === rootPid || seen.has(childPid)) {
+        continue;
+      }
+      seen.add(childPid);
+      descendants.push(childPid);
+      queue.push(childPid);
+    }
+  }
+
+  return descendants;
+}
+
+async function isProcessGroupLeader(pid: number): Promise<boolean> {
+  try {
+    const result = await execFileAsync('ps', ['-p', String(pid), '-o', 'pgid=']);
+    const text = typeof result.stdout === 'string' ? result.stdout.trim() : '';
+    const pgid = Number.parseInt(text, 10);
+    return Number.isInteger(pgid) && pgid === pid;
+  } catch {
+    return false;
+  }
+}
+
+function signalRuntimeProcessTree(
+  rootPid: number,
+  descendantPids: readonly number[],
+  signal: 'SIGTERM' | 'SIGKILL',
+  useProcessGroupSignal: boolean,
+): void {
+  if (useProcessGroupSignal) {
+    try {
+      // detached runtime-runner는 자신이 process group leader이므로 group signal로 agent/connector까지 함께 종료한다.
+      process.kill(-rootPid, signal);
+    } catch {
+      // process group이 없거나 권한이 없는 경우 개별 pid 종료로 폴백한다.
+    }
+  }
+
+  try {
+    process.kill(rootPid, signal);
+  } catch {
+    // 이미 종료된 경우 무시한다.
+  }
+
+  for (const descendantPid of descendantPids) {
+    if (!Number.isInteger(descendantPid) || descendantPid <= 0 || descendantPid === rootPid) {
+      continue;
+    }
+    try {
+      process.kill(descendantPid, signal);
+    } catch {
+      // 이미 종료된 경우 무시한다.
+    }
+  }
+}
+
 async function readProcessCommand(pid: number): Promise<string | undefined> {
   try {
     const result = await execFileAsync('ps', ['-p', String(pid), '-o', 'command=']);
@@ -269,37 +391,34 @@ async function terminateRuntimeProcess(pid: number, force: boolean, instanceKey:
     return 'mismatch';
   }
 
+  const descendantPids = await listDescendantProcessIds(pid);
+  const useProcessGroupSignal = await isProcessGroupLeader(pid);
+  const terminationTargets = [pid, ...descendantPids];
+
   if (force) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // 프로세스 종료 경쟁 상태는 무시한다.
+    signalRuntimeProcessTree(pid, descendantPids, 'SIGTERM', useProcessGroupSignal);
+    await sleep(40);
+    if (!isAnyProcessAlive(terminationTargets)) {
+      return 'terminated';
     }
-    await sleep(20);
-    return isProcessAlive(pid) ? 'failed' : 'terminated';
+
+    signalRuntimeProcessTree(pid, descendantPids, 'SIGKILL', useProcessGroupSignal);
+    await sleep(40);
+    return isAnyProcessAlive(terminationTargets) ? 'failed' : 'terminated';
   }
 
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch {
-    return 'failed';
-  }
+  signalRuntimeProcessTree(pid, descendantPids, 'SIGTERM', useProcessGroupSignal);
 
   for (let index = 0; index < 10; index += 1) {
     await sleep(50);
-    if (!isProcessAlive(pid)) {
+    if (!isAnyProcessAlive(terminationTargets)) {
       return 'terminated';
     }
   }
 
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    // 이미 종료된 경우 무시한다.
-  }
-
-  await sleep(20);
-  return isProcessAlive(pid) ? 'failed' : 'terminated';
+  signalRuntimeProcessTree(pid, descendantPids, 'SIGKILL', useProcessGroupSignal);
+  await sleep(40);
+  return isAnyProcessAlive(terminationTargets) ? 'failed' : 'terminated';
 }
 
 async function collectDeleteTargetsForKey(stateRoot: string, key: string): Promise<string[]> {

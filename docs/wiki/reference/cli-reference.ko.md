@@ -464,7 +464,7 @@ gdn instance restart default
 
 ### `gdn instance delete`
 
-인스턴스 상태를 삭제합니다. 메시지 히스토리, Extension 상태, 인스턴스 워크스페이스 디렉터리 전체를 제거합니다. active 여부와 무관하게 동일 state-root의 managed runtime-runner PID를 찾아 종료합니다.
+인스턴스 상태를 삭제합니다. 메시지 히스토리, Extension 상태, 인스턴스 워크스페이스 디렉터리 전체를 제거합니다. active 여부와 무관하게 동일 state-root의 managed runtime-runner PID를 찾아 종료하며, 해당 runtime-runner의 자식 프로세스(agent/connector child 포함)도 함께 정리합니다.
 
 ```bash
 gdn instance delete <key> [options]

@@ -2902,55 +2902,159 @@ function toModelMessages(turns: ConversationTurn[]): ModelMessage[] {
   return messages;
 }
 
-function trimRuntimeEventContent(content: string): string {
-  if (content.length <= STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS) {
-    return content;
-  }
-
-  return `${content.slice(0, STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS)}...`;
+interface RuntimeEventContentPreview {
+  text: string;
+  truncated: boolean;
 }
 
-function summarizeModelMessageContentForRuntimeEvent(content: unknown): string {
-  if (typeof content === 'string') {
-    return trimRuntimeEventContent(content);
+function previewRuntimeEventContent(content: string): RuntimeEventContentPreview {
+  if (content.length <= STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS) {
+    return {
+      text: content,
+      truncated: false,
+    };
   }
 
-  if (!Array.isArray(content)) {
-    return trimRuntimeEventContent(safeJsonStringify(content));
+  return {
+    text: `${content.slice(0, STEP_STARTED_LLM_INPUT_CONTENT_MAX_CHARS)}...`,
+    truncated: true,
+  };
+}
+
+function createStepStartedTextPart(preview: RuntimeEventContentPreview): JsonObject {
+  const part: JsonObject = {
+    type: 'text',
+    text: preview.text,
+  };
+  if (preview.truncated) {
+    part.truncated = true;
+  }
+  return part;
+}
+
+function createStepStartedToolCallPart(input: {
+  toolCallId: string;
+  toolName: string;
+  preview: RuntimeEventContentPreview;
+}): JsonObject {
+  const part: JsonObject = {
+    type: 'tool-call',
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    input: input.preview.text,
+  };
+  if (input.preview.truncated) {
+    part.truncated = true;
+  }
+  return part;
+}
+
+function createStepStartedToolResultPart(input: {
+  toolCallId: string;
+  toolName: string;
+  preview: RuntimeEventContentPreview;
+}): JsonObject {
+  const part: JsonObject = {
+    type: 'tool-result',
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: input.preview.text,
+  };
+  if (input.preview.truncated) {
+    part.truncated = true;
+  }
+  return part;
+}
+
+function summarizeSingleModelMessageForRuntimeEvent(message: ModelMessage): JsonObject {
+  const rawContent: unknown = message.content;
+
+  if (typeof rawContent === 'string') {
+    const preview = previewRuntimeEventContent(rawContent);
+    return {
+      role: message.role,
+      content: preview.text,
+      contentSource: preview.truncated ? 'summary' : 'verbatim',
+      parts: [createStepStartedTextPart(preview)],
+    };
   }
 
-  const parts: string[] = [];
-  for (const item of content) {
+  if (!Array.isArray(rawContent)) {
+    const preview = previewRuntimeEventContent(safeJsonStringify(rawContent));
+    return {
+      role: message.role,
+      content: preview.text,
+      contentSource: 'summary',
+      parts: [createStepStartedTextPart(preview)],
+    };
+  }
+
+  const parts: JsonObject[] = [];
+  const detailLines: string[] = [];
+  let contentSource: 'summary' | 'verbatim' = 'summary';
+
+  for (const item of rawContent) {
     if (typeof item === 'string') {
-      parts.push(item);
+      const preview = previewRuntimeEventContent(item);
+      parts.push(createStepStartedTextPart(preview));
+      detailLines.push(preview.text);
       continue;
     }
 
     if (isJsonObject(item)) {
       if (item.type === 'text' && typeof item.text === 'string') {
-        parts.push(item.text);
+        const preview = previewRuntimeEventContent(item.text);
+        parts.push(createStepStartedTextPart(preview));
+        detailLines.push(preview.text);
+        if (preview.truncated) {
+          contentSource = 'summary';
+        }
         continue;
       }
 
       if (item.type === 'tool-call') {
+        const toolCallId = typeof item.toolCallId === 'string' ? item.toolCallId : 'unknown';
         const toolName = typeof item.toolName === 'string' ? item.toolName : 'unknown';
-        const input = Object.hasOwn(item, 'input') ? safeJsonStringify(item.input) : '';
-        parts.push(`[tool-call:${toolName}] ${input}`);
+        const preview = previewRuntimeEventContent(Object.hasOwn(item, 'input') ? safeJsonStringify(item.input) : '');
+        parts.push(createStepStartedToolCallPart({ toolCallId, toolName, preview }));
+        detailLines.push(`[tool-call:${toolName}] ${preview.text}`);
+        contentSource = 'summary';
         continue;
       }
 
       if (item.type === 'tool-result') {
+        const toolCallId = typeof item.toolCallId === 'string' ? item.toolCallId : 'unknown';
         const toolName = typeof item.toolName === 'string' ? item.toolName : 'unknown';
-        const output = Object.hasOwn(item, 'output') ? safeJsonStringify(item.output) : '';
-        parts.push(`[tool-result:${toolName}] ${output}`);
+        const preview = previewRuntimeEventContent(
+          Object.hasOwn(item, 'output') ? safeJsonStringify(item.output) : '',
+        );
+        parts.push(createStepStartedToolResultPart({ toolCallId, toolName, preview }));
+        detailLines.push(`[tool-result:${toolName}] ${preview.text}`);
+        contentSource = 'summary';
         continue;
       }
     }
 
-    parts.push(safeJsonStringify(item));
+    const preview = previewRuntimeEventContent(safeJsonStringify(item));
+    parts.push(createStepStartedTextPart(preview));
+    detailLines.push(preview.text);
+    contentSource = 'summary';
   }
 
-  return trimRuntimeEventContent(parts.join('\n'));
+  const messagePreview = previewRuntimeEventContent(detailLines.join('\n'));
+  if (messagePreview.truncated) {
+    contentSource = 'summary';
+  }
+
+  const summary: JsonObject = {
+    role: message.role,
+    content: messagePreview.text,
+    contentSource,
+  };
+  if (parts.length > 0) {
+    summary.parts = parts;
+  }
+  return summary;
 }
 
 function summarizeModelMessagesForRuntimeEvent(
@@ -2959,10 +3063,14 @@ function summarizeModelMessagesForRuntimeEvent(
 ): JsonObject[] {
   const summarized: JsonObject[] = [];
 
-  if (systemPrompt.trim().length > 0) {
+  const trimmedSystemPrompt = systemPrompt.trim();
+  if (trimmedSystemPrompt.length > 0) {
+    const preview = previewRuntimeEventContent(trimmedSystemPrompt);
     summarized.push({
       role: 'system',
-      content: trimRuntimeEventContent(systemPrompt.trim()),
+      content: preview.text,
+      contentSource: preview.truncated ? 'summary' : 'verbatim',
+      parts: [createStepStartedTextPart(preview)],
     });
   }
 
@@ -2970,10 +3078,7 @@ function summarizeModelMessagesForRuntimeEvent(
     if (summarized.length >= STEP_STARTED_LLM_INPUT_MESSAGE_MAX_COUNT) {
       break;
     }
-    summarized.push({
-      role: message.role,
-      content: summarizeModelMessageContentForRuntimeEvent(message.content),
-    });
+    summarized.push(summarizeSingleModelMessageForRuntimeEvent(message));
   }
 
   return summarized;

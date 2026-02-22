@@ -356,6 +356,8 @@ gdn logs --agent coder --trace <traceId>
 
 Studio (`gdn studio`)는 이 이벤트들에서 span 트리를 재구성하여 인과 관계 시각화를 렌더링합니다. 모든 관계가 이벤트 자체에 인코딩되어 있으므로 휴리스틱이 필요 없습니다.
 
+또한 `step.started.llmInputMessages`에는 `contentSource(verbatim|summary)`와 `parts[]`(`text`/`tool-call`/`tool-result`)가 포함될 수 있어, Studio Logs 뷰에서 "LLM 입력 원문 vs 요약"과 도구 호출/결과를 구조적으로 구분해 표시할 수 있습니다.
+
 > `TraceContext`와 `RuntimeEvent`의 정확한 타입 정의는 `docs/specs/shared-types.md` 5절과 9절을 참조하세요.
 
 ---

@@ -74,7 +74,38 @@ export interface TurnFailedEvent extends RuntimeEventBase {
 export interface StepStartedLlmInputMessage {
   role: string;
   content: string;
+  contentSource?: StepStartedLlmInputMessageContentSource;
+  parts?: StepStartedLlmInputMessagePart[];
 }
+
+export type StepStartedLlmInputMessageContentSource = "verbatim" | "summary";
+
+export interface StepStartedLlmInputTextPart {
+  type: "text";
+  text: string;
+  truncated?: true;
+}
+
+export interface StepStartedLlmInputToolCallPart {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  input: string;
+  truncated?: true;
+}
+
+export interface StepStartedLlmInputToolResultPart {
+  type: "tool-result";
+  toolCallId: string;
+  toolName: string;
+  output: string;
+  truncated?: true;
+}
+
+export type StepStartedLlmInputMessagePart =
+  | StepStartedLlmInputTextPart
+  | StepStartedLlmInputToolCallPart
+  | StepStartedLlmInputToolResultPart;
 
 export interface StepStartedEvent extends RuntimeEventBase {
   type: "step.started";

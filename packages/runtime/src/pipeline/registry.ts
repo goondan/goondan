@@ -16,7 +16,12 @@ import type {
 import {
   STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
   type RuntimeEventBus,
+  type StepStartedLlmInputMessageContentSource,
+  type StepStartedLlmInputMessagePart,
   type StepStartedLlmInputMessage,
+  type StepStartedLlmInputTextPart,
+  type StepStartedLlmInputToolCallPart,
+  type StepStartedLlmInputToolResultPart,
   type TokenUsage,
 } from "../events/runtime-events.js";
 
@@ -107,6 +112,87 @@ function isJsonObjectValue(value: JsonValue): value is Record<string, JsonValue>
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readStepStartedLlmInputMessageContentSource(
+  value: JsonValue | undefined,
+): StepStartedLlmInputMessageContentSource | undefined {
+  if (value === "verbatim" || value === "summary") {
+    return value;
+  }
+  return undefined;
+}
+
+function readStepStartedLlmInputMessageParts(
+  value: JsonValue | undefined,
+): StepStartedLlmInputMessagePart[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const parts: StepStartedLlmInputMessagePart[] = [];
+  for (const item of value) {
+    if (!isJsonObjectValue(item)) {
+      continue;
+    }
+
+    const type = item["type"];
+    const truncated = item["truncated"] === true ? true : undefined;
+
+    if (type === "text") {
+      const text = item["text"];
+      if (typeof text !== "string") {
+        continue;
+      }
+      const part: StepStartedLlmInputTextPart = { type: "text", text };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+      continue;
+    }
+
+    if (type === "tool-call") {
+      const toolCallId = item["toolCallId"];
+      const toolName = item["toolName"];
+      const input = item["input"];
+      if (typeof toolCallId !== "string" || typeof toolName !== "string" || typeof input !== "string") {
+        continue;
+      }
+      const part: StepStartedLlmInputToolCallPart = {
+        type: "tool-call",
+        toolCallId,
+        toolName,
+        input,
+      };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+      continue;
+    }
+
+    if (type === "tool-result") {
+      const toolCallId = item["toolCallId"];
+      const toolName = item["toolName"];
+      const output = item["output"];
+      if (typeof toolCallId !== "string" || typeof toolName !== "string" || typeof output !== "string") {
+        continue;
+      }
+      const part: StepStartedLlmInputToolResultPart = {
+        type: "tool-result",
+        toolCallId,
+        toolName,
+        output,
+      };
+      if (truncated) {
+        part.truncated = truncated;
+      }
+      parts.push(part);
+    }
+  }
+
+  return parts.length > 0 ? parts : undefined;
+}
+
 function readStepStartedLlmInputMessages(
   metadata: Record<string, JsonValue>,
 ): StepStartedLlmInputMessage[] | undefined {
@@ -125,10 +211,19 @@ function readStepStartedLlmInputMessages(
     if (typeof role !== "string" || role.length === 0 || typeof content !== "string") {
       continue;
     }
-    messages.push({
+    const message: StepStartedLlmInputMessage = {
       role,
       content,
-    });
+    };
+    const contentSource = readStepStartedLlmInputMessageContentSource(item["contentSource"]);
+    if (contentSource !== undefined) {
+      message.contentSource = contentSource;
+    }
+    const parts = readStepStartedLlmInputMessageParts(item["parts"]);
+    if (parts !== undefined) {
+      message.parts = parts;
+    }
+    messages.push(message);
   }
 
   return messages.length > 0 ? messages : undefined;

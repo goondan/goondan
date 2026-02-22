@@ -88,8 +88,35 @@ describe('DefaultStudioService', () => {
             stepIndex: 0,
             turnId: 't1',
             llmInputMessages: [
-              { role: 'system', content: 'You are coder.' },
-              { role: 'user', content: 'hello studio' },
+              {
+                role: 'system',
+                content: 'You are coder.',
+                contentSource: 'verbatim',
+                parts: [
+                  { type: 'text', text: 'You are coder.' },
+                ],
+              },
+              {
+                role: 'user',
+                content: 'hello studio',
+                contentSource: 'verbatim',
+                parts: [
+                  { type: 'text', text: 'hello studio' },
+                ],
+              },
+              {
+                role: 'tool',
+                content: '[tool-result:slack__send] {"ok":true}',
+                contentSource: 'summary',
+                parts: [
+                  {
+                    type: 'tool-result',
+                    toolCallId: 'tc-2',
+                    toolName: 'slack__send',
+                    output: '{"ok":true}',
+                  },
+                ],
+              },
             ],
           }),
           JSON.stringify({
@@ -147,8 +174,35 @@ describe('DefaultStudioService', () => {
       expect(visualization.timeline.some((item) => item.subtype === 'connector.emitted')).toBe(true);
       const stepStartedEvent = visualization.timeline.find((item) => item.subtype === 'step.started');
       expect(stepStartedEvent?.llmInputMessages).toEqual([
-        { role: 'system', content: 'You are coder.' },
-        { role: 'user', content: 'hello studio' },
+        {
+          role: 'system',
+          content: 'You are coder.',
+          contentSource: 'verbatim',
+          parts: [
+            { type: 'text', text: 'You are coder.' },
+          ],
+        },
+        {
+          role: 'user',
+          content: 'hello studio',
+          contentSource: 'verbatim',
+          parts: [
+            { type: 'text', text: 'hello studio' },
+          ],
+        },
+        {
+          role: 'tool',
+          content: '[tool-result:slack__send] {"ok":true}',
+          contentSource: 'summary',
+          parts: [
+            {
+              type: 'tool-result',
+              toolCallId: 'tc-2',
+              toolName: 'slack__send',
+              output: '{"ok":true}',
+            },
+          ],
+        },
       ]);
       expect(visualization.recentEvents.length).toBe(3);
     } finally {

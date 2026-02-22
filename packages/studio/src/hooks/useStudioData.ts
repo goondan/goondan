@@ -8,9 +8,50 @@ import type {
 } from '../types';
 import { fetchInstances, fetchVisualization } from '../api';
 
+function llmInputMessagePartKey(part: {
+  type: string;
+  truncated?: true;
+  text?: string;
+  toolCallId?: string;
+  toolName?: string;
+  input?: string;
+  output?: string;
+}): string {
+  if (part.type === 'text') {
+    return `text:${part.text ?? ''}:${part.truncated === true ? '1' : '0'}`;
+  }
+  if (part.type === 'tool-call') {
+    return `tool-call:${part.toolCallId ?? ''}:${part.toolName ?? ''}:${part.input ?? ''}:${part.truncated === true ? '1' : '0'}`;
+  }
+  if (part.type === 'tool-result') {
+    return `tool-result:${part.toolCallId ?? ''}:${part.toolName ?? ''}:${part.output ?? ''}:${part.truncated === true ? '1' : '0'}`;
+  }
+  return `${part.type}:${part.truncated === true ? '1' : '0'}`;
+}
+
+function llmInputMessageKey(message: {
+  role: string;
+  content: string;
+  contentSource?: string;
+  parts?: Array<{
+    type: string;
+    truncated?: true;
+    text?: string;
+    toolCallId?: string;
+    toolName?: string;
+    input?: string;
+    output?: string;
+  }>;
+}): string {
+  const partsKey = (message.parts ?? [])
+    .map((part) => llmInputMessagePartKey(part))
+    .join('||');
+  return `${message.role}:${message.contentSource ?? ''}:${message.content}:${partsKey}`;
+}
+
 function eventKey(e: TimelineEntry): string {
   const llmMessagesKey = (e.llmInputMessages ?? [])
-    .map((item) => `${item.role}:${item.content}`)
+    .map((item) => llmInputMessageKey(item))
     .join('\n');
   const traceKey = e.traceId && e.spanId ? `${e.traceId}:${e.spanId}` : '';
   return [e.at, e.source, e.target ?? '', e.subtype, e.detail, llmMessagesKey, traceKey].join('|');

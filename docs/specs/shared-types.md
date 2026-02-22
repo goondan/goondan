@@ -487,7 +487,32 @@ interface TokenUsage {
 interface StepStartedLlmInputMessage {
   role: string;
   content: string;
+  /** content가 원문(verbatim)인지 요약(summary)인지 */
+  contentSource?: 'verbatim' | 'summary';
+  /** role/content 외 구조화된 파트(선택) */
+  parts?: StepStartedLlmInputMessagePart[];
 }
+
+type StepStartedLlmInputMessagePart =
+  | {
+      type: 'text';
+      text: string;
+      truncated?: true;
+    }
+  | {
+      type: 'tool-call';
+      toolCallId: string;
+      toolName: string;
+      input: string;
+      truncated?: true;
+    }
+  | {
+      type: 'tool-result';
+      toolCallId: string;
+      toolName: string;
+      output: string;
+      truncated?: true;
+    };
 
 interface StepStartedEvent extends RuntimeEventBase {
   type: 'step.started';

@@ -72,6 +72,42 @@ export interface InteractionHistory {
   detail: string;
 }
 
+export type LlmInputMessageContentSource = 'verbatim' | 'summary';
+
+export interface LlmInputTextPart {
+  type: 'text';
+  text: string;
+  truncated?: true;
+}
+
+export interface LlmInputToolCallPart {
+  type: 'tool-call';
+  toolCallId: string;
+  toolName: string;
+  input: string;
+  truncated?: true;
+}
+
+export interface LlmInputToolResultPart {
+  type: 'tool-result';
+  toolCallId: string;
+  toolName: string;
+  output: string;
+  truncated?: true;
+}
+
+export type LlmInputMessagePart =
+  | LlmInputTextPart
+  | LlmInputToolCallPart
+  | LlmInputToolResultPart;
+
+export interface LlmInputMessage {
+  role: string;
+  content: string;
+  contentSource?: LlmInputMessageContentSource;
+  parts?: LlmInputMessagePart[];
+}
+
 export interface TimelineEntry {
   at: string;
   kind: 'message' | 'runtime-event' | 'connector-log';
@@ -79,10 +115,7 @@ export interface TimelineEntry {
   target?: string;
   subtype: string;
   detail: string;
-  llmInputMessages?: Array<{
-    role: string;
-    content: string;
-  }>;
+  llmInputMessages?: LlmInputMessage[];
   traceId?: string;
   spanId?: string;
   parentSpanId?: string;

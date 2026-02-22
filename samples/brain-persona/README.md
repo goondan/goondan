@@ -9,7 +9,7 @@
 | `coordinator` | fast-model (Haiku) | 반사적 뇌. 요청 난이도에 따라 즉답/대기/위임을 선택하고, worker 결과를 사용자용으로 정제해 전달 |
 | `worker` | default-model (Sonnet) | 실제 작업 수행. 사용자 요청을 처리하고 결과를 coordinator에 보고 |
 | `unconscious` | fast-model (Haiku) | 무의식 맥락 제공. Worker turn 시작 시 관련 기억/맥락을 자동 주입 |
-| `observer` | fast-model (Haiku) | 관측자. Worker turn 완료 후 행동 요약을 기록 |
+| `observer` | fast-model (Haiku) | 관측자. Worker turn 완료 후 구조화 관측 이벤트(입력/도구 인자/도구 결과/출력)를 선별 기록 |
 | `reflection` | default-model (Sonnet) | 성찰. observer 관측을 바탕으로 패턴 분석 및 성찰 기록 |
 | `dream` | default-model (Sonnet) | 꿈(통합). 유휴 시간에 일지/관측/성찰로부터 지식 문서를 생성/갱신 |
 
@@ -21,7 +21,7 @@
 - `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용합니다 (`agents__request`는 짧은 즉시응답 질의에만 제한 사용).
 - `worker` turn 시작 시 `worker-lifecycle` Extension이 `unconscious`에 맥락을 요청해 시스템 메시지로 주입합니다.
 - `worker`의 매 step 시작 시 `date-helper` Extension이 `[current_time]` 시스템 메시지로 현재 시각을 주입합니다.
-- `worker` turn 완료 후 `worker-lifecycle` Extension이 `observer`에 행동 요약을 전송합니다 (fire-and-forget).
+- `worker` turn 완료 후 `worker-lifecycle` Extension이 `observer`에 구조화 관측 이벤트(JSON + legacy summary)를 전송합니다 (fire-and-forget).
 - `observer`는 관측 기록을 남기고, 필요 시 `reflection`에 성찰을 요청합니다.
 - 유휴 시간에 `idle-monitor` Extension이 `dream` 에이전트를 트리거해 지식을 통합합니다.
 - `Extension/context-injector`가 turn 시작 시 runtime catalog 힌트(`runtime_catalog` 블록)를 시스템 메시지로 주입합니다.

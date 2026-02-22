@@ -8,7 +8,7 @@
 2. `coordinator`는 반사적(reflexive) 뇌로, 사용자 의도를 해석하거나 매니징하지 않고 `agents__send`로 Worker에 비동기 라우팅만 수행한다.
 3. `worker`는 모든 비반사적 작업을 수행하며, 다중 인스턴스 가능하다. 필요시 하위 worker를 spawn한다.
 4. `unconscious`는 Worker의 Extension turn.pre에서 자동 호출되어 관련 기억/지식 맥락을 Worker에 주입한다. Worker LLM은 이 과정을 인지하지 않는다.
-5. `observer`는 Worker의 Extension turn.post에서 자동 호출되어 의미 있는 행동만 3인칭 관점으로 관측 기록한다. Worker LLM은 이 과정을 인지하지 않는다.
+5. `observer`는 Worker의 Extension turn.post에서 자동 호출되어 구조화 관측 이벤트(JSON+legacy)를 기반으로 의미 있는 행동만 3인칭 관점으로 기록한다. Worker LLM은 이 과정을 인지하지 않는다.
 6. `reflection`은 관측 축적 시 Observer가 트리거하여 관측을 압축/성찰로 전환한다. 셀프 업데이트도 수행한다.
 7. `dream`은 유휴 시간에 Coordinator가 트리거하여 일지/관측/성찰로부터 주제별 지식 문서를 생성한다.
 8. 최종 사용자 출력은 Connector가 아니라 채널별 Tool(`telegram__send` 또는 `slack__send`)로 전달한다.
@@ -90,12 +90,12 @@
                      │                                             │
                      │ [Extension turn.post]                       │
                      │  2. worker-lifecycle:                        │
-                     │     - buildActionSummary()로 행동 요약 구성   │
-                     │       ([input] + [tools] + [output])         │
+                     │     - buildObserverPayload()로 구조화 관측     │
+                     │       이벤트(JSON) 구성                        │
                      │     - extractCoordinatorInstanceKey(ctx)     │
                      │     - ctx.agents.send({                      │
                      │         target: 'observer',                  │
-                     │         input: 행동요약,                     │
+                     │         input: 관측이벤트(JSON+legacy),      │
                      │         metadata: {coordinatorInstanceKey}   │
                      │       })                                    │
                      │     - (fire-and-forget, 에러 시 무시)        │
@@ -115,17 +115,18 @@
 
 ```
 worker-lifecycle turn.post
-        │ ctx.agents.send({ target: 'observer', input: 행동요약 })
+        │ ctx.agents.send({ target: 'observer', input: 관측이벤트(JSON+legacy) })
         ▼
 ┌─ Observer Turn ─────────────────────────────────────────────┐
-│ 1. Worker 행동 요약(input/tools/output)을 분석               │
+│ 1. Worker 구조화 관측 이벤트(turn/tools/signals)를 분석       │
 │ 2. LLM이 기록 가치를 판단 (선별적 관측)                       │
 │    - 기록 O: 새 정보, 사용자 선호도, 중요 결정, 파일 변경,     │
 │              실패에서의 교훈                                  │
 │    - 기록 X: 단순 인사, 반복적 응답, 기존 관측과 동일          │
 │ 3. 기록 대상이면:                                            │
 │    memory/observations/YYYY-MM-DD.md에 3인칭 관점으로 append  │
-│    형식: ## HH:MM / 브렌은 [행동]. [패턴/의미] / ---          │
+│    형식: ## HH:MM / 브렌은 [행동]을 했고 [결과]를 얻었다.      │
+│          [패턴/의미] / ---                                    │
 │ 4. 오늘 관측 항목 수 ≥ 20개 →                                │
 │    agents__send(reflection, "관측 축적 임계값 도달")           │
 └─────────────────────────────────────────────────────────────┘
@@ -237,15 +238,17 @@ step.pre 순서:
 
 turn.post 순서 (역순):
   2. worker-lifecycle
-     → buildActionSummary(userMessage, result)로 행동 요약 구성:
-       [input] 사용자 메시지
-       [tools] 사용된 tool 이름 목록 (conversationState.nextMessages의 assistant tool-call 파트에서 추출)
-       [output] 최종 응답 텍스트 (최대 500자)
+     → buildObserverPayload(userMessage, result)로 구조화 관측 이벤트 구성:
+       schema: goondan.observation.turn.v2
+       turn: input/output/toolCallCount
+       tools[]: toolName/toolCallId/inputPreview/outputPreview/status/highlights
+       signals: fileOperations/agentInteractions/shellCommands/networkRequests/toolErrors
+       + legacy summary([input]/[tools]/[output]) 동봉
      → extractCoordinatorInstanceKey(ctx)로 coordinatorInstanceKey 추출
        ([goondan_context] JSON에서 metadata.coordinatorInstanceKey 파싱)
      → ctx.agents.send({
          target: 'observer',
-         input: 행동요약,
+         input: 관측이벤트(JSON+legacy),
          metadata: { coordinatorInstanceKey }
        })
      → fire-and-forget, 에러 시 조용히 무시
@@ -268,7 +271,8 @@ memory/
 │
 ├── observations/YYYY-MM-DD.md     # Observer가 작성
 │   형식: ## HH:MM
-│         브렌은 [3인칭 행동 설명]. [관찰된 패턴이나 의미]
+│         브렌은 [핵심 행동]을 수행했고 [관찰 가능한 결과]를 남겼다.
+│         [관찰된 패턴이나 의미]
 │         ---
 │   방식: file-system appendFile, 선별적 기록 (모든 행동을 기록하지 않음)
 │   트리거: worker-lifecycle Extension turn.post → ctx.agents.send(observer)

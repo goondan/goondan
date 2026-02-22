@@ -12,7 +12,7 @@
 | 파일 | 대상 Agent | 훅 | 설명 |
 |------|-----------|-----|------|
 | `context-injector.ts` | coordinator | turn.pre | `[runtime_catalog]` 힌트를 시스템 메시지로 주입 |
-| `worker-lifecycle.ts` | worker | turn.pre, turn.post | turn.pre에서 unconscious를 호출해 맥락 주입, turn.post에서 observer를 트리거해 관측 기록 |
+| `worker-lifecycle.ts` | worker | turn.pre, turn.post | turn.pre에서 unconscious를 호출해 맥락 주입, turn.post에서 observer에 구조화 관측 이벤트(JSON + legacy summary) 전송 |
 | `date-helper.ts` | worker | step.pre | 매 step마다 `[current_time]` 시스템 메시지로 현재 시각 주입 |
 | `idle-monitor.ts` | coordinator | turn.pre | 유휴 시간 감지 시 `[idle_detected]` 시스템 메시지를 주입하여 dream 트리거 유도 |
 

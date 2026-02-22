@@ -18,13 +18,13 @@ This document is a precise reference for every property and method available to 
 
 ## Entry module
 
-Every Extension module must export a named `register` function. The AgentProcess calls `register(api)` during initialization, in the order declared in the Agent's `spec.extensions` array.
+Every Extension module must export a named `register` function. The AgentProcess calls `register(api, config)` during initialization, in the order declared in the Agent's `spec.extensions` array (`config` is `spec.config` when provided).
 
 ```typescript
 // extensions/my-extension/index.ts
 import type { ExtensionApi } from '@goondan/types';
 
-export function register(api: ExtensionApi): void {
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void {
   // Register middleware, tools, event handlers, etc.
 }
 ```
@@ -32,7 +32,7 @@ export function register(api: ExtensionApi): void {
 ### Signature
 
 ```typescript
-export function register(api: ExtensionApi): void | Promise<void>;
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void | Promise<void>;
 ```
 
 ### Rules

@@ -18,13 +18,13 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 
 ## 엔트리 모듈
 
-모든 Extension 모듈은 `register` 함수를 named export해야 합니다. AgentProcess는 초기화 시 Agent의 `spec.extensions` 배열에 선언된 순서대로 `register(api)`를 호출합니다.
+모든 Extension 모듈은 `register` 함수를 named export해야 합니다. AgentProcess는 초기화 시 Agent의 `spec.extensions` 배열에 선언된 순서대로 `register(api, config)`를 호출합니다 (`config`는 존재 시 `spec.config` 값입니다).
 
 ```typescript
 // extensions/my-extension/index.ts
 import type { ExtensionApi } from '@goondan/types';
 
-export function register(api: ExtensionApi): void {
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void {
   // 미들웨어, 도구, 이벤트 핸들러 등을 등록
 }
 ```
@@ -32,7 +32,7 @@ export function register(api: ExtensionApi): void {
 ### 시그니처
 
 ```typescript
-export function register(api: ExtensionApi): void | Promise<void>;
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void | Promise<void>;
 ```
 
 ### 규칙

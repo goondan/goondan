@@ -582,10 +582,10 @@ spec:
 
 #### Extension entry 모듈
 
-entry 모듈은 `register(api: ExtensionApi)` 함수를 export해야 한다 (MUST).
+entry 모듈은 `register(api: ExtensionApi)` 함수를 export해야 한다 (MUST). 런타임은 `spec.config`를 두 번째 인자(`config`)로 전달해야 한다 (MUST).
 
 ```typescript
-export function register(api: ExtensionApi): void {
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void {
   // 미들웨어 등록
   api.pipeline.register('turn', async (ctx) => {
     const result = await ctx.next();

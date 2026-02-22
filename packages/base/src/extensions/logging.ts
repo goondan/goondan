@@ -160,6 +160,6 @@ export function registerLoggingExtension(
   });
 }
 
-export function register(api: ExtensionApi): void {
-  registerLoggingExtension(api);
+export function register(api: ExtensionApi, config?: LoggingExtensionConfig): void {
+  registerLoggingExtension(api, config);
 }

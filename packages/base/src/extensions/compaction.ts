@@ -216,6 +216,6 @@ export function registerCompactionExtension(
   });
 }
 
-export function register(api: ExtensionApi): void {
-  registerCompactionExtension(api);
+export function register(api: ExtensionApi, config?: CompactionExtensionConfig): void {
+  registerCompactionExtension(api, config);
 }

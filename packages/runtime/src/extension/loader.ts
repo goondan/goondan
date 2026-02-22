@@ -7,7 +7,7 @@ export interface ExtensionSpec {
 }
 
 export interface ExtensionModule {
-  register(api: ExtensionApi): void | Promise<void>;
+  register(api: ExtensionApi, config?: Record<string, unknown>): void | Promise<void>;
 }
 
 function isExtensionModule(value: unknown): value is ExtensionModule {
@@ -57,7 +57,7 @@ export async function loadExtensions(
       }
 
       const api = apiFactory(extensionName);
-      await module.register(api);
+      await module.register(api, resource.spec.config);
 
       logger.debug(`[extension.loader] registered ${extensionName}`);
     } catch (error) {

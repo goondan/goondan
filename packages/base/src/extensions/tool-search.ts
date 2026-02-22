@@ -282,6 +282,6 @@ export function registerToolSearchExtension(
   });
 }
 
-export function register(api: ExtensionApi): void {
-  registerToolSearchExtension(api);
+export function register(api: ExtensionApi, config?: ToolSearchExtensionConfig): void {
+  registerToolSearchExtension(api, config);
 }

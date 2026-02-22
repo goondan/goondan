@@ -155,7 +155,7 @@ spec:
 
 ### 4.1 register 함수
 
-Extension 모듈은 `register(api)` 함수를 **반드시** export해야 한다(MUST).
+Extension 모듈은 `register(api)` 함수를 **반드시** export해야 한다(MUST). 런타임은 `spec.config`가 있으면 두 번째 인자(`config`)로 전달해야 한다(MUST).
 
 ```typescript
 /**
@@ -163,15 +163,16 @@ Extension 모듈은 `register(api)` 함수를 **반드시** export해야 한다(
  * AgentProcess는 초기화 시 Agent에 선언된 Extension 목록 순서대로 이를 호출한다.
  *
  * @param api - Extension API 인터페이스
+ * @param config - Extension 리소스 spec.config (선택)
  */
-export function register(api: ExtensionApi): void;
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void;
 ```
 
 **규칙:**
 
 1. Extension 모듈은 named export `register`를 제공해야 한다(MUST).
 2. `register` 함수는 동기(`void`) 또는 비동기(`Promise<void>`)를 반환할 수 있다(MAY).
-3. AgentProcess는 `register()` 반환(또는 Promise resolve)을 대기해야 한다(MUST).
+3. AgentProcess는 `register(api, config)` 반환(또는 Promise resolve)을 대기해야 한다(MUST).
 4. 이전 Extension의 `register()` 완료 후 다음 Extension의 `register()`를 호출해야 한다(MUST).
 5. `register()` 중 발생한 예외는 AgentProcess 초기화 실패로 처리해야 한다(MUST).
 
@@ -706,8 +707,11 @@ export function register(api: ExtensionApi): void {
 `requiredTools` 강제는 Extension으로 구현한다. 핵심은 **턴 단위 상태를 명시적으로 관리**해서 이전 turn의 성공 호출이 다음 turn으로 누수되지 않게 하는 것이다. Extension config에 `requiredTools`와 `errorMessage`를 선언하고, turn 미들웨어에서 상태를 초기화/정리하며, toolCall 미들웨어에서 성공 호출을 누적한 뒤, step 미들웨어에서 종료 직전 만족 여부를 검사한다.
 
 ```typescript
-export function register(api: ExtensionApi): void {
-  const { requiredTools = [], errorMessage } = readConfig(api);
+export function register(
+  api: ExtensionApi,
+  config?: { requiredTools?: string[]; errorMessage?: string }
+): void {
+  const { requiredTools = [], errorMessage } = readConfig(config);
   if (requiredTools.length === 0) return;
 
   const calledToolsPerTurn = new Map<string, Set<string>>();
@@ -759,9 +763,10 @@ export function register(api: ExtensionApi): void {
 ```
 
 ```typescript
-function readConfig(api: ExtensionApi): { requiredTools?: string[]; errorMessage?: string } {
-  const raw = Reflect.get(api, 'config');
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+function readConfig(
+  raw: { requiredTools?: string[]; errorMessage?: string } | undefined
+): { requiredTools?: string[]; errorMessage?: string } {
+  if (!raw) return {};
 
   return {
     requiredTools: Array.isArray(raw.requiredTools)

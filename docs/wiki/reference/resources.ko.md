@@ -260,6 +260,7 @@ spec:
 ### 규칙
 
 - `requiredTools` 항목은 전체 도구 이름을 사용합니다 (예: `channel-dispatch__send`).
+- `requiredTools` 충족 여부는 turn 단위로 평가되며, 이전 turn의 성공 호출은 현재 turn을 충족시키지 않습니다.
 - `requiredTools`는 `policy.maxStepsPerTurn`에 의해 제한됩니다 -- 필수 도구가 충족되지 않아도 step 한도에 도달하면 Turn이 종료됩니다.
 - Agent에는 `hooks` 필드가 없습니다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 수행합니다.
 

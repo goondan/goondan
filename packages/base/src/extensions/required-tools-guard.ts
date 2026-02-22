@@ -17,8 +17,36 @@ function createUserMessage(text: string) {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readConfig(api: ExtensionApi): RequiredToolsGuardConfig {
+  const raw = Reflect.get(api, 'config');
+  if (!isRecord(raw)) {
+    return {};
+  }
+
+  const config: RequiredToolsGuardConfig = {};
+
+  if (Array.isArray(raw.requiredTools)) {
+    const requiredTools = raw.requiredTools.filter(
+      (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+    );
+    if (requiredTools.length > 0) {
+      config.requiredTools = requiredTools;
+    }
+  }
+
+  if (typeof raw.errorMessage === 'string') {
+    config.errorMessage = raw.errorMessage;
+  }
+
+  return config;
+}
+
 export function register(api: ExtensionApi): void {
-  const rawConfig = (api as unknown as { config?: RequiredToolsGuardConfig }).config ?? {};
+  const rawConfig = readConfig(api);
   const requiredTools: string[] = Array.isArray(rawConfig.requiredTools) ? rawConfig.requiredTools : [];
   const errorMessage =
     typeof rawConfig.errorMessage === 'string' && rawConfig.errorMessage.trim().length > 0
@@ -27,8 +55,20 @@ export function register(api: ExtensionApi): void {
 
   if (requiredTools.length === 0) return;
 
-  // turnId별 성공한 tool 호출 추적 (AgentProcess는 단일 turn 순차 실행)
+  // turnId별 성공한 tool 호출 추적
   const calledToolsPerTurn = new Map<string, Set<string>>();
+
+  api.pipeline.register('turn', async (ctx) => {
+    // turn 경계에서 누적 상태를 강제 리셋한다.
+    calledToolsPerTurn.clear();
+    calledToolsPerTurn.set(ctx.turnId, new Set());
+    try {
+      return await ctx.next();
+    } finally {
+      calledToolsPerTurn.delete(ctx.turnId);
+      calledToolsPerTurn.clear();
+    }
+  });
 
   api.pipeline.register('toolCall', async (ctx) => {
     const result = await ctx.next();

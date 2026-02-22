@@ -2857,6 +2857,33 @@ function normalizeUserMessages(content: unknown): ModelMessage[] {
   return messages;
 }
 
+function isToolResultOnlyUserContent(content: unknown): boolean {
+  if (!Array.isArray(content) || content.length === 0) {
+    return false;
+  }
+
+  for (const item of content) {
+    if (!isJsonObject(item) || parseToolResultPart(item) === undefined) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isLastInputUserTurnToolResultOnly(turns: readonly ConversationTurn[]): boolean {
+  if (turns.length === 0) {
+    return false;
+  }
+
+  const lastTurn = turns[turns.length - 1];
+  if (!lastTurn || lastTurn.role !== 'user') {
+    return false;
+  }
+
+  return isToolResultOnlyUserContent(lastTurn.content);
+}
+
 function toModelMessages(turns: ConversationTurn[]): ModelMessage[] {
   const messages: ModelMessage[] = [];
 
@@ -3021,6 +3048,7 @@ export function classifyModelStepRetryKind(input: {
   textBlocks: string[];
   toolUseBlocks: ToolUseBlock[];
   finishReason: FinishReason;
+  lastInputMessageWasToolResult?: boolean;
 }): ModelStepRetryKind | undefined {
   const hasToolCalls = input.toolUseBlocks.length > 0;
   if (input.finishReason === 'tool-calls' && !hasToolCalls) {
@@ -3030,6 +3058,9 @@ export function classifyModelStepRetryKind(input: {
   const hasAssistantContent = input.assistantContent.length > 0;
   const hasTextBlocks = input.textBlocks.length > 0;
   if (!hasToolCalls && !hasAssistantContent && !hasTextBlocks) {
+    if (input.lastInputMessageWasToolResult === true) {
+      return undefined;
+    }
     return 'empty_output';
   }
 
@@ -3646,6 +3677,8 @@ async function runAgentTurn(input: {
             metadata: stepMetadata,
           },
           async (stepCtx): Promise<StepResult> => {
+            const modelTurns = toConversationTurns(conversationState.nextMessages);
+            const lastInputMessageWasToolResult = isLastInputUserTurnToolResultOnly(modelTurns);
             const response = await requestModelMessage({
               provider: input.plan.provider,
               apiKey: input.plan.apiKey,
@@ -3654,7 +3687,7 @@ async function runAgentTurn(input: {
               temperature: input.plan.temperature,
               maxTokens: input.plan.maxTokens,
               toolCatalog: stepCtx.toolCatalog,
-              turns: toConversationTurns(conversationState.nextMessages),
+              turns: modelTurns,
             });
 
             stepMetadata[STEP_METADATA_MODEL_FINISH_REASON_KEY] = response.finishReason;
@@ -3676,7 +3709,10 @@ async function runAgentTurn(input: {
               lastText = response.textBlocks.join('\n').trim();
             }
 
-            const retryKind = classifyModelStepRetryKind(response);
+            const retryKind = classifyModelStepRetryKind({
+              ...response,
+              lastInputMessageWasToolResult,
+            });
             if (retryKind !== undefined) {
               stepMetadata[STEP_METADATA_MODEL_RETRY_KIND_KEY] = retryKind;
               if (retryKind === 'malformed_tool_calls') {

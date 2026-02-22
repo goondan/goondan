@@ -109,6 +109,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 9. Runtime은 Turn마다 `traceId`를 생성/보존해야 한다(MUST). 인터-에이전트 호출로 시작된 Turn은 호출자의 `traceId`를 유지한다(MUST).
 10. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
 11. Runtime은 Turn/Step/Tool Call마다 새 `spanId`를 생성하고, `parentSpanId`로 상위 실행 단위와 연결해야 한다(MUST). TraceContext 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
+12. 직전 Step 입력이 tool-result 전용 메시지인 상태에서 모델이 빈 응답(텍스트/assistant content/tool-call 모두 없음)을 반환하면, Runtime은 empty-output 경고 메시지를 추가하지 않고 Turn을 정상 종료할 수 있어야 한다(MUST).
 
 ### 2.5 메시지 상태 규칙
 

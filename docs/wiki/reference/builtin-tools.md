@@ -470,15 +470,16 @@ Inter-agent communication tool. Enables agents to delegate tasks, send fire-and-
 
 ### agents__request
 
-Send a request event to another agent and wait for a response. The target agent is auto-spawned if not already running.
+Send a request event to another agent. By default it blocks until response (`async=false`), or returns immediately when `async=true` (response is queued into the caller's message inbox for the next step).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `target` | string | Yes | -- | Target agent name |
-| `input` | string | No | -- | Message text to send |
+| `input` | string | Yes | -- | Message text to send |
 | `instanceKey` | string | No | caller's `instanceKey` | Target instance key |
 | `eventType` | string | No | `"agent.request"` | Custom event type |
 | `timeoutMs` | number | No | `60000` | Response timeout in milliseconds |
+| `async` | boolean | No | `false` | `false`: blocking response, `true`: immediate ack + queued response |
 | `metadata` | object | No | -- | Additional metadata attached to the event |
 
 **Returns:**
@@ -488,9 +489,13 @@ Send a request event to another agent and wait for a response. The target agent 
   "target": "researcher",
   "eventId": "agent_event_abc123",
   "correlationId": "corr_xyz789",
+  "accepted": true,
+  "async": false,
   "response": "Here is the research result..."
 }
 ```
+
+When `async=true`, `response` may be `null` at call time. The actual response is injected as a user message with `metadata.__goondanInterAgentResponse`.
 
 ### agents__send
 
@@ -499,7 +504,7 @@ Send a fire-and-forget event to another agent. Returns immediately without waiti
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `target` | string | Yes | -- | Target agent name |
-| `input` | string | No | -- | Message text to send |
+| `input` | string | Yes | -- | Message text to send |
 | `instanceKey` | string | No | caller's `instanceKey` | Target instance key |
 | `eventType` | string | No | `"agent.send"` | Custom event type |
 | `metadata` | object | No | -- | Additional metadata attached to the event |

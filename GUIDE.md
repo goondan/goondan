@@ -254,7 +254,7 @@ agents:
 | --- | --- | --- |
 | `bash` | 쉘 명령/스크립트 실행 | 로컬 빌드/테스트/자동화 |
 | `file-system` | 파일 읽기/쓰기/목록/디렉토리 생성 | 코드/문서 생성, 파일 기반 파이프라인 |
-| `agents` | 에이전트 간 요청/전달/스폰/조회 | 멀티 에이전트 협업 |
+| `agents` | 에이전트 간 요청/전달/스폰/조회 (`request`는 `async` 옵션 지원) | 멀티 에이전트 협업 |
 | `self-restart` | 런타임 재시작 신호 | Tool로 자가 재기동 트리거 필요 시 |
 | `telegram` | Telegram 메시지 조작 | Telegram 직접 제어 |
 | `slack` | Slack 메시지 조작/조회 | Slack 직접 제어 |
@@ -285,6 +285,7 @@ spec:
 | `message-compaction` | 초과 메시지 제거/요약 | 장기 대화 유지 + 맥락 보존 |
 | `logging` | Turn/Step/ToolCall 로그 | 디버깅·운영 추적 |
 | `tool-search` | tool-search__search 도구 + tool catalog 필터 | 도구가 많아 호출 후보가 너무 많을 때 |
+| `inter-agent-response-format` | async request 응답 메시지를 LLM 친화 텍스트로 정규화 | 멀티 에이전트에서 `request(async=true)`를 적극 사용할 때 |
 
 **Agent에 Extension 추가:**
 
@@ -313,7 +314,7 @@ spec:
 
 **멀티 에이전트 복잡한 오케스트레이션:**
 - Tool: `agents`, `self-restart`, `http-fetch`
-- Extension: `tool-search`, `logging`, 메시지 정책
+- Extension: `tool-search`, `logging`, `inter-agent-response-format`, 메시지 정책
 
 **장기 운영 채널 (Telegram/Slack):**
 - Tool: `telegram` 또는 `slack`

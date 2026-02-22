@@ -148,13 +148,13 @@ interface AgentToolRuntime {
 
 ### request(target, event, options?)
 
-Sends a synchronous request to another agent and waits for the response (request-response pattern).
+Sends a request to another agent. Use `async=false` (default) for blocking request-response, or `async=true` for immediate ack and queued response injection before the next step.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `target` | `string` | Target agent name (e.g., `"coder"`) |
 | `event` | `AgentEvent` | Event payload containing the input message |
-| `options` | `AgentRuntimeRequestOptions` | Optional. `{ timeoutMs?: number }` |
+| `options` | `AgentRuntimeRequestOptions` | Optional. `{ timeoutMs?: number; async?: boolean }` |
 
 **Returns:** `Promise<AgentRuntimeRequestResult>`
 
@@ -164,6 +164,8 @@ interface AgentRuntimeRequestResult {
   target: string;         // Target agent name
   response?: JsonValue;   // Response payload from the target agent
   correlationId: string;  // Correlation ID for trace matching
+  accepted?: boolean;     // Delivery accepted
+  async?: boolean;        // Whether this call used async mode
 }
 ```
 

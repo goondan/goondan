@@ -356,7 +356,7 @@ export const handlers: Record<string, ToolHandler> = {
 - `logger`: Console 인터페이스 (로깅용)
 - `runtime`: `AgentToolRuntime` (선택) — 에이전트 간 통신 인터페이스 (`shared-types.md` 8.2절)
 
-`runtime` 필드는 에이전트 간 통신 도구(agents tool)에서 사용되며, Orchestrator와의 IPC를 통해 다른 AgentProcess와 통신하고 현재 Swarm 카탈로그를 조회한다. `AgentToolRuntime`은 `request`/`send`/`spawn`/`list`/`catalog` 5가지 메서드를 제공한다.
+`runtime` 필드는 에이전트 간 통신 도구(agents tool)에서 사용되며, Orchestrator와의 IPC를 통해 다른 AgentProcess와 통신하고 현재 Swarm 카탈로그를 조회한다. `AgentToolRuntime`은 `request`/`send`/`spawn`/`list`/`catalog` 5가지 메서드를 제공한다. `request`는 `async=false`(기본, 블로킹)와 `async=true`(즉시 ack + 응답 inbox 적재) 두 모드를 지원해야 한다(MUST).
 
 ---
 
@@ -514,14 +514,16 @@ Agent 간 통신을 Tool call로 구현하며, Orchestrator를 경유하는 통�
 
 ### 11.1 통신 패턴
 
-#### request (응답 대기)
+#### request (`async=false`: 응답 대기 / `async=true`: 응답 큐잉)
 
 ```
-1. Agent A가 agents__request 도구를 호출 (target: 'AgentB', input: '...')
+1. Agent A가 agents__request 도구를 호출 (target: 'AgentB', input: '...', async?: boolean)
 2. AgentProcess A → Orchestrator: IPC { type: 'event', payload: AgentEvent(replyTo 포함) }
 3. Orchestrator → AgentProcess B로 라우팅 (필요시 스폰)
 4. AgentProcess B의 Turn 완료 → Orchestrator: IPC { type: 'event', payload: 응답 AgentEvent }
 5. Orchestrator → AgentProcess A에 결과 전달 (correlationId로 매칭)
+6. `async=false`면 Tool 호출이 응답까지 대기한다.
+7. `async=true`면 Tool 호출은 즉시 ack를 반환하고, 응답은 메시지 inbox에 들어간 뒤 다음 Step 시작 전에 주입된다.
 ```
 
 #### send (fire-and-forget)

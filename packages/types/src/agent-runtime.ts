@@ -9,6 +9,7 @@ import type { AgentEvent } from "./events.js";
 
 export interface AgentRuntimeRequestOptions {
   timeoutMs?: number;
+  async?: boolean;
 }
 
 export interface AgentRuntimeRequestResult {
@@ -16,6 +17,8 @@ export interface AgentRuntimeRequestResult {
   target: string;
   response?: JsonValue;
   correlationId: string;
+  accepted?: boolean;
+  async?: boolean;
 }
 
 export interface AgentRuntimeSendResult {
@@ -61,6 +64,26 @@ export interface AgentRuntimeCatalogResult {
   callableAgents: string[];
 }
 
+export type InterAgentResponseStatus = "ok" | "error" | "timeout";
+
+export interface InterAgentResponseMetadata {
+  kind: "inter_agent_response";
+  version: 1;
+  requestId: string;
+  requestEventId: string;
+  responseEventId?: string;
+  fromAgentId: string;
+  toAgentId: string;
+  async: true;
+  status: InterAgentResponseStatus;
+  receivedAt: string;
+  traceId?: string;
+  requestEventType?: string;
+  requestMetadata?: JsonObject;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 // --- 8.2 AgentToolRuntime ---
 
 export interface AgentToolRuntime {
@@ -83,8 +106,15 @@ export interface MiddlewareAgentsApi {
     input?: string;
     instanceKey?: string;
     timeoutMs?: number;
+    async?: boolean;
     metadata?: JsonObject;
-  }): Promise<{ target: string; response: string }>;
+  }): Promise<{
+    target: string;
+    response: string;
+    correlationId?: string;
+    accepted?: boolean;
+    async?: boolean;
+  }>;
 
   send(params: {
     target: string;

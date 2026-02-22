@@ -21,7 +21,7 @@ Goondan 스웜의 에이전트는 **IPC 기반 이벤트**를 통해 Orchestrato
 
 | 연산 | 패턴 | 설명 |
 |------|------|------|
-| `agents__request` | 요청-응답 | 메시지를 보내고 응답을 기다림 |
+| `agents__request` | 요청-응답 / 비동기 응답 큐잉 | `async=false`: 응답 대기, `async=true`: 즉시 ack + 응답 큐잉 |
 | `agents__send` | 발사 후 망각 | 응답을 기다리지 않고 메시지 전송 |
 | `agents__spawn` | 인스턴스 준비 | 새 에이전트 인스턴스 준비 |
 | `agents__list` | 발견 | 스폰된 에이전트 인스턴스 목록 조회 |
@@ -33,7 +33,7 @@ LLM 도구 호출 외에도, `turn` / `step` 미들웨어에서는 `ctx.agents`�
 
 | 미들웨어 API | 패턴 | 설명 |
 |-------------|------|------|
-| `ctx.agents.request` | 요청-응답 | Extension 미들웨어가 요청을 보내고 응답을 기다림 |
+| `ctx.agents.request` | 요청-응답 / 비동기 응답 큐잉 | `async=false`: 응답 대기, `async=true`: 즉시 ack + 응답 큐잉 |
 | `ctx.agents.send` | 발사 후 망각 | Extension 미들웨어가 비동기 알림 전송 |
 
 현재 `ctx.agents`는 `request`, `send`만 지원합니다. 인스턴스 준비/발견(`spawn`, `list`, `catalog`)은 `agents` 도구 경로를 사용합니다.
@@ -96,6 +96,8 @@ api.pipeline.register('turn', async (ctx) => {
 - `turn` / `step` 미들웨어 컨텍스트에서만 사용 가능합니다.
 - `toolCall` 컨텍스트에는 `ctx.agents`가 없습니다.
 - `request` 타임아웃을 생략하면 기본값은 `60000ms`입니다.
+- `request(async=true)`는 즉시 반환하고 실제 응답은 다음 step 시작 전에 주입됩니다.
+- 큐잉된 async 응답 메시지는 `metadata.__goondanInterAgentResponse`를 포함합니다.
 - 런타임은 순환 요청 체인을 감지해 오류를 반환합니다.
 
 ---
@@ -127,9 +129,10 @@ LLM이 `agents__request` 도구를 호출할 때 사용하는 파라미터:
 | 파라미터 | 타입 | 필수 | 설명 |
 |----------|------|------|------|
 | `target` | `string` | 예 | 대상 에이전트 이름 (예: `"researcher"`) |
-| `input` | `string` | 아니오 | 대상에게 보낼 텍스트 메시지 |
+| `input` | `string` | 예 | 대상에게 보낼 텍스트 메시지 |
 | `instanceKey` | `string` | 아니오 | 대상 인스턴스 키 (기본값: 호출자의 instanceKey) |
 | `timeoutMs` | `number` | 아니오 | 타임아웃 밀리초 (기본값: 60000) |
+| `async` | `boolean` | 아니오 | `false`: 블로킹 응답, `true`: 즉시 ack + 응답 큐잉 |
 | `metadata` | `object` | 아니오 | 이벤트와 함께 전달할 추가 메타데이터 |
 
 ### 시나리오 예시

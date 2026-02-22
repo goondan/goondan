@@ -230,12 +230,12 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
 
 `MiddlewareAgentsApi`의 타입 정의는 `docs/specs/shared-types.md` 8.3절을 단일 기준으로 따른다. 여기서는 파이프라인 관점의 시맨틱스와 규칙만 정의한다.
 
-#### 4.4.1 `request` 블로킹 시맨틱스
+#### 4.4.1 `request` 시맨틱스 (`async` 옵션)
 
-`ctx.agents.request()`는 **블로킹 호출**이다. 다음 규칙이 적용된다:
+`ctx.agents.request()`는 `async` 옵션에 따라 동작이 달라진다.
 
-1. **블로킹 범위**: `request()`는 현재 미들웨어의 실행을 블로킹한다(MUST). `turn` 미들웨어에서 호출하면 해당 turn 미들웨어 체인이 블로킹되고, `step` 미들웨어에서 호출하면 해당 step 미들웨어 체인이 블로킹된다. 블로킹은 `await` 시점에서 발생하며, 호출자 프로세스의 이벤트 루프 자체를 차단하지는 않는다.
-2. **Timeout 반환**: `timeoutMs` 내에 응답이 도착하지 않으면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
+1. **`async=false` (기본값)**: 블로킹 호출이다(MUST). `turn` 미들웨어에서 호출하면 해당 turn 미들웨어 체인이 블로킹되고, `step` 미들웨어에서 호출하면 해당 step 미들웨어 체인이 블로킹된다. 블로킹은 `await` 시점에서 발생하며, 호출자 프로세스의 이벤트 루프 자체를 차단하지는 않는다.
+2. **`async=false` Timeout 반환**: `timeoutMs` 내에 응답이 도착하지 않으면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
    ```typescript
    {
      name: 'AgentRequestTimeoutError';
@@ -245,7 +245,7 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
      timeoutMs: number;
    }
    ```
-3. **에러 반환**: 대상 에이전트가 존재하지 않거나, 순환 호출이 감지되거나, IPC 전달에 실패하면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
+3. **`async=false` 에러 반환**: 대상 에이전트가 존재하지 않거나, 순환 호출이 감지되거나, IPC 전달에 실패하면 예외를 던진다(MUST). 예외 형태는 다음과 같다:
    ```typescript
    {
      name: 'AgentRequestError';
@@ -255,7 +255,10 @@ interface ToolCallMiddlewareContext extends ExecutionContext {
    }
    ```
 4. **기본 타임아웃**: `timeoutMs` 기본값은 60000ms이다(MUST).
-5. **순환 호출 감지**: Runtime은 `request`에 대해 순환 호출을 감지하고 즉시 예외를 반환해야 한다(MUST).
+5. **`async=true` ack 반환**: Runtime은 응답 대기 없이 즉시 반환해야 한다(MUST). 반환값에는 `accepted`, `async`, `correlationId`를 포함할 수 있다(MAY).
+6. **`async=true` 응답 주입 타이밍**: 실제 응답은 메시지 큐에 적재되고, 응답 수신 직후의 **다음 Step 시작 전**에 `conversationState`로 주입되어야 한다(MUST). 다음 Turn까지 지연되면 안 된다(MUST NOT).
+7. **`async=true` 응답 메타데이터**: 주입된 메시지는 `metadata.__goondanInterAgentResponse`를 포함해야 하며, 포맷 커스터마이징은 Extension이 이 메타데이터를 읽어 처리한다(SHOULD).
+8. **순환 호출 감지**: Runtime은 `request`에 대해 순환 호출을 감지하고 즉시 예외를 반환해야 한다(MUST).
 
 #### 4.4.2 `send` 시맨틱스
 

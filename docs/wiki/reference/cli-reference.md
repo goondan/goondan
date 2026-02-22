@@ -280,7 +280,7 @@ gdn restart [options]
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--agent <name>` | `-a` | Restart only the specified agent's process (selective restart) | - |
-| `--fresh` | | Clear message history and extension state before restarting | `false` |
+| `--fresh` | | Clear persisted message history (`base/events/runtime-events`) before restarting | `false` |
 
 ### How It Works
 
@@ -452,7 +452,9 @@ gdn instance restart <key> [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--fresh` | Fresh restart flag | `false` |
+| `--fresh` | Clear persisted message history (`base/events/runtime-events`) before restarting | `false` |
+
+Using `gdn instance restart --fresh` also clears the message/runtime-event history consumed by Studio, so the view starts empty after refresh.
 
 **Example:**
 

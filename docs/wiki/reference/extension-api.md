@@ -298,8 +298,15 @@ interface MiddlewareAgentsApi {
     input?: string;
     instanceKey?: string;
     timeoutMs?: number; // default: 60000
+    async?: boolean;    // default: false
     metadata?: Record<string, unknown>;
-  }): Promise<{ target: string; response: string }>;
+  }): Promise<{
+    target: string;
+    response: string;
+    correlationId?: string;
+    accepted?: boolean;
+    async?: boolean;
+  }>;
 
   send(params: {
     target: string;
@@ -315,6 +322,8 @@ Rules:
 - Available only in `turn` and `step` contexts.
 - Not available in `toolCall` context.
 - `request` default timeout is `60000ms`.
+- `request(async=true)` returns immediately, and the actual response is queued then injected before the next step starts.
+- queued async response messages include `metadata.__goondanInterAgentResponse`.
 - The runtime detects cyclic request chains and returns an error.
 
 Example:

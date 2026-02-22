@@ -182,7 +182,7 @@ gdn restart
 # Restart only a specific agent's process
 gdn restart --agent coder
 
-# Clear all state (message history, extension state) and restart fresh
+# Clear persisted message history (base/events/runtime-events) and restart fresh
 gdn restart --fresh
 
 # Restart a specific agent with state reset

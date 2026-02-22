@@ -8,7 +8,7 @@
 
 ### 1.1 배경 및 설계 동기
 
-Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. 또한 `turn`/`step` 미들웨어에서는 `ctx.agents` API로 다른 Agent를 프로그래매틱하게 호출할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
+Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. 또한 `turn`/`step` 미들웨어에서는 `ctx.agents` API로 다른 Agent를 프로그래매틱하게 호출할 수 있다. `request(async=true)`로 주입되는 인터-에이전트 응답 메시지(`metadata.__goondanInterAgentResponse`)의 포맷도 Extension이 step 미들웨어에서 변환할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
 `ExtensionApi` 표면은 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 구성된다. OAuth/설정 갱신 같은 도메인 기능은 Extension 내부에서 구현하며, 파이프라인 훅은 Middleware 형태(`docs/specs/pipeline.md`)를 따른다.
 메시지 windowing/compaction 같은 정책은 Runtime 코어가 아닌 Extension에서 선택적으로 제공한다.
@@ -34,6 +34,7 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 5. `api.events.on()` 구독 해제를 위해 반환 함수를 제공해야 한다(MUST).
 6. `api.tools.register()`로 등록한 도구는 도구 이름 규칙(`{리소스명}__{하위도구명}`)을 따라야 한다(MUST).
 7. `turn`/`step` 미들웨어 컨텍스트는 `ctx.agents.request/send`을 제공해야 하며, `toolCall` 컨텍스트에는 이를 제공하지 않아야 한다(MUST).
+8. `request(async=true)`로 주입된 메시지의 메타데이터 키 `__goondanInterAgentResponse`를 이용해, step 미들웨어에서 응답 메시지 포맷을 커스터마이즈할 수 있어야 한다(SHOULD).
 
 ### 2.3 상태 관리 규칙
 

@@ -255,6 +255,7 @@ interface ToolCallResult {
 ```typescript
 interface AgentRuntimeRequestOptions {
   timeoutMs?: number;
+  async?: boolean; // default: false
 }
 
 interface AgentRuntimeRequestResult {
@@ -262,6 +263,8 @@ interface AgentRuntimeRequestResult {
   target: string;
   response?: JsonValue;
   correlationId: string;
+  accepted?: boolean;
+  async?: boolean;
 }
 
 interface AgentRuntimeSendResult {
@@ -306,6 +309,26 @@ interface AgentRuntimeCatalogResult {
   availableAgents: string[];
   callableAgents: string[];
 }
+
+type InterAgentResponseStatus = 'ok' | 'error' | 'timeout';
+
+interface InterAgentResponseMetadata {
+  kind: 'inter_agent_response';
+  version: 1;
+  requestId: string;        // correlationId
+  requestEventId: string;   // 원본 request event id
+  responseEventId?: string; // 응답 event id
+  fromAgentId: string;
+  toAgentId: string;
+  async: true;
+  status: InterAgentResponseStatus;
+  receivedAt: string;       // ISO timestamp
+  traceId?: string;
+  requestEventType?: string;
+  requestMetadata?: JsonObject;
+  errorCode?: string;
+  errorMessage?: string;
+}
 ```
 
 ### 8.2 AgentToolRuntime (Tool에서 사용하는 에이전트 통신 인터페이스)
@@ -337,8 +360,15 @@ interface MiddlewareAgentsApi {
     input?: string;
     instanceKey?: string;
     timeoutMs?: number; // default: 60000
+    async?: boolean;    // default: false
     metadata?: JsonObject;
-  }): Promise<{ target: string; response: string }>;
+  }): Promise<{
+    target: string;
+    response: string;
+    correlationId?: string;
+    accepted?: boolean;
+    async?: boolean;
+  }>;
 
   send(params: {
     target: string;
@@ -367,10 +397,14 @@ type ToolHandler = (ctx: ToolContext, input: JsonObject) => Promise<JsonValue> |
 
 1. `AgentToolRuntime`과 `MiddlewareAgentsApi`는 동일한 Orchestrator IPC 라우팅 경로를 재사용한다(MUST).
 2. `request`의 기본 타임아웃은 60000ms이다(MUST).
-3. Runtime은 `request`에 대해 순환 호출을 감지하고 오류를 반환해야 한다(MUST).
-4. `MiddlewareAgentsApi`는 `turn`/`step` 미들웨어에서만 제공된다(MUST). `toolCall` 미들웨어에서는 제공하지 않는다(MUST NOT).
-5. `AgentToolRuntime`은 `ToolContext.runtime`을 통해 제공되며, agents tool에서만 사용된다(SHOULD).
-6. 통신 실패는 `AgentToolRuntime`에서는 `ToolCallResult`(`status="error"`)로, `MiddlewareAgentsApi`에서는 예외로 반환된다(MUST).
+3. `request(async=false)`는 블로킹 호출이며, 응답을 직접 반환해야 한다(MUST).
+4. `request(async=true)`는 즉시 ack를 반환하고, 실제 응답은 런타임 메시지 큐(inbox)에 적재해야 한다(MUST).
+5. `request(async=true)`의 응답 메시지는 응답 수신 직후의 **다음 Step 시작 전**에 `conversationState`로 주입되어야 한다(MUST). 다음 Turn까지 지연되면 안 된다(MUST NOT).
+6. `request(async=true)`로 주입된 메시지는 `metadata.__goondanInterAgentResponse`에 `InterAgentResponseMetadata`를 포함해야 한다(MUST).
+7. Runtime은 `request`에 대해 순환 호출을 감지하고 오류를 반환해야 한다(MUST).
+8. `MiddlewareAgentsApi`는 `turn`/`step` 미들웨어에서만 제공된다(MUST). `toolCall` 미들웨어에서는 제공하지 않는다(MUST NOT).
+9. `AgentToolRuntime`은 `ToolContext.runtime`을 통해 제공되며, agents tool에서만 사용된다(SHOULD).
+10. 통신 실패는 `AgentToolRuntime`에서는 `ToolCallResult`(`status="error"`)로, `MiddlewareAgentsApi`에서는 예외로 반환된다(MUST).
 
 ---
 

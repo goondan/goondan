@@ -170,6 +170,7 @@ export interface ToolCallResult {
 
 export interface AgentRuntimeRequestOptions {
   timeoutMs?: number;
+  async?: boolean;
 }
 
 export interface AgentRuntimeRequestResult {
@@ -177,6 +178,8 @@ export interface AgentRuntimeRequestResult {
   target: string;
   response?: JsonValue;
   correlationId: string;
+  accepted?: boolean;
+  async?: boolean;
 }
 
 export interface AgentRuntimeSendResult {
@@ -222,6 +225,26 @@ export interface AgentRuntimeCatalogResult {
   callableAgents: string[];
 }
 
+export type InterAgentResponseStatus = "ok" | "error" | "timeout";
+
+export interface InterAgentResponseMetadata {
+  kind: "inter_agent_response";
+  version: 1;
+  requestId: string;
+  requestEventId: string;
+  responseEventId?: string;
+  fromAgentId: string;
+  toAgentId: string;
+  async: true;
+  status: InterAgentResponseStatus;
+  receivedAt: string;
+  traceId?: string;
+  requestEventType?: string;
+  requestMetadata?: JsonObject;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface AgentToolRuntime {
   request(
     target: string,
@@ -239,6 +262,7 @@ export interface MiddlewareAgentRequestParams {
   input?: string;
   instanceKey?: string;
   timeoutMs?: number;
+  async?: boolean;
   metadata?: JsonObject;
 }
 
@@ -252,6 +276,9 @@ export interface MiddlewareAgentSendParams {
 export interface MiddlewareAgentRequestResult {
   target: string;
   response: string;
+  correlationId?: string;
+  accepted?: boolean;
+  async?: boolean;
 }
 
 export interface MiddlewareAgentSendResult {

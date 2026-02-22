@@ -396,7 +396,9 @@ interface ExtensionApi {
 - `shutdown_ack`: Shutdown 완료 응답
 
 **통신 패턴 2종:**
-- **request** (응답 대기): `AgentEvent.replyTo` 설정, `correlationId`로 매칭
+- **request**: `AgentEvent.replyTo` 설정, `correlationId`로 매칭
+  - `async=false`(기본): 응답 대기(블로킹)
+  - `async=true`: 즉시 ack 반환 + 응답 inbox 적재 후 다음 Step 시작 전 주입
 - **send** (fire-and-forget): `AgentEvent.replyTo` 생략
 
 **통합 이벤트 흐름:**

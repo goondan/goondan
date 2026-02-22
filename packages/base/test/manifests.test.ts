@@ -14,7 +14,7 @@ describe('manifest helpers', () => {
     const connectors = createBaseConnectorManifests();
 
     expect(tools.length).toBe(10);
-    expect(extensions.length).toBe(5);
+    expect(extensions.length).toBe(6);
     expect(connectors.length).toBe(6);
 
     expect(tools.every((item) => item.kind === 'Tool')).toBe(true);
@@ -26,6 +26,7 @@ describe('manifest helpers', () => {
     expect(tools.some((item) => item.metadata.name === 'wait')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-compaction')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-window')).toBe(true);
+    expect(extensions.some((item) => item.metadata.name === 'inter-agent-response-format')).toBe(true);
     expect(
       connectors.some((item) => item.metadata.name === 'telegram-polling')
     ).toBe(true);

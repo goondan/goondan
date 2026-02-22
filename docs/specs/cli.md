@@ -299,7 +299,7 @@ gdn restart [options]
 | 옵션 | 단축 | 설명 | 기본값 |
 |------|------|------|--------|
 | `--agent <name>` | `-a` | 특정 에이전트 프로세스만 재시작. 미지정 시 전체 Orchestrator 재기동 | - |
-| `--fresh` | | 상태 초기화 후 재시작. 메시지 히스토리, 이벤트 로그 등 인스턴스 상태를 클리어 | `false` |
+| `--fresh` | | 상태 초기화 후 재시작. persisted message history(`messages/base.jsonl`, `messages/events.jsonl`, `messages/runtime-events.jsonl`)를 클리어 | `false` |
 
 ### 5.3 동작 방식
 
@@ -316,7 +316,7 @@ gdn restart [options]
 4. 다른 에이전트/커넥터 프로세스는 영향받지 않는다.
 
 **상태 초기화 (`--fresh`):**
-1. workspace의 instance state(메시지 히스토리, 이벤트 로그)를 초기화한다.
+1. workspace의 persisted message history(`base.jsonl`, `events.jsonl`, `runtime-events.jsonl`)를 초기화한다.
 2. 초기화 후 재시작하여 에이전트가 빈 상태에서 시작한다.
 
 ### 5.4 예시
@@ -473,7 +473,9 @@ gdn instance restart <key> [options]
 
 | 옵션 | 설명 | 기본값 |
 |------|------|--------|
-| `--fresh` | fresh restart 플래그 전달 | `false` |
+| `--fresh` | 재시작 전에 persisted message history(`base/events/runtime-events`)를 초기화 | `false` |
+
+`gdn instance restart --fresh`는 대상 인스턴스의 message store를 비우고 재시작해야 한다(MUST). 이때 Studio가 읽는 메시지/런타임 이벤트 이력도 함께 초기화되어 새로고침 시 빈 상태로 표시되어야 한다(MUST).
 
 **예시:**
 

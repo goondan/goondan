@@ -24,3 +24,9 @@ export type { ToolSearchExtensionConfig } from './tool-search.js';
 
 export { register as registerRequiredToolsGuardExtension } from './required-tools-guard.js';
 export type { RequiredToolsGuardConfig } from './required-tools-guard.js';
+
+export {
+  register as registerInterAgentResponseFormatExtension,
+  registerInterAgentResponseFormatExtension as createInterAgentResponseFormatExtension,
+} from './inter-agent-response-format.js';
+export type { InterAgentResponseFormatExtensionConfig } from './inter-agent-response-format.js';

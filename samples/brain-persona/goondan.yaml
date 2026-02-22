@@ -35,28 +35,28 @@ kind: Extension
 metadata:
   name: context-injector
 spec:
-  entry: "./extensions/context-injector.mjs"
+  entry: "./extensions/context-injector.ts"
 ---
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: worker-lifecycle
 spec:
-  entry: "./extensions/worker-lifecycle.mjs"
+  entry: "./extensions/worker-lifecycle.ts"
 ---
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: idle-monitor
 spec:
-  entry: "./extensions/idle-monitor.mjs"
+  entry: "./extensions/idle-monitor.ts"
 ---
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
   name: date-helper
 spec:
-  entry: "./extensions/date-helper.mjs"
+  entry: "./extensions/date-helper.ts"
 ---
 apiVersion: goondan.ai/v1
 kind: Agent

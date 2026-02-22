@@ -192,11 +192,11 @@ turn.pre 순서:
      → 메시지 히스토리 윈도우 제한
   2. message-compaction (@goondan/base)
      → 오래된 메시지 압축
-  3. context-injector (로컬: extensions/context-injector.mjs)
+  3. context-injector (로컬: extensions/context-injector.ts)
      → ctx.metadata.runtimeCatalog에서 swarmName, entryAgent, selfAgent,
        availableAgents, callableAgents를 읽어 [runtime_catalog] 시스템 메시지 주입
      → callableAgents 안내 문구 포함
-  4. idle-monitor (로컬: extensions/idle-monitor.mjs)
+  4. idle-monitor (로컬: extensions/idle-monitor.ts)
      → api.state에서 lastTurnCompletedAt 로드
      → Date.now() - lastTurnCompletedAt ≥ 1800000ms(30분) 시
        [idle_detected] 시스템 메시지 주입 (idle_duration, last_activity 포함)
@@ -218,9 +218,9 @@ turn.post 순서 (역순):
 turn.pre 순서:
   1. message-window (@goondan/base)
      → 메시지 히스토리 윈도우 제한
-  2. worker-lifecycle (로컬: extensions/worker-lifecycle.mjs)
+  2. worker-lifecycle (로컬: extensions/worker-lifecycle.ts)
      → extractUserMessage(ctx)로 최근 user 메시지 추출
-       (inputEvent 배열 역순 → 단일 이벤트 → messages 배열 역순)
+       (ctx.inputEvent.input 우선, 없으면 conversationState.nextMessages의 최신 user 메시지 역순 탐색)
      → ctx.agents.request({
          target: 'unconscious',
          input: 사용자 메시지,
@@ -231,7 +231,7 @@ turn.pre 순서:
      → 에러 시 조용히 무시 (logger.debug만 남김)
 
 step.pre 순서:
-  1. date-helper (로컬: extensions/date-helper.mjs)
+  1. date-helper (로컬: extensions/date-helper.ts)
      → 매 step 시작 시 [current_time] 시스템 메시지 주입
        (step_index, local, timezone_offset, iso, epoch_ms 포함)
 
@@ -239,7 +239,7 @@ turn.post 순서 (역순):
   2. worker-lifecycle
      → buildActionSummary(userMessage, result)로 행동 요약 구성:
        [input] 사용자 메시지
-       [tools] 사용된 tool 이름 목록 (result.steps에서 추출)
+       [tools] 사용된 tool 이름 목록 (conversationState.nextMessages의 assistant tool-call 파트에서 추출)
        [output] 최종 응답 텍스트 (최대 500자)
      → extractCoordinatorInstanceKey(ctx)로 coordinatorInstanceKey 추출
        ([goondan_context] JSON에서 metadata.coordinatorInstanceKey 파싱)
@@ -342,10 +342,10 @@ Coordinator가 self-restart__request(reason=...) 호출 → 런타임 재기동
   - reflection.system.md: 성찰 (관측 압축/패턴 발견)
   - dream.system.md: 꿈 (유휴 시 지식 생성)
 - `extensions/*`: runtime middleware
-  - context-injector.mjs: coordinator에 [runtime_catalog] 힌트 주입
-  - worker-lifecycle.mjs: worker의 turn.pre(무의식 맥락 주입) + turn.post(관측 트리거)
-  - date-helper.mjs: worker의 step.pre에서 [current_time] 현재시각 메시지 주입
-  - idle-monitor.mjs: coordinator에 유휴 시간 감지 → [idle_detected] 주입
+  - context-injector.ts: coordinator에 [runtime_catalog] 힌트 주입
+  - worker-lifecycle.ts: worker의 turn.pre(무의식 맥락 주입) + turn.post(관측 트리거)
+  - date-helper.ts: worker의 step.pre에서 [current_time] 현재시각 메시지 주입
+  - idle-monitor.ts: coordinator에 유휴 시간 감지 → [idle_detected] 주입
 - `memory/`: 파일 기반 메모리 저장소
   - journals/: worker 작업 일지 (YYYY-MM-DD.md)
   - observations/: observer 관측 기록 (YYYY-MM-DD.md)

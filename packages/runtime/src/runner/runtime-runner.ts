@@ -1715,6 +1715,48 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
+function parseAgentRequiredTools(agent: RuntimeResource): string[] {
+  const spec = readSpecRecord(agent);
+  const requiredToolsValue = spec.requiredTools;
+  if (requiredToolsValue === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(requiredToolsValue)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.requiredTools 형식이 올바르지 않습니다.`);
+  }
+
+  const names: string[] = [];
+  for (const value of requiredToolsValue) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`Agent/${agent.metadata.name} spec.requiredTools에는 비어있지 않은 문자열만 허용됩니다.`);
+    }
+    names.push(value.trim());
+  }
+
+  return [...new Set(names)];
+}
+
+function mergeRequiredToolsGuardConfig(
+  config: Record<string, unknown> | undefined,
+  requiredToolNames: string[],
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = isJsonObject(config) ? { ...config } : {};
+
+  const configuredRequiredTools: string[] = [];
+  if (Array.isArray(merged.requiredTools)) {
+    for (const value of merged.requiredTools) {
+      if (typeof value !== 'string') continue;
+      const normalized = value.trim();
+      if (normalized.length === 0) continue;
+      configuredRequiredTools.push(normalized);
+    }
+  }
+
+  merged.requiredTools = [...new Set([...configuredRequiredTools, ...requiredToolNames])];
+  return merged;
+}
+
 function toExtensionResource(resource: RuntimeResource): RuntimeResource<RuntimeExtensionSpec> {
   const spec = readSpecRecord(resource);
   const entry = readStringValue(spec, 'entry');
@@ -2189,6 +2231,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     const modelParams = parseAgentModelParams(agentResource);
     const toolRefs = parseAgentToolRefs(agentResource);
     const extensionRefs = parseAgentExtensionRefs(agentResource);
+    const requiredToolNames = parseAgentRequiredTools(agentResource);
 
     const agentToolCatalog: ToolCatalogItem[] = [];
     for (const toolRef of toolRefs) {
@@ -2221,6 +2264,15 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       }
     }
 
+    for (const requiredToolName of requiredToolNames) {
+      const existsInCatalog = agentToolCatalog.some((item) => item.name === requiredToolName);
+      if (!existsInCatalog) {
+        throw new Error(
+          `Agent/${agentResource.metadata.name} spec.requiredTools(${requiredToolName})가 toolCatalog에 없습니다.`,
+        );
+      }
+    }
+
     const extensionResources: RuntimeResource<RuntimeExtensionSpec>[] = [];
     for (const extensionRef of extensionRefs) {
       const rawExtensionResource = selectReferencedResource(
@@ -2234,6 +2286,43 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       const extensionEntryPath = await resolveEntryPath(extensionResource, 'entry');
       watchTargets.add(extensionEntryPath);
       extensionResources.push(extensionResource);
+    }
+
+    if (requiredToolNames.length > 0) {
+      const guardIndex = extensionResources.findIndex(
+        (resource) => resource.metadata.name === 'required-tools-guard',
+      );
+
+      if (guardIndex >= 0) {
+        const current = extensionResources[guardIndex];
+        if (current) {
+          extensionResources[guardIndex] = {
+            ...current,
+            spec: {
+              ...current.spec,
+              config: mergeRequiredToolsGuardConfig(current.spec.config, requiredToolNames),
+            },
+          };
+        }
+      } else {
+        const rawGuardResource = selectReferencedResource(
+          loaded.resources,
+          { kind: 'Extension', name: 'required-tools-guard' },
+          'Extension',
+          agentResource.__package,
+          selectedSwarm.packageName,
+        );
+        const guardResource = toExtensionResource(rawGuardResource);
+        const guardEntryPath = await resolveEntryPath(guardResource, 'entry');
+        watchTargets.add(guardEntryPath);
+        extensionResources.push({
+          ...guardResource,
+          spec: {
+            ...guardResource.spec,
+            config: mergeRequiredToolsGuardConfig(guardResource.spec.config, requiredToolNames),
+          },
+        });
+      }
     }
 
     const plan: AgentRuntimePlan = {

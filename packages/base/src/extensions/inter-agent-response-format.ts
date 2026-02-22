@@ -240,6 +240,6 @@ export function registerInterAgentResponseFormatExtension(
   });
 }
 
-export function register(api: ExtensionApi): void {
-  registerInterAgentResponseFormatExtension(api);
+export function register(api: ExtensionApi, config?: InterAgentResponseFormatExtensionConfig): void {
+  registerInterAgentResponseFormatExtension(api, config);
 }

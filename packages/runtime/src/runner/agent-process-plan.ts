@@ -288,6 +288,48 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
+function parseAgentRequiredTools(agent: RuntimeResource): string[] {
+  const spec = readSpecRecord(agent);
+  const requiredToolsValue = spec.requiredTools;
+  if (requiredToolsValue === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(requiredToolsValue)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.requiredTools 형식이 올바르지 않습니다.`);
+  }
+
+  const names: string[] = [];
+  for (const value of requiredToolsValue) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`Agent/${agent.metadata.name} spec.requiredTools에는 비어있지 않은 문자열만 허용됩니다.`);
+    }
+    names.push(value.trim());
+  }
+
+  return [...new Set(names)];
+}
+
+function mergeRequiredToolsGuardConfig(
+  config: Record<string, unknown> | undefined,
+  requiredToolNames: string[],
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = isJsonObject(config) ? { ...config } : {};
+
+  const configuredRequiredTools: string[] = [];
+  if (Array.isArray(merged.requiredTools)) {
+    for (const value of merged.requiredTools) {
+      if (typeof value !== 'string') continue;
+      const normalized = value.trim();
+      if (normalized.length === 0) continue;
+      configuredRequiredTools.push(normalized);
+    }
+  }
+
+  merged.requiredTools = [...new Set([...configuredRequiredTools, ...requiredToolNames])];
+  return merged;
+}
+
 
 function isObjectRefLike(value: unknown): value is ObjectRefLike {
   if (typeof value === 'string') return true;
@@ -516,6 +558,51 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
       loaded.resources, extRef, 'Extension', agentResource.__package,
     );
     extensionResources.push(toExtensionResource(rawExtResource));
+  }
+
+  const requiredToolNames = parseAgentRequiredTools(agentResource);
+  for (const requiredToolName of requiredToolNames) {
+    const existsInCatalog = agentToolCatalog.some((item) => item.name === requiredToolName);
+    if (!existsInCatalog) {
+      throw new Error(
+        `Agent/${agentResource.metadata.name} spec.requiredTools(${requiredToolName})가 toolCatalog에 없습니다.`,
+      );
+    }
+  }
+
+  if (requiredToolNames.length > 0) {
+    const guardIndex = extensionResources.findIndex(
+      (resource) => resource.metadata.name === 'required-tools-guard',
+    );
+
+    if (guardIndex >= 0) {
+      const current = extensionResources[guardIndex];
+      if (current) {
+        extensionResources[guardIndex] = {
+          ...current,
+          spec: {
+            ...current.spec,
+            config: mergeRequiredToolsGuardConfig(current.spec.config, requiredToolNames),
+          },
+        };
+      }
+    } else {
+      const rawGuardExtension = selectReferencedResource(
+        loaded.resources,
+        { kind: 'Extension', name: 'required-tools-guard' },
+        'Extension',
+        agentResource.__package,
+        swarmResource.__package,
+      );
+      const guardExtension = toExtensionResource(rawGuardExtension);
+      extensionResources.push({
+        ...guardExtension,
+        spec: {
+          ...guardExtension.spec,
+          config: mergeRequiredToolsGuardConfig(guardExtension.spec.config, requiredToolNames),
+        },
+      });
+    }
   }
 
   return {

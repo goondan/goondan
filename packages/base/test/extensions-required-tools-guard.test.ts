@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { register as registerRequiredToolsGuardExtension } from '../src/extensions/required-tools-guard.js';
 import type {
   AgentEvent,
-  ExtensionApi,
   MessageEvent,
   MiddlewareAgentsApi,
   StepMiddlewareContext,
@@ -14,10 +13,6 @@ import type {
 } from '../src/types.js';
 import type { RequiredToolsGuardConfig } from '../src/extensions/required-tools-guard.js';
 import { createConversationState, createMessage, createMockExtensionApi } from './helpers.js';
-
-interface ExtensionApiWithConfig extends ExtensionApi {
-  config: RequiredToolsGuardConfig;
-}
 
 const noopAgents: MiddlewareAgentsApi = {
   async request() {
@@ -115,14 +110,11 @@ function createToolCallContext(input: {
 describe('required-tools-guard extension', () => {
   it('turn 경계에서 이전 turn의 성공 호출 상태가 다음 turn으로 누수되지 않는다', async () => {
     const mock = createMockExtensionApi();
-    const apiWithConfig: ExtensionApiWithConfig = {
-      ...mock.api,
-      config: {
-        requiredTools: ['slack__send'],
-        errorMessage: 'slack__send를 반드시 호출해야 합니다.',
-      },
+    const config: RequiredToolsGuardConfig = {
+      requiredTools: ['slack__send'],
+      errorMessage: 'slack__send를 반드시 호출해야 합니다.',
     };
-    registerRequiredToolsGuardExtension(apiWithConfig);
+    registerRequiredToolsGuardExtension(mock.api, config);
 
     const turnMiddleware = mock.pipeline.turnMiddlewares[0];
     const stepMiddleware = mock.pipeline.stepMiddlewares[0];
@@ -208,13 +200,10 @@ describe('required-tools-guard extension', () => {
 
   it('같은 turn에서 required tool 성공 호출이 있으면 종료를 허용한다', async () => {
     const mock = createMockExtensionApi();
-    const apiWithConfig: ExtensionApiWithConfig = {
-      ...mock.api,
-      config: {
-        requiredTools: ['slack__send'],
-      },
+    const config: RequiredToolsGuardConfig = {
+      requiredTools: ['slack__send'],
     };
-    registerRequiredToolsGuardExtension(apiWithConfig);
+    registerRequiredToolsGuardExtension(mock.api, config);
 
     const turnMiddleware = mock.pipeline.turnMiddlewares[0];
     const stepMiddleware = mock.pipeline.stepMiddlewares[0];

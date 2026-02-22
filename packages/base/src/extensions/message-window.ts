@@ -63,6 +63,6 @@ export function registerMessageWindowExtension(
   });
 }
 
-export function register(api: ExtensionApi): void {
-  registerMessageWindowExtension(api);
+export function register(api: ExtensionApi, config?: MessageWindowExtensionConfig): void {
+  registerMessageWindowExtension(api, config);
 }

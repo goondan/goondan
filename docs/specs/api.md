@@ -62,8 +62,9 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 /**
  * Extension 등록 함수
  * AgentProcess는 초기화 시 Agent에 선언된 Extension 목록 순서대로 이를 호출한다.
+ * 런타임은 Extension 리소스 spec.config를 두 번째 인자로 전달한다.
  */
-export function register(api: ExtensionApi): void;
+export function register(api: ExtensionApi, config?: Record<string, unknown>): void;
 ```
 
 ### 2.2 ExtensionApi 인터페이스

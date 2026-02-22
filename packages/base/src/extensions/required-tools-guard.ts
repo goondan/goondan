@@ -1,4 +1,4 @@
-import type { ExtensionApi, ToolCallResult } from '../types.js';
+import type { ExtensionApi } from '../types.js';
 
 export interface RequiredToolsGuardConfig {
   /** Turn 종료 전 반드시 성공 호출되어야 하는 tool 이름 목록 (최소 1개). */
@@ -17,19 +17,10 @@ function createUserMessage(text: string) {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readConfig(api: ExtensionApi): RequiredToolsGuardConfig {
-  const raw = Reflect.get(api, 'config');
-  if (!isRecord(raw)) {
-    return {};
-  }
-
+function normalizeConfig(raw?: RequiredToolsGuardConfig): RequiredToolsGuardConfig {
   const config: RequiredToolsGuardConfig = {};
 
-  if (Array.isArray(raw.requiredTools)) {
+  if (Array.isArray(raw?.requiredTools)) {
     const requiredTools = raw.requiredTools.filter(
       (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
     );
@@ -38,15 +29,15 @@ function readConfig(api: ExtensionApi): RequiredToolsGuardConfig {
     }
   }
 
-  if (typeof raw.errorMessage === 'string') {
+  if (typeof raw?.errorMessage === 'string') {
     config.errorMessage = raw.errorMessage;
   }
 
   return config;
 }
 
-export function register(api: ExtensionApi): void {
-  const rawConfig = readConfig(api);
+export function register(api: ExtensionApi, config?: RequiredToolsGuardConfig): void {
+  const rawConfig = normalizeConfig(config);
   const requiredTools: string[] = Array.isArray(rawConfig.requiredTools) ? rawConfig.requiredTools : [];
   const errorMessage =
     typeof rawConfig.errorMessage === 'string' && rawConfig.errorMessage.trim().length > 0
@@ -88,7 +79,7 @@ export function register(api: ExtensionApi): void {
 
     // 현재 step의 결과도 반영
     const calledTools = calledToolsPerTurn.get(ctx.turnId) ?? new Set<string>();
-    for (const tr of result.toolResults as ToolCallResult[]) {
+    for (const tr of result.toolResults) {
       if (tr.status === 'ok') calledTools.add(tr.toolName);
     }
 

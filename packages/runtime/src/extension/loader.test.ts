@@ -11,6 +11,7 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { pathToFileURL } from "node:url";
 
 describe("loadExtensions", () => {
   let tempDir: string;
@@ -119,6 +120,48 @@ describe("loadExtensions", () => {
     ];
 
     await loadExtensions(resources, apiFactory, bundleDir, logger);
+  });
+
+  it("passes resource spec.config as register second argument", async () => {
+    const extPath = path.join(bundleDir, "config-ext.ts");
+    await fs.writeFile(
+      extPath,
+      `
+      export let receivedConfig;
+      export function register(api, config) {
+        receivedConfig = config;
+      }
+    `,
+      "utf8",
+    );
+
+    const resources: RuntimeResource<ExtensionSpec>[] = [
+      {
+        apiVersion: "goondan.ai/v1",
+        kind: "Extension",
+        metadata: { name: "config-ext" },
+        spec: {
+          entry: "./config-ext.ts",
+          config: {
+            requiredTools: ["slack__send"],
+            errorMessage: "required",
+          },
+        },
+        __file: "test.yaml",
+        __docIndex: 0,
+        __rootDir: bundleDir,
+      },
+    ];
+
+    await loadExtensions(resources, apiFactory, bundleDir, logger);
+
+    const loadedModule = (await import(pathToFileURL(extPath).href)) as {
+      receivedConfig: Record<string, unknown> | undefined;
+    };
+    expect(loadedModule.receivedConfig).toEqual({
+      requiredTools: ["slack__send"],
+      errorMessage: "required",
+    });
   });
 
   it("should throw ExtensionLoadError if register function is missing", async () => {

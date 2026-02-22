@@ -80,9 +80,9 @@
   gdn package publish packages/base/goondan.yaml
   # 기본 레지스트리: https://goondan-registry.yechanny.workers.dev
   ```
-- **배포 인증 토큰은 루트 `.deploy.token`을 기준으로 사용할 것.** 배포 전 `GOONDAN_REGISTRY_TOKEN`/npm 토큰을 `.deploy.token`에서 로드하고 실행한다.
+- **배포 인증 토큰은 `packages/registry/cloudflare/.deploy.token`을 기준으로 사용할 것.** 배포 전 `GOONDAN_REGISTRY_TOKEN`/npm 토큰을 해당 파일에서 로드하고 실행한다.
   ```
-  export GOONDAN_REGISTRY_TOKEN="$(cat .deploy.token)"
+  export GOONDAN_REGISTRY_TOKEN="$(cat packages/registry/cloudflare/.deploy.token)"
   gdn package publish packages/base/goondan.yaml
   ```
 - `.agents/skills` ↔ `.claude/skills`는 심볼릭 링크 관계 — 직접 수정 시 원본(`.agents/skills/`)을 수정할 것

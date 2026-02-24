@@ -5,6 +5,7 @@ import {
   buildMalformedToolCallRetryMessage,
   classifyModelStepRetryKind,
   normalizeModelStepParseResult,
+  validateToolCallInputAgainstCatalogSchema,
   type ToolCallInputIssue,
   type ToolUseBlock,
 } from '../src/runner/runtime-runner.js';
@@ -82,6 +83,57 @@ describe('normalizeModelStepParseResult', () => {
     });
 
     expect(result.toolCallInputIssues).toEqual(issues);
+  });
+});
+
+describe('validateToolCallInputAgainstCatalogSchema', () => {
+  it('required 필드가 누락되면 실패한다', () => {
+    const result = validateToolCallInputAgainstCatalogSchema({
+      toolName: 'bash__exec',
+      schema: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+          },
+        },
+        required: ['command'],
+        additionalProperties: false,
+      },
+      value: {},
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error.message).toContain('args.command');
+      expect(result.error.message).toContain('required property is missing');
+    }
+  });
+
+  it('스키마를 만족하면 성공한다', () => {
+    const result = validateToolCallInputAgainstCatalogSchema({
+      toolName: 'bash__exec',
+      schema: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+          },
+        },
+        required: ['command'],
+        additionalProperties: false,
+      },
+      value: {
+        command: 'pwd',
+      },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      value: {
+        command: 'pwd',
+      },
+    });
   });
 });
 

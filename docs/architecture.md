@@ -104,6 +104,8 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 
 미들웨어 실행 순서는 Extension 등록 순서를 따르며, `next()`를 호출하지 않으면 해당 실행 단계가 스킵된다.
 
+런타임 코어는 Non-Intervention 원칙을 따른다. 즉, Tool description/schema나 모델 출력을 코어가 암묵적으로 보정하지 않으며, 개입은 Extension의 명시적 opt-in 정책으로만 수행한다.
+
 ### 1.9 Connector와 Connection
 
 - **Connector**: 외부 채널 이벤트를 정규화하는 프로토콜 어댑터. 별도 프로세스로 프로토콜을 자체 관리하므로, 프로토콜 구현과 배포 바인딩을 독립적으로 발전시킬 수 있다.

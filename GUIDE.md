@@ -248,6 +248,10 @@ agents:
 - "무언가를 실행해야" 하는가 → **Tool**
 - "대화 흐름/메시지 정책/도구 노출/로그를 자동 제어"해야 하는가 → **Extension**
 
+**중요 원칙(Non-Intervention):**
+- Runtime 코어는 Tool 설명/스키마/모델 출력을 숨은 규칙으로 자동 보정하지 않는다.
+- 개입이 필요하면 Extension으로 명시적(opt-in) 정책을 선언해 적용한다.
+
 ### 4.3 `@goondan/base` Tool 목록
 
 | Tool | 한 줄 설명 | 언제 쓰면 좋은가 |

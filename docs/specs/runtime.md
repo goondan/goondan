@@ -110,6 +110,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 10. Runtime이 Handoff를 위해 내부 이벤트를 생성할 때 `turn.auth`를 변경 없이 전달해야 한다(MUST).
 11. Runtime은 Turn/Step/Tool Call마다 새 `spanId`를 생성하고, `parentSpanId`로 상위 실행 단위와 연결해야 한다(MUST). TraceContext 전파 규칙의 SSOT는 `docs/specs/shared-types.md` 5절이다.
 12. 직전 Step 입력이 tool-result 전용 메시지인 상태에서 모델이 빈 응답(텍스트/assistant content/tool-call 모두 없음)을 반환하면, Runtime은 empty-output 경고 메시지를 추가하지 않고 Turn을 정상 종료할 수 있어야 한다(MUST).
+13. Runtime은 모델이 반환한 tool-call args를 실행 전에 Tool Catalog 스키마로 사전 검증하고, 스키마 불일치 호출은 Tool 실행 대신 malformed_tool_calls 재시도 경로로 처리해야 한다(MUST).
 
 ### 2.5 메시지 상태 규칙
 
@@ -147,6 +148,8 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 4. Provider별 차이는 모델 어댑터 선택과 인증정보 해석 수준에서만 처리해야 한다(SHOULD).
 5. CLI 구현은 실행 엔진 로직을 자체 보유하지 않고 `@goondan/runtime` runner 엔트리를 사용해야 한다(MUST).
 6. 장기 실행 Swarm은 메시지 정책 Extension(`message-window`, `message-compaction` 등)을 명시적으로 등록해야 한다(SHOULD). 미등록 시 메시지 히스토리가 무제한 누적되어 token limit 초과/비용 증가 위험이 있다.
+7. Runtime 코어는 Tool Catalog 메타데이터(예: tool description/parameter description)를 모델 호출 직전에 자동 보강·재작성해서는 안 된다(MUST NOT). 설정/리소스에 선언된 값을 그대로 전달해야 한다(MUST).
+8. Runtime 코어는 모델 출력에 대해 숨은 자동 보정(auto-fix/coercion)을 수행해서는 안 된다(MUST NOT). 개입이 필요하면 Extension으로 명시적 opt-in 정책을 구현해야 한다(MUST).
 
 ---
 

@@ -31,6 +31,7 @@ import {
   STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
   buildToolName,
   createMinimalToolContext,
+  formatToolArgumentValidationIssues,
   isJsonObject,
   loadExtensions,
   normalizeObjectRef,
@@ -38,6 +39,7 @@ import {
   ToolExecutor,
   ToolRegistryImpl,
   WorkspacePaths,
+  validateToolArguments,
   type AgentEvent,
   type AgentToolRuntime,
   type AgentRuntimeListOptions,
@@ -2794,7 +2796,7 @@ function parseToolCallPart(block: JsonObject): { toolCallId: string; toolName: s
 
   const toolCallId = readStringValue(block, 'toolCallId') ?? readStringValue(block, 'id');
   const toolName = readStringValue(block, 'toolName') ?? readStringValue(block, 'name');
-  if (!toolCallId || !toolName) {
+  if (!toolCallId || !toolName || !isJsonObject(block.input)) {
     return undefined;
   }
 
@@ -3182,12 +3184,55 @@ function summarizeModelMessagesForRuntimeEvent(
   return summarized;
 }
 
+export function validateToolCallInputAgainstCatalogSchema(input: {
+  toolName: string;
+  schema: JsonSchemaObject;
+  value: unknown;
+}):
+  | { success: true; value: JsonObject }
+  | {
+      success: false;
+      error: Error;
+    } {
+  if (!isJsonObject(input.value)) {
+    const actualType = Array.isArray(input.value) ? 'array' : input.value === null ? 'null' : typeof input.value;
+    return {
+      success: false,
+      error: new Error(
+        `Invalid arguments for tool '${input.toolName}': args: expected object but got ${actualType}`,
+      ),
+    };
+  }
+
+  const args = ensureJsonObject(input.value);
+  const issues = validateToolArguments(args, input.schema, 'args');
+  if (issues.length > 0) {
+    return {
+      success: false,
+      error: new Error(formatToolArgumentValidationIssues(input.toolName, issues)),
+    };
+  }
+
+  return {
+    success: true,
+    value: args,
+  };
+}
+
 function toRunnerToolSet(catalog: ToolCatalogItem[]): ToolSet {
   const tools: ToolSet = {};
   for (const item of catalog) {
+    const inputSchema = item.parameters ?? createDefaultObjectSchema();
     tools[item.name] = tool({
       description: item.description,
-      inputSchema: jsonSchema(item.parameters ?? createDefaultObjectSchema()),
+      inputSchema: jsonSchema(inputSchema, {
+        validate: (value) =>
+          validateToolCallInputAgainstCatalogSchema({
+            toolName: item.name,
+            schema: inputSchema,
+            value,
+          }),
+      }),
     });
   }
 

@@ -47,7 +47,7 @@ export class ToolExecutor {
       const issues = validateToolArguments(request.args, catalogItem.parameters, "args");
       if (issues.length > 0) {
         const limit = request.errorMessageLimit ?? DEFAULT_ERROR_MESSAGE_LIMIT;
-        const message = truncateErrorMessage(formatValidationIssues(request.toolName, issues), limit);
+        const message = truncateErrorMessage(formatToolArgumentValidationIssues(request.toolName, issues), limit);
         return {
           toolCallId: request.toolCallId,
           toolName: request.toolName,
@@ -101,13 +101,17 @@ function findToolInCatalog(toolName: string, catalog: ToolCatalogItem[]): ToolCa
   return catalog.find((item) => item.name === toolName);
 }
 
-interface ValidationIssue {
+export interface ToolArgumentValidationIssue {
   path: string;
   message: string;
 }
 
-function validateToolArguments(args: JsonObject, schema: JsonSchemaObject, rootPath: string): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+export function validateToolArguments(
+  args: JsonObject,
+  schema: JsonSchemaObject,
+  rootPath = "args",
+): ToolArgumentValidationIssue[] {
+  const issues: ToolArgumentValidationIssue[] = [];
   validateObjectValue(args, schema, rootPath, issues);
   return issues;
 }
@@ -116,7 +120,7 @@ function validateObjectValue(
   value: JsonObject,
   schema: JsonSchemaObject,
   currentPath: string,
-  issues: ValidationIssue[],
+  issues: ToolArgumentValidationIssue[],
 ): void {
   const properties = schema.properties ?? {};
   const required = schema.required ?? [];
@@ -158,7 +162,7 @@ function validatePropertyValue(
   value: JsonValue,
   schema: JsonSchemaProperty,
   currentPath: string,
-  issues: ValidationIssue[],
+  issues: ToolArgumentValidationIssue[],
 ): void {
   const expectedTypes = toExpectedTypes(schema.type);
   if (expectedTypes.length > 0 && !expectedTypes.some((type) => matchesSchemaType(value, type))) {
@@ -256,7 +260,10 @@ function isEnumMatch(candidate: JsonValue, value: JsonValue): boolean {
   return JSON.stringify(candidate) === JSON.stringify(value);
 }
 
-function formatValidationIssues(toolName: string, issues: ValidationIssue[]): string {
+export function formatToolArgumentValidationIssues(
+  toolName: string,
+  issues: ToolArgumentValidationIssue[],
+): string {
   const maxIssues = 5;
   const visible = issues.slice(0, maxIssues).map((issue) => `${issue.path}: ${issue.message}`);
   const suffix = issues.length > maxIssues ? `; +${issues.length - maxIssues} more issues` : "";

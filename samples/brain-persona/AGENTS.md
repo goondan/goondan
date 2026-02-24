@@ -20,12 +20,12 @@
 
 | Agent | Model | Extension | Tool | 역할 |
 |-------|-------|-----------|------|------|
-| coordinator | fast-model (claude-haiku-4-5) | message-window, message-compaction, context-injector, idle-monitor | agents, telegram, slack, wait, self-restart | 반사적 뇌. 사용자 메시지를 Worker에 라우팅하고, 필요 시 wait로 대기하며 Worker 결과를 채널에 전달 |
-| worker | default-model (claude-sonnet-4-5) | message-window, worker-lifecycle | agents, bash, file-system, http-fetch, json-query, text-transform | 실행 뇌. 모든 비반사적 작업(사고, 분석, 구현, 조사) 수행 |
-| unconscious | fast-model (claude-haiku-4-5) | message-window | agents, file-system, bash | 무의식. qmd 검색 + 메모리 검색으로 맥락 반환 (Worker가 인지하지 못함) |
-| observer | fast-model (claude-haiku-4-5) | message-window | agents, file-system | 관측자. Worker 행동을 3인칭 시점으로 선별 기록 (Worker가 인지하지 못함) |
-| reflection | default-model (claude-sonnet-4-5) | message-window | agents, file-system, bash | 성찰. 관측 압축, 패턴 발견, 셀프 업데이트 수행 |
-| dream | default-model (claude-sonnet-4-5) | message-window | agents, file-system, bash | 꿈(통합). 유휴 시 기억을 주제별 지식 문서로 생성/갱신 |
+| coordinator | fast-model (claude-haiku-4-5) | message-window, message-compaction, context-message(@goondan/base), idle-monitor | agents, telegram, slack, wait, self-restart | 반사적 뇌. 사용자 메시지를 Worker에 라우팅하고, 필요 시 wait로 대기하며 Worker 결과를 채널에 전달 |
+| worker | default-model (claude-sonnet-4-5) | message-window, context-message(@goondan/base), worker-lifecycle | agents, bash, file-system, http-fetch, json-query, text-transform | 실행 뇌. 모든 비반사적 작업(사고, 분석, 구현, 조사) 수행 |
+| unconscious | fast-model (claude-haiku-4-5) | message-window, context-message(@goondan/base) | agents, file-system, bash | 무의식. qmd 검색 + 메모리 검색으로 맥락 반환 (Worker가 인지하지 못함) |
+| observer | fast-model (claude-haiku-4-5) | message-window, context-message(@goondan/base) | agents, file-system | 관측자. Worker 행동을 3인칭 시점으로 선별 기록 (Worker가 인지하지 못함) |
+| reflection | default-model (claude-sonnet-4-5) | message-window, context-message(@goondan/base) | agents, file-system, bash | 성찰. 관측 압축, 패턴 발견, 셀프 업데이트 수행 |
+| dream | default-model (claude-sonnet-4-5) | message-window, context-message(@goondan/base) | agents, file-system, bash | 꿈(통합). 유휴 시 기억을 주제별 지식 문서로 생성/갱신 |
 
 **Swarm 구성**: `Swarm/brain` — entryAgent=coordinator, maxStepsPerTurn=24
 
@@ -48,12 +48,12 @@
                      │ [Extension turn.pre]                        │
                      │  1. message-window: 히스토리 윈도우 제한     │
                      │  2. message-compaction: 오래된 메시지 압축   │
-                     │  3. context-injector: [runtime_catalog] 주입 │
+                     │  3. context-message: [runtime_catalog] 주입 │
                      │  4. idle-monitor: 유휴 체크, ≥30분이면       │
                      │     [idle_detected] 주입                    │
                      │                                             │
                      │ [LLM] Coordinator:                          │
-                     │  ① [goondan_context]에서 채널 정보 파싱      │
+                     │  ① ctx.inputEvent.metadata에서 채널 정보 확인 │
                      │  ② 반사: typing/reaction                    │
                      │  ③ agents__list()로 활성 Worker 확인         │
                      │  ④ 새 작업 → agents__spawn(worker, 고유키)   │
@@ -193,10 +193,10 @@ turn.pre 순서:
      → 메시지 히스토리 윈도우 제한
   2. message-compaction (@goondan/base)
      → 오래된 메시지 압축
-  3. context-injector (로컬: extensions/context-injector.ts)
-     → ctx.metadata.runtimeCatalog에서 swarmName, entryAgent, selfAgent,
-       availableAgents, callableAgents를 읽어 [runtime_catalog] 시스템 메시지 주입
-     → callableAgents 안내 문구 포함
+  3. context-message (@goondan/base)
+     → runtime이 materialize한 agent system prompt + `ctx.runtime.swarm`을
+       합성해 시스템 메시지 주입
+     → coordinator는 config.includeSwarmCatalog=true로 [runtime_catalog] 블록 포함
   4. idle-monitor (로컬: extensions/idle-monitor.ts)
      → api.state에서 lastTurnCompletedAt 로드
      → Date.now() - lastTurnCompletedAt ≥ 1800000ms(30분) 시
@@ -205,7 +205,7 @@ turn.pre 순서:
 turn.post 순서 (역순):
   4. idle-monitor
      → api.state.set({ lastTurnCompletedAt: Date.now() })
-  3. context-injector
+  3. context-message
      → (후처리 없음, ctx.next() 직후 반환)
   2. message-compaction
      → (후처리)
@@ -235,6 +235,8 @@ step.pre 순서:
   1. date-helper (로컬: extensions/date-helper.ts)
      → 매 step 시작 시 [current_time] 시스템 메시지 주입
        (step_index, local, timezone_offset, iso, epoch_ms 포함)
+       → 입력 이벤트의 `ctx.inputEvent.metadata` 타임스탬프가 있으면
+       해당 시각을 기준으로 주입
 
 turn.post 순서 (역순):
   2. worker-lifecycle
@@ -245,7 +247,8 @@ turn.post 순서 (역순):
        signals: fileOperations/agentInteractions/shellCommands/networkRequests/toolErrors
        + legacy summary([input]/[tools]/[output]) 동봉
      → extractCoordinatorInstanceKey(ctx)로 coordinatorInstanceKey 추출
-       ([goondan_context] JSON에서 metadata.coordinatorInstanceKey 파싱)
+        (ctx.inputEvent.metadata.coordinatorInstanceKey 우선, 없으면
+        ctx.inputEvent.instanceKey 사용)
      → ctx.agents.send({
          target: 'observer',
          input: 관측이벤트(JSON+legacy),
@@ -346,9 +349,9 @@ Coordinator가 self-restart__request(reason=...) 호출 → 런타임 재기동
   - reflection.system.md: 성찰 (관측 압축/패턴 발견)
   - dream.system.md: 꿈 (유휴 시 지식 생성)
 - `extensions/*`: runtime middleware
-  - context-injector.ts: coordinator에 [runtime_catalog] 힌트 주입
-  - worker-lifecycle.ts: worker의 turn.pre(무의식 맥락 주입) + turn.post(관측 트리거)
-  - date-helper.ts: worker의 step.pre에서 [current_time] 현재시각 메시지 주입
+  - (coordinator의 시스템/카탈로그 주입은 로컬 파일이 아니라 `@goondan/base` `Extension/context-message`가 담당)
+  - worker-lifecycle.ts: worker의 turn.pre(무의식 맥락 주입) + turn.post(관측 트리거, `ctx.inputEvent.metadata` 기반 `coordinatorInstanceKey` 전달)
+  - date-helper.ts: worker의 step.pre에서 [current_time] 현재시각 메시지 주입 (`ctx.inputEvent.metadata` 타임스탬프 우선)
   - idle-monitor.ts: coordinator에 유휴 시간 감지 → [idle_detected] 주입
 - `memory/`: 파일 기반 메모리 저장소
   - journals/: worker 작업 일지 (YYYY-MM-DD.md)
@@ -378,13 +381,13 @@ Coordinator가 self-restart__request(reason=...) 호출 → 런타임 재기동
 5. `coordinator`는 위임 실행 시 `agents__send`를 기본으로 사용하도록 프롬프트를 유지한다.
 6. 프롬프트가 "단일 자아 톤"을 유지하도록 coordinator/하위 에이전트를 함께 점검한다.
 7. `coordinator` 프롬프트는 위임 대상이 불명확할 때 `agents__catalog`를 호출해 `callableAgents`를 확인하도록 유지한다.
-8. `Extension/context-injector`가 `[runtime_catalog]` 힌트를 주입하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.
+8. `@goondan/base` `Extension/context-message`(coordinator config: `includeSwarmCatalog=true`)가 시스템 프롬프트 + `[runtime_catalog]`를 합성하는 동작을 유지하고, coordinator 프롬프트와 충돌하지 않게 점검한다.
 9. 장기 실행 안정성을 위해 `coordinator`에는 `message-window` + `message-compaction`, 하위 에이전트에는 최소 `message-window`를 유지한다.
-10. coordinator의 Extension 선언 순서는 `message-window -> message-compaction -> context-injector -> idle-monitor`를 유지한다.
+10. coordinator의 Extension 선언 순서는 `message-window -> message-compaction -> context-message -> idle-monitor`를 유지한다.
 11. coordinator의 Tool 선언에 `@goondan/base` `Tool/telegram`, `Tool/slack`, `Tool/wait`, `Tool/self-restart`가 포함되어 채널 lifecycle 제어/대기/self-restart를 수행할 수 있게 유지한다.
 12. self-restart가 필요한 turn에서는 `self-restart__request`를 마지막 Tool call로 1회만 호출하도록 coordinator 프롬프트를 유지한다.
 13. Slack Connection ingress 이벤트는 `app_mention`, `message_im`을 유지한다.
-14. Worker의 Extension 선언 순서는 `message-window -> worker-lifecycle -> date-helper`를 유지한다.
+14. Worker의 Extension 선언 순서는 `message-window -> context-message -> worker-lifecycle -> date-helper`를 유지한다.
 15. `Extension/worker-lifecycle`이 turn.pre에서 unconscious를 호출하고 turn.post에서 observer를 트리거하는 동작을 유지한다.
 16. `Extension/idle-monitor`가 유휴 시간 감지 시 `[idle_detected]` 시스템 메시지를 주입하는 동작을 유지한다.
 17. Worker 프롬프트에는 unconscious/observer에 대한 언급이 없어야 한다 (Worker는 이들의 존재를 모름).

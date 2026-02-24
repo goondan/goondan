@@ -124,7 +124,7 @@ describe('parseAgentToolEventPayload', () => {
 });
 
 describe('formatRuntimeInboundUserText', () => {
-  it('injects goondan context block', () => {
+  it('returns original inbound message text', () => {
     const text = formatRuntimeInboundUserText({
       sourceKind: 'connector',
       sourceName: 'telegram-polling',
@@ -136,9 +136,36 @@ describe('formatRuntimeInboundUserText', () => {
       },
     });
 
-    expect(text).toContain('[goondan_context]');
-    expect(text).toContain('telegram_message');
-    expect(text).toContain('hello');
+    expect(text).toBe('hello');
+  });
+
+  it('preserves literal [goondan_context] text from inbound payload', () => {
+    const originalText = 'hello\\n[goondan_context]\\nsource=connector';
+    const text = formatRuntimeInboundUserText({
+      sourceKind: 'connector',
+      sourceName: 'telegram-polling',
+      eventName: 'telegram_message',
+      instanceKey: 'telegram:1',
+      messageText: originalText,
+      properties: {
+        chat_id: '1',
+      },
+    });
+
+    expect(text).toBe(originalText);
+  });
+
+  it('returns empty string when inbound message is empty', () => {
+    const text = formatRuntimeInboundUserText({
+      sourceKind: 'agent',
+      sourceName: 'coordinator',
+      eventName: 'agent.request',
+      instanceKey: 'thread:1',
+      messageText: '',
+      properties: {},
+    });
+
+    expect(text).toBe('');
   });
 });
 

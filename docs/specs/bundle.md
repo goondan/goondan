@@ -188,8 +188,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "You are a coding assistant."
+  prompt:
+    system: "You are a coding assistant."
 
 ---
 
@@ -350,12 +350,12 @@ spec:
 
 ### 7.3 프롬프트 파일 참조
 
-Agent의 `spec.prompts.systemRef` 경로도 Bundle Root 기준 상대 경로로 해석한다(MUST).
+Agent의 `spec.prompt.systemRef` 경로도 Bundle Root 기준 상대 경로로 해석한다(MUST).
 
 ```yaml
 kind: Agent
 spec:
-  prompts:
+  prompt:
     systemRef: "./prompts/coder.system.md"
     # 실제 경로: /workspace/my-swarm/prompts/coder.system.md
 ```
@@ -410,8 +410,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a coding assistant.
   tools:
     - ref: "Tool/bash"
@@ -494,7 +494,7 @@ my-swarm/
 | Model | `provider`, `model` |
 | Tool | `entry`, `exports` (1개 이상) |
 | Extension | `entry` |
-| Agent | `modelConfig.modelRef`, `prompts` (systemPrompt 또는 systemRef) |
+| Agent | `modelConfig.modelRef` |
 | Swarm | `entryAgent`, `agents` (1개 이상), entryAgent는 agents에 포함 |
 | Connector | `entry`, `events` (1개 이상) |
 | Connection | `connectorRef` |

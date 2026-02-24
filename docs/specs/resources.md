@@ -630,8 +630,8 @@ Agent는 에이전트 실행을 구성하는 중심 리소스이다.
 interface AgentSpec {
   /** 모델 설정 */
   modelConfig: AgentModelConfig;
-  /** 프롬프트 설정 */
-  prompts: AgentPrompts;
+  /** 프롬프트 설정 (선택) */
+  prompt?: AgentPrompt;
   /** 사용할 Tool 목록 */
   tools?: RefItem[];
   /** 사용할 Extension 목록 */
@@ -662,9 +662,9 @@ interface ModelParams {
 /**
  * 프롬프트 설정
  */
-interface AgentPrompts {
+interface AgentPrompt {
   /** 시스템 프롬프트 (인라인) */
-  systemPrompt?: string;
+  system?: string;
   /** 시스템 프롬프트 (파일 참조) */
   systemRef?: string;
 }
@@ -685,10 +685,9 @@ spec:
     params:
       temperature: 0.5
 
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a coding assistant.
-    systemRef: "./prompts/coder.system.md"   # 선택: 외부 파일 참조
 
   tools:
     - ref: "Tool/bash"
@@ -712,7 +711,7 @@ spec:
       temperature: 0.3
       maxTokens: 4096
 
-  prompts:
+  prompt:
     systemRef: "./prompts/reviewer.system.md"
 
   tools:
@@ -729,14 +728,19 @@ spec:
 | `modelConfig.modelRef` | MUST | ObjectRefLike | 유효한 Model 참조 |
 | `modelConfig.params.temperature` | MAY | number | 0.0 ~ 2.0 범위 |
 | `modelConfig.params.maxTokens` | MAY | number | 양의 정수 |
-| `prompts` | MUST | object | `systemPrompt` 또는 `systemRef` 중 하나 이상 |
-| `prompts.systemPrompt` | MAY | string | 인라인 프롬프트 |
-| `prompts.systemRef` | MAY | string | 파일 경로 |
+| `prompt` | MAY | object | 선택 프롬프트 설정 |
+| `prompt.system` | MAY | string | 인라인 프롬프트 |
+| `prompt.systemRef` | MAY | string | 파일 경로 |
 | `tools` | MAY | array | RefItem 배열 |
 | `extensions` | MAY | array | RefItem 배열 |
 
 **추가 검증 규칙:**
-- `prompts.systemPrompt`와 `prompts.systemRef`가 모두 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여져야 한다 (MUST).
+- `prompt.system`와 `prompt.systemRef`는 동시 선언할 수 없다. 함께 선언되면 검증 오류여야 한다 (MUST).
+- `fooBar`/`fooBarRef` 형태의 페어 규칙은 `docs/specs/help.md` 3.5절을 따른다.
+- `prompt`가 제공되지 않으면 시스템 프롬프트 주입은 수행하지 않는다.
+- Runtime 코어는 LLM 시스템 프롬프트 텍스트를 직접 조립/주입해서는 안 되며, 프롬프트 주입 정책은 Extension으로 구현해야 한다 (MUST NOT/MUST).
+- Runtime은 Extension이 사용할 실행 컨텍스트를 `ctx.runtime.agent`, `ctx.runtime.swarm`, `ctx.runtime.inbound`, `ctx.runtime.call`로 전달할 수 있다 (MAY).
+- `runtime.agent.prompt` payload는 Extension에 materialize된 `system`만 노출해야 하며, `systemRef` 해석은 Runtime이 수행해야 한다 (MUST).
 - Agent 리소스에는 `hooks` 필드가 존재하지 않는다. 모든 라이프사이클 개입은 Extension 미들웨어를 통해 구현해야 한다 (MUST).
 - 특정 Tool 호출을 Turn 종료 조건으로 강제하려면 Extension을 사용해야 한다. `docs/specs/extension.md` 8.7절 "Required Tools Guard 패턴" 참조.
 
@@ -1093,7 +1097,7 @@ spec:
 | Tool | 리소스 이름/export name에 `__` 금지 | MUST NOT |
 | Extension | entry 필수 | MUST |
 | Agent | modelConfig.modelRef 필수 | MUST |
-| Agent | prompts (systemPrompt 또는 systemRef) 필수 | MUST |
+| Agent | prompt는 선택, 선언 시 AgentPrompt 스키마 준수 | SHOULD |
 | Swarm | entryAgent, agents 필수 | MUST |
 | Swarm | entryAgent는 agents에 포함 | MUST |
 | Swarm | instanceKey 지정 시 비어있지 않은 문자열 | MUST |

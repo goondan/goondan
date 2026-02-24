@@ -24,7 +24,7 @@
 - `worker` turn 완료 후 `worker-lifecycle` Extension이 `observer`에 구조화 관측 이벤트(JSON + legacy summary)를 전송합니다 (fire-and-forget).
 - `observer`는 관측 기록을 남기고, 필요 시 `reflection`에 성찰을 요청합니다.
 - 유휴 시간에 `idle-monitor` Extension이 `dream` 에이전트를 트리거해 지식을 통합합니다.
-- `Extension/context-injector`가 turn 시작 시 runtime catalog 힌트(`runtime_catalog` 블록)를 시스템 메시지로 주입합니다.
+- `@goondan/base` `Extension/context-message`(coordinator에서 `config.includeSwarmCatalog=true`)가 turn 시작 시 시스템 프롬프트 + runtime catalog 힌트(`runtime_catalog` 블록)를 합성해 시스템 메시지로 주입합니다.
 - `coordinator`는 장기 실행 컨텍스트 관리를 위해 `message-window` + `message-compaction` Extension을 함께 사용합니다.
 - 하위 에이전트(`worker`, `unconscious`, `observer`, `reflection`, `dream`)는 `message-window` Extension으로 메시지 윈도우를 제한합니다.
 - 필요 시 `agents__catalog` 호출로 현재 Swarm에서 호출 가능한 에이전트 목록(`callableAgents`)을 복원합니다.
@@ -87,9 +87,9 @@ gdn instance restart <instanceKey>
 ## 프롬프트 전제
 
 - `coordinator`는 내부 멀티 에이전트 구조를 사용자에게 노출하지 않습니다.
-- 입력에는 `[goondan_context]` JSON 블록이 포함될 수 있으며, 이 값으로 채널 라우팅 정보를 복원합니다.
-- `context-injector` Extension이 turn마다 `[runtime_catalog]` 힌트를 주입할 수 있으며, coordinator는 이를 위임 판단에 활용합니다.
+- 입력 이벤트 메타데이터(`ctx.inputEvent.source.*`, `ctx.inputEvent.metadata.*`)를 기반으로 채널 라우팅 정보를 복원합니다.
+- `context-message` Extension이 turn마다 `[runtime_catalog]` 힌트를 합성할 수 있으며, coordinator는 이를 위임 판단에 활용합니다.
 - Telegram 메시지 포매팅이 필요하면 `telegram__send/edit`의 `parseMode`(`Markdown`, `MarkdownV2`, `HTML`)를 사용합니다.
 - Slack 메시지 lifecycle 제어는 `slack__send/read/edit/delete/react` 호출을 사용합니다.
-- coordinator의 Extension 순서는 `message-window -> message-compaction -> context-injector -> idle-monitor`입니다.
+- coordinator의 Extension 순서는 `message-window -> message-compaction -> context-message -> idle-monitor`입니다.
   메시지 정책 적용 후 catalog 힌트를 주입해 최신 위임 후보가 turn 직전에 반영되도록 유지합니다.

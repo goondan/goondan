@@ -67,7 +67,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
+  prompt:
     system: "You are Agent Alpha, a test agent. When asked to delegate, use the agents tool to request Agent Beta."
   tools:
     - ref: "Tool/echo"
@@ -85,7 +85,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
+  prompt:
     system: "You are Agent Beta, a test agent. Respond concisely to requests."
   tools:
     - ref: "Tool/echo"

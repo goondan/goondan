@@ -234,7 +234,7 @@ metadata:
   name: coder
 spec:
   modelRef: "Model/claude"
-  systemPrompt: |
+  system: |
     You are a coding assistant.
   tools:
     - ref: "Tool/bash"

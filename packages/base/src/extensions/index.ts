@@ -22,6 +22,12 @@ export {
 } from './tool-search.js';
 export type { ToolSearchExtensionConfig } from './tool-search.js';
 
+export {
+  register as registerContextMessageExtension,
+  register as createContextMessageExtension,
+} from './context-message.js';
+export type { ContextMessageExtensionConfig } from './context-message.js';
+
 export { register as registerRequiredToolsGuardExtension } from './required-tools-guard.js';
 export type { RequiredToolsGuardConfig } from './required-tools-guard.js';
 

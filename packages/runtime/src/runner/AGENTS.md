@@ -19,6 +19,8 @@
 이유: 블로킹 요청과 async 큐잉 요청의 응답 소비 시점이 다르므로, 요청 모드별로 응답 수명주기를 분리해야 한다.
 5. `request(async=true)` 응답은 새 Turn 이벤트가 아니라 inbox 메시지로 처리한다.
 이유: 응답 수신 직후의 다음 Step에서 즉시 활용되도록 해야 하며, 다음 Turn까지 지연되면 시맨틱스가 깨진다.
+6. Agent `prompt.systemRef`는 runner(plan build)에서 해석해 `prompt.system`으로 materialize한 뒤 Extension 컨텍스트에 전달한다.
+이유: Extension이 파일 경로/해석 규칙을 알지 않게 해 코어와 확장 책임 경계를 유지하기 위해.
 
 ## 불변 규칙
 
@@ -26,6 +28,7 @@
 - Tool/감시 기반 재기동 신호 해석은 일관된 계약을 유지한다.
 - AgentProcess는 shutdown 프로토콜을 준수한다 (drain -> current turn 완료 대기 -> ack -> exit).
 - `request(async=true)`로 주입되는 메시지는 `metadata.__goondanInterAgentResponse`를 포함해야 한다.
+- Extension 컨텍스트(`ctx.runtime.agent.prompt`)에는 raw `systemRef`를 노출하지 않는다.
 - 타입 단언(`as`, `as unknown as`) 없이 타입 가드로 처리한다.
 
 ## 참조

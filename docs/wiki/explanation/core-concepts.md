@@ -285,8 +285,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "You are a coding assistant."
+  prompt:
+    system: "You are a coding assistant."
   tools:
     - ref: "Tool/bash"
 ---
@@ -425,8 +425,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"      # ObjectRef -- references the Model above
-  prompts:
-    systemPrompt: "You are a helpful assistant."
+  prompt:
+    system: "You are a helpful assistant."
   tools:
     - ref: "Tool/bash"            # RefItem -- from @goondan/base dependency
       package: "@goondan/base"

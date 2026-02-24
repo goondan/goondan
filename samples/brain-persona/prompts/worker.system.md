@@ -22,7 +22,7 @@
 ## 2. 결과 전달
 
 - 작업 완료 시 `agents__send`로 coordinator에게 결과를 전달한다
-- instanceKey는 입력의 `[goondan_context]` JSON metadata에서 `coordinatorInstanceKey`를 사용한다
+- instanceKey는 입력 메타데이터(`ctx.inputEvent.metadata.coordinatorInstanceKey`)를 사용한다
 - 결과는 "사용자 직송 문장"이 아니라 "정제 전 보고"로 작성한다
 - coordinator가 이 보고를 사용자 관점으로 정제해 채널에 전달한다
 
@@ -67,7 +67,7 @@ reply_draft: 사용자에게 전달할 짧은 초안
 
 # 협업 프로토콜
 
-입력 메시지에 포함된 `[goondan_context]` JSON metadata를 파싱해 다음을 추출한다:
+입력 이벤트 메타데이터(`ctx.inputEvent.metadata.*`, 필요 시 `ctx.inputEvent.source.*`)에서 다음을 추출한다:
 - `coordinatorInstanceKey`: 결과 보고 시 agents__send의 instanceKey로 사용
 - `originChannel`: "telegram" | "slack" | "cli" - 답변 초안 톤 결정에 참고
 - `originProperties`: 원본 채널 속성

@@ -75,6 +75,45 @@ function createConnectorManifest(
   };
 }
 
+function ensureUniqueManifestNames<TManifest extends { metadata: { name: string } }>(
+  kind: string,
+  manifests: TManifest[]
+): TManifest[] {
+  const seen = new Set<string>();
+  for (const manifest of manifests) {
+    const name = manifest.metadata.name;
+    if (seen.has(name)) {
+      throw new Error(`Duplicate ${kind} manifest name: ${name}`);
+    }
+    seen.add(name);
+  }
+  return manifests;
+}
+
+function ensureUniqueExtensionEntries(manifests: BaseExtensionManifest[]): BaseExtensionManifest[] {
+  const seen = new Set<string>();
+  for (const manifest of manifests) {
+    const entry = manifest.spec.entry;
+    if (seen.has(entry)) {
+      throw new Error(`Duplicate Extension manifest entry: ${entry}`);
+    }
+    seen.add(entry);
+  }
+  return manifests;
+}
+
+function ensureUniqueManifestIdentities(manifests: BaseManifest[]): BaseManifest[] {
+  const seen = new Set<string>();
+  for (const manifest of manifests) {
+    const identity = `${manifest.kind}/${manifest.metadata.name}`;
+    if (seen.has(identity)) {
+      throw new Error(`Duplicate manifest identity: ${identity}`);
+    }
+    seen.add(identity);
+  }
+  return manifests;
+}
+
 function createProperty(type: string | string[], description: string, extra: JsonObject = {}): JsonObject {
   return {
     type: Array.isArray(type) ? [...type] : type,
@@ -756,33 +795,40 @@ export function createBaseToolManifests(): BaseToolManifest[] {
 }
 
 export function createBaseExtensionManifests(): BaseExtensionManifest[] {
-  return [
-    createExtensionManifest('logging', './src/extensions/logging.ts', {
-      level: 'info',
-      includeToolArgs: false,
-    }),
-    createExtensionManifest('message-compaction', './src/extensions/compaction.ts', {
-      maxMessages: 40,
-      maxCharacters: 12000,
-      retainLastMessages: 8,
-      mode: 'remove',
-      appendSummary: true,
-    }),
-    createExtensionManifest('message-window', './src/extensions/message-window.ts', {
-      maxMessages: 80,
-    }),
-    createExtensionManifest('tool-search', './src/extensions/tool-search.ts', {
-      toolName: 'tool-search__search',
-      maxResults: 10,
-      minQueryLength: 1,
-      persistSelection: true,
-    }),
-    createExtensionManifest('required-tools-guard', './src/extensions/required-tools-guard.ts', {
-      requiredTools: [],
-      errorMessage: '',
-    }),
-    createExtensionManifest('inter-agent-response-format', './src/extensions/inter-agent-response-format.ts'),
-  ];
+  return ensureUniqueExtensionEntries(
+    ensureUniqueManifestNames('Extension', [
+      createExtensionManifest('logging', './src/extensions/logging.ts', {
+        level: 'info',
+        includeToolArgs: false,
+      }),
+      createExtensionManifest('message-compaction', './src/extensions/compaction.ts', {
+        maxMessages: 40,
+        maxCharacters: 12000,
+        retainLastMessages: 8,
+        mode: 'remove',
+        appendSummary: true,
+      }),
+      createExtensionManifest('message-window', './src/extensions/message-window.ts', {
+        maxMessages: 80,
+      }),
+      createExtensionManifest('tool-search', './src/extensions/tool-search.ts', {
+        toolName: 'tool-search__search',
+        maxResults: 10,
+        minQueryLength: 1,
+        persistSelection: true,
+      }),
+      createExtensionManifest('context-message', './src/extensions/context-message.ts', {
+        includeAgentPrompt: true,
+        includeSwarmCatalog: false,
+        includeRouteSummary: false,
+      }),
+      createExtensionManifest('required-tools-guard', './src/extensions/required-tools-guard.ts', {
+        requiredTools: [],
+        errorMessage: '',
+      }),
+      createExtensionManifest('inter-agent-response-format', './src/extensions/inter-agent-response-format.ts'),
+    ])
+  );
 }
 
 export function createBaseConnectorManifests(): BaseConnectorManifest[] {
@@ -982,10 +1028,10 @@ export function createBaseConnectionManifest(
 }
 
 export function createBaseManifestSet(): BaseManifest[] {
-  return [
+  return ensureUniqueManifestIdentities([
     ...createBaseToolManifests(),
     ...createBaseExtensionManifests(),
     ...createBaseConnectorManifests(),
     createBaseConnectionManifest(),
-  ];
+  ]);
 }

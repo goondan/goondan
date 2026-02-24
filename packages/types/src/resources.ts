@@ -99,7 +99,7 @@ export interface ExtensionSpec {
 
 export interface AgentSpec {
   modelConfig: AgentModelConfig;
-  prompts: AgentPrompts;
+  prompt?: AgentPrompt;
   tools?: RefOrSelector[];
   extensions?: RefOrSelector[];
 }
@@ -116,8 +116,8 @@ export interface ModelParams {
   [key: string]: unknown;
 }
 
-export interface AgentPrompts {
-  systemPrompt?: string;
+export interface AgentPrompt {
+  system?: string;
   systemRef?: string;
 }
 

@@ -205,8 +205,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -244,8 +244,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -277,8 +277,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -315,8 +315,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/dummy-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -376,8 +376,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/dummy-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -446,8 +446,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/dummy-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
   extensions:
     - ref: "Extension/context-injector"
 ---
@@ -486,8 +486,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/dummy-model"
-  prompts:
-    systemPrompt: "test"
+  prompt:
+    system: "test"
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm
@@ -622,7 +622,7 @@ export function register(api) {
     if (typeof markerPath === 'string' && markerPath.length > 0) {
       const payload = {
         phase: 'turn',
-        runtimeCatalog: ctx.metadata.runtimeCatalog ?? null,
+        runtimeSwarm: ctx.runtime.swarm ?? null,
       };
       await writeFile(markerPath, JSON.stringify(payload) + '\\n', 'utf8');
     }

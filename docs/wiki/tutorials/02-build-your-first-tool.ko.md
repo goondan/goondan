@@ -229,7 +229,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  systemPrompt: |
+  system: |
     You are a helpful assistant. You have access to string utility tools.
     Use string-utils__reverse to reverse strings and string-utils__count
     to count characters, words, and lines.
@@ -469,7 +469,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  systemPrompt: |
+  system: |
     You are a helpful assistant with string utility tools.
     Use string-utils__reverse to reverse strings and
     string-utils__count to count characters, words, and lines.

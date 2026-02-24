@@ -23,7 +23,9 @@ interface MessageLike {
 
 interface AgentEventLike {
   input?: string;
+  instanceKey?: string;
   metadata?: JsonObject;
+  source?: JsonObject;
 }
 
 interface ConversationStateLike {
@@ -190,51 +192,9 @@ function flattenText(content: unknown): string {
   }
 }
 
-function stripGoondanContext(raw: string): string {
-  if (raw.length === 0) {
-    return '';
-  }
-
-  return raw
-    .replace(/\[goondan_context\][\s\S]*?\[\/goondan_context\]\s*/g, '')
-    .trim();
-}
-
-function extractGoondanContextJsonBlock(raw: string): string | undefined {
-  const startTag = '[goondan_context]';
-  const endTag = '[/goondan_context]';
-
-  const start = raw.indexOf(startTag);
-  if (start < 0) {
-    return undefined;
-  }
-
-  const contentStart = start + startTag.length;
-  const end = raw.indexOf(endTag, contentStart);
-  if (end < 0) {
-    return undefined;
-  }
-
-  const jsonBlock = raw.slice(contentStart, end).trim();
-  return jsonBlock.length > 0 ? jsonBlock : undefined;
-}
-
 function getStringProp(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === 'string' ? value : undefined;
-}
-
-function readCoordinatorInstanceKeyFromParsedContext(parsed: unknown): string | undefined {
-  if (!isRecord(parsed)) {
-    return undefined;
-  }
-
-  const metadata = parsed.metadata;
-  if (!isRecord(metadata)) {
-    return undefined;
-  }
-
-  return getStringProp(metadata, 'coordinatorInstanceKey');
 }
 
 function readCoordinatorInstanceKeyFromMetadata(metadata: unknown): string | undefined {
@@ -245,18 +205,31 @@ function readCoordinatorInstanceKeyFromMetadata(metadata: unknown): string | und
   return getStringProp(metadata, 'coordinatorInstanceKey');
 }
 
-function parseCoordinatorInstanceKeyFromText(text: string): string | undefined {
-  const block = extractGoondanContextJsonBlock(text);
-  if (!block) {
+function readCoordinatorInstanceKeyFromSource(source: unknown): string | undefined {
+  if (!isRecord(source)) {
     return undefined;
   }
 
-  try {
-    const parsed = JSON.parse(block);
-    return readCoordinatorInstanceKeyFromParsedContext(parsed);
-  } catch {
-    return undefined;
+  const direct = getStringProp(source, 'coordinatorInstanceKey');
+  if (direct) {
+    return direct;
   }
+
+  const sourceMetadata = source.metadata;
+  if (isRecord(sourceMetadata)) {
+    const fromSourceMetadata = getStringProp(sourceMetadata, 'coordinatorInstanceKey');
+    if (fromSourceMetadata) {
+      return fromSourceMetadata;
+    }
+  }
+
+  return undefined;
+}
+
+function readCoordinatorInstanceKeyFromInputEvent(inputEvent: AgentEventLike): string | undefined {
+  return typeof inputEvent.instanceKey === 'string'
+    ? inputEvent.instanceKey
+    : undefined;
 }
 
 function extractCoordinatorInstanceKey(ctx: TurnContextLike): string | undefined {
@@ -265,26 +238,12 @@ function extractCoordinatorInstanceKey(ctx: TurnContextLike): string | undefined
     return fromMetadata;
   }
 
-  const inputText = typeof ctx.inputEvent.input === 'string' ? ctx.inputEvent.input : '';
-  const fromInputText = parseCoordinatorInstanceKeyFromText(inputText);
-  if (fromInputText) {
-    return fromInputText;
+  const fromSource = readCoordinatorInstanceKeyFromSource(ctx.inputEvent.source);
+  if (fromSource) {
+    return fromSource;
   }
 
-  const messages = Array.isArray(ctx.conversationState?.nextMessages)
-    ? ctx.conversationState.nextMessages
-    : [];
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    const text = flattenText(readContent(message) ?? message);
-    const fromMessage = parseCoordinatorInstanceKeyFromText(text);
-    if (fromMessage) {
-      return fromMessage;
-    }
-  }
-
-  return undefined;
+  return readCoordinatorInstanceKeyFromInputEvent(ctx.inputEvent);
 }
 
 function isToolResultOnlyContent(content: unknown): boolean {
@@ -303,7 +262,7 @@ function isToolResultOnlyContent(content: unknown): boolean {
 
 function extractUserMessage(ctx: TurnContextLike): string | undefined {
   const fromInput = typeof ctx.inputEvent.input === 'string'
-    ? stripGoondanContext(ctx.inputEvent.input)
+    ? ctx.inputEvent.input.trim()
     : '';
   if (fromInput.length > 0) {
     return fromInput;
@@ -324,13 +283,12 @@ function extractUserMessage(ctx: TurnContextLike): string | undefined {
       continue;
     }
 
-    const raw = flattenText(content);
-    const cleaned = stripGoondanContext(raw);
-    if (cleaned.length > 0) {
-      return cleaned;
+    const raw = flattenText(content).trim();
+    if (raw.length > 0) {
+      return raw;
     }
 
-    const fallback = stripGoondanContext(flattenText(message));
+    const fallback = flattenText(message).trim();
     if (fallback.length > 0) {
       return fallback;
     }
@@ -599,7 +557,7 @@ function findTurnStartIndex(messages: MessageLike[], userMessage: string | undef
     }
 
     const raw = extractTextFromContent(content);
-    const normalized = normalizeWhitespace(stripGoondanContext(raw));
+    const normalized = normalizeWhitespace(raw);
     if (normalized.length === 0) {
       continue;
     }

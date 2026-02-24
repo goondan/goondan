@@ -26,8 +26,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
-    systemPrompt: "You are a helpful assistant. Reply concisely in one sentence."
+  prompt:
+    system: "You are a helpful assistant. Reply concisely in one sentence."
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm

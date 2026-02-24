@@ -10,6 +10,7 @@ import type {
   ToolCallResult,
   TurnMiddlewareContext,
   TurnResult,
+  RuntimeContext,
 } from '../src/types.js';
 import type { RequiredToolsGuardConfig } from '../src/extensions/required-tools-guard.js';
 import { createConversationState, createMessage, createMockExtensionApi } from './helpers.js';
@@ -40,6 +41,29 @@ function createInputEvent(turnId: string): AgentEvent {
   };
 }
 
+function createRuntimeContext(turnId: string): RuntimeContext {
+  return {
+    agent: {
+      name: 'coordinator',
+      bundleRoot: '/tmp',
+    },
+    swarm: {
+      swarmName: 'brain',
+      entryAgent: 'coordinator',
+      selfAgent: 'coordinator',
+      availableAgents: ['coordinator'],
+      callableAgents: [],
+    },
+    inbound: {
+      eventId: `evt-${turnId}`,
+      eventType: 'connector.message',
+      sourceKind: 'connector',
+      sourceName: 'cli',
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
 function createTurnContext(input: {
   turnId: string;
   emitted: MessageEvent[];
@@ -53,6 +77,7 @@ function createTurnContext(input: {
     inputEvent: createInputEvent(input.turnId),
     conversationState: createConversationState([createMessage('m1', 'hello')]),
     agents: noopAgents,
+    runtime: createRuntimeContext(input.turnId),
     emitMessageEvent(event) {
       input.emitted.push(event);
     },
@@ -75,6 +100,7 @@ function createStepContext(input: {
     stepIndex: 1,
     conversationState: createConversationState([createMessage('m1', 'hello')]),
     agents: noopAgents,
+    runtime: createRuntimeContext(input.turnId),
     emitMessageEvent(event) {
       input.emitted.push(event);
     },
@@ -99,6 +125,7 @@ function createToolCallContext(input: {
     stepIndex: 1,
     toolName: input.toolName,
     toolCallId: `tc-${input.turnId}-${input.toolName}`,
+    runtime: createRuntimeContext(input.turnId),
     args: { text: 'ok' },
     metadata: {},
     async next() {

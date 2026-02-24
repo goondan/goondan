@@ -218,8 +218,8 @@ spec:
     modelRef: "Model/claude"
     params:
       temperature: 0.5
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a coding assistant.
   tools:
     - ref: "Tool/bash"
@@ -233,7 +233,7 @@ spec:
 | 필드 | 필수 여부 | 타입 | 기본값 | 설명 |
 |------|----------|------|--------|------|
 | `modelConfig` | 필수 | `AgentModelConfig` | -- | 모델 설정 (아래 참조) |
-| `prompts` | 필수 | `AgentPrompts` | -- | 프롬프트 설정 (아래 참조) |
+| `prompt` | 선택 | `AgentPrompt` | -- | 선택 프롬프트 설정 (아래 참조) |
 | `tools` | 선택 | `RefItem[]` | `[]` | 이 에이전트에 제공할 Tool 참조 목록 |
 | `requiredTools` | 선택 | `string[]` | `[]` | Turn 종료 전 반드시 성공 호출되어야 하는 도구 이름 목록 |
 | `extensions` | 선택 | `RefItem[]` | `[]` | 이 에이전트에 로드할 Extension 참조 목록 |
@@ -248,16 +248,19 @@ spec:
 | `params.topP` | 선택 | `number` | -- | Top-P 샘플링 |
 | `params.[key]` | 선택 | `unknown` | -- | 추가 모델 파라미터 |
 
-### `prompts` 필드
+### `prompt` 필드
 
 | 필드 | 필수 여부 | 타입 | 설명 |
 |------|----------|------|------|
-| `systemPrompt` | `systemPrompt` / `systemRef` 중 하나 이상 | `string` | 인라인 시스템 프롬프트 |
-| `systemRef` | `systemPrompt` / `systemRef` 중 하나 이상 | `string` | 시스템 프롬프트 파일 경로 (Bundle Root 기준) |
+| `system` | 선택 | `string` | 인라인 시스템 프롬프트 힌트 |
+| `systemRef` | 선택 | `string` | 시스템 프롬프트 파일 경로 (Bundle Root 기준) |
 
-둘 다 존재하면 `systemRef`의 내용이 `systemPrompt` 뒤에 이어 붙여집니다.
-
+`system`과 `systemRef`는 동시에 선언할 수 없습니다. 둘 다 있으면 YAML 검증에서 오류가 발생합니다.
 ### 규칙
+- `prompt`는 선택입니다. 생략되면 런타임은 `ctx.runtime.agent.prompt` 없이 pure harness 모드로 동작합니다.
+- 런타임 코어는 시스템 프롬프트를 직접 조립하거나 자동 주입하지 않습니다.
+- 런타임은 `prompt.systemRef`를 해석해 Extension에 materialize된 `ctx.runtime.agent.prompt.system`만 제공합니다.
+- 실제 메시지 구성은 `context-message` 같은 Extension이 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call`을 읽고 message event에 append하여 수행합니다.
 
 - `requiredTools` 항목은 전체 도구 이름을 사용합니다 (예: `channel-dispatch__send`).
 - `requiredTools` 충족 여부는 turn 단위로 평가되며, 이전 turn의 성공 호출은 현재 turn을 충족시키지 않습니다.
@@ -633,7 +636,7 @@ spec:
 | Kind | 필수 필드 |
 |------|----------|
 | Model | `provider`, `model` |
-| Agent | `modelConfig.modelRef`, `prompts` (systemPrompt 또는 systemRef) |
+| Agent | `modelConfig.modelRef` |
 | Swarm | `entryAgent`, `agents` (최소 1개); `entryAgent`는 `agents`에 포함 |
 | Tool | `entry`, `exports` (최소 1개) |
 | Extension | `entry` |

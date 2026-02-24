@@ -37,14 +37,6 @@ export interface RuntimeInboundContext {
   metadata?: JsonObject;
 }
 
-function safeJsonStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
 export function parseConnectorEventPayload(event: unknown): ParsedConnectorEvent | undefined {
   if (!isJsonObject(event)) {
     return undefined;
@@ -127,23 +119,7 @@ export function parseAgentToolEventPayload(
 }
 
 export function formatRuntimeInboundUserText(input: RuntimeInboundContext): string {
-  const contextPayload = {
-    source: {
-      kind: input.sourceKind,
-      name: input.sourceName,
-    },
-    event: input.eventName,
-    instanceKey: input.instanceKey,
-    properties: input.properties ?? {},
-    metadata: input.metadata ?? {},
-  };
-
-  const contextHeader = safeJsonStringify(contextPayload);
-  if (input.messageText.length === 0) {
-    return ['[goondan_context]', contextHeader, '[/goondan_context]'].join('\n');
-  }
-
-  return ['[goondan_context]', contextHeader, '[/goondan_context]', input.messageText].join('\n');
+  return input.messageText;
 }
 
 export function resolveRuntimeWorkdir(baseWorkdir: string, cwd?: string): string {

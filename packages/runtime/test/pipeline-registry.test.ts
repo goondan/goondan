@@ -6,7 +6,7 @@ import {
   type RuntimeEvent,
 } from "../src/events/runtime-events.js";
 import { PipelineRegistryImpl } from "../src/pipeline/registry.js";
-import type { MiddlewareAgentsApi, StepResult, Turn } from "../src/types.js";
+import type { MiddlewareAgentsApi, RuntimeContext, StepResult, Turn } from "../src/types.js";
 import { createAgentEvent } from "./helpers.js";
 
 const mockMiddlewareAgentsApi: MiddlewareAgentsApi = {
@@ -22,6 +22,29 @@ const mockMiddlewareAgentsApi: MiddlewareAgentsApi = {
     };
   },
 };
+
+function createRuntimeContext(agentName: string): RuntimeContext {
+  return {
+    agent: {
+      name: agentName,
+      bundleRoot: "/tmp",
+    },
+    swarm: {
+      swarmName: "default",
+      entryAgent: agentName,
+      selfAgent: agentName,
+      availableAgents: [agentName],
+      callableAgents: [],
+    },
+    inbound: {
+      eventId: "evt-1",
+      eventType: "connector.message",
+      sourceKind: "connector",
+      sourceName: "cli",
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
 
 describe("PipelineRegistryImpl", () => {
   it("step middleware를 priority + stable sort로 onion 체이닝한다", async () => {
@@ -78,6 +101,7 @@ describe("PipelineRegistryImpl", () => {
         stepIndex: 0,
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: (event) => {
           conversationState.emitMessageEvent(event);
         },
@@ -137,6 +161,7 @@ describe("PipelineRegistryImpl", () => {
         inputEvent: createAgentEvent(),
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: () => {},
         metadata: {},
       },
@@ -156,6 +181,7 @@ describe("PipelineRegistryImpl", () => {
         stepIndex: 1,
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: () => {},
         toolCatalog: [],
         metadata: {},
@@ -202,6 +228,7 @@ describe("PipelineRegistryImpl", () => {
         stepIndex: 0,
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: () => {},
         toolCatalog: [],
         metadata: {
@@ -274,6 +301,7 @@ describe("PipelineRegistryImpl", () => {
         stepIndex: 2,
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: () => {},
         toolCatalog: [],
         metadata: {},
@@ -329,6 +357,7 @@ describe("PipelineRegistryImpl", () => {
         stepIndex: 0,
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("coder"),
         emitMessageEvent: () => {},
         toolCatalog: [],
         metadata: {
@@ -410,6 +439,7 @@ describe("PipelineRegistryImpl", () => {
         inputEvent: createAgentEvent(),
         conversationState,
         agents: mockMiddlewareAgentsApi,
+        runtime: createRuntimeContext("planner"),
         emitMessageEvent: () => {},
         metadata: {},
       },
@@ -433,6 +463,7 @@ describe("PipelineRegistryImpl", () => {
             stepIndex: 0,
             conversationState,
             agents: mockMiddlewareAgentsApi,
+            runtime: createRuntimeContext("planner"),
             emitMessageEvent: () => {},
             toolCatalog: [],
             metadata: {},
@@ -448,6 +479,7 @@ describe("PipelineRegistryImpl", () => {
                 stepIndex: 0,
                 toolName: "search",
                 toolCallId: "tc-1",
+                runtime: createRuntimeContext("planner"),
                 args: {},
                 metadata: {},
               },

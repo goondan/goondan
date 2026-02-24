@@ -104,8 +104,8 @@ describe('buildAgentProcessPlan requiredTools', () => {
         'spec:',
         '  modelConfig:',
         '    modelRef: "Model/fast-model"',
-        '  prompts:',
-        '    systemPrompt: "You are coordinator"',
+        '  prompt:',
+        '    system: "You are coordinator"',
         '  requiredTools:',
         '    - "slack__send"',
         '  tools:',
@@ -130,6 +130,13 @@ describe('buildAgentProcessPlan requiredTools', () => {
     expect(guard).toBeDefined();
     expect(guard?.spec.config).toEqual({
       requiredTools: ['slack__send'],
+    });
+    expect(plan.agentMetadata).toEqual({
+      name: 'coordinator',
+      bundleRoot: root,
+      prompt: {
+        system: 'You are coordinator',
+      },
     });
   });
 
@@ -199,8 +206,8 @@ describe('buildAgentProcessPlan requiredTools', () => {
         'spec:',
         '  modelConfig:',
         '    modelRef: "Model/fast-model"',
-        '  prompts:',
-        '    systemPrompt: "You are coordinator"',
+        '  prompt:',
+        '    system: "You are coordinator"',
         '  requiredTools:',
         '    - "slack__send"',
         '    - "telegram__send"',
@@ -221,5 +228,207 @@ describe('buildAgentProcessPlan requiredTools', () => {
     );
 
     await expect(buildAgentProcessPlan(createPlanArgs(root))).rejects.toThrow('spec.requiredTools(telegram__send)');
+  });
+
+  it('builds plan with agent metadata when prompt is empty', async () => {
+    const root = await createTempBundleRoot();
+
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test-no-system-prompt"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: fast-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: coordinator',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/fast-model"',
+        '  prompt: {}',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: brain',
+        'spec:',
+        '  entryAgent: "Agent/coordinator"',
+        '  agents:',
+        '    - ref: "Agent/coordinator"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const plan = await buildAgentProcessPlan(createPlanArgs(root));
+    expect(plan.agentMetadata).toEqual({
+      name: 'coordinator',
+      bundleRoot: root,
+    });
+  });
+
+  it('materializes prompt.systemRef into runtime agent metadata prompt.system', async () => {
+    const root = await createTempBundleRoot();
+    await mkdir(path.join(root, 'prompts'), { recursive: true });
+    await writeFile(path.join(root, 'prompts', 'coordinator.system.md'), 'Ref system prompt', 'utf8');
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test-system-ref"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: fast-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: coordinator',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/fast-model"',
+        '  prompt:',
+        '    systemRef: "./prompts/coordinator.system.md"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: brain',
+        'spec:',
+        '  entryAgent: "Agent/coordinator"',
+        '  agents:',
+        '    - ref: "Agent/coordinator"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const plan = await buildAgentProcessPlan(createPlanArgs(root));
+    expect(plan.agentMetadata).toEqual({
+      name: 'coordinator',
+      bundleRoot: root,
+      prompt: {
+        system: 'Ref system prompt',
+      },
+    });
+  });
+
+  it('throws when prompt.systemRef target file is missing', async () => {
+    const root = await createTempBundleRoot();
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test-system-ref-missing"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: fast-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: coordinator',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/fast-model"',
+        '  prompt:',
+        '    systemRef: "./prompts/missing.system.md"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: brain',
+        'spec:',
+        '  entryAgent: "Agent/coordinator"',
+        '  agents:',
+        '    - ref: "Agent/coordinator"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await expect(buildAgentProcessPlan(createPlanArgs(root))).rejects.toThrow(
+      'prompt.systemRef를 읽을 수 없습니다',
+    );
+  });
+
+  it('throws when prompt.system and prompt.systemRef are declared together', async () => {
+    const root = await createTempBundleRoot();
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test-system-inline-and-ref"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: fast-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: coordinator',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/fast-model"',
+        '  prompt:',
+        '    system: "Inline system"',
+        '    systemRef: "./prompts/coordinator.system.md"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: brain',
+        'spec:',
+        '  entryAgent: "Agent/coordinator"',
+        '  agents:',
+        '    - ref: "Agent/coordinator"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await expect(buildAgentProcessPlan(createPlanArgs(root))).rejects.toThrow(
+      'Agent.spec.prompt.system and Agent.spec.prompt.systemRef cannot be used together.',
+    );
   });
 });

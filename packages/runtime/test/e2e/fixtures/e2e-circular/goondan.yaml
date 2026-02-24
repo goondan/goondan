@@ -23,7 +23,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
+  prompt:
     system: "Always delegate to agent-b using agents__request."
   tools:
     - ref:
@@ -38,7 +38,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
+  prompt:
     system: "Always delegate to agent-c using agents__request."
   tools:
     - ref:
@@ -53,7 +53,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/test-model"
-  prompts:
+  prompt:
     system: "Always delegate to agent-a using agents__request."
   tools:
     - ref:

@@ -58,6 +58,11 @@ import {
   type Message,
   type ObjectRefLike,
   type RuntimeResource,
+  type RuntimeAgentContext,
+  type RuntimeCallContext,
+  type RuntimeContext,
+  type RuntimeInboundContext,
+  type RuntimeSwarmContext,
   type RuntimeEvent,
   type StepResult,
   type ToolCallResult,
@@ -69,7 +74,6 @@ import {
   type ValidationError,
 } from '../index.js';
 import {
-  formatRuntimeInboundUserText,
   parseAgentToolEventPayload,
   parseConnectorEventPayload,
   selectMatchingIngressRule,
@@ -189,12 +193,22 @@ interface RuntimeExtensionSpec {
   config?: Record<string, unknown>;
 }
 
+interface RuntimeAgentPromptMetadata {
+  system?: string;
+}
+
+interface RuntimeAgentMetadata {
+  name: string;
+  bundleRoot: string;
+  prompt?: RuntimeAgentPromptMetadata;
+}
+
 interface AgentRuntimePlan {
   name: string;
   modelName: string;
   provider: string;
   apiKey: string;
-  systemPrompt: string;
+  agentMetadata: RuntimeAgentMetadata;
   maxTokens: number;
   temperature: number;
   maxSteps: number;
@@ -1638,36 +1652,51 @@ function parsePositiveInteger(value: unknown, fallback: number): number {
   return fallback;
 }
 
-async function readAgentSystemPrompt(agent: RuntimeResource): Promise<string> {
+async function readAgentPromptMetadata(
+  agent: RuntimeResource,
+): Promise<RuntimeAgentPromptMetadata | undefined> {
   const spec = readSpecRecord(agent);
-  const prompts = spec.prompts;
-  if (!isJsonObject(prompts)) {
-    return '';
+  const prompt = spec.prompt;
+  if (!isJsonObject(prompt)) {
+    return undefined;
   }
 
-  const inlineSystem = prompts.system;
-  if (typeof inlineSystem === 'string') {
-    return inlineSystem;
+  const inlinePrompt = typeof prompt.system === 'string' && prompt.system.trim().length > 0
+    ? prompt.system
+    : undefined;
+
+  if (inlinePrompt) {
+    return {
+      system: inlinePrompt,
+    };
   }
 
-  const legacySystemPrompt = prompts.systemPrompt;
-  if (typeof legacySystemPrompt === 'string') {
-    return legacySystemPrompt;
+  const systemRef = typeof prompt.systemRef === 'string' && prompt.systemRef.trim().length > 0
+    ? prompt.systemRef.trim()
+    : undefined;
+  if (!systemRef) {
+    return undefined;
   }
 
-  const systemRef = prompts.systemRef;
-  if (typeof systemRef !== 'string' || systemRef.trim().length === 0) {
-    return '';
+  const bundleRoot = agent.__rootDir ? path.resolve(agent.__rootDir) : process.cwd();
+  const promptPath = path.resolve(bundleRoot, systemRef);
+  let resolvedSystem: string;
+  try {
+    resolvedSystem = await readFile(promptPath, 'utf8');
+  } catch (error) {
+    const message = unknownToErrorMessage(error);
+    throw new Error(
+      `Agent/${agent.metadata.name} prompt.systemRef를 읽을 수 없습니다: ${promptPath} (${message})`,
+    );
   }
 
-  const rootDir = agent.__rootDir ? path.resolve(agent.__rootDir) : process.cwd();
-  const promptPath = path.resolve(rootDir, systemRef);
-  const promptExists = await existsFile(promptPath);
-  if (!promptExists) {
-    throw new Error(`Agent/${agent.metadata.name} system prompt 파일을 찾을 수 없습니다: ${promptPath}`);
+  if (resolvedSystem.trim().length === 0) {
+    return undefined;
   }
 
-  return await readFile(promptPath, 'utf8');
+  return {
+    system: resolvedSystem,
+  };
 }
 
 function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
@@ -1914,13 +1943,7 @@ function parseSwarmMaxStepsPerTurn(swarm: RuntimeResource): number {
 function buildRuntimeAgentCatalog(
   runnerPlan: RunnerPlan,
   selfAgent: string,
-): {
-  swarmName: string;
-  entryAgent: string;
-  selfAgent: string;
-  availableAgents: string[];
-  callableAgents: string[];
-} {
+): RuntimeSwarmContext {
   const availableAgents = [...runnerPlan.agents.keys()].sort((left, right) => left.localeCompare(right));
   const callableAgents = availableAgents.filter((agentName) => agentName !== selfAgent);
   return {
@@ -1930,6 +1953,78 @@ function buildRuntimeAgentCatalog(
     availableAgents,
     callableAgents,
   };
+}
+
+function toRuntimeAgentContext(metadata: RuntimeAgentMetadata): RuntimeAgentContext {
+  const payload: RuntimeAgentContext = {
+    name: metadata.name,
+    bundleRoot: metadata.bundleRoot,
+  };
+  if (metadata.prompt !== undefined) {
+    const promptPayload: RuntimeAgentContext['prompt'] = {};
+    if (typeof metadata.prompt.system === 'string' && metadata.prompt.system.length > 0) {
+      promptPayload.system = metadata.prompt.system;
+    }
+    if (Object.keys(promptPayload).length > 0) {
+      payload.prompt = promptPayload;
+    }
+  }
+  return payload;
+}
+
+function buildRuntimeInboundContext(event: AgentEvent): RuntimeInboundContext {
+  const inbound: RuntimeInboundContext = {
+    eventId: event.id,
+    eventType: event.type,
+    sourceKind: event.source.kind,
+    sourceName: event.source.name,
+    createdAt: event.createdAt.toISOString(),
+  };
+  if (typeof event.instanceKey === 'string' && event.instanceKey.length > 0) {
+    inbound.instanceKey = event.instanceKey;
+  }
+  if (isJsonObject(event.metadata)) {
+    inbound.eventMetadata = ensureJsonObject(event.metadata);
+  }
+  return inbound;
+}
+
+function buildRuntimeCallContext(event: AgentEvent): RuntimeCallContext | undefined {
+  const eventMetadata = isJsonObject(event.metadata) ? event.metadata : undefined;
+  const callMetadata: RuntimeCallContext = {};
+
+  if (eventMetadata) {
+    if (typeof eventMetadata.callerAgent === 'string' && eventMetadata.callerAgent.length > 0) {
+      callMetadata.callerAgent = eventMetadata.callerAgent;
+    }
+    if (typeof eventMetadata.callerInstanceKey === 'string' && eventMetadata.callerInstanceKey.length > 0) {
+      callMetadata.callerInstanceKey = eventMetadata.callerInstanceKey;
+    }
+    if (typeof eventMetadata.callerTurnId === 'string' && eventMetadata.callerTurnId.length > 0) {
+      callMetadata.callerTurnId = eventMetadata.callerTurnId;
+    }
+    if (typeof eventMetadata.callSource === 'string' && eventMetadata.callSource.length > 0) {
+      callMetadata.callSource = eventMetadata.callSource;
+    }
+
+    const stackValue = eventMetadata[AGENT_CALL_STACK_METADATA_KEY];
+    if (Array.isArray(stackValue)) {
+      const callStack = stackValue
+        .filter((item): item is string => typeof item === 'string' && item.length > 0);
+      if (callStack.length > 0) {
+        callMetadata.callStack = callStack;
+      }
+    }
+  }
+
+  if (event.replyTo) {
+    callMetadata.replyTo = {
+      target: event.replyTo.target,
+      correlationId: event.replyTo.correlationId,
+    };
+  }
+
+  return Object.keys(callMetadata).length > 0 ? callMetadata : undefined;
 }
 
 function createAgentCallNode(agentName: string, instanceKey: string): string {
@@ -2229,7 +2324,14 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     }
 
     const apiKey = resolveModelApiKey(modelSpec, process.env, modelResource.metadata.name);
-    const prompt = await readAgentSystemPrompt(agentResource);
+    const agentPrompt = await readAgentPromptMetadata(agentResource);
+    const agentMetadata: RuntimeAgentMetadata = {
+      name: agentResource.metadata.name,
+      bundleRoot: agentResource.__rootDir ? path.resolve(agentResource.__rootDir) : process.cwd(),
+    };
+    if (agentPrompt !== undefined) {
+      agentMetadata.prompt = agentPrompt;
+    }
     const modelParams = parseAgentModelParams(agentResource);
     const toolRefs = parseAgentToolRefs(agentResource);
     const extensionRefs = parseAgentExtensionRefs(agentResource);
@@ -2332,7 +2434,7 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
       modelName,
       provider,
       apiKey,
-      systemPrompt: prompt,
+      agentMetadata,
       maxTokens: modelParams.maxTokens,
       temperature: modelParams.temperature,
       maxSteps: maxStepsPerTurn,
@@ -3157,22 +3259,8 @@ function summarizeSingleModelMessageForRuntimeEvent(message: ModelMessage): Json
   return summary;
 }
 
-function summarizeModelMessagesForRuntimeEvent(
-  messages: readonly ModelMessage[],
-  systemPrompt: string,
-): JsonObject[] {
+function summarizeModelMessagesForRuntimeEvent(messages: readonly ModelMessage[]): JsonObject[] {
   const summarized: JsonObject[] = [];
-
-  const trimmedSystemPrompt = systemPrompt.trim();
-  if (trimmedSystemPrompt.length > 0) {
-    const preview = previewRuntimeEventContent(trimmedSystemPrompt);
-    summarized.push({
-      role: 'system',
-      content: preview.text,
-      contentSource: preview.truncated ? 'summary' : 'verbatim',
-      parts: [createStepStartedTextPart(preview)],
-    });
-  }
 
   for (const message of messages) {
     if (summarized.length >= STEP_STARTED_LLM_INPUT_MESSAGE_MAX_COUNT) {
@@ -3376,7 +3464,6 @@ export async function requestModelMessage(input: {
   provider: string;
   apiKey: string;
   model: string;
-  systemPrompt: string;
   temperature: number;
   maxTokens: number;
   toolCatalog: ToolCatalogItem[];
@@ -3385,7 +3472,6 @@ export async function requestModelMessage(input: {
   const model = createLanguageModel(input.provider, input.model, input.apiKey);
   const result = await generateText({
     model,
-    system: input.systemPrompt,
     messages: toModelMessages(input.turns),
     tools: toRunnerToolSet(input.toolCatalog),
     stopWhen: stepCountIs(1),
@@ -3473,15 +3559,7 @@ async function executeInboundTurn(input: {
   }
 
   const queueKey = createConversationKey(input.targetAgentName, input.event.instanceKey);
-  const userInputText = formatRuntimeInboundUserText({
-    sourceKind: input.event.sourceKind,
-    sourceName: input.event.sourceName,
-    eventName: input.event.eventName,
-    instanceKey: input.event.instanceKey,
-    messageText: input.event.messageText,
-    properties: input.event.properties,
-    metadata: input.event.metadata,
-  });
+  const userInputText = input.event.messageText;
 
   let turnResult: TurnExecutionResult | undefined;
   await queueAgentEvent(input.runtime, queueKey, async () => {
@@ -3910,9 +3988,15 @@ async function runAgentTurn(input: {
     logger: input.logger,
   });
 
-  const turnMetadata: Record<string, JsonValue> = {
-    runtimeCatalog: buildRuntimeAgentCatalog(input.runnerPlan, input.plan.name),
+  const runtimeContext: RuntimeContext = {
+    agent: toRuntimeAgentContext(input.plan.agentMetadata),
+    swarm: buildRuntimeAgentCatalog(input.runnerPlan, input.plan.name),
+    inbound: buildRuntimeInboundContext(input.inputEvent),
   };
+  const runtimeCallContext = buildRuntimeCallContext(input.inputEvent);
+  if (runtimeCallContext !== undefined) {
+    runtimeContext.call = runtimeCallContext;
+  }
   let step = 0;
   let emptyOutputRetryCount = 0;
   let malformedToolCallRetryCount = 0;
@@ -3927,10 +4011,11 @@ async function runAgentTurn(input: {
         inputEvent: input.inputEvent,
         conversationState,
         agents: middlewareAgentsApi,
+        runtime: runtimeContext,
         emitMessageEvent(event: MessageEvent): void {
           conversationState.emitMessageEvent(event);
         },
-        metadata: turnMetadata,
+        metadata: {},
       },
       async (): Promise<TurnResult> => {
         while (true) {
@@ -3968,7 +4053,6 @@ async function runAgentTurn(input: {
         const stepMetadata: Record<string, JsonValue> = {};
         stepMetadata[STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY] = summarizeModelMessagesForRuntimeEvent(
           toModelMessages(toConversationTurns(conversationState.nextMessages)),
-          input.plan.systemPrompt,
         );
         const turnSnapshot: Turn = {
           id: input.turnId,
@@ -3990,6 +4074,7 @@ async function runAgentTurn(input: {
             stepIndex: step,
             conversationState,
             agents: middlewareAgentsApi,
+            runtime: runtimeContext,
             emitMessageEvent(event: MessageEvent): void {
               conversationState.emitMessageEvent(event);
             },
@@ -4003,7 +4088,6 @@ async function runAgentTurn(input: {
               provider: input.plan.provider,
               apiKey: input.plan.apiKey,
               model: input.plan.modelName,
-              systemPrompt: input.plan.systemPrompt,
               temperature: input.plan.temperature,
               maxTokens: input.plan.maxTokens,
               toolCatalog: stepCtx.toolCatalog,
@@ -4090,6 +4174,7 @@ async function runAgentTurn(input: {
                   stepIndex: step,
                   toolName: toolUse.name,
                   toolCallId: toolUse.id,
+                  runtime: runtimeContext,
                   args: toolArgs,
                   metadata: {},
                 },

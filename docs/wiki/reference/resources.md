@@ -218,8 +218,8 @@ spec:
     modelRef: "Model/claude"
     params:
       temperature: 0.5
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a coding assistant.
   tools:
     - ref: "Tool/bash"
@@ -233,7 +233,7 @@ spec:
 | Field | Required | Type | Default | Description |
 |-------|----------|------|---------|-------------|
 | `modelConfig` | MUST | `AgentModelConfig` | -- | Model configuration (see below) |
-| `prompts` | MUST | `AgentPrompts` | -- | Prompt configuration (see below) |
+| `prompt` | optional | `AgentPrompt` | -- | Optional prompt configuration (see below) |
 | `tools` | optional | `RefItem[]` | `[]` | Tool references to make available to this agent |
 | `requiredTools` | optional | `string[]` | `[]` | Tool names that MUST be called (with success) before turn ends |
 | `extensions` | optional | `RefItem[]` | `[]` | Extension references to load for this agent |
@@ -248,16 +248,20 @@ spec:
 | `params.topP` | optional | `number` | -- | Top-P sampling |
 | `params.[key]` | optional | `unknown` | -- | Additional model parameters |
 
-### `prompts` fields
+### `prompt` fields
 
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
-| `systemPrompt` | at least one of `systemPrompt` / `systemRef` | `string` | Inline system prompt |
-| `systemRef` | at least one of `systemPrompt` / `systemRef` | `string` | File path to system prompt (relative to Bundle Root) |
+| `system` | optional | `string` | Inline system prompt hint |
+| `systemRef` | optional | `string` | File path to system prompt (relative to Bundle Root) |
 
-If both are present, `systemRef` content is appended after `systemPrompt`.
+`system` and `systemRef` are mutually exclusive. If both are present, YAML validation fails.
 
 ### Rules
+- `prompt` is optional. If omitted, runtime continues in pure harness mode without `ctx.runtime.agent.prompt`.
+- The runtime core does not assemble or auto-inject system prompts by itself.
+- Runtime resolves `prompt.systemRef` and exposes only materialized `ctx.runtime.agent.prompt.system` to extensions.
+- Message composition is performed by extensions such as `context-message`, which read `ctx.runtime.agent` / `ctx.runtime.swarm` / `ctx.runtime.inbound` / `ctx.runtime.call` and append message events.
 
 - `requiredTools` entries refer to the full tool name (e.g., `channel-dispatch__send`).
 - `requiredTools` satisfaction is evaluated per turn; successful calls from a previous turn never satisfy the current turn.
@@ -633,7 +637,7 @@ spec:
 | Kind | Required fields |
 |------|----------------|
 | Model | `provider`, `model` |
-| Agent | `modelConfig.modelRef`, `prompts` (systemPrompt or systemRef) |
+| Agent | `modelConfig.modelRef` |
 | Swarm | `entryAgent`, `agents` (min 1); `entryAgent` must be in `agents` |
 | Tool | `entry`, `exports` (min 1) |
 | Extension | `entry` |

@@ -105,6 +105,9 @@ Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 �
 미들웨어 실행 순서는 Extension 등록 순서를 따르며, `next()`를 호출하지 않으면 해당 실행 단계가 스킵된다.
 
 런타임 코어는 Non-Intervention 원칙을 따른다. 즉, Tool description/schema나 모델 출력을 코어가 암묵적으로 보정하지 않으며, 개입은 Extension의 명시적 opt-in 정책으로만 수행한다.
+여기서 pure harness 경계는 Runtime 코어가 시스템 프롬프트 텍스트를 직접 조립하거나 자동 주입하지 않는다는 뜻이다.  
+코어는 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call` 실행 컨텍스트만 전달하고, 실제 메시지 구성/주입은 `context-message` 같은 Extension이 `MessageEvent`로 수행한다.
+단, Agent `prompt.systemRef` 해석 자체는 코어 책임이며, Extension에는 materialize된 `ctx.runtime.agent.prompt.system`만 전달된다.
 
 ### 1.9 Connector와 Connection
 

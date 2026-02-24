@@ -18,6 +18,7 @@ import type {
 } from "@goondan/types";
 import type {
   MiddlewareAgentsApi,
+  RuntimeContext,
   Turn,
 } from "../../src/types.js";
 import { createAgentEvent } from "../helpers.js";
@@ -40,6 +41,29 @@ function createTurn(id: string, agentName: string): Turn {
     steps: [],
     status: "running",
     metadata: {},
+  };
+}
+
+function createRuntimeContext(agentName: string): RuntimeContext {
+  return {
+    agent: {
+      name: agentName,
+      bundleRoot: "/tmp",
+    },
+    swarm: {
+      swarmName: "default",
+      entryAgent: agentName,
+      selfAgent: agentName,
+      availableAgents: [agentName],
+      callableAgents: [],
+    },
+    inbound: {
+      eventId: "evt-observability",
+      eventType: "connector.message",
+      sourceKind: "connector",
+      sourceName: "cli",
+      createdAt: new Date().toISOString(),
+    },
   };
 }
 
@@ -72,6 +96,7 @@ async function runFullTurnAndCapture(options: {
       inputEvent: createAgentEvent(),
       conversationState,
       agents: mockAgentsApi,
+      runtime: createRuntimeContext(options.agentName),
       emitMessageEvent: () => {},
       metadata: {},
     },
@@ -86,6 +111,7 @@ async function runFullTurnAndCapture(options: {
           stepIndex: 0,
           conversationState,
           agents: mockAgentsApi,
+          runtime: createRuntimeContext(options.agentName),
           emitMessageEvent: () => {},
           toolCatalog: [],
           metadata: {},
@@ -100,6 +126,7 @@ async function runFullTurnAndCapture(options: {
               stepIndex: 0,
               toolName: "echo",
               toolCallId: "tc-1",
+              runtime: createRuntimeContext(options.agentName),
               args: { text: "hello" },
               metadata: {},
             },
@@ -376,6 +403,7 @@ describe("E2E Observability", () => {
           inputEvent: createAgentEvent(),
           conversationState,
           agents: mockAgentsApi,
+          runtime: createRuntimeContext("alpha"),
           emitMessageEvent: () => {},
           metadata: {},
         },
@@ -390,6 +418,7 @@ describe("E2E Observability", () => {
               stepIndex: 0,
               conversationState,
               agents: mockAgentsApi,
+              runtime: createRuntimeContext("alpha"),
               emitMessageEvent: () => {},
               toolCatalog: [],
               metadata: {},

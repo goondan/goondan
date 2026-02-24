@@ -14,7 +14,7 @@ describe('manifest helpers', () => {
     const connectors = createBaseConnectorManifests();
 
     expect(tools.length).toBe(10);
-    expect(extensions.length).toBe(6);
+    expect(extensions.length).toBe(7);
     expect(connectors.length).toBe(6);
 
     expect(tools.every((item) => item.kind === 'Tool')).toBe(true);
@@ -26,10 +26,24 @@ describe('manifest helpers', () => {
     expect(tools.some((item) => item.metadata.name === 'wait')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-compaction')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'message-window')).toBe(true);
+    expect(extensions.some((item) => item.metadata.name === 'context-message')).toBe(true);
     expect(extensions.some((item) => item.metadata.name === 'inter-agent-response-format')).toBe(true);
     expect(
       connectors.some((item) => item.metadata.name === 'telegram-polling')
     ).toBe(true);
+
+    const extensionNames = extensions.map((item) => item.metadata.name);
+    const extensionEntries = extensions.map((item) => item.spec.entry);
+    expect(new Set(extensionNames).size).toBe(extensionNames.length);
+    expect(new Set(extensionEntries).size).toBe(extensionEntries.length);
+
+    const contextMessage = extensions.find(
+      (item) => item.metadata.name === 'context-message'
+    );
+    expect(contextMessage?.spec.entry).toBe('./src/extensions/context-message.ts');
+    expect(contextMessage?.spec.config?.includeAgentPrompt).toBe(true);
+    expect(contextMessage?.spec.config?.includeSwarmCatalog).toBe(false);
+    expect(contextMessage?.spec.config?.includeRouteSummary).toBe(false);
   });
 
   it('creates connection sample with ingress rule', () => {
@@ -51,6 +65,9 @@ describe('manifest helpers', () => {
 
   it('creates aggregate manifest set', () => {
     const manifests = createBaseManifestSet();
-    expect(manifests.length).toBeGreaterThanOrEqual(10);
+    expect(manifests.length).toBe(24);
+
+    const manifestIdentities = manifests.map((item) => `${item.kind}/${item.metadata.name}`);
+    expect(new Set(manifestIdentities).size).toBe(manifestIdentities.length);
   });
 });

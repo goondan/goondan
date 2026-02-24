@@ -3,6 +3,7 @@ import { loadExtensions, type ExtensionSpec } from "./loader.js";
 import type {
   ExtensionApi,
   MiddlewareAgentsApi,
+  RuntimeContext,
   RuntimeResource,
   TurnResult,
   JsonValue,
@@ -32,6 +33,29 @@ const noopMiddlewareAgentsApi: MiddlewareAgentsApi = {
     };
   },
 };
+
+function createRuntimeContext(agentName: string): RuntimeContext {
+  return {
+    agent: {
+      name: agentName,
+      bundleRoot: "/tmp",
+    },
+    swarm: {
+      swarmName: "default",
+      entryAgent: agentName,
+      selfAgent: agentName,
+      availableAgents: [agentName],
+      callableAgents: [],
+    },
+    inbound: {
+      eventId: "evt-1",
+      eventType: "user.input",
+      sourceKind: "connector",
+      sourceName: "cli",
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
 
 describe("Extension Integration", () => {
   let tempDir: string;
@@ -153,6 +177,7 @@ describe("Extension Integration", () => {
         },
         conversationState,
         agents: noopMiddlewareAgentsApi,
+        runtime: createRuntimeContext("test-agent"),
         emitMessageEvent: () => {},
         metadata,
       },
@@ -195,6 +220,7 @@ describe("Extension Integration", () => {
         },
         conversationState,
         agents: noopMiddlewareAgentsApi,
+        runtime: createRuntimeContext("test-agent"),
         emitMessageEvent: () => {},
         metadata: {},
       },
@@ -269,6 +295,7 @@ describe("Extension Integration", () => {
         },
         conversationState,
         agents: noopMiddlewareAgentsApi,
+        runtime: createRuntimeContext("test-agent"),
         emitMessageEvent: () => {},
         metadata: metadata1,
       },
@@ -293,6 +320,7 @@ describe("Extension Integration", () => {
         },
         conversationState,
         agents: noopMiddlewareAgentsApi,
+        runtime: createRuntimeContext("test-agent"),
         emitMessageEvent: () => {},
         metadata: metadata2,
       },

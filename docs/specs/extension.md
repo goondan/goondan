@@ -11,7 +11,7 @@
 Extension은 런타임 라이프사이클에 개입하는 미들웨어 로직 묶음이다. Extension은 파이프라인을 통해 도구 카탈로그, 메시지 히스토리, LLM 호출, tool call 실행을 제어할 수 있다. 또한 `turn`/`step` 미들웨어에서는 `ctx.agents` API로 다른 Agent를 프로그래매틱하게 호출할 수 있다. `request(async=true)`로 주입되는 인터-에이전트 응답 메시지(`metadata.__goondanInterAgentResponse`)의 포맷도 Extension이 step 미들웨어에서 변환할 수 있다. Extension은 Tool과 달리 LLM이 직접 호출하지 않으며, AgentProcess 내부에서 자동으로 실행된다.
 
 `ExtensionApi` 표면은 **5개 핵심 API**(`pipeline`, `tools`, `state`, `events`, `logger`)로 구성된다. OAuth/설정 갱신 같은 도메인 기능은 Extension 내부에서 구현하며, 파이프라인 훅은 Middleware 형태(`docs/specs/pipeline.md`)를 따른다.
-메시지 windowing/compaction 같은 정책은 Runtime 코어가 아닌 Extension에서 선택적으로 제공한다.
+메시지 windowing/compaction, 시스템 프롬프트 조립/주입(prompt injection) 같은 정책은 Runtime 코어가 아닌 Extension에서 선택적으로 제공한다.
 
 ## 2. 핵심 규칙
 
@@ -56,6 +56,12 @@ Extension 시스템에 공통으로 적용되는 규범적 규칙이다.
 2. Extension은 메시지 조작 시 `emitMessageEvent`를 사용해야 하며, `conversationState.nextMessages`를 직접 변경해서는 안 된다(MUST NOT).
 3. Runtime 코어가 강제하지 않는 정책(예: message-window, message-compaction)은 Agent `spec.extensions` 구성으로 선택적으로 적용해야 한다(SHOULD).
 4. 장기 세션/고빈도 이벤트를 처리하는 Agent는 메시지 정책 Extension을 최소 1개 이상 등록하는 것을 권장한다(SHOULD). 미적용 시 메시지 히스토리 누적으로 token limit 초과 또는 비용 급증이 발생할 수 있다.
+5. Runtime 코어는 시스템 프롬프트 텍스트를 직접 조립/주입해서는 안 된다(MUST NOT).
+6. 시스템 프롬프트 조립/주입은 Core 비개입 원칙에 따라 Extension 정책으로 처리해야 하며, Runtime 실행 컨텍스트는 `ctx.runtime.agent`, `ctx.runtime.swarm`, `ctx.runtime.inbound`, `ctx.runtime.call`로 전달할 수 있다(SHOULD).  
+   `runtime.agent.prompt` payload는 Runtime이 `systemRef`를 해석해 materialize한 `system`만 사용해야 한다.  
+   `fooBar`/`fooBarRef` 페어는 `docs/specs/help.md` 3.5절 규칙(동시 선언 금지)을 따른다.  
+   주입 시에는 `emitMessageEvent`의 `append` 이벤트를 사용한다(SHOULD).
+7. Runtime 실행 컨텍스트(`ctx.runtime.*`) 기반 메시지 구성이 필요할 때는 이를 수행하는 Extension을 명시적으로 등록해야 한다(SHOULD).
 
 ---
 
@@ -809,7 +815,8 @@ extensions:
 2. `step` 컨텍스트는 `toolCatalog` 조작을 허용한다.
 3. `toolCall` 컨텍스트는 `args` 조작을 허용한다.
 4. 공통 타입(`ConversationState`, `MessageEvent`, `ToolCallResult`) 원형은 `docs/specs/shared-types.md`를 따른다.
-5. 런타임은 `ctx.metadata`에 실행 힌트(예: `runtimeCatalog`)를 시드할 수 있으며, Extension은 이를 읽어 필요 시 메시지 주입을 수행할 수 있다(SHOULD).
+5. 런타임은 `ctx.runtime`에 실행 컨텍스트(예: `ctx.runtime.swarm`, `ctx.runtime.agent`, `ctx.runtime.inbound`, `ctx.runtime.call`)를 제공할 수 있으며, Extension은 이를 읽어 필요 시 메시지 주입을 수행할 수 있다(SHOULD).
+   `runtime.agent.prompt` payload 형식은 materialized `system?`를 따른다.
 
 ---
 

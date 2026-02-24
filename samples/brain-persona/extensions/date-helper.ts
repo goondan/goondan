@@ -35,81 +35,60 @@ function parseDate(value) {
   return parsed;
 }
 
-function extractGoondanContextDate(text) {
-  if (!text || typeof text !== 'string') {
-    return undefined;
-  }
-
-  const match = text.match(/\[goondan_context\]\s*(\{[\s\S]*?\})\s*\[\/goondan_context\]/);
-  if (!match) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(match[1]);
-    const rawDate =
-      parsed?.properties?.date ||
-      parsed?.properties?.message?.date;
-    return parseDate(rawDate);
-  } catch {
-    return undefined;
-  }
+function isRecord(value) {
+  return typeof value === 'object' && value !== null;
 }
 
-function readContent(payload) {
-  if (!payload) {
+function readPathValue(record, path) {
+  if (!isRecord(record)) {
     return undefined;
   }
 
-  if (payload?.data?.content !== undefined) {
-    return payload.data.content;
+  const keys = path.split('.');
+  let current = record;
+
+  for (const key of keys) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
   }
 
-  return payload?.content;
+  return current;
 }
 
-function flattenText(input, visited = new Set()) {
-  if (input === null || input === undefined) {
-    return '';
-  }
-
-  if (typeof input === 'string') {
-    return input;
-  }
-
-  if (typeof input === 'number' || typeof input === 'boolean') {
-    return String(input);
-  }
-
-  if (typeof input !== 'object') {
-    return '';
-  }
-
-  if (visited.has(input)) {
-    return '';
-  }
-  visited.add(input);
-
-  if (Array.isArray(input)) {
-    return input
-      .map((item) => flattenText(item, visited))
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  const candidates = [
-    input.content,
-    input.parts,
-    input.text,
-    input.value,
-    input.data,
-    input.message,
+function resolveDateFromContext(input) {
+  const paths = [
+    'date',
+    'timestamp',
+    'ts',
+    'thread_ts',
+    'createdAt',
+    'message.date',
+    'message.ts',
+    'event.date',
+    'event.ts',
+    'properties.date',
+    'properties.ts',
+    'properties.thread_ts',
+    'properties.message.date',
+    'properties.message.ts',
+    'originProperties.date',
+    'originProperties.ts',
+    'originProperties.thread_ts',
+    'originProperties.message.date',
+    'originProperties.message.ts',
   ];
 
-  return candidates
-    .map((candidate) => flattenText(candidate, visited))
-    .filter(Boolean)
-    .join('\n');
+  for (const path of paths) {
+    const value = readPathValue(input, path);
+    const parsed = parseDate(value);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return undefined;
 }
 
 function getLatestEventCreatedAt(inputEvent) {
@@ -141,10 +120,14 @@ function resolveBaseTime(ctx) {
       : [];
 
   for (const evt of events) {
-    const text = flattenText(readContent(evt) ?? evt);
-    const fromContext = extractGoondanContextDate(text);
-    if (fromContext) {
-      return fromContext;
+    const fromMetadata = resolveDateFromContext(evt?.metadata);
+    if (fromMetadata) {
+      return fromMetadata;
+    }
+
+    const fromSource = resolveDateFromContext(evt?.source);
+    if (fromSource) {
+      return fromSource;
     }
   }
 

@@ -22,6 +22,12 @@
 이유: SSOT 원칙. Studio/CLI가 계약 수준에서만 결합하도록.
 6. 인터-에이전트 통신은 Orchestrator IPC를 경유하며, correlationId 기반 응답 라우팅과 callChain 기반 순환 호출 감지를 지원한다.
 이유: 직접 함수 호출 대신 IPC를 경유해야 관측 가능하고, 순환 호출로 인한 deadlock을 방지할 수 있다.
+7. 코어 텍스트 주입은 0을 원칙으로 하며, Runtime 코어는 시스템 프롬프트 텍스트를 직접 조립/주입하지 않는다.
+이유: 실행 엔진과 프롬프트 정책을 분리해 런타임 코어의 책임 경계를 안정적으로 유지하기 위해.
+8. Runtime은 Extension 연계를 위한 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call` 실행 컨텍스트를 제공하며, 프롬프트 본문 자체를 직접 구성하지 않는다.
+이유: 정책 변화는 Extension에서 흡수하고, Runtime은 중립적인 실행/연계 기반에 집중하기 위해.
+9. Agent `prompt.systemRef` 해석은 Runtime이 담당하고, Extension에는 materialize된 `ctx.runtime.agent.prompt.system`만 전달한다.
+이유: Extension이 파일 시스템/리소스 해석 규칙을 중복 소유하지 않도록 하여 코어-확장 책임 경계를 고정하기 위해.
 
 ## 불변 규칙
 
@@ -33,6 +39,9 @@
 - 공개 API는 루트 export 경계에서 관리한다.
 - Connector child 프로세스의 stdin은 Orchestrator의 stdin이 읽기 가능할 때(foreground 모드) `pipe`로 전달하고, 불가할 때(detached 모드) `ignore`로 설정한다.
 - Connector child가 exit code 0으로 종료하면(startup 이후) in-flight 이벤트 처리를 기다린 뒤 정상 종료로 간주한다.
+- Runtime 코어는 시스템 프롬프트 텍스트를 직접 조립·병합·주입하지 않는다.
+- 프롬프트 조립/메시지 생성은 Extension 책임이며, Runtime은 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call` 실행 컨텍스트 전달 외에 텍스트 정책을 소유하지 않는다.
+- Runtime은 `prompt.systemRef`를 load/materialize한 결과(`ctx.runtime.agent.prompt.system`)만 Extension에 노출하며, raw ref 값을 컨텍스트로 전달하지 않는다.
 
 ## 참조
 

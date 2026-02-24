@@ -21,6 +21,7 @@
 | **3종 미들웨어** | `turn`, `step`, `toolCall` 3종만 제공. 세분화 포인트를 단일 표면으로 통합 |
 | **결정론적 실행** | 동일 구성과 입력에 대해 파이프라인 실행 순서는 항상 동일 |
 | **ConversationState 기반** | 메시지 조작은 `ConversationState` + `emitMessageEvent()` 이벤트 소싱으로 수행 |
+| **Pure Harness** | 코어는 프롬프트 텍스트를 직접 주입하지 않고, 필요 시 Extension이 `ctx.runtime` 실행 컨텍스트를 읽어 메시지 이벤트로 주입 |
 
 ## 2. 핵심 규칙
 
@@ -755,6 +756,33 @@ api.pipeline.register('step', async (ctx) => {
     ctx.emitMessageEvent({
       type: 'append',
       message: createSystemMessage(skillContext),
+    });
+  }
+
+  return ctx.next();
+});
+```
+
+### 9.7 Context Message (Turn 미들웨어)
+
+`ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call` 실행 컨텍스트 기반 메시지 구성은 Extension에서 처리한다. 코어는 runtime context를 전달할 수만 있고, 주입은 미들웨어에서 `emitMessageEvent(..., { type: 'append', ... })`로 수행한다.
+
+```typescript
+type RuntimeAgentHint = {
+  name: string;
+  bundleRoot: string;
+  prompt?: {
+    system?: string;
+  };
+};
+
+api.pipeline.register('turn', async (ctx) => {
+  const prompt = ctx.runtime.agent.prompt;
+  // runtime이 systemRef를 materialize해서 전달하므로 extension은 system만 다룬다.
+  if (typeof prompt?.system === 'string' && prompt.system.trim().length > 0) {
+    ctx.emitMessageEvent({
+      type: 'append',
+      message: createSystemMessage(prompt.system),
     });
   }
 

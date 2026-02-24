@@ -55,8 +55,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "You are a helpful assistant."
+  prompt:
+    system: "You are a helpful assistant."
   tools:
     - ref:
         kind: Tool
@@ -445,8 +445,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a versatile assistant with access to shell commands,
       file system operations, HTTP requests, and text processing tools.
   tools:

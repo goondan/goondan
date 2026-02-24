@@ -70,6 +70,12 @@
 2. 저장 규칙(파일 경로, JSONL 레이아웃, 디렉터리 구조)은 `docs/specs/workspace.md`를 단일 기준으로 따른다(MUST).
 3. `docs/specs/pipeline.md`는 미들웨어 관점의 사용 계약만 기술하고 저장 레이어 세부를 재정의하지 않는다(SHOULD).
 
+### 3.5 `fooBar` / `fooBarRef` 페어 규칙
+
+1. 동일 객체에 `fooBar`와 `fooBarRef`를 동시에 선언하면 스키마 검증에서 실패해야 한다(MUST).
+2. 유효한 입력은 둘 중 하나만 포함해야 하며, `fooBar`는 인라인 값, `fooBarRef`는 참조 값으로 해석한다(SHOULD).
+3. `fooBarRef`가 존재할 때 `fooBar`와 자동 문자열 병합을 수행해서는 안 된다(MUST NOT).
+
 ---
 
 ## 4. 레지스트리 설정 계약

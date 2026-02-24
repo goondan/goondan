@@ -249,6 +249,53 @@ export interface ToolCatalogItem {
   };
 }
 
+export interface RuntimeAgentPromptContext {
+  system?: string;
+}
+
+export interface RuntimeAgentContext {
+  name: string;
+  bundleRoot: string;
+  prompt?: RuntimeAgentPromptContext;
+}
+
+export interface RuntimeSwarmContext {
+  swarmName: string;
+  entryAgent: string;
+  selfAgent: string;
+  availableAgents: string[];
+  callableAgents: string[];
+}
+
+export interface RuntimeInboundContext {
+  eventId: string;
+  eventType: string;
+  sourceKind: 'agent' | 'connector';
+  sourceName: string;
+  createdAt: string;
+  instanceKey?: string;
+  eventMetadata?: JsonObject;
+}
+
+export interface RuntimeCallContext {
+  callerAgent?: string;
+  callerInstanceKey?: string;
+  callerTurnId?: string;
+  callSource?: string;
+  callStack?: string[];
+  replyTo?: {
+    target: string;
+    correlationId: string;
+  };
+}
+
+export interface RuntimeContext {
+  agent: RuntimeAgentContext;
+  swarm: RuntimeSwarmContext;
+  inbound: RuntimeInboundContext;
+  call?: RuntimeCallContext;
+}
+
 export interface Turn {
   readonly id: string;
   readonly startedAt: Date;
@@ -277,6 +324,7 @@ export interface TurnMiddlewareContext extends ExecutionContext {
   readonly inputEvent: AgentEvent;
   readonly conversationState: ConversationState;
   readonly agents: MiddlewareAgentsApi;
+  readonly runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
   next(): Promise<TurnResult>;
@@ -287,6 +335,7 @@ export interface StepMiddlewareContext extends ExecutionContext {
   readonly stepIndex: number;
   readonly conversationState: ConversationState;
   readonly agents: MiddlewareAgentsApi;
+  readonly runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
@@ -297,6 +346,7 @@ export interface ToolCallMiddlewareContext extends ExecutionContext {
   readonly stepIndex: number;
   readonly toolName: string;
   readonly toolCallId: string;
+  readonly runtime: RuntimeContext;
   args: JsonObject;
   metadata: Record<string, JsonValue>;
   next(): Promise<ToolCallResult>;

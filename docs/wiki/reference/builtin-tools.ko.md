@@ -980,8 +980,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "당신은 유용한 어시스턴트입니다."
+  prompt:
+    system: "당신은 유용한 어시스턴트입니다."
   tools:
     - ref: Tool/bash
     - ref: Tool/file-system

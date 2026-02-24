@@ -347,7 +347,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/fast-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/coordinator.system.md"
   tools:
     - ref:
@@ -374,7 +374,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/researcher.system.md"
   tools:
     - ref:

@@ -33,13 +33,6 @@ spec:
 apiVersion: goondan.ai/v1
 kind: Extension
 metadata:
-  name: context-injector
-spec:
-  entry: "./extensions/context-injector.ts"
----
-apiVersion: goondan.ai/v1
-kind: Extension
-metadata:
   name: worker-lifecycle
 spec:
   entry: "./extensions/worker-lifecycle.ts"
@@ -65,7 +58,7 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/fast-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/coordinator.system.md"
   extensions:
     - ref:
@@ -76,7 +69,13 @@ spec:
         kind: Extension
         name: message-compaction
         package: "@goondan/base"
-    - ref: "Extension/context-injector"
+    - ref:
+        kind: Extension
+        name: context-message
+        package: "@goondan/base"
+      config:
+        includeAgentPrompt: true
+        includeSwarmCatalog: true
     - ref: "Extension/idle-monitor"
   requiredTools:
     - "telegram__send"
@@ -111,12 +110,16 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/worker.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: context-message
         package: "@goondan/base"
     - ref: "Extension/worker-lifecycle"
     - ref: "Extension/date-helper"
@@ -153,12 +156,16 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/fast-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/unconscious.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: context-message
         package: "@goondan/base"
   tools:
     - ref:
@@ -181,12 +188,16 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/fast-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/observer.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: context-message
         package: "@goondan/base"
   tools:
     - ref:
@@ -205,12 +216,16 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/reflection.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: context-message
         package: "@goondan/base"
   tools:
     - ref:
@@ -233,12 +248,16 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
+  prompt:
     systemRef: "./prompts/dream.system.md"
   extensions:
     - ref:
         kind: Extension
         name: message-window
+        package: "@goondan/base"
+    - ref:
+        kind: Extension
+        name: context-message
         package: "@goondan/base"
   tools:
     - ref:

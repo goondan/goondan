@@ -219,21 +219,40 @@ function validateKindMinimal(resource: RuntimeResource): ValidationError[] {
       });
     }
 
-    const prompts = resource.spec.prompts;
-    if (!isJsonObject(prompts)) {
+    const prompt = resource.spec.prompt;
+    if (prompt !== undefined && !isJsonObject(prompt)) {
       errors.push({
         code: "E_CONFIG_SCHEMA_INVALID",
-        message: "Agent.spec.prompts is required.",
-        path: `${pathPrefix}.prompts`,
+        message: "Agent.spec.prompt must be an object when provided.",
+        path: `${pathPrefix}.prompt`,
       });
-    } else {
-      const hasSystemPrompt = typeof prompts.systemPrompt === "string" && prompts.systemPrompt.trim().length > 0;
-      const hasSystemRef = typeof prompts.systemRef === "string" && prompts.systemRef.trim().length > 0;
-      if (!hasSystemPrompt && !hasSystemRef) {
+    }
+    if (isJsonObject(prompt)) {
+      const hasSystem = Object.prototype.hasOwnProperty.call(prompt, "system")
+        && prompt.system !== undefined;
+      const hasSystemRef = Object.prototype.hasOwnProperty.call(prompt, "systemRef")
+        && prompt.systemRef !== undefined;
+
+      if (hasSystem && typeof prompt.system !== "string") {
         errors.push({
           code: "E_CONFIG_SCHEMA_INVALID",
-          message: "Agent.spec.prompts.systemPrompt or systemRef is required.",
-          path: `${pathPrefix}.prompts`,
+          message: "Agent.spec.prompt.system must be a string when provided.",
+          path: `${pathPrefix}.prompt.system`,
+        });
+      }
+      if (hasSystemRef && typeof prompt.systemRef !== "string") {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Agent.spec.prompt.systemRef must be a string when provided.",
+          path: `${pathPrefix}.prompt.systemRef`,
+        });
+      }
+      if (hasSystem && hasSystemRef) {
+        errors.push({
+          code: "E_CONFIG_SCHEMA_INVALID",
+          message: "Agent.spec.prompt.system and Agent.spec.prompt.systemRef cannot be used together.",
+          path: `${pathPrefix}.prompt`,
+          suggestion: "system 또는 systemRef 중 하나만 선언하세요.",
         });
       }
     }

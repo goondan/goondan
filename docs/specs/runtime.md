@@ -51,6 +51,7 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 | **Message** | AI SDK 메시지를 감싸는 단일 래퍼. 메타데이터로 메시지 식별/조작 |
 | **Middleware Pipeline** | 모든 파이프라인 훅은 Middleware 형태. `next()` 호출 전후로 전처리/후처리 |
 | **Runtime 책임 최소화** | 코어는 실행 루프/이벤트/파이프라인만 담당하고, 메시지 윈도우/컴팩션 정책은 Extension이 담당 |
+| **Pure Harness** | 코어는 LLM 텍스트/시스템 프롬프트를 직접 조립·주입하지 않고, 필요 시 Extension이 runtime metadata 키로 처리 |
 | **Provider 중립성** | Runtime 코어는 provider 전용 대화 정규화 로직을 포함하지 않고, 모델 호출 어댑터만 제공 |
 | **O11y는 Core 책임** | O11y 이벤트 발행은 AgentProcess(Core)가 담당. Extension은 프로세스 간 통신/Orchestrator 레벨 관측 불가 |
 | **OTel 호환 추적** | TraceContext(traceId + spanId + parentSpanId)로 Turn/Step/Tool/인터-에이전트 인과 체인 추적 |
@@ -150,6 +151,9 @@ Orchestrator (상주 프로세스, gdn run으로 기동)
 6. 장기 실행 Swarm은 메시지 정책 Extension(`message-window`, `message-compaction` 등)을 명시적으로 등록해야 한다(SHOULD). 미등록 시 메시지 히스토리가 무제한 누적되어 token limit 초과/비용 증가 위험이 있다.
 7. Runtime 코어는 Tool Catalog 메타데이터(예: tool description/parameter description)를 모델 호출 직전에 자동 보강·재작성해서는 안 된다(MUST NOT). 설정/리소스에 선언된 값을 그대로 전달해야 한다(MUST).
 8. Runtime 코어는 모델 출력에 대해 숨은 자동 보정(auto-fix/coercion)을 수행해서는 안 된다(MUST NOT). 개입이 필요하면 Extension으로 명시적 opt-in 정책을 구현해야 한다(MUST).
+9. Runtime 코어는 `prompt`/metadata를 사용해 시스템 메시지를 직접 조립하거나 LLM 입력에 자동 주입해서는 안 된다(MUST NOT).
+10. Runtime은 Extension 연계를 위한 실행 컨텍스트를 `ctx.runtime`으로 제공할 수 있으며(`ctx.runtime.agent`, `ctx.runtime.swarm`, `ctx.runtime.inbound`, `ctx.runtime.call`), 실제 메시지 구성/주입은 해당 컨텍스트를 읽는 Extension이 `emitMessageEvent`로 수행해야 한다(SHOULD).  
+    `runtime.agent.prompt`에는 materialize된 `system`만 전달해야 하며, `systemRef` 해석 책임은 Runtime이 소유한다(MUST). Extension에 raw ref를 노출해서는 안 된다(MUST NOT).
 
 ---
 

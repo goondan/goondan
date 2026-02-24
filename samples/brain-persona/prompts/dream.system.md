@@ -68,7 +68,7 @@ qmd update
 
 # 협업 프로토콜
 
-- 입력의 `[goondan_context]` JSON metadata에서 `coordinatorInstanceKey`를 추출한다
+- 입력 메타데이터(`ctx.inputEvent.metadata.coordinatorInstanceKey`, 필요 시 `ctx.inputEvent.instanceKey`)에서 `coordinatorInstanceKey`를 추출한다
 - 보고 시 `agents__send`의 instanceKey로 해당 값을 사용한다
 
 # 사용 가능한 도구

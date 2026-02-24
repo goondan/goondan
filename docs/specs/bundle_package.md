@@ -751,8 +751,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a coding assistant.
   tools:
     - ref: "Tool/bash"
@@ -805,8 +805,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "You are a helpful chatbot."
+  prompt:
+    system: "You are a helpful chatbot."
 ---
 apiVersion: goondan.ai/v1
 kind: Swarm

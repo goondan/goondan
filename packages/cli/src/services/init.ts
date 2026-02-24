@@ -31,7 +31,7 @@ function buildModelYaml(): string {
   ].join('\n');
 }
 
-function buildAgentYaml(agentName: string, modelRef: string, systemPrompt: string): string {
+function buildAgentYaml(agentName: string, modelRef: string, system: string): string {
   return [
     'apiVersion: goondan.ai/v1',
     'kind: Agent',
@@ -40,9 +40,9 @@ function buildAgentYaml(agentName: string, modelRef: string, systemPrompt: strin
     'spec:',
     '  modelConfig:',
     `    modelRef: ${quoteYaml(modelRef)}`,
-    '  prompts:',
-    '    systemPrompt: |',
-    `      ${systemPrompt}`,
+    '  prompt:',
+    '    system: |',
+    `      ${system}`,
   ].join('\n');
 }
 

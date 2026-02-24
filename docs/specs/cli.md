@@ -156,8 +156,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a helpful assistant.
 ---
 apiVersion: goondan.ai/v1

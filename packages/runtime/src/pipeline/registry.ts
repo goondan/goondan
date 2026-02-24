@@ -7,6 +7,7 @@ import type {
   JsonValue,
   MiddlewareAgentsApi,
   MessageEvent,
+  RuntimeContext,
   StepResult,
   ToolCallResult,
   ToolCatalogItem,
@@ -35,6 +36,7 @@ export interface TurnMiddlewareContext extends ExecutionContext {
   readonly inputEvent: AgentEvent;
   readonly conversationState: ConversationState;
   readonly agents: MiddlewareAgentsApi;
+  readonly runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
   next(): Promise<TurnResult>;
@@ -45,6 +47,7 @@ export interface StepMiddlewareContext extends ExecutionContext {
   readonly stepIndex: number;
   readonly conversationState: ConversationState;
   readonly agents: MiddlewareAgentsApi;
+  readonly runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
@@ -55,6 +58,7 @@ export interface ToolCallMiddlewareContext extends ExecutionContext {
   readonly stepIndex: number;
   readonly toolName: string;
   readonly toolCallId: string;
+  readonly runtime: RuntimeContext;
   args: JsonObject;
   metadata: Record<string, JsonValue>;
   next(): Promise<ToolCallResult>;
@@ -74,6 +78,7 @@ interface TurnMutableState extends ExecutionContext {
   inputEvent: AgentEvent;
   conversationState: ConversationState;
   agents: MiddlewareAgentsApi;
+  runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   metadata: Record<string, JsonValue>;
 }
@@ -83,6 +88,7 @@ interface StepMutableState extends ExecutionContext {
   stepIndex: number;
   conversationState: ConversationState;
   agents: MiddlewareAgentsApi;
+  runtime: RuntimeContext;
   emitMessageEvent(event: MessageEvent): void;
   toolCatalog: ToolCatalogItem[];
   metadata: Record<string, JsonValue>;
@@ -92,6 +98,7 @@ interface ToolCallMutableState extends ExecutionContext {
   stepIndex: number;
   toolName: string;
   toolCallId: string;
+  runtime: RuntimeContext;
   args: JsonObject;
   metadata: Record<string, JsonValue>;
 }
@@ -329,6 +336,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       inputEvent: ctx.inputEvent,
       conversationState: ctx.conversationState,
       agents: ctx.agents,
+      runtime: ctx.runtime,
       emitMessageEvent: ctx.emitMessageEvent,
       metadata: ctx.metadata,
     };
@@ -416,6 +424,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       stepIndex: ctx.stepIndex,
       conversationState: ctx.conversationState,
       agents: ctx.agents,
+      runtime: ctx.runtime,
       emitMessageEvent: ctx.emitMessageEvent,
       toolCatalog: ctx.toolCatalog,
       metadata: ctx.metadata,
@@ -541,6 +550,7 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       stepIndex: ctx.stepIndex,
       toolName: ctx.toolName,
       toolCallId: ctx.toolCallId,
+      runtime: ctx.runtime,
       args: ctx.args,
       metadata: ctx.metadata,
     };
@@ -662,6 +672,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       get agents() {
         return state.agents;
       },
+      get runtime() {
+        return state.runtime;
+      },
       emitMessageEvent(event: MessageEvent): void {
         state.emitMessageEvent(event);
       },
@@ -700,6 +713,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       },
       get agents() {
         return state.agents;
+      },
+      get runtime() {
+        return state.runtime;
       },
       emitMessageEvent(event: MessageEvent): void {
         state.emitMessageEvent(event);
@@ -745,6 +761,9 @@ export class PipelineRegistryImpl implements PipelineRegistry {
       },
       get toolCallId() {
         return state.toolCallId;
+      },
+      get runtime() {
+        return state.runtime;
       },
       get args() {
         return state.args;

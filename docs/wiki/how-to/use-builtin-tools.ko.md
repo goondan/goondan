@@ -55,8 +55,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: "당신은 유능한 어시스턴트입니다."
+  prompt:
+    system: "당신은 유능한 어시스턴트입니다."
   tools:
     - ref:
         kind: Tool
@@ -445,8 +445,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/claude"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       당신은 셸 명령, 파일 시스템 작업, HTTP 요청,
       텍스트 처리 도구를 사용할 수 있는 다재다능한 어시스턴트입니다.
   tools:

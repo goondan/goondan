@@ -36,6 +36,10 @@ import {
   type IpcMessage,
   type MessageEvent,
   type Message,
+  type RuntimeAgentContext,
+  type RuntimeCallContext,
+  type RuntimeContext,
+  type RuntimeInboundContext,
   type RuntimeEvent,
   type RuntimeResource,
   type StepResult,
@@ -364,7 +368,13 @@ interface AgentProcessPlan {
   modelName: string;
   provider: string;
   apiKey: string;
-  systemPrompt: string;
+  agentMetadata: {
+    name: string;
+    bundleRoot: string;
+    prompt?: {
+      system?: string;
+    };
+  };
   maxTokens: number;
   temperature: number;
   maxSteps: number;
@@ -374,6 +384,23 @@ interface AgentProcessPlan {
   swarmName: string;
   entryAgent: string;
   availableAgents: string[];
+}
+
+function toRuntimeAgentContext(hint: AgentProcessPlan['agentMetadata']): RuntimeAgentContext {
+  const metadata: RuntimeAgentContext = {
+    name: hint.name,
+    bundleRoot: hint.bundleRoot,
+  };
+  if (hint.prompt !== undefined) {
+    const prompt: RuntimeAgentContext['prompt'] = {};
+    if (typeof hint.prompt.system === 'string' && hint.prompt.system.length > 0) {
+      prompt.system = hint.prompt.system;
+    }
+    if (Object.keys(prompt).length > 0) {
+      metadata.prompt = prompt;
+    }
+  }
+  return metadata;
 }
 
 async function executeTurn(
@@ -415,6 +442,23 @@ async function executeTurn(
     let finalResponseText = '';
     let step = 0;
     let lastText = '';
+    const runtimeContext: RuntimeContext = {
+      agent: toRuntimeAgentContext(plan.agentMetadata),
+      swarm: {
+        swarmName: plan.swarmName,
+        entryAgent: plan.entryAgent,
+        selfAgent: plan.name,
+        availableAgents: [...plan.availableAgents].sort((left, right) => left.localeCompare(right)),
+        callableAgents: [...plan.availableAgents]
+          .filter((agentName) => agentName !== plan.name)
+          .sort((left, right) => left.localeCompare(right)),
+      },
+      inbound: buildRuntimeInboundContext(event),
+    };
+    const runtimeCallContext = buildRuntimeCallContext(event);
+    if (runtimeCallContext !== undefined) {
+      runtimeContext.call = runtimeCallContext;
+    }
 
     await pipelineRegistry.runTurn(
       {
@@ -425,6 +469,7 @@ async function executeTurn(
         inputEvent: event,
         conversationState,
         agents: createIpcMiddlewareAgentsApi(args, traceId, inboundAuth),
+        runtime: runtimeContext,
         emitMessageEvent(ev: MessageEvent): void {
           conversationState.emitMessageEvent(ev);
         },
@@ -477,6 +522,7 @@ async function executeTurn(
               stepIndex: step,
               conversationState,
               agents: createIpcMiddlewareAgentsApi(args, traceId, inboundAuth),
+              runtime: runtimeContext,
               emitMessageEvent(ev: MessageEvent): void {
                 conversationState.emitMessageEvent(ev);
               },
@@ -488,7 +534,6 @@ async function executeTurn(
                 provider: plan.provider,
                 apiKey: plan.apiKey,
                 model: plan.modelName,
-                systemPrompt: plan.systemPrompt,
                 temperature: plan.temperature,
                 maxTokens: plan.maxTokens,
                 toolCatalog: stepCtx.toolCatalog,
@@ -567,6 +612,7 @@ async function executeTurn(
                     stepIndex: step,
                     toolName: toolUse.name,
                     toolCallId: toolUse.id,
+                    runtime: runtimeContext,
                     args: toolArgs,
                     metadata: {},
                   },
@@ -1341,6 +1387,61 @@ function createInboundMessageMetadata(event: AgentEvent): Record<string, JsonVal
     metadata.traceId = event.traceId;
   }
   return metadata;
+}
+
+function buildRuntimeInboundContext(event: AgentEvent): RuntimeInboundContext {
+  const metadata: RuntimeInboundContext = {
+    eventId: event.id,
+    eventType: event.type,
+    sourceKind: event.source.kind,
+    sourceName: event.source.name,
+    createdAt: event.createdAt.toISOString(),
+  };
+  if (typeof event.instanceKey === 'string' && event.instanceKey.length > 0) {
+    metadata.instanceKey = event.instanceKey;
+  }
+  if (isJsonObject(event.metadata)) {
+    metadata.eventMetadata = event.metadata;
+  }
+  return metadata;
+}
+
+function buildRuntimeCallContext(event: AgentEvent): RuntimeCallContext | undefined {
+  const metadata = isJsonObject(event.metadata) ? event.metadata : undefined;
+  const runtimeCall: RuntimeCallContext = {};
+
+  if (metadata) {
+    if (typeof metadata.callerAgent === 'string' && metadata.callerAgent.length > 0) {
+      runtimeCall.callerAgent = metadata.callerAgent;
+    }
+    if (typeof metadata.callerInstanceKey === 'string' && metadata.callerInstanceKey.length > 0) {
+      runtimeCall.callerInstanceKey = metadata.callerInstanceKey;
+    }
+    if (typeof metadata.callerTurnId === 'string' && metadata.callerTurnId.length > 0) {
+      runtimeCall.callerTurnId = metadata.callerTurnId;
+    }
+    if (typeof metadata.callSource === 'string' && metadata.callSource.length > 0) {
+      runtimeCall.callSource = metadata.callSource;
+    }
+
+    const stack = metadata.__goondanAgentCallStack;
+    if (Array.isArray(stack)) {
+      const callStack = stack
+        .filter((item): item is string => typeof item === 'string' && item.length > 0);
+      if (callStack.length > 0) {
+        runtimeCall.callStack = callStack;
+      }
+    }
+  }
+
+  if (event.replyTo) {
+    runtimeCall.replyTo = {
+      target: event.replyTo.target,
+      correlationId: event.replyTo.correlationId,
+    };
+  }
+
+  return Object.keys(runtimeCall).length > 0 ? runtimeCall : undefined;
 }
 
 function createConversationStateFromTurns(turns: ConversationTurn[]): ConversationStateImpl {

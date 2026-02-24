@@ -94,8 +94,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"  # ObjectRef: Kind/name
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You are a helpful assistant.
 
 ---
@@ -193,7 +193,7 @@ gdn run --foreground
 
 - 실제 추론 주체
 - `modelConfig.modelRef`로 Model 연결
-- `prompts.systemPrompt` 또는 `prompts.systemRef`로 시스템 프롬프트 정의
+- `prompt.system` 또는 `prompt.systemRef`로 시스템 프롬프트 정의
 
 ### 3.4 Swarm
 
@@ -221,8 +221,8 @@ metadata:
 spec:
   modelConfig:
     modelRef: "Model/default-model"
-  prompts:
-    systemPrompt: |
+  prompt:
+    system: |
       You review answers for correctness.
 ```
 
@@ -251,6 +251,7 @@ agents:
 **중요 원칙(Non-Intervention):**
 - Runtime 코어는 Tool 설명/스키마/모델 출력을 숨은 규칙으로 자동 보정하지 않는다.
 - 개입이 필요하면 Extension으로 명시적(opt-in) 정책을 선언해 적용한다.
+- 코어는 LLM 메시지 텍스트(특히 시스템 프롬프트)를 직접 조립/주입하지 않으며, 메시지 구성은 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call`을 읽는 Extension이 `emitMessageEvent`로 수행한다.
 
 ### 4.3 `@goondan/base` Tool 목록
 
@@ -288,6 +289,7 @@ spec:
 | `message-window` | 최근 N개 메시지만 남김 | 단순 token/메모리 절약 |
 | `message-compaction` | 초과 메시지 제거/요약 | 장기 대화 유지 + 맥락 보존 |
 | `logging` | Turn/Step/ToolCall 로그 | 디버깅·운영 추적 |
+| `context-message` | `ctx.runtime.*` 상태/이벤트를 세그먼트로 합성해 시스템 메시지 구성/주입 | 기본은 `agent.prompt.system`만 주입, 필요 시 `config.includeSwarmCatalog/includeInboundContext/includeCallContext/includeRouteSummary`로 확장 (`runtime_route`는 `call > inbound` 우선순위) |
 | `tool-search` | tool-search__search 도구 + tool catalog 필터 | 도구가 많아 호출 후보가 너무 많을 때 |
 | `inter-agent-response-format` | async request 응답 메시지를 LLM 친화 텍스트로 정규화 | 멀티 에이전트에서 `request(async=true)`를 적극 사용할 때 |
 

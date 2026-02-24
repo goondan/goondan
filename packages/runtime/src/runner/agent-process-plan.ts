@@ -374,35 +374,49 @@ function parseAgentModelParams(agent: RuntimeResource): { maxTokens: number; tem
   };
 }
 
-async function readAgentSystemPrompt(agent: RuntimeResource): Promise<string> {
+async function readAgentPromptMetadata(
+  agent: RuntimeResource,
+): Promise<AgentProcessPlan['agentMetadata']['prompt'] | undefined> {
   const spec = readSpecRecord(agent);
-  const prompts = spec.prompts;
-  if (!isJsonObject(prompts)) {
-    return '';
+  const prompt = spec.prompt;
+  if (!isJsonObject(prompt)) {
+    return undefined;
   }
 
-  const inlineSystem = prompts.system;
-  if (typeof inlineSystem === 'string') {
-    return inlineSystem;
+  const inlinePrompt = typeof prompt.system === 'string' && prompt.system.trim().length > 0
+    ? prompt.system
+    : undefined;
+  if (inlinePrompt) {
+    return {
+      system: inlinePrompt,
+    };
   }
 
-  const legacySystemPrompt = prompts.systemPrompt;
-  if (typeof legacySystemPrompt === 'string') {
-    return legacySystemPrompt;
+  const systemRef = typeof prompt.systemRef === 'string' && prompt.systemRef.trim().length > 0
+    ? prompt.systemRef.trim()
+    : undefined;
+  if (!systemRef) {
+    return undefined;
   }
 
-  const systemRef = prompts.systemRef;
-  if (typeof systemRef !== 'string' || systemRef.trim().length === 0) {
-    return '';
+  const bundleRoot = agent.__rootDir ? path.resolve(agent.__rootDir) : process.cwd();
+  const promptPath = path.resolve(bundleRoot, systemRef);
+  let resolvedSystem: string;
+  try {
+    resolvedSystem = await readFile(promptPath, 'utf8');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Agent/${agent.metadata.name} prompt.systemRef를 읽을 수 없습니다: ${promptPath} (${message})`,
+    );
   }
 
-  const rootDir = agent.__rootDir ? path.resolve(agent.__rootDir) : process.cwd();
-  const promptPath = path.resolve(rootDir, systemRef);
-  if (!existsSync(promptPath)) {
-    throw new Error(`Agent/${agent.metadata.name} system prompt 파일을 찾을 수 없습니다: ${promptPath}`);
+  if (resolvedSystem.trim().length === 0) {
+    return undefined;
   }
-
-  return await readFile(promptPath, 'utf8');
+  return {
+    system: resolvedSystem,
+  };
 }
 
 function parseSwarmMaxStepsPerTurn(swarmResource: RuntimeResource): number {
@@ -529,7 +543,14 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
     throw new Error(`Model/${modelResource.metadata.name} spec.provider/spec.model이 필요합니다.`);
   }
   const apiKey = resolveModelApiKey(modelSpec, process.env, modelResource.metadata.name);
-  const prompt = await readAgentSystemPrompt(agentResource);
+  const agentPrompt = await readAgentPromptMetadata(agentResource);
+  const agentMetadata: AgentProcessPlan['agentMetadata'] = {
+    name: args.agentName,
+    bundleRoot: agentResource.__rootDir ? path.resolve(agentResource.__rootDir) : process.cwd(),
+  };
+  if (agentPrompt !== undefined) {
+    agentMetadata.prompt = agentPrompt;
+  }
   const modelParams = parseAgentModelParams(agentResource);
 
   // Register tools
@@ -605,13 +626,13 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
     }
   }
 
-  return {
+  const plan: AgentProcessPlan = {
     name: args.agentName,
     swarmInstanceKey,
     modelName,
     provider,
     apiKey,
-    systemPrompt: prompt,
+    agentMetadata,
     maxTokens: modelParams.maxTokens,
     temperature: modelParams.temperature,
     maxSteps: maxStepsPerTurn,
@@ -622,4 +643,5 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
     entryAgent: entryAgentRef.name,
     availableAgents: allAgentRefs.map((a) => a.name),
   };
+  return plan;
 }

@@ -194,6 +194,11 @@ interface RuntimeExtensionSpec {
   config?: Record<string, unknown>;
 }
 
+interface AgentExtensionRef {
+  ref: ObjectRefLike;
+  config?: Record<string, unknown>;
+}
+
 interface RuntimeAgentPromptMetadata {
   system?: string;
 }
@@ -1684,7 +1689,7 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
-function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
+function parseAgentExtensionRefs(agent: RuntimeResource): AgentExtensionRef[] {
   const spec = readSpecRecord(agent);
   const extensionsValue = spec.extensions;
   if (extensionsValue === undefined) {
@@ -1695,16 +1700,45 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
     throw new Error(`Agent/${agent.metadata.name} spec.extensions 형식이 올바르지 않습니다.`);
   }
 
-  const refs: ObjectRefLike[] = [];
+  const refs: AgentExtensionRef[] = [];
   for (const item of extensionsValue) {
     const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
     }
-    refs.push(ref);
+
+    let config: Record<string, unknown> | undefined;
+    if (isJsonObject(item) && Object.prototype.hasOwnProperty.call(item, 'config')) {
+      const itemConfig = item.config;
+      if (itemConfig !== undefined) {
+        if (!isJsonObject(itemConfig)) {
+          throw new Error(`Agent/${agent.metadata.name} extension config 형식이 올바르지 않습니다.`);
+        }
+        config = itemConfig;
+      }
+    }
+
+    refs.push({
+      ref,
+      config,
+    });
   }
 
   return refs;
+}
+
+function mergeExtensionConfig(
+  extensionConfig: Record<string, unknown> | undefined,
+  agentConfig: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!isJsonObject(extensionConfig) && !isJsonObject(agentConfig)) {
+    return undefined;
+  }
+
+  return {
+    ...(isJsonObject(extensionConfig) ? extensionConfig : {}),
+    ...(isJsonObject(agentConfig) ? agentConfig : {}),
+  };
 }
 
 function parseAgentRequiredTools(agent: RuntimeResource): string[] {
@@ -2348,15 +2382,22 @@ async function buildRunnerPlan(args: RunnerArguments): Promise<RunnerPlan> {
     for (const extensionRef of extensionRefs) {
       const rawExtensionResource = selectReferencedResource(
         loaded.resources,
-        extensionRef,
+        extensionRef.ref,
         'Extension',
         agentResource.__package,
         selectedSwarm.packageName,
       );
       const extensionResource = toExtensionResource(rawExtensionResource);
+      const mergedConfig = mergeExtensionConfig(extensionResource.spec.config, extensionRef.config);
       const extensionEntryPath = await resolveEntryPath(extensionResource, 'entry');
       watchTargets.add(extensionEntryPath);
-      extensionResources.push(extensionResource);
+      extensionResources.push({
+        ...extensionResource,
+        spec: {
+          ...extensionResource.spec,
+          ...(mergedConfig ? { config: mergedConfig } : {}),
+        },
+      });
     }
 
     if (requiredToolNames.length > 0) {

@@ -21,6 +21,8 @@
 이유: 응답 수신 직후의 다음 Step에서 즉시 활용되도록 해야 하며, 다음 Turn까지 지연되면 시맨틱스가 깨진다.
 6. Agent `prompt.systemRef`는 runner(plan build)에서 해석해 `prompt.system`으로 materialize한 뒤 Extension 컨텍스트에 전달한다.
 이유: Extension이 파일 경로/해석 규칙을 알지 않게 해 코어와 확장 책임 경계를 유지하기 위해.
+7. ObjectRef 추출/정규화는 `src/config/object-ref.ts` 공통 유틸을 그대로 사용한다.
+이유: validate 경로와 runner 경로의 ref 해석 규칙이 달라지는 드리프트를 방지하기 위해.
 
 ## 불변 규칙
 
@@ -29,6 +31,7 @@
 - AgentProcess는 shutdown 프로토콜을 준수한다 (drain -> current turn 완료 대기 -> ack -> exit).
 - `request(async=true)`로 주입되는 메시지는 `metadata.__goondanInterAgentResponse`를 포함해야 한다.
 - Extension 컨텍스트(`ctx.runtime.agent.prompt`)에는 raw `systemRef`를 노출하지 않는다.
+- runner 내부에서 ObjectRef 파서를 별도 구현하지 않는다 (`extractObjectRefLike`/`normalizeObjectRef` 재사용).
 - 타입 단언(`as`, `as unknown as`) 없이 타입 가드로 처리한다.
 
 ## 참조

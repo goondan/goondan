@@ -4,13 +4,13 @@ import type {
   ValidationError,
 } from "../types.js";
 import { isJsonObject, isKnownKind } from "../types.js";
-import { isObjectRefLikeString, normalizeObjectRef } from "./object-ref.js";
+import { extractNormalizedObjectRef, normalizeObjectRef } from "./object-ref.js";
 
 const SUPPORTED_API_VERSION = "goondan.ai/v1";
 export const LOCAL_PACKAGE_SCOPE = "__local__";
 
 interface RefCandidate {
-  value: string | { kind: string; name: string; package?: string };
+  value: unknown;
   path: string;
 }
 
@@ -82,29 +82,33 @@ export function validateResources(resources: RuntimeResource[]): ValidationError
     const fallbackPackage = resourcePackageScope(resource);
 
     refs.forEach((candidate) => {
-      try {
-        const normalized =
-          typeof candidate.value === "string"
-            ? normalizeObjectRef(candidate.value)
-            : normalizeObjectRef(candidate.value);
-
-        const targetPackage = normalized.package ?? fallbackPackage;
-        const identity = toScopedResourceIdentity(targetPackage, normalized.kind, normalized.name);
-        if (!existing.has(identity)) {
-          errors.push({
-            code: "E_CONFIG_REF_NOT_FOUND",
-            message: `${normalized.kind}/${normalized.name} 참조를 찾을 수 없습니다. (package=${targetPackage})`,
-            path: candidate.path,
-            suggestion: "kind/name 또는 package 범위를 확인하세요.",
-          });
+      const normalized = extractNormalizedObjectRef(candidate.value);
+      if (!normalized) {
+        let message = "Invalid ObjectRef";
+        if (typeof candidate.value === "string") {
+          try {
+            normalizeObjectRef(candidate.value);
+          } catch (error) {
+            message = error instanceof Error ? error.message : "Invalid ObjectRef";
+          }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Invalid ObjectRef";
         errors.push({
           code: "E_CONFIG_INVALID_REF",
           message,
           path: candidate.path,
           suggestion: "ObjectRef는 Kind/name 또는 { kind, name } 형식이어야 합니다.",
+        });
+        return;
+      }
+
+      const targetPackage = normalized.package ?? fallbackPackage;
+      const identity = toScopedResourceIdentity(targetPackage, normalized.kind, normalized.name);
+      if (!existing.has(identity)) {
+        errors.push({
+          code: "E_CONFIG_REF_NOT_FOUND",
+          message: `${normalized.kind}/${normalized.name} 참조를 찾을 수 없습니다. (package=${targetPackage})`,
+          path: candidate.path,
+          suggestion: "kind/name 또는 package 범위를 확인하세요.",
         });
       }
     });
@@ -431,51 +435,7 @@ function validatePackageDocumentPlacement(resources: RuntimeResource[]): Validat
 }
 
 function hasObjectRefLike(value: unknown): boolean {
-  if (typeof value === "string") {
-    return isObjectRefLikeString(value);
-  }
-
-  if (!isJsonObject(value)) {
-    return false;
-  }
-
-  return typeof value.kind === "string" && typeof value.name === "string";
-}
-
-function extractNormalizedObjectRef(value: unknown): { kind: string; name: string; package?: string } | null {
-  if (typeof value === "string") {
-    if (!isObjectRefLikeString(value)) {
-      return null;
-    }
-
-    try {
-      return normalizeObjectRef(value);
-    } catch {
-      return null;
-    }
-  }
-
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  if ("ref" in value) {
-    return extractNormalizedObjectRef(value.ref);
-  }
-
-  if (typeof value.kind === "string" && typeof value.name === "string") {
-    try {
-      return normalizeObjectRef({
-        kind: value.kind,
-        name: value.name,
-        package: typeof value.package === "string" ? value.package : undefined,
-      });
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
+  return extractNormalizedObjectRef(value) !== null;
 }
 
 function isSameAgentRef(
@@ -504,7 +464,7 @@ function collectObjectRefCandidates(value: unknown, path: string, parentKey = ""
     value.forEach((item, index) => {
       const itemPath = `${path}[${index}]`;
       if (parentKey === "tools" || parentKey === "extensions" || parentKey === "agents") {
-        if (typeof item === "string" && isObjectRefLikeString(item)) {
+        if (extractNormalizedObjectRef(item)) {
           refs.push({ value: item, path: itemPath });
           return;
         }
@@ -524,29 +484,15 @@ function collectObjectRefCandidates(value: unknown, path: string, parentKey = ""
     const childPath = `${path}.${key}`;
 
     if (key === "ref") {
-      if (typeof child === "string" && isObjectRefLikeString(child)) {
+      if (extractNormalizedObjectRef(child)) {
         refs.push({ value: child, path: childPath });
-      } else if (isJsonObject(child) && typeof child.kind === "string" && typeof child.name === "string") {
-        const objectRef = {
-          kind: child.kind,
-          name: child.name,
-          package: typeof child.package === "string" ? child.package : undefined,
-        };
-        refs.push({ value: objectRef, path: childPath });
       }
       continue;
     }
 
     if (key.endsWith("Ref")) {
-      if (typeof child === "string" && isObjectRefLikeString(child)) {
+      if (extractNormalizedObjectRef(child)) {
         refs.push({ value: child, path: childPath });
-      } else if (isJsonObject(child) && typeof child.kind === "string" && typeof child.name === "string") {
-        const objectRef = {
-          kind: child.kind,
-          name: child.name,
-          package: typeof child.package === "string" ? child.package : undefined,
-        };
-        refs.push({ value: objectRef, path: childPath });
       }
       continue;
     }

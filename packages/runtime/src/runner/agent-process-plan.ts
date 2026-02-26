@@ -51,14 +51,44 @@ function readNumberValue(record: Record<string, unknown>, key: string): number |
   return undefined;
 }
 
-function extractRefLike(value: unknown): ObjectRefLike | undefined {
-  if (typeof value === 'string') return value;
-  if (isJsonObject(value)) {
-    if (typeof value.ref === 'string') return value.ref;
-    if (typeof value.kind === 'string' && typeof value.name === 'string') {
-      return { kind: String(value.kind), name: String(value.name), package: typeof value.package === 'string' ? value.package : undefined };
-    }
+function isObjectRefLike(value: unknown): value is ObjectRefLike {
+  if (typeof value === 'string') {
+    return true;
   }
+
+  if (!isJsonObject(value)) {
+    return false;
+  }
+
+  if (typeof value.kind !== 'string' || typeof value.name !== 'string') {
+    return false;
+  }
+
+  if ('package' in value && value.package !== undefined && typeof value.package !== 'string') {
+    return false;
+  }
+
+  if ('apiVersion' in value && value.apiVersion !== undefined && typeof value.apiVersion !== 'string') {
+    return false;
+  }
+
+  return true;
+}
+
+function extractRefLike(value: unknown): ObjectRefLike | undefined {
+  if (isObjectRefLike(value)) {
+    return value;
+  }
+
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+
+  const ref = value.ref;
+  if (isObjectRefLike(ref)) {
+    return ref;
+  }
+
   return undefined;
 }
 
@@ -235,13 +265,20 @@ interface SwarmAgentRef {
 }
 
 function parseSwarmAgentRef(value: unknown): SwarmAgentRef {
-  if (typeof value === 'string') return { name: value };
-  if (isJsonObject(value)) {
-    const name = typeof value.name === 'string' ? value.name : '';
-    const packageName = typeof value.package === 'string' ? value.package : undefined;
-    return { name, packageName };
+  const ref = extractRefLike(value);
+  if (!ref) {
+    throw new Error('Swarm Agent ref 형식이 올바르지 않습니다.');
   }
-  return { name: '' };
+
+  const normalized = normalizeObjectRef(ref);
+  if (normalized.kind !== 'Agent') {
+    throw new Error(`Swarm agents는 Agent를 가리켜야 합니다: ${normalized.kind}/${normalized.name}`);
+  }
+
+  return {
+    name: normalized.name,
+    packageName: normalized.package,
+  };
 }
 
 interface RuntimeExtensionSpec {
@@ -267,11 +304,21 @@ function toExtensionResource(resource: RuntimeResource): RuntimeResource<Runtime
 function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
   const spec = readSpecRecord(agent);
   const tools = spec.tools;
-  if (!Array.isArray(tools)) return [];
+  if (tools === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(tools)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.tools 형식이 올바르지 않습니다.`);
+  }
+
   const refs: ObjectRefLike[] = [];
   for (const item of tools) {
     const ref = extractRefLike(item);
-    if (ref) refs.push(ref);
+    if (!ref) {
+      throw new Error(`Agent/${agent.metadata.name} tool ref 형식이 올바르지 않습니다.`);
+    }
+    refs.push(ref);
   }
   return refs;
 }
@@ -279,11 +326,21 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
 function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
   const spec = readSpecRecord(agent);
   const extensions = spec.extensions;
-  if (!Array.isArray(extensions)) return [];
+  if (extensions === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(extensions)) {
+    throw new Error(`Agent/${agent.metadata.name} spec.extensions 형식이 올바르지 않습니다.`);
+  }
+
   const refs: ObjectRefLike[] = [];
   for (const item of extensions) {
     const ref = extractRefLike(item);
-    if (ref) refs.push(ref);
+    if (!ref) {
+      throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
+    }
+    refs.push(ref);
   }
   return refs;
 }
@@ -328,16 +385,6 @@ function mergeRequiredToolsGuardConfig(
 
   merged.requiredTools = [...new Set([...configuredRequiredTools, ...requiredToolNames])];
   return merged;
-}
-
-
-function isObjectRefLike(value: unknown): value is ObjectRefLike {
-  if (typeof value === 'string') return true;
-  if (isJsonObject(value)) {
-    if (typeof value.ref === 'string') return true;
-    if (typeof value.kind === 'string' && typeof value.name === 'string') return true;
-  }
-  return false;
 }
 
 function parseAgentModelRef(agent: RuntimeResource): ObjectRefLike {

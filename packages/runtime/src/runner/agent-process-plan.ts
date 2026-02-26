@@ -246,6 +246,11 @@ interface RuntimeExtensionSpec {
   config?: Record<string, unknown>;
 }
 
+interface AgentExtensionRef {
+  ref: ObjectRefLike;
+  config?: Record<string, unknown>;
+}
+
 function toExtensionResource(resource: RuntimeResource): RuntimeResource<RuntimeExtensionSpec> {
   const spec = readSpecRecord(resource);
   const entry = readStringValue(spec, 'entry');
@@ -283,7 +288,7 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
   return refs;
 }
 
-function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
+function parseAgentExtensionRefs(agent: RuntimeResource): AgentExtensionRef[] {
   const spec = readSpecRecord(agent);
   const extensions = spec.extensions;
   if (extensions === undefined) {
@@ -294,15 +299,44 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
     throw new Error(`Agent/${agent.metadata.name} spec.extensions 형식이 올바르지 않습니다.`);
   }
 
-  const refs: ObjectRefLike[] = [];
+  const refs: AgentExtensionRef[] = [];
   for (const item of extensions) {
     const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
     }
-    refs.push(ref);
+
+    let config: Record<string, unknown> | undefined;
+    if (isJsonObject(item) && Object.prototype.hasOwnProperty.call(item, 'config')) {
+      const itemConfig = item.config;
+      if (itemConfig !== undefined) {
+        if (!isJsonObject(itemConfig)) {
+          throw new Error(`Agent/${agent.metadata.name} extension config 형식이 올바르지 않습니다.`);
+        }
+        config = itemConfig;
+      }
+    }
+
+    refs.push({
+      ref,
+      config,
+    });
   }
   return refs;
+}
+
+function mergeExtensionConfig(
+  extensionConfig: Record<string, unknown> | undefined,
+  agentConfig: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!isJsonObject(extensionConfig) && !isJsonObject(agentConfig)) {
+    return undefined;
+  }
+
+  return {
+    ...(isJsonObject(extensionConfig) ? extensionConfig : {}),
+    ...(isJsonObject(agentConfig) ? agentConfig : {}),
+  };
 }
 
 function parseAgentRequiredTools(agent: RuntimeResource): string[] {
@@ -588,9 +622,17 @@ export async function buildAgentProcessPlan(args: AgentRunnerArguments): Promise
   const extensionResources: RuntimeResource<RuntimeExtensionSpec>[] = [];
   for (const extRef of extensionRefs) {
     const rawExtResource = selectReferencedResource(
-      loaded.resources, extRef, 'Extension', agentResource.__package,
+      loaded.resources, extRef.ref, 'Extension', agentResource.__package,
     );
-    extensionResources.push(toExtensionResource(rawExtResource));
+    const extensionResource = toExtensionResource(rawExtResource);
+    const mergedConfig = mergeExtensionConfig(extensionResource.spec.config, extRef.config);
+    extensionResources.push({
+      ...extensionResource,
+      spec: {
+        ...extensionResource.spec,
+        ...(mergedConfig ? { config: mergedConfig } : {}),
+      },
+    });
   }
 
   const requiredToolNames = parseAgentRequiredTools(agentResource);

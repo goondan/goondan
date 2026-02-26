@@ -230,6 +230,109 @@ describe('buildAgentProcessPlan requiredTools', () => {
     await expect(buildAgentProcessPlan(createPlanArgs(root))).rejects.toThrow('spec.requiredTools(telegram__send)');
   });
 
+  it('applies Agent.spec.extensions[].config over Extension.spec.config', async () => {
+    const root = await createTempBundleRoot();
+    await mkdir(path.join(root, 'tools'), { recursive: true });
+    await mkdir(path.join(root, 'extensions'), { recursive: true });
+
+    await writeFile(
+      path.join(root, 'tools', 'slack.ts'),
+      [
+        'export const handlers = {',
+        '  async send() {',
+        "    return { ok: true };",
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      path.join(root, 'extensions', 'required-tools-guard.ts'),
+      'export function register() {}\n',
+      'utf8',
+    );
+    await writeFile(
+      path.join(root, 'goondan.yaml'),
+      [
+        'apiVersion: goondan.ai/v1',
+        'kind: Package',
+        'metadata:',
+        '  name: "@samples/test-extension-config-override"',
+        'spec:',
+        '  version: "0.1.0"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Model',
+        'metadata:',
+        '  name: fast-model',
+        'spec:',
+        '  provider: mock',
+        '  model: mock-model',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Tool',
+        'metadata:',
+        '  name: slack',
+        'spec:',
+        '  entry: "./tools/slack.ts"',
+        '  exports:',
+        '    - name: send',
+        '      description: "Send to Slack"',
+        '      parameters:',
+        '        type: object',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Extension',
+        'metadata:',
+        '  name: required-tools-guard',
+        'spec:',
+        '  entry: "./extensions/required-tools-guard.ts"',
+        '  config:',
+        '    requiredTools: []',
+        '    errorMessage: ""',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Agent',
+        'metadata:',
+        '  name: coordinator',
+        'spec:',
+        '  modelConfig:',
+        '    modelRef: "Model/fast-model"',
+        '  prompt:',
+        '    system: "You are coordinator"',
+        '  tools:',
+        '    - ref: "Tool/slack"',
+        '  extensions:',
+        '    - ref: "Extension/required-tools-guard"',
+        '      config:',
+        '        requiredTools:',
+        '          - "slack__send"',
+        '        errorMessage: "Use slack send"',
+        '---',
+        'apiVersion: goondan.ai/v1',
+        'kind: Swarm',
+        'metadata:',
+        '  name: brain',
+        'spec:',
+        '  entryAgent: "Agent/coordinator"',
+        '  agents:',
+        '    - ref: "Agent/coordinator"',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const plan = await buildAgentProcessPlan(createPlanArgs(root));
+    const guard = plan.extensionResources.find((resource) => resource.metadata.name === 'required-tools-guard');
+
+    expect(guard).toBeDefined();
+    expect(guard?.spec.config).toEqual({
+      requiredTools: ['slack__send'],
+      errorMessage: 'Use slack send',
+    });
+  });
+
   it('parses nested ref objects for swarm/tools/extensions and wires required-tools-guard', async () => {
     const root = await createTempBundleRoot();
     await mkdir(path.join(root, 'tools'), { recursive: true });

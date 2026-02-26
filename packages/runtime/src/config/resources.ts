@@ -14,6 +14,8 @@ interface RefCandidate {
   path: string;
 }
 
+const NON_RESOURCE_REF_KEYS = new Set(["secretRef", "systemRef"]);
+
 function resourcePackageScope(resource: RuntimeResource): string {
   return resource.__package ?? LOCAL_PACKAGE_SCOPE;
 }
@@ -482,6 +484,10 @@ function collectObjectRefCandidates(value: unknown, path: string, parentKey = ""
   const record: Record<string, unknown> = value;
   for (const [key, child] of Object.entries(record)) {
     const childPath = `${path}.${key}`;
+
+    if (NON_RESOURCE_REF_KEYS.has(key)) {
+      continue;
+    }
 
     if (key === "ref") {
       if (extractNormalizedObjectRef(child)) {

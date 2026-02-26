@@ -28,6 +28,8 @@
 이유: 정책 변화는 Extension에서 흡수하고, Runtime은 중립적인 실행/연계 기반에 집중하기 위해.
 9. Agent `prompt.systemRef` 해석은 Runtime이 담당하고, Extension에는 materialize된 `ctx.runtime.agent.prompt.system`만 전달한다.
 이유: Extension이 파일 시스템/리소스 해석 규칙을 중복 소유하지 않도록 하여 코어-확장 책임 경계를 고정하기 위해.
+10. ObjectRef 해석 규칙은 `src/config/object-ref.ts`를 단일 기준(SSOT)으로 두고, validate/runtime plan/build 경로가 동일 유틸을 사용한다.
+이유: 검증 경로와 실행 경로의 ref 해석 드리프트를 방지하기 위해.
 
 ## 불변 규칙
 
@@ -42,6 +44,7 @@
 - Runtime 코어는 시스템 프롬프트 텍스트를 직접 조립·병합·주입하지 않는다.
 - 프롬프트 조립/메시지 생성은 Extension 책임이며, Runtime은 `ctx.runtime.agent`/`ctx.runtime.swarm`/`ctx.runtime.inbound`/`ctx.runtime.call` 실행 컨텍스트 전달 외에 텍스트 정책을 소유하지 않는다.
 - Runtime은 `prompt.systemRef`를 load/materialize한 결과(`ctx.runtime.agent.prompt.system`)만 Extension에 노출하며, raw ref 값을 컨텍스트로 전달하지 않는다.
+- ObjectRef 파싱/정규화 로직을 `runner` 등 상위 계층에서 재구현하지 않는다. (`src/config/object-ref.ts` 재사용)
 
 ## 참조
 

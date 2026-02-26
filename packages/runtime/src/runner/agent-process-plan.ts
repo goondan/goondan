@@ -13,6 +13,7 @@ import { readFile } from 'node:fs/promises';
 import {
   BundleLoader,
   buildToolName,
+  extractObjectRefLike,
   isJsonObject,
   normalizeObjectRef,
   ToolRegistryImpl,
@@ -48,47 +49,6 @@ function readStringValue(record: Record<string, unknown>, key: string): string |
 function readNumberValue(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  return undefined;
-}
-
-function isObjectRefLike(value: unknown): value is ObjectRefLike {
-  if (typeof value === 'string') {
-    return true;
-  }
-
-  if (!isJsonObject(value)) {
-    return false;
-  }
-
-  if (typeof value.kind !== 'string' || typeof value.name !== 'string') {
-    return false;
-  }
-
-  if ('package' in value && value.package !== undefined && typeof value.package !== 'string') {
-    return false;
-  }
-
-  if ('apiVersion' in value && value.apiVersion !== undefined && typeof value.apiVersion !== 'string') {
-    return false;
-  }
-
-  return true;
-}
-
-function extractRefLike(value: unknown): ObjectRefLike | undefined {
-  if (isObjectRefLike(value)) {
-    return value;
-  }
-
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-
-  const ref = value.ref;
-  if (isObjectRefLike(ref)) {
-    return ref;
-  }
-
   return undefined;
 }
 
@@ -265,7 +225,7 @@ interface SwarmAgentRef {
 }
 
 function parseSwarmAgentRef(value: unknown): SwarmAgentRef {
-  const ref = extractRefLike(value);
+  const ref = extractObjectRefLike(value);
   if (!ref) {
     throw new Error('Swarm Agent ref 형식이 올바르지 않습니다.');
   }
@@ -314,7 +274,7 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
 
   const refs: ObjectRefLike[] = [];
   for (const item of tools) {
-    const ref = extractRefLike(item);
+    const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} tool ref 형식이 올바르지 않습니다.`);
     }
@@ -336,7 +296,7 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
 
   const refs: ObjectRefLike[] = [];
   for (const item of extensions) {
-    const ref = extractRefLike(item);
+    const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
     }
@@ -390,11 +350,16 @@ function mergeRequiredToolsGuardConfig(
 function parseAgentModelRef(agent: RuntimeResource): ObjectRefLike {
   const spec = readSpecRecord(agent);
   const modelConfig = spec.modelConfig;
-  if (!isJsonObject(modelConfig) || !isObjectRefLike(modelConfig.modelRef)) {
+  if (!isJsonObject(modelConfig)) {
     throw new Error(`Agent/${agent.metadata.name} spec.modelConfig.modelRef 형식이 올바르지 않습니다.`);
   }
 
-  return modelConfig.modelRef;
+  const modelRef = extractObjectRefLike(modelConfig.modelRef);
+  if (!modelRef) {
+    throw new Error(`Agent/${agent.metadata.name} spec.modelConfig.modelRef 형식이 올바르지 않습니다.`);
+  }
+
+  return modelRef;
 }
 
 function parseAgentModelParams(agent: RuntimeResource): { maxTokens: number; temperature: number } {

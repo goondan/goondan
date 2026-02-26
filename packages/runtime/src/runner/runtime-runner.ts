@@ -31,6 +31,7 @@ import {
   STEP_STARTED_LLM_INPUT_MESSAGES_METADATA_KEY,
   buildToolName,
   createMinimalToolContext,
+  extractObjectRefLike,
   formatToolArgumentValidationIssues,
   isJsonObject,
   loadExtensions,
@@ -817,47 +818,6 @@ function formatValidationErrors(errors: ValidationError[]): string {
     .join('\n');
 }
 
-function isObjectRefLike(value: unknown): value is ObjectRefLike {
-  if (typeof value === 'string') {
-    return true;
-  }
-
-  if (!isJsonObject(value)) {
-    return false;
-  }
-
-  if (typeof value.kind !== 'string' || typeof value.name !== 'string') {
-    return false;
-  }
-
-  if ('package' in value && value.package !== undefined && typeof value.package !== 'string') {
-    return false;
-  }
-
-  if ('apiVersion' in value && value.apiVersion !== undefined && typeof value.apiVersion !== 'string') {
-    return false;
-  }
-
-  return true;
-}
-
-function extractRefLike(value: unknown): ObjectRefLike | undefined {
-  if (isObjectRefLike(value)) {
-    return value;
-  }
-
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-
-  const ref = value.ref;
-  if (isObjectRefLike(ref)) {
-    return ref;
-  }
-
-  return undefined;
-}
-
 function resolveConnectorCandidates(baseDir: string, entry: string): string[] {
   const normalizedEntry = entry.startsWith('./') ? entry.slice(2) : entry;
   const directPath = path.resolve(baseDir, normalizedEntry);
@@ -963,7 +923,7 @@ function selectReferencedResource(
 }
 
 function parseSwarmAgentRef(value: unknown): SwarmAgentRef {
-  const ref = extractRefLike(value);
+  const ref = extractObjectRefLike(value);
   if (!ref) {
     throw new Error('Swarm Agent ref 형식이 올바르지 않습니다.');
   }
@@ -1056,11 +1016,12 @@ function hasMatchingSwarm(resource: RuntimeResource, selectedSwarm: SelectedSwar
     return true;
   }
 
-  if (!isObjectRefLike(swarmRef)) {
+  const normalizedRef = extractObjectRefLike(swarmRef);
+  if (!normalizedRef) {
     throw new Error(`Connection/${resource.metadata.name} spec.swarmRef 형식이 올바르지 않습니다.`);
   }
 
-  const normalized = normalizeObjectRef(swarmRef);
+  const normalized = normalizeObjectRef(normalizedRef);
   if (normalized.kind !== 'Swarm') {
     throw new Error(`Connection/${resource.metadata.name} spec.swarmRef는 Swarm을 가리켜야 합니다.`);
   }
@@ -1352,7 +1313,7 @@ function parseIngressRouteRules(
 
     let agent: SwarmAgentRef | undefined;
     if (routeValue.agentRef !== undefined) {
-      const agentRef = extractRefLike(routeValue.agentRef);
+      const agentRef = extractObjectRefLike(routeValue.agentRef);
       if (!agentRef) {
         throw new Error(`Connection/${connection.metadata.name} ingress.route.agentRef 형식이 올바르지 않습니다.`);
       }
@@ -1712,7 +1673,7 @@ function parseAgentToolRefs(agent: RuntimeResource): ObjectRefLike[] {
 
   const refs: ObjectRefLike[] = [];
   for (const item of toolsValue) {
-    const ref = extractRefLike(item);
+    const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} tool ref 형식이 올바르지 않습니다.`);
     }
@@ -1736,7 +1697,7 @@ function parseAgentExtensionRefs(agent: RuntimeResource): ObjectRefLike[] {
 
   const refs: ObjectRefLike[] = [];
   for (const item of extensionsValue) {
-    const ref = extractRefLike(item);
+    const ref = extractObjectRefLike(item);
     if (!ref) {
       throw new Error(`Agent/${agent.metadata.name} extension ref 형식이 올바르지 않습니다.`);
     }
@@ -1879,21 +1840,27 @@ async function registerToolResource(
 function parseConnectionConnectorRef(connection: RuntimeResource): ObjectRefLike {
   const spec = readSpecRecord(connection);
   const connectorRef = spec.connectorRef;
-  if (!isObjectRefLike(connectorRef)) {
+  const normalizedRef = extractObjectRefLike(connectorRef);
+  if (!normalizedRef) {
     throw new Error(`Connection/${connection.metadata.name} spec.connectorRef 형식이 올바르지 않습니다.`);
   }
 
-  return connectorRef;
+  return normalizedRef;
 }
 
 function parseAgentModelRef(agent: RuntimeResource): ObjectRefLike {
   const spec = readSpecRecord(agent);
   const modelConfig = spec.modelConfig;
-  if (!isJsonObject(modelConfig) || !isObjectRefLike(modelConfig.modelRef)) {
+  if (!isJsonObject(modelConfig)) {
     throw new Error(`Agent/${agent.metadata.name} spec.modelConfig.modelRef 형식이 올바르지 않습니다.`);
   }
 
-  return modelConfig.modelRef;
+  const modelRef = extractObjectRefLike(modelConfig.modelRef);
+  if (!modelRef) {
+    throw new Error(`Agent/${agent.metadata.name} spec.modelConfig.modelRef 형식이 올바르지 않습니다.`);
+  }
+
+  return modelRef;
 }
 
 function parseAgentModelParams(agent: RuntimeResource): { maxTokens: number; temperature: number } {

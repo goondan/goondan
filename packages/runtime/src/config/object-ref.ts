@@ -36,6 +36,43 @@ export function normalizeObjectRef(ref: ObjectRefLike): ObjectRef {
   };
 }
 
+export function extractObjectRefLike(value: unknown): ObjectRefLike | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isObjectRefTypeGuard(value)) {
+    return value;
+  }
+
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+
+  const ref = value.ref;
+  if (typeof ref === "string") {
+    return ref;
+  }
+  if (isObjectRefTypeGuard(ref)) {
+    return ref;
+  }
+
+  return undefined;
+}
+
+export function extractNormalizedObjectRef(value: unknown): ObjectRef | null {
+  const ref = extractObjectRefLike(value);
+  if (!ref) {
+    return null;
+  }
+
+  try {
+    return normalizeObjectRef(ref);
+  } catch {
+    return null;
+  }
+}
+
 export function objectRefToString(ref: ObjectRefLike): string {
   const normalized = normalizeObjectRef(ref);
   return `${normalized.kind}/${normalized.name}`;

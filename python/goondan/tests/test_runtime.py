@@ -390,6 +390,7 @@ async def test_recovery_reregisters_approval_and_validated_patch_preserves_origi
 @pytest.mark.asyncio
 async def test_surface_start_agent_follows_multistep_routes_and_carries_conversation(tmp_path: Path):
     seen = {}
+    routed = []
 
     def model(name, text):
         async def run(value):
@@ -401,13 +402,48 @@ async def test_surface_start_agent_follows_multistep_routes_and_carries_conversa
         "version": 1, "name": "routes", "__root__": str(tmp_path),
         "agents": {name: {"model": name, "input": "asis"} for name in ("slack", "api", "finish")},
         "flow": {"in": "slack", "routes": [
-            {"from": "api", "to": "finish", "carry": {"message": "output", "conversation": "asis"}},
+            {"from": "api", "to": "finish", "when": {"fn": "has_output"}, "carry": {"message": "output", "conversation": "asis"}},
             {"from": "finish", "to": "out"},
         ]},
     }
-    runtime = create_runtime(config=config, models={"slack": model("slack", "unused"), "api": model("api", "handoff"), "finish": model("finish", "done")})
+    def has_output(value):
+        routed.append(value)
+        return True
+    runtime = create_runtime(config=config, models={"slack": model("slack", "unused"), "api": model("api", "handoff"), "finish": model("finish", "done")}, functions={"has_output": has_output})
 
     result = await runtime.run_turn("request", conversation_id="route", start_agent="api")
 
     assert result[0]["output"]["content"][0]["text"] == "done"
     assert [message["content"][0]["text"] for message in seen["finish"]] == ["request", "handoff", "handoff"]
+    assert routed[0]["output"] == "handoff"
+
+
+@pytest.mark.asyncio
+async def test_declared_routes_require_a_match(tmp_path: Path):
+    async def model(value):
+        return {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}, "finishReason": "stop"}
+    for routes in ([], [{"from": "other", "to": "out"}]):
+        runtime = create_runtime(config={"version": 1, "agents": {"main": {"model": "m"}, "other": {"model": "m"}}, "flow": {"in": "main", "routes": routes}}, models={"m": model})
+        with pytest.raises(Exception, match="no flow route matched from main"):
+            await runtime.run_turn("request", conversation_id=f"route-{len(routes)}")
+
+
+def test_variant_names_and_shared_template_syntax(tmp_path: Path):
+    (tmp_path / "variants").mkdir()
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "goondan.yaml").write_text("agents: {main: {model: m}}\n", encoding="utf-8")
+    (tmp_path / "variants" / "changed.yaml").write_text("name: changed\n", encoding="utf-8")
+    assert load_config(tmp_path, variants=["changed"])["name"] == "changed"
+    with pytest.raises(Exception, match="changed.yaml.yaml"):
+        load_config(tmp_path, variants=["changed.yaml"])
+
+    tail = tmp_path / "templates" / "tail.md"
+    tail.write_text("{{ items | join(',') | trim }}", encoding="utf-8")
+    main = tmp_path / "templates" / "main.md"
+    main.write_text(f"{{% if value is defined %}}{{{{ value | default('x') | upper }}}}{{% endif %}}{{% include '{tail}' %}}", encoding="utf-8")
+    create_runtime(config={"agents": {"main": {"model": "m", "systemMessage": {"template": str(main)}, "params": {"value": "ok", "items": ["a", "b"]}}}}, models={"m": lambda value: None})
+
+    unsupported = tmp_path / "templates" / "unsupported.md"
+    unsupported.write_text("{% set value = 1 %}", encoding="utf-8")
+    with pytest.raises(Exception, match="unsupported Jinja syntax"):
+        create_runtime(config={"agents": {"main": {"model": "m", "systemMessage": {"template": str(unsupported)}}}}, models={"m": lambda value: None})

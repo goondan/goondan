@@ -20,6 +20,6 @@
 
 ## 참조
 
-- `docs/specs/core-runtime.md`
+- `spec/goondan.md`
 - `spec/goondan.schema.json`
 - `fixtures/conformance`

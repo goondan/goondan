@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRuntime, defineExtension, MemoryConversationStore, validateConfig, type ModelResult } from "../src/index.ts";
+import { createRuntime, defineExtension, MemoryConversationStore, TemplateRenderer, validateConfig, type ModelResult } from "../src/index.ts";
 
 describe("configuration and execution contracts", () => {
   it("resolves inheritance, overrides and individual removals without mutating the parent", () => {
@@ -15,6 +15,20 @@ describe("configuration and execution contracts", () => {
     expect(validateConfig(config)).toEqual(config);
     expect(() => validateConfig({ agents: { a: { inherit: "b" }, b: { inherit: "a" } } })).toThrow("Circular");
     expect(() => validateConfig({ agents: { a: { inherit: "missing" } } })).toThrow("Unknown inherited");
+    expect(() => validateConfig({ agents: { a: { model: "m", hooks: { output: [{ fn: "later", mode: "async" }] } } } })).toThrow("only valid for conversation");
+    expect(validateConfig({ agents: { a: { model: "m", hooks: { conversation: [{ fn: "later", mode: "async" }] } } } }).agents.a?.hooks?.conversation).toHaveLength(1);
+  });
+
+  it("accepts only the shared template filters, defined test and static includes", () => {
+    const renderer = new TemplateRenderer(new Map([
+      ["main.md", "{% if value is defined %}{{ value | default('x') | upper }}{% endif %}{% include 'tail.md' %}"],
+      ["tail.md", "{{ items | join(',') | trim }}"],
+    ]));
+    expect(() => renderer.validate()).not.toThrow();
+    expect(renderer.render("main.md", { value: "ok", items: ["a", "b"] })).toBe("OKa,b");
+    expect(() => new TemplateRenderer(new Map([["bad.md", "{{ value | safe }}"]])).validate()).toThrow("Unsupported filter safe");
+    expect(() => new TemplateRenderer(new Map([["bad.md", "{% include target %}"]])).validate()).toThrow("Dynamic include");
+    expect(() => new TemplateRenderer(new Map([["bad.md", "{% set value = 1 %}"]])).validate()).toThrow("Unsupported Jinja syntax");
   });
 
   it("connects a serial flow with only the last output", async () => {

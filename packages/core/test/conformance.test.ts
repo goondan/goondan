@@ -42,10 +42,10 @@ describe("Goondan runtime", () => {
     expect(() => validateConfig(base)).toThrow("redundant");
   });
   it("starts a routed flow at a surface agent and carries conversation across every route", async () => {
-    const config: LoadedConfig = { directory: ".", templates: new Map<string, string>(), config: { version: 1, name: "routes", agents: { slack: { model: "slack", input: "asis" }, api: { model: "api", input: "asis" }, finish: { model: "finish", input: "asis" } }, flow: { in: "slack", routes: [{ from: "api", to: "finish", carry: { message: "output", conversation: "asis" } }, { from: "finish", to: "out" }] } } };
+    const config: LoadedConfig = { directory: ".", templates: new Map<string, string>(), config: { version: 1, name: "routes", agents: { slack: { model: "slack", input: "asis" }, api: { model: "api", input: "asis" }, finish: { model: "finish", input: "asis" } }, flow: { in: "slack", routes: [{ from: "api", to: "finish", when: { fn: "hasOutput" }, carry: { message: "output", conversation: "asis" } }, { from: "finish", to: "out" }] } } };
     const seen: Record<string, ModelInput> = {};
     const model = (name: string, output: string) => ({ async generate(input: ModelInput): Promise<ModelResult> { seen[name] = input; return { message: { id: name, role: "assistant", source: "model", content: [{ type: "text", text: output }] }, finishReason: "stop" }; } });
-    const runtime = createRuntime(config, { models: { slack: model("slack", "unused"), api: model("api", "handoff"), finish: model("finish", "done") } });
+    const runtime = createRuntime(config, { models: { slack: model("slack", "unused"), api: model("api", "handoff"), finish: model("finish", "done") }, functions: { hasOutput(value) { expect(value).toMatchObject({ output: "handoff", input: "request" }); return true; } } });
 
     const result = await runtime.runTurn("request", { conversationId: "surface", startAgent: "api" });
 

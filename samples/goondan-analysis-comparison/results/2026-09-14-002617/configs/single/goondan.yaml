@@ -1,6 +1,0 @@
-resources:
-  - ../common
-version: 1
-name: goondan-analysis-single
-flow:
-  in: analyst

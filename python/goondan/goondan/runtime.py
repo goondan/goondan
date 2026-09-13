@@ -193,6 +193,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
         if "config" not in agent and "model" not in agent:
             errors.append(f"agents.{agent_name}.model is required")
         for tool in agent.get("tools", []):
+            if isinstance(tool, Mapping) and (("tool" in tool) == ("agent" in tool)): errors.append("Tool entries must specify exactly one of tool or agent")
             if isinstance(tool, Mapping) and "endsTurn" in tool: errors.append("Tool execution policy belongs in a toolResult hook")
         configured_extensions = agent.get("extensions", {}) or {}
         if not isinstance(configured_extensions, Mapping):
@@ -624,7 +625,7 @@ class Runtime:
             if condition and not await _await(self.functions[condition["fn"]](seen)):
                 self.records.append({"value": value_name, "hook": name, "status": "skipped"}); await self._emit(session, "hook.skipped", {"value": value_name, "hook": name}); continue
             ctx = HookContext(self, agent_name, conversation_id, turn_id, turn_input, conversation, source, step, retry_count)
-            async def invoke() -> Any:
+            async def invoke(spec=spec, seen=seen, ctx=ctx, source=source) -> Any:
                 if "extension" in spec:
                     extension = session.extensions.get(spec["extension"])
                     if extension is None: return None
@@ -648,7 +649,7 @@ class Runtime:
             try:
                 if spec.get("mode") == "async":
                     prior = session.pending.get(name)
-                    if prior is None or prior.done(): session.pending[name] = asyncio.create_task(invoke())
+                    if prior is None: session.pending[name] = asyncio.create_task(invoke())
                     self.records.append({"value": value_name, "hook": name, "status": "scheduled"}); continue
                 result = await asyncio.wait_for(invoke(), timeout / 1000) if timeout else await invoke()
             except Exception as error:
@@ -667,6 +668,7 @@ class Runtime:
             self.records.append({"value": value_name, "hook": name, "status": "applied", "durationMs": round((time.monotonic()-started)*1000, 3)})
             await self._emit(session, "hook.applied", {"value": value_name, "hook": name})
         if value_name == "toolCall" and approvals:
+            if isinstance(current, Mapping) and "call" in current: return {**current, "approvals": approvals}
             return {"call": current, "approvals": approvals}
         return current
 
@@ -689,6 +691,12 @@ class Runtime:
             if parts:
                 changed = copy.deepcopy(message); changed["content"] = parts; repaired.append(changed)
         return repaired
+
+    def _configured_tool(self, agent_name: str, name: str) -> Mapping[str, Any]:
+        for entry in self.config["agents"][agent_name].get("tools", []) or []:
+            use = {"tool": entry} if isinstance(entry, str) else entry
+            if use.get("tool") == name or use.get("agent") == name: return use
+        raise GoondanError(f"Tool {name} is not available to agent {agent_name}")
 
     def _tool_definitions(self, agent_name: str, session: _AgentSession | None = None) -> list[dict[str, Any]]:
         definitions = []
@@ -748,6 +756,7 @@ class Runtime:
             await self._emit(session, "turn.start", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "input": value})
             first = await self._input_message(agent_name, value); conversation.append(first); await self.store.append(conversation_id, agent_name, [first])
             retry_count = 0; step = 0
+            usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
             while True:
                 conversation = await self._drain_pending(session, conversation, conversation_id, agent_name)
                 repaired = self._repair_tool_pairs(conversation)
@@ -766,7 +775,7 @@ class Runtime:
                     await self._emit(session, "step.error", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "step": step, "error": str(model_error)})
                     turn_error = {"where": "model", "codes": [getattr(model_error, "code", "model_error")], "message": str(model_error), "attempt": retry_count}
                     decision = await self._pipeline("error", turn_error, agent_name, conversation_id, turn_id, value, conversation, step, retry_count)
-                    if isinstance(decision, Mapping) and decision.get("retry"):
+                    if isinstance(decision, Mapping) and decision.get("retry") and decision.get("target") == "model":
                         if decision.get("afterMs"): await asyncio.sleep(decision["afterMs"] / 1000)
                         if decision.get("conversation") is not None: conversation = copy.deepcopy(decision["conversation"]); await self.store.replace(conversation_id, agent_name, conversation)
                         continue
@@ -774,20 +783,27 @@ class Runtime:
                 result = await self._pipeline("modelResult", result, agent_name, conversation_id, turn_id, value, conversation, step, retry_count)
                 await self._emit(session, "step.done", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "step": step, "modelResult": result})
                 if isinstance(result, Mapping) and result.get("retry"):
+                    if result.get("target") != "model": raise GoondanError("modelResult can only retry the model stage")
                     retry_count += 1
                     if result.get("conversation") is not None: conversation = copy.deepcopy(result["conversation"]); await self.store.replace(conversation_id, agent_name, conversation)
                     continue
+                for name in usage:
+                    usage[name] += (result.get("usage") or {}).get(name, 0)
                 assistant = copy.deepcopy(result["message"]); assistant.setdefault("id", uuid.uuid4().hex); assistant.setdefault("source", "model")
                 calls = [p for p in assistant.get("content", []) if p.get("type") == "tool.call"]
                 conversation.append(assistant); await self.store.append(conversation_id, agent_name, [assistant])
                 if calls:
                     for call_part in calls:
                         call = {"id": call_part["callId"], "name": call_part["name"], "args": call_part.get("args")}
-                        configured = next((s for s in agent.get("tools", []) if isinstance(s, Mapping) and (s.get("tool") == call["name"] or s.get("agent") == call["name"])), None)
                         decision = await self._pipeline("toolCall", call, agent_name, conversation_id, turn_id, value, conversation, step, retry_count)
+                        if isinstance(decision, Mapping) and "call" in decision:
+                            call = copy.deepcopy(decision["call"])
+                        elif isinstance(decision, Mapping) and "name" in decision and "id" in decision:
+                            call = copy.deepcopy(dict(decision))
+                        configured = self._configured_tool(agent_name, call["name"]) if not (isinstance(decision, Mapping) and "result" in decision) else None
                         if configured and configured.get("approval") == "required":
                             existing = list(decision.get("approvals", [])) if isinstance(decision, Mapping) else []
-                            decision = {"call": decision.get("call", call) if isinstance(decision, Mapping) else call, "approvals": [*existing, {"reason": f"{call['name']} requires approval"}]}
+                            decision = {"call": call, "execution": decision.get("execution", {}) if isinstance(decision, Mapping) else {}, "approvals": [*existing, {"reason": f"{call['name']} requires approval"}]}
                         if isinstance(decision, Mapping) and decision.get("approvals"):
                             reasons = [str(item["reason"]) for item in decision["approvals"]]
                             operation_id = f"operation_{turn_id}_{call['id']}"
@@ -822,7 +838,7 @@ class Runtime:
                         elif isinstance(decision, Mapping) and "name" in decision and "id" in decision:
                             call = dict(decision)
                         if isinstance(decision, Mapping) and "result" in decision: tool_result = decision["result"]
-                        elif call["name"] in self.config["agents"]:
+                        elif configured and "agent" in configured:
                             tool_started = time.monotonic(); await self._emit(session, "tool.start", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "tool": call["name"], "callId": call["id"], "args": call["args"]})
                             child = await self._run_agent(call["name"], call["args"], conversation_id, nested=True)
                             tool_result = {"callId": call["id"], "name": call["name"], "args": call["args"], "content": child["output"]["content"]}
@@ -859,8 +875,8 @@ class Runtime:
                     conversation.append(assistant); await self.store.append(conversation_id, agent_name, [assistant])
                 output = await self._pipeline("output", assistant, agent_name, conversation_id, turn_id, value, conversation, step, retry_count)
                 conversation[-1] = copy.deepcopy(output); await self.store.replace(conversation_id, agent_name, conversation)
-                response = {"output": output, "conversation": conversation, "usage": result.get("usage"), "finishReason": result.get("finishReason", "stop"), "status": "done"}
-                await self.store.finish(conversation_id, agent_name, "done", response); await self._emit(session, "turn.done", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "output": output, "usage": result.get("usage"), "steps": step})
+                response = {"output": output, "conversation": conversation, "usage": usage, "finishReason": result.get("finishReason", "stop"), "status": "done"}
+                await self.store.finish(conversation_id, agent_name, "done", response); await self._emit(session, "turn.done", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "output": output, "usage": usage, "steps": step})
                 return response
         except Exception as error:
             turn_error = {"where": error.where if isinstance(error, GoondanExecutionError) else "runtime", "codes": ["hook_error" if isinstance(error, GoondanExecutionError) else getattr(error, "code", "runtime_error")], "message": str(error), "attempt": 1}
@@ -871,15 +887,13 @@ class Runtime:
         finally:
             self._execution_controls.pop(turn_id, None)
             session.active_turns.discard(turn_id)
-            for name, task in list(session.pending.items()):
-                if not task.done(): task.cancel()
-                del session.pending[name]
 
     async def run_turn(self, value: Json, *, conversation_id: str = "default", start_agent: str | None = None) -> list[dict[str, Any]]:
-        start = start_agent or self.config.get("flow", {}).get("in") or next(iter(self.config["agents"])); pending = [(start, value, None)]; outputs = []
+        start = start_agent or self.config.get("flow", {}).get("in") or next(iter(self.config["agents"])); pending = [(start, value, None, {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0})]; outputs = []
         while pending:
-            agent_name, agent_input, carried = pending.pop(0)
+            agent_name, agent_input, carried, prior_usage = pending.pop(0)
             result = await self._run_agent(agent_name, agent_input, conversation_id, carried)
+            path_usage = {name: prior_usage[name] + (result.get("usage") or {}).get(name, 0) for name in prior_usage}
             flow = self.config.get("flow", {})
             if "routes" not in flow: outputs.append(result); continue
             routes = [route for route in flow["routes"] if route["from"] == agent_name]
@@ -890,7 +904,7 @@ class Runtime:
                 condition = route.get("when"); ok = True if not condition else await _await(self.functions[condition["fn"]](route_value))
                 if not ok: continue
                 matched = True
-                if route["to"] == "out": outputs.append(result); continue
+                if route["to"] == "out": outputs.append({**result, "usage": path_usage}); continue
                 carry = route.get("carry", {}); message_rule = carry.get("message", "output")
                 if message_rule == "output": next_value = _text(result["output"])
                 elif isinstance(message_rule, Mapping) and "fn" in message_rule: next_value = await _await(self.functions[message_rule["fn"]](route_value))
@@ -899,7 +913,7 @@ class Runtime:
                 if conversation_rule == "asis": next_conversation = result["conversation"]
                 elif isinstance(conversation_rule, Mapping): next_conversation = await _await(self.functions[conversation_rule["fn"]](result["conversation"]))
                 else: next_conversation = None
-                pending.append((route["to"], next_value, next_conversation))
+                pending.append((route["to"], next_value, next_conversation, path_usage))
             if not matched: raise GoondanError(f"no flow route matched from {agent_name}")
         return outputs
 
@@ -940,7 +954,8 @@ class Runtime:
         session = await self._session(agent_name, conversation_id)
         try:
             await self._emit(session, "tool.start", {"agent": agent_name, "conversationId": conversation_id, "turnId": operation["turnId"], "tool": call["name"], "callId": call["id"], "args": call["args"]})
-            if call["name"] in self.config["agents"]:
+            configured = self._configured_tool(agent_name, call["name"])
+            if "agent" in configured:
                 child = await self._run_agent(call["name"], call["args"], conversation_id, nested=True)
                 raw_output: Json = child["output"]["content"]
             else:
@@ -1061,7 +1076,10 @@ class Runtime:
     async def close(self) -> None:
         for child in self.child_runtimes.values(): await child.close()
         for session in self.sessions.values():
-            for task in session.pending.values(): task.cancel()
+            tasks = list(session.pending.values())
+            for task in tasks: task.cancel()
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+            session.pending.clear()
             for extension in session.extensions.values():
                 if extension.dispose: await _await(extension.dispose())
 

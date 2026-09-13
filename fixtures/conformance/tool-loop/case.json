@@ -1,0 +1,11 @@
+{
+  "input": "찾아 주세요",
+  "modelResults": [
+    {"finishReason": "tool", "toolCalls": [{"callId": "call-1", "name": "lookup", "args": {"query": "군단"}}]},
+    {"finishReason": "tool", "toolCalls": [{"callId": "call-2", "name": "finish", "args": {"summary": "찾음"}}]}
+  ],
+  "toolResults": {
+    "lookup": {"text": "검색 결과"},
+    "finish": {"text": "최종 결과"}
+  }
+}

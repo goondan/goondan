@@ -1,0 +1,4 @@
+{
+  "conversationId": "async-approval",
+  "toolCall": { "id": "danger-1", "name": "danger", "args": { "value": 7 } }
+}

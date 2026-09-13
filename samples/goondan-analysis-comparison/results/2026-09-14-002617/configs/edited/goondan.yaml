@@ -1,0 +1,21 @@
+resources:
+  - ../common
+version: 1
+name: goondan-analysis-edited
+agents:
+  editor:
+    description: 분석 보고서의 사실과 근거를 보존하면서 독자가 따라가기 쉬운 글로 다듬습니다.
+    model: comparison-model
+    input: asis
+    systemMessage:
+      template: templates/editor.system.md
+flow:
+  in: analyst
+  routes:
+    - from: analyst
+      to: editor
+      carry:
+        message: output
+        conversation: none
+    - from: editor
+      to: out

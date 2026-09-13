@@ -1,32 +1,25 @@
 # packages
 
-`packages`는 Goondan의 배포 경계와 책임 경계를 관리하는 루트다.
+`packages`는 Goondan의 TypeScript 코어와 CLI 배포 경계를 관리합니다.
 
 ## 존재 이유
 
-- `runtime`, `types`, `base`, `cli`, `studio`, `registry`를 독립 패키지로 유지해 변경 영향과 배포 단위를 분리한다.
-- 구현 상세는 각 패키지가 소유하고, 이 문서는 패키지 간 경계 원칙만 정의한다.
+- `core`는 Goondan 구성과 바인딩을 실행하는 TypeScript 런타임을 제공합니다.
+- `cli`는 코어를 직접 사용하는 명령행 인터페이스와 대화형 호스트를 제공합니다.
 
 ## 구조적 결정
 
-1. 공통 계약은 `@goondan/types`를 단일 기준으로 둔다. RuntimeEvent, TraceContext, AgentRuntime* 타입을 포함.
-이유: 패키지 간 타입 드리프트를 막고 계약 변경 파급을 통제하기 위해.
-2. `@goondan/runtime`은 Orchestrator(프로세스 매니저) + AgentProcess(실행 엔진)로 구성된다.
-이유: Process-per-Agent 아키텍처에서 역할 분리가 명확해야 이중 구현을 방지할 수 있다.
-3. `@goondan/base`는 npm이 아니라 goondan 패키지 레지스트리로 배포한다.
-이유: 코드뿐 아니라 리소스 매니페스트를 함께 유통해야 하기 때문.
-4. npm 배포 대상 `@goondan/*`는 단일 버전 정책을 유지한다.
-이유: 운영/디버깅 시 버전 매트릭스 복잡도를 줄이기 위해.
+1. 실행 모델과 공개 타입은 `@goondan/core`가 함께 소유합니다. 타입과 구현의 변경을 하나의 계약에서 관리하여 런타임 간 해석 차이를 방지합니다.
+2. `@goondan/cli`는 코어를 같은 프로세스에서 직접 실행합니다. 구성, 실행과 대화 흐름을 하나의 Node 호스트에서 유지합니다.
 
 ## 불변 규칙
 
-- 패키지는 자신이 소유한 스펙 범위를 넘는 책임을 흡수하지 않는다.
-- 공개 npm 패키지는 `publishConfig.access = "public"`을 유지한다.
-- 타입 단언(`as`, `as unknown as`) 대신 타입 가드/정확한 타입 모델을 사용한다.
+- 패키지는 `core`와 `cli`의 책임 경계를 유지합니다.
+- 공개 npm 패키지는 `publishConfig.access = "public"`을 유지합니다.
+- 타입 단언 대신 타입 가드와 정확한 타입 모델을 사용합니다.
 
 ## 참조
 
-- `docs/specs/layers.md`
-- `docs/specs/help.md`
-- `docs/specs/bundle_package.md`
+- `docs/specs/core-runtime.md`
+- `docs/specs/chat-runtime.md`
 - `AGENTS.md`

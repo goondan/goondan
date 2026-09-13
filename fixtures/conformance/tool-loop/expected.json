@@ -1,0 +1,6 @@
+{
+  "modelCallCount": 2,
+  "toolCalls": ["lookup", "finish"],
+  "output": {"role": "assistant", "source": "tool", "text": "최종 결과"},
+  "storedRoles": ["user", "assistant", "tool", "assistant", "tool", "assistant"]
+}

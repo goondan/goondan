@@ -1,0 +1,13 @@
+version: 1
+name: tool-test
+agents:
+  main:
+    model: fixture
+    input: asis
+    extensions:
+      guard: {}
+    tools:
+      - {tool: finish, approval: required}
+    hooks:
+      toolCall: [{extension: guard}]
+flow: {in: main}

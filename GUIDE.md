@@ -14,8 +14,8 @@ pnpm typecheck
 샘플 구성을 확인하려면 다음 명령을 사용합니다.
 
 ```bash
-pnpm gdn validate ./samples/smoke-test
-pnpm gdn config ./samples/smoke-test
+pnpm gdn validate ./samples/goondan-analysis-comparison/single
+pnpm gdn config ./samples/goondan-analysis-comparison/single
 ```
 
 ## 최소 구성

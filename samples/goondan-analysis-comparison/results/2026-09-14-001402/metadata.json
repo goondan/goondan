@@ -1,0 +1,58 @@
+{
+  "model": "claude-opus-5",
+  "sourceCommit": "ce5274ad107410b64b86164e7b50c3c7dccdeb96",
+  "includesUncommittedSource": true,
+  "snapshot": "/var/folders/4p/0s72_8gd1m5gplm_x_fhkrbr0000gp/T/goondan-analysis-snapshot-r0nnnfh5",
+  "sourceFiles": 430,
+  "manifestSha256": "4d4bee48e73ac5d0970905371b1683744ae11a1c564d30fc2f7e4fe5f1ba2ac2",
+  "inputSha256": "576c323de4022f4dc39fd7f8c082c335c7ed9b53cb840d23cecdc623ecd05a2e",
+  "runs": {
+    "single": {
+      "exitCode": 0,
+      "elapsedSeconds": 159.06,
+      "command": [
+        "node",
+        "/Users/channy/workspace/goondan/packages/cli/dist/goondan-bin.js",
+        "chat",
+        "--config",
+        "/Users/channy/workspace/goondan/samples/goondan-analysis-comparison/single",
+        "--model",
+        "claude-opus-5",
+        "--final-only",
+        "--cwd",
+        "/var/folders/4p/0s72_8gd1m5gplm_x_fhkrbr0000gp/T/goondan-analysis-snapshot-r0nnnfh5",
+        "--session",
+        "single",
+        "--state-dir",
+        "/Users/channy/workspace/goondan/samples/goondan-analysis-comparison/results/2026-09-14-001402/state"
+      ],
+      "outputCharacters": 0,
+      "outcome": "failed_before_final_output",
+      "failure": "Maximum steps exceeded: 32"
+    },
+    "edited": {
+      "exitCode": 0,
+      "elapsedSeconds": 166.38,
+      "command": [
+        "node",
+        "/Users/channy/workspace/goondan/packages/cli/dist/goondan-bin.js",
+        "chat",
+        "--config",
+        "/Users/channy/workspace/goondan/samples/goondan-analysis-comparison/edited",
+        "--model",
+        "claude-opus-5",
+        "--final-only",
+        "--cwd",
+        "/var/folders/4p/0s72_8gd1m5gplm_x_fhkrbr0000gp/T/goondan-analysis-snapshot-r0nnnfh5",
+        "--session",
+        "edited",
+        "--state-dir",
+        "/Users/channy/workspace/goondan/samples/goondan-analysis-comparison/results/2026-09-14-001402/state"
+      ],
+      "outputCharacters": 0,
+      "outcome": "failed_before_final_output",
+      "failure": "Maximum steps exceeded: 32"
+    }
+  },
+  "note": "Both analyst runs exhausted the runtime step limit. No final reports or editor run were produced. The CLI incorrectly returned exit code 0."
+}

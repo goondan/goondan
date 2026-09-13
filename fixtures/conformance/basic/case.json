@@ -1,0 +1,4 @@
+{
+  "input": {"text": "테스트", "requestId": "req-1"},
+  "modelResults": [{"text": "완료", "finishReason": "stop"}]
+}

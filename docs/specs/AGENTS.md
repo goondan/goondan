@@ -1,34 +1,10 @@
 # docs/specs
 
-`docs/specs`는 Goondan 구현 계약의 SSOT를 관리하는 문서 영역이다.
+이 폴더는 Goondan의 규범적 계약을 소유합니다.
 
-## 존재 이유
+- `core-runtime.md`는 구성, 호스트 바인딩, 훅, 실행, 흐름과 지연 작업의 기준입니다.
+- `chat-runtime.md`는 터미널 호스트의 입력·출력과 세션 수명 계약입니다.
+- `host.md`는 프로세스, 구현 모듈 로더와 번들 자산의 관계를 정의합니다.
+- `cli.md`는 공개 명령과 코어 사용 경계를 정의합니다.
 
-- 런타임/CLI/패키지/문서가 공유하는 규범적 계약을 단일 기준으로 제공한다.
-- 설계 의도와 구현 제약을 분리되지 않은 형태로 유지한다.
-
-## 구조적 결정
-
-1. 스펙이 구현보다 먼저 계약을 정의하고, 구현은 이를 따른다.
-이유: 기능 확장 시 우발적 동작 변경을 줄이기 위해.
-2. 공통 타입 소유권은 `shared-types.md`, 운영 공통 규칙 소유권은 `help.md`에 둔다.
-이유: 문서 간 중복 재정의와 타입 드리프트를 방지하기 위해.
-3. `runtime.md`는 Process-per-Agent를 유일한 실행 모델로 정의하며, Orchestrator vs AgentProcess 책임 분리를 명시한다.
-이유: 이전에 두 런타임 모델이 공존하여 혼란이 발생했던 문제를 원천 차단.
-4. `shared-types.md`가 RuntimeEvent, TraceContext, AgentRuntime* 타입 계약을 소유한다.
-이유: 여러 패키지가 공유하는 계약의 SSOT를 단일 문서로 유지.
-5. 에이전트 통신 API 계약은 `shared-types.md`에서 단일 정의하고, `pipeline.md`와 `tool.md`는 참조만 한다.
-이유: pipeline/tool 간 계약 불일치를 방지.
-
-## 불변 규칙
-
-- 스펙 변경 시 `docs/architecture.md`와 `GUIDE.md` 반영 필요성을 함께 검토한다.
-- 문서 간 계약 중복 정의를 피하고 소유 문서로 링크한다.
-- 리소스 예시의 `apiVersion` 명시 원칙을 유지한다.
-
-## 참조
-
-- `docs/architecture.md`
-- `docs/specs/help.md`
-- `docs/specs/shared-types.md`
-- `GUIDE.md`
+스펙은 TypeScript와 Python 구현보다 먼저 갱신합니다. 직렬화 형식은 `spec/goondan.schema.json`, 공통 실행 사례는 `fixtures/conformance`와 함께 일치시킵니다.

@@ -1,0 +1,446 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goondan.dev/schema/config-v1.json",
+  "title": "Goondan Config v1",
+  "type": "object",
+  "required": [],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "default": "goondan"
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/agent"
+      }
+    },
+    "flow": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/flow"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "extends": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "json": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string",
+        "array",
+        "object"
+      ]
+    },
+    "systemBlock": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": [
+            "text"
+          ]
+        },
+        {
+          "required": [
+            "template"
+          ]
+        }
+      ],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        },
+        "cache": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "extension": {
+      "type": "object",
+      "properties": {
+        "options": {
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tool": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "oneOf": [
+            {
+              "required": [
+                "tool"
+              ]
+            },
+            {
+              "required": [
+                "agent"
+              ]
+            }
+          ],
+          "properties": {
+            "tool": {
+              "type": "string"
+            },
+            "agent": {
+              "type": "string"
+            },
+            "hint": {
+              "type": "string"
+            },
+            "approval": {
+              "const": "required"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "hook": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "extension": {
+          "type": "string"
+        },
+        "fn": {
+          "type": "string"
+        },
+        "agent": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "template": {
+          "type": "string"
+        },
+        "using": {
+          "oneOf": [
+            {
+              "enum": [
+                "input",
+                "conversation"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "fn"
+              ],
+              "properties": {
+                "fn": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "when": {
+          "type": "object",
+          "required": [
+            "fn"
+          ],
+          "properties": {
+            "fn": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "mode": {
+          "enum": [
+            "sync",
+            "async"
+          ]
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "system"
+          ]
+        },
+        "timeout": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "input",
+          "conversation",
+          "modelInput",
+          "modelResult",
+          "toolCall",
+          "toolResult",
+          "output",
+          "error"
+        ]
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/hook"
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "config": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "input": {
+          "oneOf": [
+            {
+              "const": "asis"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "fields": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "template": {
+                  "type": "string"
+                },
+                "fn": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "systemMessage": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/systemBlock"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/systemBlock"
+              }
+            }
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tool"
+          }
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/extension"
+          }
+        },
+        "hooks": {
+          "$ref": "#/$defs/hooks"
+        },
+        "inherit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "remove": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "extensions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hooks": {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "input",
+                  "conversation",
+                  "modelInput",
+                  "modelResult",
+                  "toolCall",
+                  "toolResult",
+                  "output",
+                  "error"
+                ]
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "config"
+          ]
+        },
+        {
+          "required": [
+            "model"
+          ]
+        },
+        {
+          "required": [
+            "inherit"
+          ]
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "when": {
+          "type": "object",
+          "required": [
+            "fn"
+          ],
+          "properties": {
+            "fn": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "carry": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "flow": {
+      "type": "object",
+      "required": [
+        "in"
+      ],
+      "properties": {
+        "in": {
+          "type": "string"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/route"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "agents"
+      ]
+    },
+    {
+      "required": [
+        "resources"
+      ]
+    },
+    {
+      "required": [
+        "extends"
+      ]
+    }
+  ]
+}

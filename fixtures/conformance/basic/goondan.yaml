@@ -1,0 +1,14 @@
+version: 1
+name: conformance-basic
+agents:
+  main:
+    model: fixture
+    params: {product: "군단"}
+    input: {template: templates/input.md}
+    systemMessage: {template: templates/system.md, cache: true}
+    hooks:
+      input: [{name: normalize, fn: normalizeInput}]
+      conversation: [{name: context, using: input, template: templates/context.md}]
+      modelInput: [{name: call-note, template: templates/note.md}]
+      output: [{name: polish, fn: polishOutput}]
+flow: {in: main}

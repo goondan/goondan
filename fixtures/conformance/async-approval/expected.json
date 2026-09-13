@@ -1,0 +1,14 @@
+{
+  "initialResult": { "status": "pending", "operationId": "operation-1" },
+  "operationStatusOrder": ["pending", "approved", "running", "completed"],
+  "completion": {
+    "type": "operation_completion",
+    "deliveryId": "operation:operation-1:completion",
+    "operationId": "operation-1",
+    "conversationId": "async-approval",
+    "agent": "main",
+    "status": "completed"
+  },
+  "originalToolResultCount": 1,
+  "completionDeliveryCount": 1
+}

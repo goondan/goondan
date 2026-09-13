@@ -1,0 +1,4 @@
+extends: ../goondan.yaml
+agents:
+  main:
+    systemMessage: {text: "변형"}

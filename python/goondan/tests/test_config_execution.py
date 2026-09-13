@@ -15,6 +15,21 @@ def test_inherit_override_remove_and_defaults():
 
 
 @pytest.mark.asyncio
+async def test_input_object_defaults_to_asis_and_prefers_fn(tmp_path):
+    seen = []
+    async def model(value):
+        seen.append(value["messages"][0]["content"][0]["text"])
+        return {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}, "finishReason": "stop"}
+    fields_runtime = create_runtime(config={"agents": {"main": {"model": "m", "input": {"fields": {"name": {"description": "name"}}}}}}, models={"m": model})
+    await fields_runtime.run_turn({"name": "Ada"}, conversation_id="fields")
+    unused = tmp_path / "unused.md"
+    unused.write_text("template", encoding="utf-8")
+    fn_runtime = create_runtime(config={"agents": {"main": {"model": "m", "input": {"fn": "format", "template": str(unused)}}}}, models={"m": model}, functions={"format": lambda value: f"fn:{value['name']}"})
+    await fn_runtime.run_turn({"name": "Ada"}, conversation_id="fn")
+    assert seen == ['{"name":"Ada"}', "fn:Ada"]
+
+
+@pytest.mark.asyncio
 async def test_serial_flow_defaults():
     async def analyst(value): return {"message": {"role": "assistant", "content": [{"type": "text", "text": "analysis"}]}, "finishReason": "stop"}
     async def editor(value):

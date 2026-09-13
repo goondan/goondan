@@ -21,7 +21,5 @@
 
 ## 참조
 
-- `docs/specs/cli.md`
-- `docs/specs/chat-runtime.md`
-- `docs/specs/core-runtime.md`
+- `spec/goondan.md`
 - `packages/core/AGENTS.md`

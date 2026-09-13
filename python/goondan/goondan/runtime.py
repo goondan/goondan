@@ -164,7 +164,7 @@ def load_config(directory: str | Path, variants: list[str] | None = None) -> Goo
     config = _load_yaml(path, loaded)
     config["__root__"] = str(path.parent)
     for variant in variants or []:
-        variant_path = path.parent / "variants" / (variant if variant.endswith((".yaml", ".yml")) else f"{variant}.yaml")
+        variant_path = path.parent / "variants" / f"{variant}.yaml"
         variant_raw = _load_yaml(variant_path)
         variant_raw.pop("__root__", None)
         config = _merge(config, variant_raw)
@@ -510,14 +510,18 @@ class Runtime:
             referenced.update(block["template"] for block in blocks if "template" in block)
             for entries in (agent.get("hooks", {}) or {}).values():
                 referenced.update(entry["template"] for entry in entries if "template" in entry)
+        for route in self.config.get("flow", {}).get("routes", []):
+            message = route.get("carry", {}).get("message")
+            if isinstance(message, Mapping) and "template" in message:
+                referenced.add(message["template"])
         checked: set[str] = set()
         while referenced - checked:
             name = next(iter(referenced - checked)); checked.add(name)
             try: source, _, _ = self.env.loader.get_source(self.env, name)
             except Exception as error: raise GoondanError(f"template {name}: {error}") from error
-            forbidden = ("{% macro", "{% extends", "{% import", "{% from", "{% call", "{% block")
-            if any(token in source for token in forbidden): raise GoondanError(f"template {name} uses unsupported Jinja syntax")
             parsed = self.env.parse(source)
+            unsupported_nodes = (nodes.Macro, nodes.Extends, nodes.Import, nodes.FromImport, nodes.CallBlock, nodes.Block, nodes.Assign, nodes.AssignBlock, nodes.FilterBlock)
+            if any(next(parsed.find_all(node_type), None) is not None for node_type in unsupported_nodes): raise GoondanError(f"template {name} uses unsupported Jinja syntax")
             for filter_node in parsed.find_all(nodes.Filter):
                 if filter_node.name not in ALLOWED_FILTERS: raise GoondanError(f"template {name} uses unsupported filter {filter_node.name}")
             for test_node in parsed.find_all(nodes.Test):
@@ -716,9 +720,11 @@ class Runtime:
     async def _input_message(self, agent_name: str, value: Json) -> dict[str, Any]:
         rule = self.config["agents"][agent_name].get("input", "asis")
         if rule == "asis": text = value if isinstance(value, str) else _json(value, 0)
+        elif "fn" in rule:
+            text = await _await(self.functions[rule["fn"]](value))
         elif "template" in rule:
             variables = value if isinstance(value, Mapping) else {"text": value}; text = self.render(rule["template"], variables)
-        else: text = await _await(self.functions[rule["fn"]](value))
+        else: text = value if isinstance(value, str) else _json(value, 0)
         return _message("user", str(text), agent_name)
 
     async def _run_agent(self, agent_name: str, value: Json, conversation_id: str, initial_conversation: list[dict[str, Any]] | None = None, nested: bool = False) -> dict[str, Any]:
@@ -874,11 +880,12 @@ class Runtime:
         while pending:
             agent_name, agent_input, carried = pending.pop(0)
             result = await self._run_agent(agent_name, agent_input, conversation_id, carried)
-            if agent_name != start and not self.config.get("flow", {}).get("routes"): outputs.append(result); continue
-            routes = [route for route in self.config.get("flow", {}).get("routes", []) if route["from"] == agent_name]
-            if not routes: outputs.append(result); continue
+            flow = self.config.get("flow", {})
+            if "routes" not in flow: outputs.append(result); continue
+            routes = [route for route in flow["routes"] if route["from"] == agent_name]
+            if not routes: raise GoondanError(f"no flow route matched from {agent_name}")
             matched = False
-            route_value = {"output": result["output"], "conversation": result["conversation"], "input": agent_input}
+            route_value = {"output": _text(result["output"]), "conversation": result["conversation"], "input": agent_input}
             for route in routes:
                 condition = route.get("when"); ok = True if not condition else await _await(self.functions[condition["fn"]](route_value))
                 if not ok: continue

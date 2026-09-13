@@ -240,6 +240,127 @@
         "items": {
           "$ref": "#/$defs/hook"
         }
+      },
+      "properties": {
+        "input": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "modelInput": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "modelResult": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "toolCall": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "toolResult": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "error": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "properties": {
+                  "mode": {
+                    "const": "sync"
+                  }
+                }
+              }
+            ]
+          }
+        }
       }
     },
     "agent": {

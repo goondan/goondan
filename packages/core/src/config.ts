@@ -18,7 +18,13 @@ function validateAgent(name: string, raw: unknown): AgentSpec {
   if (value.params !== undefined && !isJson(value.params)) throw new Error(`agents.${name}.params must be JSON`);
   if (value.hooks !== undefined) {
     const hooks = assertObject(value.hooks, `agents.${name}.hooks`);
-    for (const [hookName, list] of Object.entries(hooks)) if (!valueNames.has(hookName) || !Array.isArray(list)) throw new Error(`agents.${name}.hooks.${hookName} is invalid`);
+    for (const [hookName, list] of Object.entries(hooks)) {
+      if (!valueNames.has(hookName) || !Array.isArray(list)) throw new Error(`agents.${name}.hooks.${hookName} is invalid`);
+      for (const [index, rawHook] of list.entries()) {
+        const hook = assertObject(rawHook, `agents.${name}.hooks.${hookName}[${String(index)}]`);
+        if (hook.mode === "async" && hookName !== "conversation") throw new Error(`agents.${name}.hooks.${hookName}[${String(index)}] mode async is only valid for conversation hooks`);
+      }
+    }
   }
   if (value.extensions !== undefined) {
     const extensions = assertObject(value.extensions, `agents.${name}.extensions`);

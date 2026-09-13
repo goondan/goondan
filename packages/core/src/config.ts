@@ -14,7 +14,16 @@ function validateAgent(name: string, raw: unknown): AgentSpec {
   if (value.config !== undefined) return { config: assertString(value.config, `agents.${name}.config`) };
   if (value.inherit !== undefined || value.remove !== undefined) throw new Error(`agents.${name} inheritance was not resolved`);
   const model = assertString(value.model, `agents.${name}.model`);
-  if (Array.isArray(value.tools)) for (const tool of value.tools) if (isObject(tool) && "endsTurn" in tool) throw new Error("Tool execution policy belongs in a toolResult hook");
+  if (value.tools !== undefined) {
+    if (!Array.isArray(value.tools)) throw new Error(`agents.${name}.tools must be an array`);
+    for (const tool of value.tools) {
+      if (typeof tool === "string") { assertString(tool, "tool name"); continue; }
+      const use = assertObject(tool, "tool entry");
+      if (("tool" in use) === ("agent" in use)) throw new Error("Tool entries must specify exactly one of tool or agent");
+      assertString("tool" in use ? use.tool : use.agent, "tool reference");
+      if ("endsTurn" in use) throw new Error("Tool execution policy belongs in a toolResult hook");
+    }
+  }
   if (value.params !== undefined && !isJson(value.params)) throw new Error(`agents.${name}.params must be JSON`);
   if (value.hooks !== undefined) {
     const hooks = assertObject(value.hooks, `agents.${name}.hooks`);

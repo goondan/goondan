@@ -97,6 +97,83 @@ describe("Goondan runtime", () => {
     expect(await runtime.listOperations("tools")).toMatchObject([{ status: "pending", toolCall: { name: "finish", args: { ok: true } } }]);
   });
 
+  it("requires approval before executing an agent exposed as a tool", async () => {
+    const config = validateConfig({ agents: {
+      main: { model: "main", tools: [{ agent: "worker", approval: "required" }] },
+      worker: { model: "worker" },
+    } });
+    let workerGenerations = 0;
+    let mainGenerations = 0;
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, { models: {
+      main: { async generate(): Promise<ModelResult> { mainGenerations += 1; return mainGenerations === 1
+        ? { message: { id: "main", role: "assistant", source: "model", content: [{ type: "tool.call", callId: "worker-call", name: "worker", args: { task: "inspect" } }] }, finishReason: "tool" }
+        : { message: { id: "continued", role: "assistant", source: "model", content: [{ type: "text", text: "continued" }] }, finishReason: "stop" }; } },
+      worker: { async generate(): Promise<ModelResult> { workerGenerations += 1; return { message: { id: "worker", role: "assistant", source: "model", content: [{ type: "text", text: "done" }] }, finishReason: "stop" }; } },
+    } });
+
+    await runtime.runTurn("start", { conversationId: "agent-approval" });
+
+    expect(workerGenerations).toBe(0);
+    expect(await runtime.listOperations("agent-approval")).toMatchObject([{ status: "pending", toolCall: { name: "worker" } }]);
+  });
+
+  it("retries only the failed tool in the same turn", async () => {
+    const config = validateConfig({ agents: { main: { model: "fixture", tools: ["first", "flaky", "last"], hooks: { error: [{ fn: "retryTool" }] } } } });
+    let generations = 0;
+    const calls: string[] = [];
+    let flakyAttempts = 0;
+    const tool = (name: string) => ({ name, description: name, input: {}, execute(input: Json, context: { toolCall: { id: string } }): ToolResult {
+      calls.push(name);
+      if (name === "flaky" && ++flakyAttempts === 1) throw new Error("retry me");
+      return { callId: context.toolCall.id, name, args: input, content: [{ type: "text", text: "done" }] };
+    } });
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, {
+      models: { fixture: { async generate(): Promise<ModelResult> { generations += 1; return generations === 1
+        ? { message: { id: "calls", role: "assistant", source: "model", content: ["first", "flaky", "last"].map((name) => ({ type: "tool.call" as const, callId: name, name, args: {} })) }, finishReason: "tool" }
+        : { message: { id: "done", role: "assistant", source: "model", content: [{ type: "text", text: "complete" }] }, finishReason: "stop" }; } } },
+      tools: { first: tool("first"), flaky: tool("flaky"), last: tool("last") },
+      functions: { retryTool: () => ({ retry: true, target: "tool" }) },
+    });
+
+    const result = await runtime.runTurn("start", { conversationId: "tool-retry" });
+
+    expect(text(result.output)).toBe("complete");
+    expect(calls).toEqual(["first", "flaky", "flaky", "last"]);
+    expect(generations).toBe(2);
+  });
+
+  it("retries a failed model without appending the turn input again", async () => {
+    const config = validateConfig({ agents: { main: { model: "fixture", hooks: { error: [{ fn: "retryModel" }] } } } });
+    const observedUserCounts: number[] = [];
+    let generations = 0;
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, {
+      models: { fixture: { async generate(input): Promise<ModelResult> {
+        generations += 1;
+        observedUserCounts.push(input.messages.filter((message) => message.role === "user").length);
+        if (generations === 1) throw new Error("retry model");
+        return { message: { id: "done", role: "assistant", source: "model", content: [{ type: "text", text: "complete" }] }, finishReason: "stop" };
+      } } },
+      functions: { retryModel: () => ({ retry: true, target: "model" }) },
+    });
+
+    await runtime.runTurn("start", { conversationId: "model-retry" });
+
+    expect(observedUserCounts).toEqual([1, 1]);
+  });
+
+  it("returns terminal finish reason and usage aggregated across a routed flow", async () => {
+    const config = validateConfig({ agents: { first: { model: "first" }, final: { model: "final" } }, flow: ["first", "final"] });
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, { models: {
+      first: { async generate(): Promise<ModelResult> { return { message: { id: "first", role: "assistant", source: "model", content: [{ type: "text", text: "carry" }] }, usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 }, finishReason: "stop" }; } },
+      final: { async generate(): Promise<ModelResult> { return { message: { id: "final", role: "assistant", source: "model", content: [{ type: "text", text: "truncated" }] }, usage: { input: 5, output: 6, cacheRead: 7, cacheWrite: 8 }, finishReason: "length" }; } },
+    } });
+
+    const result = await runtime.runTurn("start", { conversationId: "flow-metadata" });
+
+    expect(result.finishReason).toBe("length");
+    expect(result.usage).toEqual({ input: 6, output: 8, cacheRead: 10, cacheWrite: 12 });
+  });
+
   it("executes an approved operation once and delivers a separate completion once after restart", async () => {
     const loaded = await loadConfig(resolve(import.meta.dirname, "fixtures/tool-config"));
     const config = structuredClone({ ...loaded, templates: loaded.templates });
@@ -141,6 +218,46 @@ describe("Goondan runtime", () => {
     await recovered.recoverOperations("restart");
     expect(recoveredCompletions.map((item) => item.deliveryId)).toEqual([completed.deliveryId]);
     expect(calls).toEqual(["lookup", "finish"]);
+  });
+
+  it("marks fallback completion delivered only after the same agent accepts it", async () => {
+    const config = validateConfig({ agents: { main: { model: "fixture", tools: [{ tool: "work", approval: "required" }] } } });
+    const conversationStore = new MemoryConversationStore();
+    const operationStore = new MemoryOperationStore();
+    let generation = 0;
+    let releaseActive: (() => void) | undefined;
+    const activeGate = new Promise<void>((resolveGate) => { releaseActive = resolveGate; });
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, {
+      conversationStore,
+      operationStore,
+      models: { fixture: { async generate(input): Promise<ModelResult> {
+        generation += 1;
+        if (generation === 1) return { message: { id: "approval", role: "assistant", source: "model", content: [{ type: "tool.call", callId: "work", name: "work", args: {} }] }, finishReason: "tool" };
+        if (generation === 2) return { message: { id: "continued", role: "assistant", source: "model", content: [{ type: "text", text: "continued" }] }, finishReason: "stop" };
+        if (generation === 3) await activeGate;
+        const hasCompletion = input.messages.some((message) => text(message).includes("operation_completion"));
+        return { message: { id: `response-${String(generation)}`, role: "assistant", source: "model", content: [{ type: "text", text: hasCompletion ? "accepted completion" : "independent" }] }, finishReason: "stop" };
+      } } },
+      tools: { work: { name: "work", description: "work", input: {}, execute(input, context): ToolResult { return { callId: context.toolCall.id, name: "work", args: input, content: [{ type: "text", text: "done" }] }; } } },
+    });
+    await runtime.runTurn("request approval", { conversationId: "fallback-delivery" });
+    const operation = (await runtime.listOperations("fallback-delivery"))[0]; if (!operation) throw new Error("operation is missing");
+    const active = runtime.runTurn("independent work", { conversationId: "fallback-delivery" });
+    await Promise.resolve();
+    await runtime.decideOperation("fallback-delivery", operation.operationId, { decision: "approved" });
+    releaseActive?.();
+    await active;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const current = await operationStore.get("fallback-delivery", operation.operationId);
+      if (current?.deliveryStatus === "delivered") break;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1));
+    }
+
+    const completed = await operationStore.get("fallback-delivery", operation.operationId);
+    const stored = await conversationStore.load("fallback-delivery", "main");
+    expect(completed?.deliveryStatus).toBe("delivered");
+    expect(stored.some((message) => text(message).includes(operation.operationId))).toBe(true);
+    expect(stored.some((message) => text(message) === "accepted completion")).toBe(true);
   });
 
   it("matches the shared tool-loop fixture", async () => {

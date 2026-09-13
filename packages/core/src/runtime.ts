@@ -41,7 +41,9 @@ export class RuntimeEvents {
   async emit(event: RuntimeEvent): Promise<void> { for (const listener of this.#listeners) await listener(event); }
 }
 
-interface TurnState { completion?: Message; agent: string; agentSpec: AgentSpec; conversationId: string; turnId: string; input: Json; conversation: Message[]; step: number; retryCount: number; signal: AbortSignal; messageNumber: number; usage: Usage; extensions: Map<string, ExtensionInstance>; pending: Map<string, Promise<Message[] | undefined>>; approvals: string[] }
+interface RetryToolStage { call: ToolCall; execution?: Record<string, Json>; remainingCalls: ToolCall[] }
+interface FlowRunResult { outputs: Message[]; usage: Usage; finishReasons: string[] }
+interface TurnState { completion?: Message; retryTool?: RetryToolStage; agent: string; agentSpec: AgentSpec; conversationId: string; turnId: string; input: Json; conversation: Message[]; step: number; retryCount: number; signal: AbortSignal; messageNumber: number; usage: Usage; extensions: Map<string, ExtensionInstance>; pending: Map<string, Promise<Message[] | undefined>>; approvals: string[] }
 
 export class GoondanRuntime {
   readonly events = new RuntimeEvents();
@@ -73,11 +75,13 @@ export class GoondanRuntime {
   async #runTurn(input: Json, options: RunOptions): Promise<AgentRunResult> {
     if (options.agent && options.startAgent) throw new Error("RunOptions cannot include both agent and startAgent");
     const agent = options.startAgent ?? options.agent ?? this.loaded.config.flow.in;
-    const outputs = await this.#runFlow(agent, input, options, true);
+    const flow = await this.#runFlow(agent, input, options, true);
+    const outputs = flow.outputs;
     if (outputs.length === 0) throw new Error("Flow produced no output");
     const first = outputs[0]; if (!first) throw new Error("Flow produced no output");
     const output = outputs.length === 1 ? first : this.#message("flow", "assistant", outputs.map((item) => textOf(item.content)).join("\n\n"), "flow-output", 0);
-    return { output, outputs, finishReason: "stop", status: "done" };
+    const finishReason = flow.finishReasons.every((reason) => reason === flow.finishReasons[0]) ? flow.finishReasons[0] ?? "stop" : "other";
+    return { output, outputs, usage: flow.usage, finishReason, status: "done" };
   }
 
   async dispatch(input: Json, options: RunOptions): Promise<AgentRunResult> { return this.runTurn(input, options); }
@@ -140,25 +144,27 @@ export class GoondanRuntime {
     return this.#model(spec).generate(input, { agent, conversationId, turnId: state.turnId, step: 1, signal: state.signal, onTextDelta: (delta) => { void this.#emit("step.textDelta", state, { step: 1, delta }); } });
   }
 
-  async #runFlow(agent: string, input: Json, options: RunOptions, followRoutes: boolean): Promise<Message[]> {
+  async #runFlow(agent: string, input: Json, options: RunOptions, followRoutes: boolean): Promise<FlowRunResult> {
     const result = await this.#runAgent(agent, input, options);
-    if (!followRoutes || options.agent !== undefined || !this.loaded.config.flow.routes) return [result.output];
+    const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }; addUsage(usage, result.usage);
+    if (!followRoutes || options.agent !== undefined || !this.loaded.config.flow.routes) return { outputs: [result.output], usage, finishReasons: [result.finishReason] };
     const conversation = await this.#store.load(options.conversationId, agent);
     const conversationValue = this.#json(conversation, "flow.conversation");
     const routes = this.loaded.config.flow.routes.filter((route) => route.from === agent);
     const matched: typeof routes = [];
     for (const route of routes) if (!route.when || await this.#callFunction(route.when.fn, { output: textOf(result.output.content), input, conversation: conversationValue }, agent, options.conversationId, "flow", conversation)) matched.push(route);
     if (matched.length === 0) throw new Error(`No flow route matched from ${agent}`);
-    const outputs: Message[] = [];
+    const outputs: Message[] = []; const finishReasons: string[] = [];
     for (const route of matched) {
-      if (route.to === "out") outputs.push(result.output);
+      if (route.to === "out") { outputs.push(result.output); finishReasons.push(result.finishReason); }
       else {
         const carriedInput = await this.#carry(route.carry?.message, result.output, input, conversation, agent, options.conversationId);
         const carriedConversation = await this.#carryConversation(route.carry?.conversation, conversation, agent, options.conversationId);
-        outputs.push(...await this.#runFlow(route.to, carriedInput, { ...options, agent: undefined, startAgent: undefined, conversation: carriedConversation }, true));
+        const child = await this.#runFlow(route.to, carriedInput, { ...options, agent: undefined, startAgent: undefined, conversation: carriedConversation }, true);
+        outputs.push(...child.outputs); addUsage(usage, child.usage); finishReasons.push(...child.finishReasons);
       }
     }
-    return outputs;
+    return { outputs, usage, finishReasons };
   }
 
   async #carry(spec: "output" | { fn: string } | { template: string } | undefined, output: Message, input: Json, conversation: Message[], agent: string, conversationId: string): Promise<Json> {
@@ -222,7 +228,10 @@ export class GoondanRuntime {
           throw new RuntimeFailure({ where: "model", codes: [state.signal.aborted ? "aborted" : "model_error"], message }, { cause: error });
         }
         const transformed = await this.#pipeline("modelResult", modelResult, state);
-        if (isRetry(transformed)) continue;
+        if (isRetry(transformed)) {
+          if (transformed.target !== "model") throw new Error("modelResult can only retry the model stage");
+          continue;
+        }
         if (!isModelResult(transformed)) throw new Error("modelResult hook returned an invalid value");
         modelResult = transformed; addUsage(state.usage, modelResult.usage);
         state.conversation.push(modelResult.message); await this.#store.append(state.conversationId, agent, [modelResult.message]);
@@ -252,7 +261,21 @@ export class GoondanRuntime {
         ? { ...error.detail, attempt: state.retryCount + 1 }
         : { where: "runtime", codes: [state.signal.aborted ? "aborted" : "runtime_error"], message: error instanceof Error ? error.message : String(error), attempt: state.retryCount + 1 };
       const handled = await this.#pipeline("error", turnError, state);
-      if (isRetry(handled) && state.retryCount < (this.#bindings.maxRetries ?? 3)) { state.retryCount += 1; this.#retryCounts.set(`${state.conversationId}:${agent}`, state.retryCount); if (handled.conversation) state.conversation = handled.conversation; return this.#runAgent(agent, state.input, { ...options, conversation: state.conversation }); }
+      if (isRetry(handled) && state.retryCount < (this.#bindings.maxRetries ?? 3) && (handled.target === "model" || state.retryTool !== undefined)) {
+        state.retryCount += 1; this.#retryCounts.set(`${state.conversationId}:${agent}`, state.retryCount);
+        if (handled.conversation) { state.conversation = handled.conversation; await this.#store.replace(state.conversationId, agent, state.conversation); }
+        if (handled.afterMs) await new Promise((resolveWait) => setTimeout(resolveWait, handled.afterMs));
+        try {
+          if (handled.target === "tool" && state.retryTool) {
+            const stage = state.retryTool;
+            let ended = await this.#runApprovedTool(stage.call, stage.execution, state);
+            for (const call of stage.remainingCalls) ended = (await this.#executeTool(call, state, [])) ?? ended;
+            state.retryTool = undefined;
+            if (ended) return this.#finishToolTurn(ended, state);
+          }
+          return await this.#continueAgent(state);
+        } catch (retryError) { return this.#handleError(retryError, state, options); }
+      }
       await this.#store.finish(state.conversationId, agent, { status: "error", turnId: state.turnId, error: turnError });
       await this.#emit("turn.error", state, { error: turnError.message, codes: turnError.codes });
       this.#retryCounts.delete(`${state.conversationId}:${agent}`);
@@ -330,7 +353,7 @@ export class GoondanRuntime {
     if (hasToolResult(transformed)) { await this.#appendToolResult(transformed.result, state); return undefined; }
     if (isToolExecution(transformed)) { call = transformed.call; execution = transformed.execution; }
     else if (isToolCall(transformed)) call = transformed;
-    const use = (state.agentSpec.tools ?? []).find((item) => typeof item !== "string" && item.tool === call.name);
+    const use = (state.agentSpec.tools ?? []).find((item) => typeof item !== "string" && (item.tool === call.name || item.agent === call.name));
     const reasons = [...state.approvals];
     if (typeof use === "object" && use.approval === "required") reasons.push(`Tool ${call.name} requires approval`);
     if (reasons.length > 0) {
@@ -345,7 +368,9 @@ export class GoondanRuntime {
       await this.#requestApproval(pending);
       return undefined;
     }
+    state.retryTool = { call, execution, remainingCalls: _remainingCalls };
     const ended = await this.#runApprovedTool(call, execution, state);
+    state.retryTool = undefined;
     return ended;
   }
 
@@ -380,8 +405,11 @@ export class GoondanRuntime {
     const delivering = await this.#operationStore.claimDelivery(operation.conversationId, operation.operationId, this.#now()); if (!delivering) return;
     try {
       if (this.#bindings.host?.deliverOperationCompletion) await this.#bindings.host.deliverOperationCompletion(completion);
-      else if (this.#activeRuns.has(operation.conversationId)) this.steer(operation.conversationId, this.#json(completion, "operationCompletion"));
-      else void this.runTurn(this.#json(completion, "operationCompletion"), { conversationId: operation.conversationId, agent: operation.agent });
+      else {
+        const active = this.#activeRuns.get(operation.conversationId);
+        if (active) { try { await active; } catch { /* Completion delivery remains independent from the preceding turn outcome. */ } }
+        await this.runTurn(this.#json(completion, "operationCompletion"), { conversationId: operation.conversationId, agent: operation.agent });
+      }
       await this.#operationStore.save({ ...delivering, deliveryStatus: "delivered", deliveredAt: this.#now(), updatedAt: this.#now() });
     } catch (error) { await this.#operationStore.save({ ...operation, deliveryStatus: "pending", error: operation.error ?? (error instanceof Error ? error.message : String(error)), updatedAt: this.#now() }); throw error; }
   }

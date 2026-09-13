@@ -17,7 +17,7 @@ Goondan은 여러 에이전트의 구성과 실행을 하나의 YAML 계약으�
 pnpm install
 pnpm build
 pnpm test
-pnpm gdn validate ./samples/smoke-test
+pnpm gdn validate ./samples/goondan-analysis-comparison/single
 ```
 
 자세한 사용법은 [GUIDE.md](GUIDE.md), 실행 계약은 [core-runtime.md](docs/specs/core-runtime.md), 터미널 호스트 계약은 [chat-runtime.md](docs/specs/chat-runtime.md)를 확인하세요.

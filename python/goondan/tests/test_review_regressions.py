@@ -166,3 +166,73 @@ async def test_routed_flow_aggregates_usage_and_preserves_terminal_finish_reason
         assert result["finishReason"] == "length"
         assert result["usage"] == {"input": 6, "output": 8, "cacheRead": 10, "cacheWrite": 12}
     finally: await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_model_result_retry_counts_raw_model_usage():
+    generations = 0
+    async def model(value):
+        nonlocal generations
+        generations += 1
+        return {**answer(), "usage": {"input": generations, "output": 0, "cacheRead": 0, "cacheWrite": 0}}
+    runtime = create_runtime(
+        config={"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"fn": "retry_first"}]}}}},
+        models={"m": model}, functions={"retry_first": lambda value: {"retry": True, "target": "model"} if generations == 1 else value},
+    )
+    try:
+        result = (await runtime.run_turn("input", conversation_id="retry-usage"))[0]
+        assert result["usage"]["input"] == 3
+    finally: await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approval", [False, True])
+async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
+    main_generations = 0; worker_user_counts = []
+    async def main(value):
+        nonlocal main_generations
+        main_generations += 1
+        return call("worker") if main_generations % 2 else answer()
+    async def worker(value):
+        worker_user_counts.append(sum(message["role"] == "user" for message in value["messages"]))
+        return answer("worker done")
+    tool_use = {"agent": "worker", **({"approval": "required"} if approval else {})}
+    runtime = create_runtime(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker})
+    try:
+        for index in range(2):
+            await runtime.run_turn(f"turn {index}", conversation_id="parent")
+            if approval:
+                operation = (await runtime.list_operations("parent"))[-1]
+                await runtime.approve_operation("parent", operation["operationId"])
+        assert worker_user_counts == [1, 1]
+    finally: await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_nested_branch_result_preserves_aggregate_metadata(tmp_path):
+    child = tmp_path / "child.yaml"
+    child.write_text("""version: 1
+agents:
+  split: {model: split}
+  left: {model: left}
+  right: {model: right}
+flow:
+  in: split
+  routes:
+    - {from: split, to: left}
+    - {from: split, to: right}
+    - {from: left, to: out}
+    - {from: right, to: out}
+""", encoding="utf-8")
+    def model(text, amount, reason="stop"):
+        async def run(value): return {**answer(text), "usage": {"input": amount, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": reason}
+        return run
+    runtime = create_runtime(
+        config={"__root__": str(tmp_path), "agents": {"nested": {"config": str(child)}}},
+        models={"split": model("split", 1), "left": model("left", 2), "right": model("right", 3, "length")},
+    )
+    try:
+        result = (await runtime.run_turn("input", conversation_id="nested-branch"))[0]
+        assert result["usage"]["input"] == 6
+        assert result["finishReason"] == "other"
+    finally: await runtime.close()

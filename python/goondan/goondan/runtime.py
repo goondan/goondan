@@ -211,8 +211,13 @@ def validate_config(config: Mapping[str, Any]) -> None:
         for extension_name, extension_config in configured_extensions.items():
             if not isinstance(extension_config, Mapping):
                 errors.append(f"agents.{agent_name}.extensions.{extension_name} must be an object")
-            elif "extension" in extension_config or "ext" in extension_config:
-                errors.append(f"agents.{agent_name}.extensions.{extension_name}.extension is not supported")
+            else:
+                for field in extension_config:
+                    if field not in {"enabled", "options"}: errors.append(f"agents.{agent_name}.extensions.{extension_name}.{field} is not supported")
+                if "enabled" in extension_config and not isinstance(extension_config["enabled"], bool):
+                    errors.append(f"agents.{agent_name}.extensions.{extension_name}.enabled must be a boolean")
+                if "options" in extension_config and not isinstance(extension_config["options"], Mapping):
+                    errors.append(f"agents.{agent_name}.extensions.{extension_name}.options must be an object")
         hooks = agent.get("hooks", {})
         for value_name, entries in hooks.items():
             if value_name not in VALUE_NAMES:
@@ -480,8 +485,8 @@ class HookContext:
     def append(self, *items: dict[str, Any]) -> Append: return Append(list(items))
     async def run_agent(self, name: str, value: Json, conversation: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return await self.runtime._run_agent(name, value, self.conversation_id, conversation, nested=True)
-    async def run_model(self, messages: list[dict[str, Any]], max_steps: int = 1) -> dict[str, Any]:
-        return await self.runtime._model_once(self.agent, messages, max_steps=max_steps)
+    async def run_model(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self.runtime._model_once(self.agent, messages)
     async def render(self, template: str, variables: Mapping[str, Any]) -> str:
         return self.runtime.render(template, variables)
 
@@ -728,7 +733,7 @@ class Runtime:
             result.append({"text": text, "source": f"system:{index}", **({"cache": True} if block.get("cache") else {})})
         return result
 
-    async def _model_once(self, agent_name: str, messages: list[dict[str, Any]], max_steps: int = 1) -> dict[str, Any]:
+    async def _model_once(self, agent_name: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
         model = self.models[self.config["agents"][agent_name]["model"]]
         session = await self._session(agent_name, "ephemeral")
         model_input = {"system": self._system(agent_name, session), "messages": messages, "tools": self._tool_definitions(agent_name, session), "options": {}}
@@ -756,7 +761,7 @@ class Runtime:
             if not outputs: raise GoondanError(f"nested config {agent_name} produced no output")
             if len(outputs) == 1: return outputs[0]
             combined = _message("assistant", "\n\n".join(_text(item["output"]) for item in outputs), agent_name)
-            return {"output": combined, "conversation": [], "finishReason": "stop", "status": "done"}
+            return {"output": combined, "conversation": [], "usage": outputs[0].get("usage"), "finishReason": outputs[0].get("finishReason", "stop"), "status": "done"}
         turn_id = uuid.uuid4().hex; session = await self._session(agent_name, conversation_id); session.active_turns.add(turn_id)
         self._execution_controls[turn_id] = ExecutionControl()
         conversation = copy.deepcopy(initial_conversation) if initial_conversation is not None else await self.store.load(conversation_id, agent_name)
@@ -789,6 +794,9 @@ class Runtime:
                         if decision.get("conversation") is not None: conversation = copy.deepcopy(decision["conversation"]); await self.store.replace(conversation_id, agent_name, conversation)
                         continue
                     raise
+                raw_usage = result.get("usage") or {}
+                for name in usage:
+                    usage[name] += raw_usage.get(name, 0)
                 result = await self._pipeline("modelResult", result, agent_name, conversation_id, turn_id, value, conversation, step, retry_count)
                 await self._emit(session, "step.done", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "step": step, "modelResult": result})
                 if isinstance(result, Mapping) and result.get("retry"):
@@ -796,8 +804,6 @@ class Runtime:
                     retry_count += 1
                     if result.get("conversation") is not None: conversation = copy.deepcopy(result["conversation"]); await self.store.replace(conversation_id, agent_name, conversation)
                     continue
-                for name in usage:
-                    usage[name] += (result.get("usage") or {}).get(name, 0)
                 assistant = copy.deepcopy(result["message"]); assistant.setdefault("id", uuid.uuid4().hex); assistant.setdefault("source", "model")
                 calls = [p for p in assistant.get("content", []) if p.get("type") == "tool.call"]
                 conversation.append(assistant); await self.store.append(conversation_id, agent_name, [assistant])
@@ -849,7 +855,7 @@ class Runtime:
                         if isinstance(decision, Mapping) and "result" in decision: tool_result = decision["result"]
                         elif configured and "agent" in configured:
                             tool_started = time.monotonic(); await self._emit(session, "tool.start", {"agent": agent_name, "conversationId": conversation_id, "turnId": turn_id, "tool": call["name"], "callId": call["id"], "args": call["args"]})
-                            child = await self._run_agent(call["name"], call["args"], conversation_id, nested=True)
+                            child = await self._run_agent(call["name"], call["args"], f"{conversation_id}:{turn_id}:{call['name']}", nested=True)
                             tool_result = {"callId": call["id"], "name": call["name"], "args": call["args"], "content": child["output"]["content"]}
                         else:
                             tool = self.tools.get(call["name"]) or session.tools[call["name"]]
@@ -898,11 +904,13 @@ class Runtime:
             session.active_turns.discard(turn_id)
 
     async def run_turn(self, value: Json, *, conversation_id: str = "default", start_agent: str | None = None) -> list[dict[str, Any]]:
-        start = start_agent or self.config.get("flow", {}).get("in") or next(iter(self.config["agents"])); pending = [(start, value, None, {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0})]; outputs = []
+        start = start_agent or self.config.get("flow", {}).get("in") or next(iter(self.config["agents"])); pending = [(start, value, None)]; outputs = []
+        total_usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
         while pending:
-            agent_name, agent_input, carried, prior_usage = pending.pop(0)
+            agent_name, agent_input, carried = pending.pop(0)
             result = await self._run_agent(agent_name, agent_input, conversation_id, carried)
-            path_usage = {name: prior_usage[name] + (result.get("usage") or {}).get(name, 0) for name in prior_usage}
+            for name in total_usage:
+                total_usage[name] += (result.get("usage") or {}).get(name, 0)
             flow = self.config.get("flow", {})
             if "routes" not in flow: outputs.append(result); continue
             routes = [route for route in flow["routes"] if route["from"] == agent_name]
@@ -913,7 +921,7 @@ class Runtime:
                 condition = route.get("when"); ok = True if not condition else await _await(self.functions[condition["fn"]](route_value))
                 if not ok: continue
                 matched = True
-                if route["to"] == "out": outputs.append({**result, "usage": path_usage}); continue
+                if route["to"] == "out": outputs.append(result); continue
                 carry = route.get("carry", {}); message_rule = carry.get("message", "output")
                 if message_rule == "output": next_value = _text(result["output"])
                 elif isinstance(message_rule, Mapping) and "fn" in message_rule: next_value = await _await(self.functions[message_rule["fn"]](route_value))
@@ -922,9 +930,11 @@ class Runtime:
                 if conversation_rule == "asis": next_conversation = result["conversation"]
                 elif isinstance(conversation_rule, Mapping): next_conversation = await _await(self.functions[conversation_rule["fn"]](result["conversation"]))
                 else: next_conversation = None
-                pending.append((route["to"], next_value, next_conversation, path_usage))
+                pending.append((route["to"], next_value, next_conversation))
             if not matched: raise GoondanError(f"no flow route matched from {agent_name}")
-        return outputs
+        finish_reasons = [result.get("finishReason", "stop") for result in outputs]
+        finish_reason = finish_reasons[0] if finish_reasons and all(reason == finish_reasons[0] for reason in finish_reasons) else "other"
+        return [{**result, "usage": total_usage, "finishReason": finish_reason} for result in outputs]
 
     async def _transition_operation(self, conversation_id: str, operation_id: str, expected: set[str], **updates: Any) -> dict[str, Any] | None:
         return await self.operation_store.transition(conversation_id, operation_id, expected, updates)
@@ -965,7 +975,7 @@ class Runtime:
             await self._emit(session, "tool.start", {"agent": agent_name, "conversationId": conversation_id, "turnId": operation["turnId"], "tool": call["name"], "callId": call["id"], "args": call["args"]})
             configured = self._configured_tool(agent_name, call["name"])
             if "agent" in configured:
-                child = await self._run_agent(call["name"], call["args"], conversation_id, nested=True)
+                child = await self._run_agent(call["name"], call["args"], f"{conversation_id}:{operation['turnId']}:{call['name']}", nested=True)
                 raw_output: Json = child["output"]["content"]
             else:
                 tool = self.tools.get(call["name"]) or session.tools.get(call["name"])

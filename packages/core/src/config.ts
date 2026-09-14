@@ -41,8 +41,8 @@ function validateAgent(name: string, raw: unknown): AgentSpec {
     const extensions = assertObject(value.extensions, `agents.${name}.extensions`);
     for (const [extensionName, rawUse] of Object.entries(extensions)) {
       const use = assertObject(rawUse, `agents.${name}.extensions.${extensionName}`);
-      if ("extension" in use || "ext" in use) throw new Error(`agents.${name}.extensions.${extensionName}.extension is redundant; the map key is the registered extension name`);
-      if (use.options !== undefined && !isJson(use.options)) throw new Error(`agents.${name}.extensions.${extensionName}.options must be JSON`);
+      for (const field of Object.keys(use)) if (!["enabled", "options"].includes(field)) throw new Error(`agents.${name}.extensions.${extensionName}.${field} is not supported`);
+      if (use.options !== undefined && (!isObject(use.options) || !isJson(use.options))) throw new Error(`agents.${name}.extensions.${extensionName}.options must be a JSON object`);
       if (use.enabled !== undefined && typeof use.enabled !== "boolean") throw new Error(`agents.${name}.extensions.${extensionName}.enabled must be a boolean`);
     }
   }

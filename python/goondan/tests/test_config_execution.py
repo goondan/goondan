@@ -71,3 +71,16 @@ def test_flow_fragment_template_uses_its_own_directory(tmp_path):
     (tmp_path / "goondan.yaml").write_text("resources: [routing/flow.yaml]\nagents: {a: {model: m}, b: {model: m}}\n")
     config = load_config(tmp_path)
     assert config["flow"]["routes"][0]["carry"]["message"]["template"] == str(fragment / "carry.md")
+
+
+def test_extension_settings_validate_fields_and_preserve_custom_options():
+    from goondan import GoondanError, validate_config
+    def config(use):
+        return {"version": 1, "agents": {"main": {"model": "m", "extensions": {"memory": use}}}}
+    for use in [{"unknownField": True}, {"enabled": "false"}, {"options": []}]:
+        with pytest.raises(GoondanError):
+            validate_config(config(use))
+    use = {"enabled": True, "options": {"custom": {"nested": [1, True, None]}}}
+    value = config(use)
+    validate_config(value)
+    assert value["agents"]["main"]["extensions"]["memory"] == use

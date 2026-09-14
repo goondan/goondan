@@ -6,3 +6,8 @@ it("rejects ambiguous tool targets before a host can interpret them differently"
   const config = validateConfig({ agents: { main: { model: "m", tools: ["lookup", { agent: "worker" }] }, worker: { model: "m" } } });
   expect(config.agents.main?.tools).toEqual(["lookup", { agent: "worker" }]);
 });
+
+it("validates tool object fields and approval values", () => {
+  expect(() => validateConfig({ agents: { main: { model: "m", tools: [{ tool: "lookup", unknownField: true }] } } })).toThrow("unknownField");
+  expect(() => validateConfig({ agents: { main: { model: "m", tools: [{ tool: "publish", approval: "optional" }] } } })).toThrow("approval");
+});

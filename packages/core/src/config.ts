@@ -19,9 +19,11 @@ function validateAgent(name: string, raw: unknown): AgentSpec {
     for (const tool of value.tools) {
       if (typeof tool === "string") { assertString(tool, "tool name"); continue; }
       const use = assertObject(tool, "tool entry");
+      for (const field of Object.keys(use)) if (!["tool", "agent", "hint", "approval"].includes(field)) throw new Error(`tool entry.${field} is not supported`);
       if (("tool" in use) === ("agent" in use)) throw new Error("Tool entries must specify exactly one of tool or agent");
       assertString("tool" in use ? use.tool : use.agent, "tool reference");
-      if ("endsTurn" in use) throw new Error("Tool execution policy belongs in a toolResult hook");
+      if (use.hint !== undefined && typeof use.hint !== "string") throw new Error("tool entry.hint must be a string");
+      if (use.approval !== undefined && use.approval !== "required") throw new Error("tool entry.approval must be required");
     }
   }
   if (value.params !== undefined && !isJson(value.params)) throw new Error(`agents.${name}.params must be JSON`);

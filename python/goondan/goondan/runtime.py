@@ -193,8 +193,17 @@ def validate_config(config: Mapping[str, Any]) -> None:
         if "config" not in agent and "model" not in agent:
             errors.append(f"agents.{agent_name}.model is required")
         for tool in agent.get("tools", []):
-            if isinstance(tool, Mapping) and (("tool" in tool) == ("agent" in tool)): errors.append("Tool entries must specify exactly one of tool or agent")
-            if isinstance(tool, Mapping) and "endsTurn" in tool: errors.append("Tool execution policy belongs in a toolResult hook")
+            if isinstance(tool, str): continue
+            if not isinstance(tool, Mapping):
+                errors.append("Tool entries must be strings or objects")
+                continue
+            for field in tool:
+                if field not in {"tool", "agent", "hint", "approval"}: errors.append(f"tool entry.{field} is not supported")
+            if (("tool" in tool) == ("agent" in tool)): errors.append("Tool entries must specify exactly one of tool or agent")
+            reference = tool.get("tool", tool.get("agent"))
+            if not isinstance(reference, str): errors.append("Tool reference must be a string")
+            if "hint" in tool and not isinstance(tool["hint"], str): errors.append("tool entry.hint must be a string")
+            if "approval" in tool and tool["approval"] != "required": errors.append("tool entry.approval must be required")
         configured_extensions = agent.get("extensions", {}) or {}
         if not isinstance(configured_extensions, Mapping):
             errors.append(f"agents.{agent_name}.extensions must be an object")

@@ -125,6 +125,15 @@ def test_ambiguous_tool_reference_is_rejected():
         create_runtime(config={"agents": {"main": {"model": "m", "tools": [{"tool": "lookup", "agent": "worker"}]}, "worker": {"model": "m"}}}, models={"m": answer})
 
 
+@pytest.mark.parametrize("tool, message", [
+    ({"tool": "lookup", "unknownField": True}, "unknownField"),
+    ({"tool": "publish", "approval": "optional"}, "approval"),
+])
+def test_tool_entries_follow_the_shared_schema(tool, message):
+    with pytest.raises(GoondanError, match=message):
+        create_runtime(config={"agents": {"main": {"model": "m", "tools": [tool]}}}, models={"m": answer})
+
+
 @pytest.mark.asyncio
 async def test_model_failure_retries_only_for_the_model_target_without_duplicate_input():
     calls = []

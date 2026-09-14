@@ -52,6 +52,7 @@ export class GoondanRuntime {
   readonly #store;
   readonly #operationStore;
   readonly #instances = new Map<string, Map<string, ExtensionInstance>>();
+  readonly #pendingHooks = new Map<string, Map<string, Promise<Message[] | undefined>>>();
   readonly #controllers = new Map<string, AbortController>();
   readonly #queuedInput = new Map<string, Json[]>();
   readonly #nested = new Map<string, GoondanRuntime>();
@@ -227,13 +228,14 @@ export class GoondanRuntime {
           await this.#emit("step.error", state, { step: state.step, error: message, codes: ["model_error"] });
           throw new RuntimeFailure({ where: "model", codes: [state.signal.aborted ? "aborted" : "model_error"], message }, { cause: error });
         }
+        addUsage(state.usage, modelResult.usage);
         const transformed = await this.#pipeline("modelResult", modelResult, state);
         if (isRetry(transformed)) {
           if (transformed.target !== "model") throw new Error("modelResult can only retry the model stage");
           continue;
         }
         if (!isModelResult(transformed)) throw new Error("modelResult hook returned an invalid value");
-        modelResult = transformed; addUsage(state.usage, modelResult.usage);
+        modelResult = transformed;
         state.conversation.push(modelResult.message); await this.#store.append(state.conversationId, agent, [modelResult.message]);
         await this.#emit("step.done", state, { step: state.step, finishReason: modelResult.finishReason });
         const calls = toolCalls(modelResult);
@@ -293,7 +295,9 @@ export class GoondanRuntime {
 
   async #state(agent: string, agentSpec: AgentSpec, input: Json, conversationId: string, conversation: Message[], signal?: AbortSignal): Promise<TurnState> {
     const turnId = this.#id();
-    return { agent, agentSpec, conversationId, turnId, input, conversation, step: 0, retryCount: this.#retryCounts.get(`${conversationId}:${agent}`) ?? 0, signal: signal ?? new AbortController().signal, messageNumber: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, extensions: await this.#extensions(agent, agentSpec, conversationId), pending: new Map(), approvals: [] };
+    const key = `${conversationId}:${agent}`; let pending = this.#pendingHooks.get(key);
+    if (!pending) { pending = new Map(); this.#pendingHooks.set(key, pending); }
+    return { agent, agentSpec, conversationId, turnId, input, conversation, step: 0, retryCount: this.#retryCounts.get(key) ?? 0, signal: signal ?? new AbortController().signal, messageNumber: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, extensions: await this.#extensions(agent, agentSpec, conversationId), pending, approvals: [] };
   }
 
   async #extensions(agent: string, spec: AgentSpec, conversationId: string): Promise<Map<string, ExtensionInstance>> {

@@ -37,9 +37,9 @@ describe("Goondan runtime", () => {
   });
 
   it("uses the extension map key as the host registration name", () => {
-    const base = { version: 1, name: "extension-key", agents: { main: { model: "fixture", extensions: { memory: { extension: "team-memory" } } } }, flow: { in: "main" } };
+    const base = { version: 1, name: "extension-key", agents: { main: { model: "fixture", extensions: { memory: { unknownField: "value" } } } }, flow: { in: "main" } };
     expect(validateConfig({ version: 1, name: "extension-key", agents: { main: { model: "fixture", extensions: { memory: { options: { scope: "team" } } } } }, flow: { in: "main" } }).agents.main?.extensions?.memory?.options).toEqual({ scope: "team" });
-    expect(() => validateConfig(base)).toThrow("redundant");
+    expect(() => validateConfig(base)).toThrow("unknownField");
   });
   it("starts a routed flow at a surface agent and carries conversation across every route", async () => {
     const config: LoadedConfig = { directory: ".", templates: new Map<string, string>(), config: { version: 1, name: "routes", agents: { slack: { model: "slack", input: "asis" }, api: { model: "api", input: "asis" }, finish: { model: "finish", input: "asis" } }, flow: { in: "slack", routes: [{ from: "api", to: "finish", when: { fn: "hasOutput" }, carry: { message: "output", conversation: "asis" } }, { from: "finish", to: "out" }] } } };
@@ -159,6 +159,35 @@ describe("Goondan runtime", () => {
     await runtime.runTurn("start", { conversationId: "model-retry" });
 
     expect(observedUserCounts).toEqual([1, 1]);
+  });
+
+  it("keeps asynchronous conversation results until the next turn", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    const seen: ModelInput[] = [];
+    const config = validateConfig({ agents: { main: { model: "fixture", extensions: { memory: {} }, hooks: { conversation: [{ extension: "memory", mode: "async" }] } } } });
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, {
+      models: { fixture: { async generate(input): Promise<ModelResult> { seen.push(input); return { message: { id: `done-${String(seen.length)}`, role: "assistant", source: "model", content: [{ type: "text", text: "done" }] }, finishReason: "stop" }; } } },
+      extensions: { memory: defineExtension({ name: "memory", create: () => ({ hooks: { async conversation(_value, context) { await gate; return context.append(context.message.user("late context")); } } }) }) },
+    });
+    await runtime.runTurn("first", { conversationId: "async-context" });
+    release?.();
+    await runtime.runTurn("second", { conversationId: "async-context" });
+
+    expect(seen[1]?.messages.some((message) => text(message) === "late context")).toBe(true);
+  });
+
+  it("counts raw model usage when a modelResult hook requests a retry", async () => {
+    let generations = 0;
+    const config = validateConfig({ agents: { main: { model: "fixture", hooks: { modelResult: [{ fn: "retryFirst" }] } } } });
+    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, {
+      models: { fixture: { async generate(): Promise<ModelResult> { generations += 1; return { message: { id: `result-${String(generations)}`, role: "assistant", source: "model", content: [{ type: "text", text: "done" }] }, usage: { input: generations, output: 0, cacheRead: 0, cacheWrite: 0 }, finishReason: "stop" }; } } },
+      functions: { retryFirst(value) { return generations === 1 ? { retry: true, target: "model" } : value; } },
+    });
+
+    const result = await runtime.runTurn("start", { conversationId: "retry-usage" });
+
+    expect(result.usage?.input).toBe(3);
   });
 
   it("returns terminal finish reason and usage aggregated across a routed flow", async () => {

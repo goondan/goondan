@@ -1,0 +1,171 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "본문"
+            }
+          ]
+        },
+        "usage": {
+          "input": 2,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "helper",
+            "turnId": "<turn:2>",
+            "kind": "hook",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "status": "failed"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "질문"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.start",
+        "agent": "helper",
+        "conversationId": "c1:main:output:helper",
+        "turnId": "<turn:2>",
+        "data": {
+          "input": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "본문"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "helper",
+        "conversationId": "c1:main:output:helper",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.error",
+        "agent": "helper",
+        "conversationId": "c1:main:output:helper",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1,
+          "codes": [
+            "model_error"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "helper",
+        "conversationId": "c1:main:output:helper",
+        "turnId": "<turn:2>",
+        "data": {
+          "where": "model",
+          "codes": [
+            "model_error"
+          ]
+        }
+      },
+      {
+        "name": "hook.failed",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "output",
+          "hook": "helper"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "본문"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 2,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ]
+  }
+}

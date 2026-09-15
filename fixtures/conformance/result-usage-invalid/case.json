@@ -1,0 +1,40 @@
+{
+  "description": "usage로 제공한 필드의 값이 0 이상의 유한한 JSON 수가 아니면 그 모델 결과는 유효하지 않으므로 modelResult 단계의 value_invalid 실행 오류가 된다.",
+  "spec": [
+    "사용량 집계"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "나쁨",
+            "usage": {
+              "input": "5"
+            }
+          },
+          {
+            "text": "더 나쁨",
+            "usage": {
+              "output": -1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": "질문"
+      }
+    }
+  ]
+}

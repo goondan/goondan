@@ -1,0 +1,5 @@
+resources:
+  - frag.txt
+agents:
+  main:
+    model: m

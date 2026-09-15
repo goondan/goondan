@@ -1,0 +1,14 @@
+{
+  "description": "활성화된 확장의 이름이 확장 바인딩의 키가 아니면 binding.extension 구성 오류이며, 그 확장은 포트와 훅 단계 검사에서 제외되므로 항목이 하나만 보고된다.",
+  "spec": [
+    "확장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

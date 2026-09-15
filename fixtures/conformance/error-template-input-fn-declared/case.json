@@ -1,0 +1,15 @@
+{
+  "description": "fn과 함께 선언한 input.template도 검증 대상이므로, fn을 사용하더라도 읽을 수 없는 템플릿은 구성 오류다.",
+  "spec": [
+    "템플릿을 읽는 시점",
+    "템플릿 구성 오류"
+  ],
+  "bindings": {
+    "functions": {
+      "pick": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": []
+}

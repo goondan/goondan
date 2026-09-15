@@ -1,0 +1,37 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "main": {
+          "model": "m",
+          "params": {
+            "a": "12",
+            "b": 12,
+            "c": 1,
+            "d": true,
+            "e": null,
+            "f": [
+              1,
+              2
+            ],
+            "g": {
+              "k": "v"
+            },
+            "anchored": {
+              "x": 1
+            },
+            "aliased": {
+              "x": 1
+            }
+          }
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

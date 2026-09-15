@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    params:
+      flag: true
+      v: 2
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

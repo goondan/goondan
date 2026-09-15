@@ -1,0 +1,8 @@
+{
+  "description": "include에 ignore missing을 붙이면 template.syntax 구성 오류다.",
+  "spec": [
+    "템플릿 파일과 `include`",
+    "템플릿 구성 오류"
+  ],
+  "steps": []
+}

@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createRuntime, loadConfig, type Json, type RuntimeBindings } from '@goondan/core';
+import { createRuntime, loadConfig, textOf, type Json, type RuntimeBindings } from '@goondan/core';
 import { stringify } from 'yaml';
 import { parseChatOptions, runChat } from './chat/command.js';
 
@@ -12,12 +12,16 @@ interface Options { command: string; directory: string; bindings: string; input?
 function usage(): string {
   return [
     'Usage:',
-    '  gdn run [CONFIG_PATH] --bindings <MODULE> [--input <JSON_OR_TEXT>] [--conversation-id <ID>] [--agent <NAME>]',
-    '  gdn chat [--cwd <PATH>] [--model <MODEL>] [--session <ID>] [--state-dir <PATH>] [--config <PATH>] [--bindings <MODULE>] [--final-only]',
+    '  gdn run [CONFIG_PATH] --bindings <MODULE> [--input <JSON_OR_TEXT>] [--input-file <PATH>]',
+    '          [--conversation-id <ID>] [--agent <AGENT_PATH>] [--variant <NAME>]',
+    '  gdn chat [--cwd <PATH>] [--provider <anthropic|openai>] [--model <MODEL>] [--base-url <URL>]',
+    '           [--session <ID>] [--state-dir <PATH>] [--config <PATH>] [--bindings <MODULE>] [--final-only]',
     '  gdn validate [CONFIG_PATH] [--variant <NAME>]',
     '  gdn config [CONFIG_PATH] [--variant <NAME>]',
     '',
     'The bindings module exports `bindings` or a default RuntimeBindings object.',
+    '`--variant` may be repeated and applies in the given order.',
+    '`gdn run` reads the input from standard input when neither --input nor --input-file is given.',
   ].join('\n');
 }
 
@@ -67,8 +71,7 @@ async function main(): Promise<void> {
   const runtime = createRuntime(loaded, candidate);
   try {
     const result = await runtime.runTurn(parseInput(raw), { conversationId: options.conversationId, agent: options.agent });
-    for (const part of result.output.content) if (part.type === 'text') process.stdout.write(part.text);
-    process.stdout.write('\n');
+    process.stdout.write(`${textOf(result.output.content)}\n`);
   } finally { await runtime.close(); }
 }
 

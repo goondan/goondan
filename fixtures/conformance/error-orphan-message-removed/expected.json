@@ -1,0 +1,97 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_error"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "f-1",
+          "name": "fail",
+          "args": {}
+        }
+      }
+    },
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "tap",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "fn": "tap",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "다시"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "다시"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

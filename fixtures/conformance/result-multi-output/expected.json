@@ -1,0 +1,235 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "flow",
+          "content": [
+            {
+              "type": "text",
+              "text": "왼쪽\n\n오른쪽"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "왼쪽"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "오른쪽"
+              }
+            ]
+          }
+        ],
+        "finishReason": "other",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "split",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "left",
+            "turnId": "<turn:2>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "right",
+            "turnId": "<turn:3>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "length",
+            "status": "done"
+          }
+        ]
+      }
+    },
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "flow",
+          "content": [
+            {
+              "type": "text",
+              "text": "왼쪽2\n\n오른쪽2"
+            }
+          ]
+        },
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/split": [
+        {
+          "role": "user",
+          "source": "split",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        }
+      ],
+      "c1/left": [
+        {
+          "role": "user",
+          "source": "left",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "왼쪽"
+            }
+          ]
+        }
+      ],
+      "c1/right": [
+        {
+          "role": "user",
+          "source": "right",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "오른쪽"
+            }
+          ]
+        }
+      ],
+      "c2/split": [
+        {
+          "role": "user",
+          "source": "split",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        }
+      ],
+      "c2/left": [
+        {
+          "role": "user",
+          "source": "left",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "왼쪽2"
+            }
+          ]
+        }
+      ],
+      "c2/right": [
+        {
+          "role": "user",
+          "source": "right",
+          "content": [
+            {
+              "type": "text",
+              "text": "나눔"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "오른쪽2"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

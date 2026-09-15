@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      output:
+        - name: bad
+          extension: memo
+          optional: true

@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      modelInput:
+        - name: ask
+          extension: memo
+  helper:
+    model: h

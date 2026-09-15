@@ -1,0 +1,36 @@
+{
+  "description": "시스템 블록 템플릿은 params, tools, agent, model 변수를 받으며 tools는 modelInput 훅 이전의 도구 정의 배열과 같다.",
+  "spec": [
+    "시스템 메시지와 매개변수",
+    "도구",
+    "에이전트 도구"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      },
+      "h": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "search": {
+        "description": "검색",
+        "results": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

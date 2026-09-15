@@ -1,6 +1,141 @@
 {
-  "modelCallCount": 2,
-  "toolCalls": ["lookup", "finish"],
-  "output": {"role": "assistant", "source": "tool", "text": "최종 결과"},
-  "storedRoles": ["user", "assistant", "tool", "assistant", "tool", "assistant"]
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        },
+        "usage": {
+          "input": 21,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 21,
+              "output": 4,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "lookup",
+        "args": {
+          "query": "군단"
+        }
+      },
+      {
+        "tool": "finish",
+        "args": {
+          "summary": "찾음"
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "찾아 주세요"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "call-1",
+              "name": "lookup",
+              "args": {
+                "query": "군단"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "call-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "검색 결과"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "call-2",
+              "name": "finish",
+              "args": {
+                "summary": "찾음"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "call-2",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "최종 결과"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
 }

@@ -1,0 +1,21 @@
+{
+  "description": "join 필터의 입력이 배열이 아니면 실행 오류다.",
+  "spec": [
+    "필터와 테스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

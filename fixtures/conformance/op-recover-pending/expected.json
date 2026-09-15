@@ -1,0 +1,174 @@
+{
+  "steps": [
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "hostCalls": [
+      {
+        "callback": "captureOperationContext",
+        "value": {
+          "operationId": "<op:a-1>",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "agent": "main",
+          "toolCall": {
+            "id": "a-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:a-1>",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "agent": "main",
+          "toolCall": {
+            "id": "a-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "captureOperationContext",
+        "value": {
+          "operationId": "<op:b-1>",
+          "conversationId": "c2",
+          "turnId": "<turn:2>",
+          "agent": "main",
+          "toolCall": {
+            "id": "b-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:b-1>",
+          "conversationId": "c2",
+          "turnId": "<turn:2>",
+          "agent": "main",
+          "toolCall": {
+            "id": "b-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:b-1>",
+          "conversationId": "c2",
+          "turnId": "<turn:2>",
+          "agent": "main",
+          "toolCall": {
+            "id": "b-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:a-1>",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "agent": "main",
+          "toolCall": {
+            "id": "a-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:b-1>",
+          "conversationId": "c2",
+          "turnId": "<turn:2>",
+          "agent": "main",
+          "toolCall": {
+            "id": "b-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:a-1>",
+        "deliveryId": "operation:<op:a-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "a-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending",
+        "context": {
+          "ticket": "T-1"
+        }
+      },
+      {
+        "operationId": "<op:b-1>",
+        "deliveryId": "operation:<op:b-1>:completion",
+        "agent": "main",
+        "conversationId": "c2",
+        "turnId": "<turn:2>",
+        "toolCall": {
+          "id": "b-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending",
+        "context": {
+          "ticket": "T-1"
+        }
+      }
+    ]
+  }
+}

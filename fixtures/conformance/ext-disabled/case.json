@@ -1,0 +1,29 @@
+{
+  "description": "enabled가 false인 확장은 인스턴스를 만들지 않고 모든 단계에서 그 확장의 훅이 유효 구성에서 빠지며, 사용 설정 자체는 남고 확장 바인딩에 없는 이름이어도 오류가 아니다.",
+  "spec": [
+    "확장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "description": "conversation 단계에 식별자가 같은 mode: async 훅이 둘 이상 있으면 두 번째 이후 훅마다 reference.duplicate_hook 구성 오류다.",
+  "spec": [
+    "훅 식별자",
+    "훅 선언"
+  ],
+  "steps": []
+}

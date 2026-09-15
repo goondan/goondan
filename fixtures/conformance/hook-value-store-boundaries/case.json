@@ -1,0 +1,40 @@
+{
+  "description": "modelInput 단계에서 추가한 메시지는 그 모델 호출에만 전달하고 저장하지 않으며, output 단계가 성공하면 저장한 모델 응답 메시지를 그 결과로 교체한다.",
+  "spec": [
+    "단계 값과 대화 저장",
+    "인라인 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "addHint": {
+        "op": "constant",
+        "value": "힌트"
+      },
+      "polish": {
+        "op": "textSuffix",
+        "suffix": " (정리)"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

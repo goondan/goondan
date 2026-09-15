@@ -1,0 +1,60 @@
+{
+  "request": {
+    "model": "claude-sonnet-5",
+    "max_tokens": 64000,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "S0"
+      },
+      {
+        "type": "text",
+        "text": "S1"
+      },
+      {
+        "type": "text",
+        "text": "S2",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "S3",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "S4",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "operator note"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    ],
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "top_p": 0.9,
+    "tool_choice": {
+      "type": "any"
+    }
+  }
+}

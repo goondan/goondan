@@ -1,0 +1,14 @@
+agents:
+  first:
+    model: m
+  second:
+    model: m
+flow:
+  in: first
+  routes:
+    - from: first
+      to: second
+      carry:
+        message: {fn: missing}
+    - from: second
+      to: out

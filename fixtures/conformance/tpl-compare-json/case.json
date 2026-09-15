@@ -1,0 +1,25 @@
+{
+  "description": "==와 !=는 JSON 값 비교로 판단하므로 1과 1.0은 같고 수와 문자열, 불리언과 수는 다르며 null은 null과 같다.",
+  "spec": [
+    "식"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

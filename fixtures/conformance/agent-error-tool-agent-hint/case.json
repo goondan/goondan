@@ -1,0 +1,7 @@
+{
+  "description": "hint는 tool 항목에만 선언할 수 있으므로 agent 항목의 hint는 그 필드 위치에서 거짓 스키마 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

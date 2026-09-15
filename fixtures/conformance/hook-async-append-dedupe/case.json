@@ -1,0 +1,62 @@
+{
+  "description": "비동기 훅의 결과로 메시지를 추가할 때의 대상 목록은 저장된 대화이므로, 같은 source와 key를 가진 가장 뒤 메시지가 역할과 내용까지 같으면 사이에 다른 메시지가 있어도 추가하지 않는다.",
+  "spec": [
+    "비동기 훅",
+    "제어 결과"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답3",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "constant",
+        "value": "메모"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "셋"
+      }
+    }
+  ]
+}

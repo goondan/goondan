@@ -1,0 +1,48 @@
+{
+  "description": "비활성 확장의 훅 제거는 상속 결과로 각 에이전트의 유효 구성을 만들 때 적용하므로, 부모가 끈 확장을 자식이 켜면 부모가 선언한 그 확장의 훅이 자식에서 실행된다.",
+  "spec": [
+    "확장",
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "append",
+              "messages": [
+                {
+                  "role": "user",
+                  "text": "기억"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕",
+        "agent": "child"
+      }
+    }
+  ]
+}

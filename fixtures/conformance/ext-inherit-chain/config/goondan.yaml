@@ -1,0 +1,16 @@
+agents:
+  root:
+    model: m
+    params:
+      locale: ko
+      depth: 1
+    tools: [search, write]
+  mid:
+    inherit: root
+    params:
+      depth: 2
+    tools: [search]
+  leaf:
+    inherit: mid
+    params:
+      extra: true

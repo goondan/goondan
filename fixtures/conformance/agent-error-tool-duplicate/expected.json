@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "reference.duplicate_tool",
+        "path": "/agents/main/tools/1"
+      }
+    ]
+  }
+}

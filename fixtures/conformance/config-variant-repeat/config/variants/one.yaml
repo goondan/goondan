@@ -1,0 +1,6 @@
+resources:
+  - ../frag.yaml
+agents:
+  main:
+    params:
+      a: one

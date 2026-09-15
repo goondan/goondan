@@ -1,0 +1,9 @@
+agents:
+  base:
+    model: m
+    systemMessage:
+      text: 기본 안내
+  child:
+    inherit: base
+    systemMessage:
+      template: sys.md

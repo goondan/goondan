@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "modelInput",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "modelInputs": {},
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

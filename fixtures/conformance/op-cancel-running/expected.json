@@ -1,0 +1,93 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    },
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "running",
+        "deliveryStatus": "pending"
+      }
+    },
+    {}
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "danger",
+        "args": {}
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "completed",
+        "deliveryStatus": "delivered",
+        "result": {
+          "callId": "d-1",
+          "name": "danger",
+          "args": {},
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            }
+          ]
+        }
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "completed/pending",
+        "completed/delivering",
+        "completed/delivered"
+      ]
+    }
+  }
+}

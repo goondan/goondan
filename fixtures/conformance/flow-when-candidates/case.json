@@ -1,0 +1,58 @@
+{
+  "description": "후보 route의 when 함수를 선언 순서대로 모두 호출해 일치 여부를 정하고, 일치한 route를 선언 순서대로 진행한다.",
+  "spec": [
+    "route 진행",
+    "route 함수와 `carry`"
+  ],
+  "bindings": {
+    "models": {
+      "ma": {
+        "responses": [
+          {
+            "text": "A",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mb": {
+        "responses": []
+      },
+      "mc": {
+        "responses": [
+          {
+            "text": "C",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "first": {
+        "op": "constant",
+        "value": true
+      },
+      "second": {
+        "op": "constant",
+        "value": false
+      },
+      "third": {
+        "op": "constant",
+        "value": true
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "시작"
+      }
+    }
+  ]
+}

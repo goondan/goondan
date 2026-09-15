@@ -1,0 +1,7 @@
+{
+  "config": {
+    "model": "llama3.2",
+    "baseUrl": "http://localhost:11434/v1"
+  },
+  "stream": "data: {\"id\":\"chatcmpl-9\",\"model\":\"llama3.2\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_x\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":3}\"}}]},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+}

@@ -1,0 +1,28 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "input": {
+    "system": [],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "options": {
+      "anthropic": {
+        "system": "override"
+      }
+    }
+  }
+}

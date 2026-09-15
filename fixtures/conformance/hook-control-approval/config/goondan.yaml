@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: publish
+        approval: required
+    hooks:
+      toolCall:
+        - name: gate
+          fn: askApproval
+        - name: after
+          fn: mark

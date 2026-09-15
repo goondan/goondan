@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: publish
+        approval: required
+    extensions:
+      memo: {}
+    hooks:
+      toolResult:
+        - name: done
+          extension: memo

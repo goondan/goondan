@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    hooks:
+      error:
+        - name: capture
+          fn: captureError

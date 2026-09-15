@@ -1,0 +1,57 @@
+{
+  "description": "중복 검사는 메시지를 하나씩 차례로 적용하며 key가 다른 메시지는 서로 비교하지 않고 앞서 추가한 메시지도 대상 목록에 포함한다.",
+  "spec": [
+    "제어 결과"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "append",
+              "messages": [
+                {
+                  "role": "user",
+                  "text": "메모",
+                  "key": "a"
+                },
+                {
+                  "role": "user",
+                  "text": "메모",
+                  "key": "b"
+                },
+                {
+                  "role": "user",
+                  "text": "메모",
+                  "key": "a"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

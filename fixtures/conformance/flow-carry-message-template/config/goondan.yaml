@@ -1,0 +1,14 @@
+agents:
+  first:
+    model: mf
+  second:
+    model: ms
+flow:
+  in: first
+  routes:
+    - from: first
+      to: second
+      carry:
+        message: {template: templates/request.md}
+    - from: second
+      to: out

@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "lookup",
+        "args": {
+          "q": "고침2"
+        }
+      }
+    ],
+    "toolContexts": [
+      {
+        "tool": "lookup",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "c-1",
+          "name": "lookup",
+          "args": {
+            "q": "고침2"
+          }
+        },
+        "input": "안녕",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "tool.call",
+                "callId": "c-1",
+                "name": "lookup",
+                "args": {
+                  "q": "원본"
+                }
+              }
+            ]
+          }
+        ],
+        "execution": {
+          "x": 2
+        }
+      }
+    ]
+  }
+}

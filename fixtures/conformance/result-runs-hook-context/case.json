@@ -1,0 +1,88 @@
+{
+  "description": "동기 훅 컨텍스트의 agents.run은 hook 항목을, model.run은 요청한 실행의 agent와 turnId를 가진 model 항목을 만들고 두 사용량 모두 턴 합계에 들어가며, model.run은 step 이벤트를 알리지 않는다.",
+  "spec": [
+    "에이전트 실행 기록",
+    "사용량 집계",
+    "이벤트 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "훅 응답",
+            "usage": {
+              "input": 3,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "hm": {
+        "responses": [
+          {
+            "text": "도왔다",
+            "usage": {
+              "input": 5,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "probe": {
+        "definition": {
+          "hooks": [
+            "modelInput"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "chain",
+              "ops": [
+                {
+                  "op": "runAgent",
+                  "name": "helper",
+                  "input": "도움 요청"
+                },
+                {
+                  "op": "runModel",
+                  "messages": [
+                    {
+                      "id": "probe-1",
+                      "role": "user",
+                      "source": "probe",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "확인"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "description": "tools 항목의 이름이 빈 문자열이면 그 항목 위치에서 schema.minLength 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

@@ -1,0 +1,54 @@
+{
+  "description": "inputPatch가 있는 결정의 decision이 approved가 아니면 입력 수정 검증을 호출하지 않고 operation_invalid 실행 오류로 거부한다.",
+  "spec": [
+    "결정과 취소"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "host": {
+      "validateOperationInputPatch": true
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "rejected",
+          "inputPatch": {
+            "env": "staging"
+          }
+        }
+      }
+    }
+  ]
+}

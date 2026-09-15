@@ -1,0 +1,8 @@
+agents:
+  wrap:
+    config: nested/goondan.yaml
+    description: 중첩 구성을 실행한다.
+    params:
+      unused: 1
+flow:
+  in: wrap

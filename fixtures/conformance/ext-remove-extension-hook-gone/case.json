@@ -1,0 +1,18 @@
+{
+  "description": "remove.extensions로 제거한 확장의 훅은 상속 결과에서 이미 삭제되므로 자식이 그 확장을 다시 선언해도 되살아나지 않는다.",
+  "spec": [
+    "확장",
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "memo": {}
+    }
+  },
+  "steps": []
+}

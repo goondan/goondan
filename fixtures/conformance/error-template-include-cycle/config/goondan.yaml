@@ -1,0 +1,5 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - template: templates/loop-a.md

@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    params:
+      a: entry
+      b: entry

@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": true
+          }
+        ]
+      ]
+    },
+    {},
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "note",
+          "content": [
+            {
+              "type": "text",
+              "text": "비동기"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답2"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

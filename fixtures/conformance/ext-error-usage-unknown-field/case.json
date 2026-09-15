@@ -1,0 +1,7 @@
+{
+  "description": "확장 사용 설정에는 enabled와 options만 선언할 수 있으므로 다른 필드는 스키마 단계의 구성 오류다.",
+  "spec": [
+    "확장"
+  ],
+  "steps": []
+}

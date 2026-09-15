@@ -1,0 +1,31 @@
+{
+  "description": "실패한 에이전트 실행도 끝난 실행이므로 턴이 실패한 뒤 같은 대화 식별자로 실행 중단을 요청하면 중단한 실행이 없다는 결과를 받는다.",
+  "spec": [
+    "실행 오류",
+    "실행 중단"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "모델 실패"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    },
+    {
+      "abort": {
+        "conversationId": "c1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "description": "for 본문에서 loop를 정해진 다섯 키의 . 접근이 아닌 방식으로 쓰면 template.syntax 구성 오류다.",
+  "spec": [
+    "반복",
+    "템플릿 구성 오류"
+  ],
+  "steps": []
+}

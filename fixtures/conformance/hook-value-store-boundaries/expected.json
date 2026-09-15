@@ -1,0 +1,110 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "polish",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료 (정리)"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "polish",
+            "content": [
+              {
+                "type": "text",
+                "text": "완료 (정리)"
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input": 1,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "hint",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "힌트"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "polish",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료 (정리)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

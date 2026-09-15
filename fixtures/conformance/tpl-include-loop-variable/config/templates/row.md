@@ -1,0 +1,1 @@
+[{{ item }}:{{ loop | default('x') }}]

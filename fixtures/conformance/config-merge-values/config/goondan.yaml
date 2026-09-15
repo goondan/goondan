@@ -1,0 +1,10 @@
+extends: base.yaml
+agents:
+  main:
+    params:
+      obj:
+        b: 20
+        c: 30
+      arr: [9]
+      s: entry
+      nul: null

@@ -1,0 +1,44 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "first",
+        "value": "안녕"
+      },
+      {
+        "fn": "second",
+        "value": {
+          "text": "안녕",
+          "stage": "first"
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"text\":\"안녕\",\"stage\":\"second\"}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

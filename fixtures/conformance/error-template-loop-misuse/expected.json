@@ -1,0 +1,12 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "template.syntax",
+        "path": "/agents/main/systemMessage/0/template",
+        "message": "templates/bad.md has invalid syntax"
+      }
+    ]
+  }
+}

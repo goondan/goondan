@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "tap",
+        "value": {
+          "id": "c-1",
+          "name": "flaky",
+          "args": {}
+        }
+      }
+    ],
+    "toolCalls": [
+      {
+        "tool": "flaky",
+        "args": {}
+      },
+      {
+        "tool": "flaky",
+        "args": {}
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    params:
+      flag: true
+    hooks:
+      conversation:
+        - name: note
+          template: templates/note.md

@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.duplicate_tool",
+        "path": "/agents/main/tools/0"
+      }
+    ]
+  }
+}

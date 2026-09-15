@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.minItems",
+        "path": "/agents/main/hooks/input/0/agent"
+      }
+    ]
+  }
+}

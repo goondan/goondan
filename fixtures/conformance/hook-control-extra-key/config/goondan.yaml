@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      bad: {}
+    hooks:
+      conversation:
+        - name: bad
+          extension: bad

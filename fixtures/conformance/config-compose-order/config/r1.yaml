@@ -1,0 +1,6 @@
+agents:
+  main:
+    params:
+      b: r1
+      c: r1
+      d: r1

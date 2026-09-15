@@ -1,0 +1,1 @@
+{{ params.list.0 }}

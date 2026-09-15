@@ -1,0 +1,4 @@
+agents:
+  main:
+    model: m
+    temperature: 0.2

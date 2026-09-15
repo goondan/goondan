@@ -1,0 +1,78 @@
+{
+  "description": "재시도 횟수는 에이전트 실행마다 따로 세므로 에이전트 도구가 시작한 하위 실행은 자신의 재시도 한도를 가진다.",
+  "spec": [
+    "재시도",
+    "에이전트 도구"
+  ],
+  "bindings": {
+    "models": {
+      "mm": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "w-1",
+                "name": "worker",
+                "args": {
+                  "q": "x"
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "error": "주 실패"
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "wm": {
+        "responses": [
+          {
+            "error": "보조 실패"
+          },
+          {
+            "text": "보조 완료",
+            "usage": {
+              "input": 4,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "constant",
+              "value": {
+                "retry": true,
+                "target": "model"
+              }
+            }
+          }
+        }
+      }
+    },
+    "maxRetries": 1
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

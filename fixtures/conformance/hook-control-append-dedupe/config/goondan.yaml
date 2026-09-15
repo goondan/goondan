@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: ctx
+          fn: ctxText
+          using: input

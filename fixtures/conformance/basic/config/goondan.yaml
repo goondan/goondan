@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    params:
+      product: 군단
+    input:
+      template: templates/input.md
+    systemMessage:
+      template: templates/system.md
+      cache: true
+flow:
+  in: main

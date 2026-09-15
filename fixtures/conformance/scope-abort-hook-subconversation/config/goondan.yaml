@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelInput:
+        - name: advisors
+          using: input
+          agent: helper
+  helper:
+    model: h
+flow:
+  in: main

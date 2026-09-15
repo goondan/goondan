@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    params:
+      a: 1
+      b: 1.0
+      s: "1"
+      t: true
+      n1: null
+      n2: null
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

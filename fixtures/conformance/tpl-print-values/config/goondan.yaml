@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    params:
+      t: true
+      whole: 2.0
+      arr: [a, b]
+      obj: {a: 1}
+      n: null
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

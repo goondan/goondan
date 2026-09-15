@@ -1,0 +1,6 @@
+agents:
+  base:
+    model: m
+    hooks:
+      output:
+        - template: templates/note.md

@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "extensions": {
+            "memo": {
+              "enabled": false
+            }
+          },
+          "hooks": {
+            "modelInput": []
+          }
+        },
+        "child": {
+          "model": "m",
+          "extensions": {
+            "memo": {
+              "enabled": true
+            }
+          },
+          "hooks": {
+            "modelInput": [
+              {
+                "extension": "memo"
+              }
+            ]
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    },
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "child",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "memo",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "기억"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

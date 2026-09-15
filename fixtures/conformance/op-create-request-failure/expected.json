@@ -1,0 +1,163 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "runtime_error"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        }
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "실행해 줘"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "humanApproval.created",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "operationId": "<op:d-1>",
+          "tool": "danger",
+          "callId": "d-1",
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "tool",
+          "codes": [
+            "runtime_error"
+          ]
+        }
+      }
+    ],
+    "hostCalls": [
+      {
+        "callback": "requestApproval",
+        "value": {
+          "operationId": "<op:d-1>",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "agent": "main",
+          "toolCall": {
+            "id": "d-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "실행해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "d-1",
+              "name": "danger",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "d-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:d-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:d-1>"
+          }
+        }
+      ]
+    }
+  }
+}

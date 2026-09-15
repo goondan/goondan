@@ -1,0 +1,67 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "tools": [
+            "search",
+            {
+              "tool": "publish",
+              "approval": "required"
+            },
+            {
+              "agent": "helper"
+            }
+          ],
+          "extensions": {
+            "audit": {},
+            "memory": {}
+          },
+          "hooks": {
+            "modelInput": [
+              {
+                "name": "trim",
+                "fn": "trimContext"
+              },
+              {
+                "fn": "other"
+              }
+            ],
+            "output": [
+              {
+                "extension": "audit"
+              }
+            ]
+          }
+        },
+        "helper": {
+          "model": "m"
+        },
+        "reader": {
+          "model": "m",
+          "tools": [
+            "search"
+          ],
+          "extensions": {
+            "memory": {}
+          },
+          "hooks": {
+            "modelInput": [
+              {
+                "fn": "other"
+              }
+            ],
+            "output": []
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    }
+  }
+}

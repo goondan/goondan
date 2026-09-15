@@ -1,0 +1,1 @@
+뿌리: {% include "common.md" %}

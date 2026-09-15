@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    params:
+      my-key: v
+      list: [x, y]
+      tags: {items: [z]}
+      text: "abc"
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

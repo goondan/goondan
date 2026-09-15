@@ -1,0 +1,14 @@
+{
+  "description": "합성 과정에서 뒤의 값으로 교체된 유한하지 않은 수는 검사하지 않으므로 구성이 유효하다.",
+  "spec": [
+    "YAML 해석"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

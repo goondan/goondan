@@ -1,0 +1,63 @@
+{
+  "steps": [
+    {
+      "error": {
+        "issues": [
+          {
+            "code": "binding.extension_hook",
+            "path": "/agents/main/hooks/modelInput/0/extension"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "memo",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "memo": {}
+            },
+            "hooks": {
+              "modelInput": [
+                {
+                  "extension": "memo",
+                  "optional": true
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      }
+    ],
+    "modelInputs": {},
+    "conversations": {},
+    "events": [
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "runtime",
+          "codes": [
+            "binding.extension_hook"
+          ]
+        }
+      }
+    ]
+  }
+}

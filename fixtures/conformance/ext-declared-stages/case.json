@@ -1,0 +1,52 @@
+{
+  "description": "확장 정의가 선언한 훅 단계를 구성에서 사용하지 않는 것은 오류가 아니며, 선언한 단계의 훅은 그대로 실행된다.",
+  "spec": [
+    "확장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "definition": {
+          "hooks": [
+            "modelInput",
+            "output"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "append",
+              "messages": [
+                {
+                  "role": "user",
+                  "text": "기억"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

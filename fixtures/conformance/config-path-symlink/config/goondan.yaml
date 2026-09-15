@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      template: link/../sys.md
+  linked:
+    model: m
+    systemMessage:
+      template: alias.md
+  deep:
+    model: m
+    systemMessage:
+      template: sub/deep/note.md

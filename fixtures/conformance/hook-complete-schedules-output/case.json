@@ -1,0 +1,73 @@
+{
+  "description": "동기 toolResult 확장 훅이 예약한 메시지가 있으면 모델을 다시 호출하지 않고 그 메시지를 output 단계에 통과시키며, 결과를 대화 끝에 저장하고 실행의 finishReason은 tool이다.",
+  "spec": [
+    "`execution.complete`",
+    "단계 값과 대화 저장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "lookup",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 5,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "results": [
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "polish": {
+        "op": "textSuffix",
+        "suffix": "!"
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "toolResult": {
+              "op": "complete",
+              "message": {
+                "id": "done-1",
+                "role": "assistant",
+                "source": "memo",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "마무리"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

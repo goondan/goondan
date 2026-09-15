@@ -1,0 +1,9 @@
+{
+  "description": "합성을 마친 구성 문서에는 에이전트가 하나 이상 있어야 하므로 빈 맵은 /agents 위치의 schema.minProperties 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

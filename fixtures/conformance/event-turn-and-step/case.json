@@ -1,0 +1,36 @@
+{
+  "description": "모델 에이전트 실행 하나는 turn.start, step.start, step.textDelta, step.done, turn.done을 이 순서로 알리며 각 이벤트는 규격이 정한 data 키를 가진다.",
+  "spec": [
+    "실행 이벤트",
+    "이벤트 형식과 전달",
+    "이벤트 종류",
+    "이벤트 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "안녕",
+            "usage": {
+              "input": 2,
+              "output": 1
+            },
+            "deltas": [
+              "안",
+              "녕"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    }
+  ]
+}

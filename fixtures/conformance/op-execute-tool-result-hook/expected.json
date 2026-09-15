@@ -1,0 +1,135 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "addTag",
+        "value": {
+          "callId": "d-1",
+          "name": "danger",
+          "args": {},
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            }
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "completed",
+        "deliveryStatus": "delivered",
+        "result": {
+          "callId": "d-1",
+          "name": "danger",
+          "args": {},
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            },
+            {
+              "type": "text",
+              "text": "검수 완료"
+            }
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "실행해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "d-1",
+              "name": "danger",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "d-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:d-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:d-1>"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "대기합니다"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

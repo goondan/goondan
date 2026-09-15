@@ -1,0 +1,46 @@
+{
+  "description": "모델 입력은 시스템 블록 배열, 대화 메시지 배열, 도구 정의 배열과 빈 객체 options를 가지며, 시스템 블록의 source는 선언 순서로 매기고 cache는 true일 때만 존재한다.",
+  "spec": [
+    "모델 입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "끝"
+          }
+        ]
+      },
+      "w": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "search": {
+        "description": "검색한다.",
+        "input": {
+          "type": "object",
+          "properties": {
+            "q": {
+              "type": "string"
+            }
+          }
+        },
+        "results": []
+      },
+      "publish": {
+        "description": "게시한다.",
+        "results": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

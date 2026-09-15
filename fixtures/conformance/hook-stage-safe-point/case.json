@@ -1,0 +1,73 @@
+{
+  "description": "안전한 대화 처리 지점에서는 호스트가 보낸 실행 중 입력을 먼저 대화에 추가한 뒤 완료된 비동기 훅의 결과를 반영한다.",
+  "spec": [
+    "단계 실행 순서",
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "await",
+            "gate": "g",
+            "then": {
+              "op": "constant",
+              "value": "비동기"
+            }
+          },
+          {
+            "op": "constant",
+            "value": "비동기2"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      },
+      "settle": false
+    },
+    {
+      "steer": {
+        "conversationId": "c1",
+        "value": "끼어들기"
+      },
+      "settle": false
+    },
+    {
+      "release": "g"
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "input",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "modelInputs": {},
+    "conversations": {}
+  }
+}

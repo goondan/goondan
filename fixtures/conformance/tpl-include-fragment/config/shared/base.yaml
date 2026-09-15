@@ -1,0 +1,7 @@
+agents:
+  frag:
+    model: f
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

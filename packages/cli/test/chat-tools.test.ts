@@ -21,6 +21,7 @@ function context(name: string, input: Json, signal = new AbortController().signa
     conversationId: 'conversation-1',
     turnId: 'turn-1',
     toolCall: { id: `call-${name}`, name, args: input },
+    execution: {},
     signal,
     agents: { run: async () => { throw new Error('unused'); } },
   };

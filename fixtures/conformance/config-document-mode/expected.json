@@ -1,0 +1,30 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "a": {
+          "model": "m"
+        },
+        "b": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "a",
+        "routes": [
+          {
+            "from": "a",
+            "to": "b"
+          },
+          {
+            "from": "b",
+            "to": "out"
+          }
+        ]
+      }
+    }
+  }
+}

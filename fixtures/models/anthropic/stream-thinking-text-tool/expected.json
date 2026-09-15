@@ -1,0 +1,59 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello 안녕"
+        },
+        {
+          "type": "tool.call",
+          "callId": "toolu_1",
+          "name": "lookup",
+          "args": {
+            "q": 3
+          }
+        }
+      ],
+      "meta": {
+        "anthropic": {
+          "id": "msg_1",
+          "model": "claude-sonnet-5",
+          "stopReason": "tool_use",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "Let me think.",
+              "signature": "sig-asig-b"
+            },
+            {
+              "type": "text",
+              "text": "Hello 안녕"
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_1",
+              "name": "lookup",
+              "input": {
+                "q": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    "usage": {
+      "input": 10,
+      "output": 20,
+      "cacheRead": 5,
+      "cacheWrite": 3
+    },
+    "finishReason": "tool"
+  },
+  "deltas": [
+    "Hel",
+    "lo 안녕"
+  ]
+}

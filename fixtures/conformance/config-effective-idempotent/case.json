@@ -1,0 +1,41 @@
+{
+  "description": "유효 구성을 구성 문서로 다시 전달하면 같은 유효 구성이 된다.",
+  "spec": [
+    "합성 결과와 유효 구성"
+  ],
+  "config": {
+    "document": {
+      "version": 1,
+      "name": "idem",
+      "agents": {
+        "a": {
+          "model": "m"
+        },
+        "b": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "a",
+        "routes": [
+          {
+            "from": "a",
+            "to": "b"
+          },
+          {
+            "from": "b",
+            "to": "out"
+          }
+        ]
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

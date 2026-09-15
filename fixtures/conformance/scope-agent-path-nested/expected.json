@@ -1,0 +1,110 @@
+{
+  "steps": [
+    {
+      "result": {
+        "usage": {
+          "input": 2,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "runs": [
+          {
+            "agent": "wrap/deep/main",
+            "turnId": "<turn:1>",
+            "kind": "nested",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "wrap/deep/main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "질문"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "wrap/deep/main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "wrap/deep/main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "wrap/deep/main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "깊은 응답"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 2,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ],
+    "conversations": {
+      "c1/wrap/deep/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "깊은 응답"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

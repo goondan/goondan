@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "validate",
+    "issues": [
+      {
+        "code": "schema.additionalProperties",
+        "path": "/extends"
+      }
+    ]
+  }
+}

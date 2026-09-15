@@ -1,0 +1,86 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "B출력"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "B출력"
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input": 6,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/wrap/first": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "A출력"
+            }
+          ]
+        }
+      ],
+      "c1/wrap/second": [
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "A출력"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "B출력"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

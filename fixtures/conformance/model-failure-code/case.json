@@ -1,0 +1,26 @@
+{
+  "description": "모델 구현이 던진 오류가 비어 있지 않은 문자열 code 속성을 가지면 실행 오류의 codes 두 번째 값이 된다.",
+  "spec": [
+    "모델 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "요청이 많습니다",
+            "code": "rate_limited"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

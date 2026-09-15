@@ -1,0 +1,48 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hi 안녕"
+        },
+        {
+          "type": "tool.call",
+          "callId": "call_a",
+          "name": "lookup",
+          "args": {
+            "q": 1
+          }
+        },
+        {
+          "type": "tool.call",
+          "callId": "call_b",
+          "name": "lookup",
+          "args": {
+            "q": 2
+          }
+        }
+      ],
+      "meta": {
+        "openai": {
+          "id": "chatcmpl-1",
+          "model": "gpt-x",
+          "finishReason": "tool_calls"
+        }
+      }
+    },
+    "usage": {
+      "input": 20,
+      "output": 7,
+      "cacheRead": 10,
+      "cacheWrite": 0
+    },
+    "finishReason": "tool"
+  },
+  "deltas": [
+    "Hi ",
+    "안녕"
+  ]
+}

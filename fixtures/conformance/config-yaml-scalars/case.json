@@ -1,0 +1,14 @@
+{
+  "description": "따옴표 없는 스칼라는 YAML 1.2 core 스키마로 해석하며, 파일 맨 앞의 BOM 하나는 무시한다.",
+  "spec": [
+    "YAML 해석"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

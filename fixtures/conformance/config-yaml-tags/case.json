@@ -1,0 +1,14 @@
+{
+  "description": "core 스키마의 명시적 태그와 %YAML 1.2 지시자를 허용하고, 별칭은 앵커를 붙인 값의 복사본이 된다.",
+  "spec": [
+    "YAML 해석"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

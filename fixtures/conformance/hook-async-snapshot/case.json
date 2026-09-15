@@ -1,0 +1,65 @@
+{
+  "description": "비동기 훅은 예약 시점에 using으로 정한 값과 대화의 복사본을 받으므로, 예약 뒤에 저장된 메시지는 그 값에 나타나지 않는다.",
+  "spec": [
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "snapFn": {
+        "op": "await",
+        "gate": "g",
+        "then": {
+          "op": "chain",
+          "ops": [
+            {
+              "op": "get",
+              "path": "/1"
+            },
+            {
+              "op": "equals",
+              "value": null
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      },
+      "settle": false
+    },
+    {
+      "release": "g"
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "modelResult",
+        "codes": [
+          "value_invalid"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

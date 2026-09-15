@@ -1,0 +1,48 @@
+{
+  "description": "옵션 검증 함수가 실패한 에이전트 실행은 그 실행을 시작한 방식의 규칙을 따르므로, 에이전트 도구의 대상이면 부모 실행의 도구 실패가 된다.",
+  "spec": [
+    "확장 인스턴스"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "w-1",
+                "name": "worker",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "w": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "guard": {
+        "definition": {
+          "validateOptions": {
+            "op": "throw",
+            "message": "옵션이 올바르지 않다"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "부탁"
+      }
+    }
+  ]
+}

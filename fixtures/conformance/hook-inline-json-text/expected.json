@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "wrapUp",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"k\":[1]}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "ctx",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"a\":1,\"b\":[true,null],\"s\":\"é\"}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "wrapUp",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"k\":[1]}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

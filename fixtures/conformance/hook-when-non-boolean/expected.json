@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "output",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "badWhen",
+        "value": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

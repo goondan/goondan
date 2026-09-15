@@ -1,0 +1,86 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "modelContexts": {
+      "m": [
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 1
+        },
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 2
+        },
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:3>",
+          "step": 1
+        }
+      ],
+      "n": [
+        {
+          "agent": "after",
+          "conversationId": "c1",
+          "turnId": "<turn:2>",
+          "step": 1
+        }
+      ]
+    },
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "completed",
+        "deliveryStatus": "delivered",
+        "result": {
+          "callId": "d-1",
+          "name": "danger",
+          "args": {},
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

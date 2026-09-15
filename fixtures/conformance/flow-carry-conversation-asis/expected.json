@@ -1,0 +1,196 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "요약1"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "agent": "first",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "second",
+            "turnId": "<turn:2>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    },
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "요약2"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "agent": "first",
+            "turnId": "<turn:3>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "second",
+            "turnId": "<turn:4>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/first": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "1차"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "2차"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리2"
+            }
+          ]
+        }
+      ],
+      "c1/second": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "1차"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "2차"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리2"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리2"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "요약2"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

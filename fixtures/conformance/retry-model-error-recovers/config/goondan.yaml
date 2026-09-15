@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    extensions:
+      policy: {}
+    hooks:
+      conversation:
+        - name: tap
+          fn: tap
+      error:
+        - extension: policy

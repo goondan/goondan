@@ -1,0 +1,8 @@
+{
+  "description": "include 경로가 절대 경로이면 template.unsupported 구성 오류다.",
+  "spec": [
+    "템플릿 구성 오류",
+    "템플릿 파일과 `include`"
+  ],
+  "steps": []
+}

@@ -1,0 +1,55 @@
+{
+  "description": "도구를 실행한 호출은 tool.start를 알린 뒤 toolResult 단계를 마친 도구 결과를 담은 tool.done을 알린다.",
+  "spec": [
+    "이벤트 종류",
+    "이벤트 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "look",
+                "args": {
+                  "q": "군단"
+                }
+              }
+            ],
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          },
+          {
+            "text": "찾음",
+            "usage": {
+              "input": 3,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "look": {
+        "description": "조회",
+        "results": [
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    }
+  ]
+}

@@ -16,12 +16,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/goondan-bin.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @goondan/core build && vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "pnpm --filter @goondan/core --filter @goondan/models build && vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@goondan/core": "workspace:*",
+    "@goondan/models": "workspace:*",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

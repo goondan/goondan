@@ -1,0 +1,8 @@
+agents:
+  a:
+    model: ma
+  b:
+    model: mb
+  c:
+    model: mc
+flow: [a, b, c]

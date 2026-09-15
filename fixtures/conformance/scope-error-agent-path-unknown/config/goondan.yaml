@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+  wrap:
+    config: inner/goondan.yaml
+flow:
+  in: main

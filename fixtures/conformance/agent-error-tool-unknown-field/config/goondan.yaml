@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: search
+        mode: fast

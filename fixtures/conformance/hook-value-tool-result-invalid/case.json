@@ -1,0 +1,54 @@
+{
+  "description": "도구 구현이 반환한 결과가 도구 결과 형식과 맞지 않으면 toolResult 훅을 실행하기 전에 where가 toolResult이고 codes가 value_invalid인 실행 오류로 실패한다.",
+  "spec": [
+    "단계 값과 대화 저장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "lookup",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "results": [
+          {
+            "raw": {
+              "callId": "c-1",
+              "name": "lookup",
+              "args": {},
+              "content": "문자열"
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "touch": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

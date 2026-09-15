@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelResult:
+        - fn: retryOnce
+flow:
+  in: main

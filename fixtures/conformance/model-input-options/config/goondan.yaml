@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    extensions:
+      opts: {}
+    hooks:
+      modelInput:
+        - extension: opts

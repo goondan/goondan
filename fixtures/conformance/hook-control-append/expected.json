@@ -1,0 +1,106 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "system",
+          "source": "ctx",
+          "content": [
+            {
+              "type": "text",
+              "text": "규칙"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "after",
+          "content": [
+            {
+              "type": "text",
+              "text": "다음"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    },
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "system",
+              "source": "ctx",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "규칙"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "after",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "다음"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "mi",
+              "keep": true,
+              "meta": {
+                "tag": "x"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "추가"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

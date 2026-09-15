@@ -1,0 +1,105 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "최종본"
+            }
+          ]
+        },
+        "usage": {
+          "input": 2,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "build",
+        "value": {
+          "output": "정리본",
+          "input": "원문",
+          "conversation": [
+            {
+              "role": "user",
+              "source": "first",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "원문"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "source": "model",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "정리본"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "c1/first": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "원문"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리본"
+            }
+          ]
+        }
+      ],
+      "c1/second": [
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"text\":\"정리본\"}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "최종본"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+agents:
+  base:
+    model: m
+    input:
+      template: templates/base.md
+  main:
+    inherit: base
+    input:
+      fn: shout
+flow:
+  in: main

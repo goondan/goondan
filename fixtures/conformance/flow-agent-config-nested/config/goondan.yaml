@@ -1,0 +1,12 @@
+agents:
+  wrap:
+    config: inner/goondan.yaml
+  tail:
+    model: mt
+flow:
+  in: wrap
+  routes:
+    - from: wrap
+      to: tail
+    - from: tail
+      to: out

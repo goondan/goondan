@@ -1,0 +1,63 @@
+{
+  "description": "toolCall 훅의 approval 제어 결과는 현재 값을 바꾸지 않고 승인 사유를 추가하며 다음 훅이 계속 실행되고, 작업의 reasons는 훅이 반환한 사유 뒤에 approval: required의 사유를 붙인 배열이다.",
+  "spec": [
+    "제어 결과",
+    "승인 작업 생성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "p-1",
+                "name": "publish",
+                "args": {
+                  "doc": "초안"
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "publish": {
+        "results": []
+      }
+    },
+    "functions": {
+      "askApproval": {
+        "op": "constant",
+        "value": {
+          "approval": {
+            "reason": "검토 필요"
+          }
+        }
+      },
+      "mark": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "description": "승인 작업과 대기 중인 도구 결과를 저장한 뒤 operationId, tool, callId, reasons를 담은 humanApproval.created를 알린다.",
+  "spec": [
+    "이벤트 종류"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {
+                  "scope": "staging"
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "대기 중",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    }
+  ]
+}

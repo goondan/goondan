@@ -1,0 +1,32 @@
+﻿agents:
+  main:
+    model: m
+    params:
+      t1: true
+      t2: True
+      t3: TRUE
+      f1: false
+      f2: False
+      f3: FALSE
+      n1: null
+      n2: Null
+      n3: NULL
+      n4: ~
+      n5:
+      i1: 12
+      i2: 012
+      i3: 0o12
+      i4: 0x1A
+      r1: 1.5
+      r2: 1e3
+      s1: yes
+      s2: no
+      s3: on
+      s4: off
+      s5: 1_000
+      s6: 1:30
+      s7: 2024-01-02
+      q1: "12"
+      q2: 'true'
+      q3: |
+        12

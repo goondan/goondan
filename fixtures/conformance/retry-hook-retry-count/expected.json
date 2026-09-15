@@ -1,0 +1,93 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "hookContexts": [
+      {
+        "extension": "policy",
+        "stage": "modelInput",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "input": "요청",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          }
+        ],
+        "retryCount": 0
+      },
+      {
+        "extension": "policy",
+        "stage": "modelResult",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "input": "요청",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          }
+        ],
+        "retryCount": 0
+      },
+      {
+        "extension": "policy",
+        "stage": "modelInput",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "input": "요청",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          }
+        ],
+        "retryCount": 1
+      },
+      {
+        "extension": "policy",
+        "stage": "modelResult",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "input": "요청",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "요청"
+              }
+            ]
+          }
+        ],
+        "retryCount": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "description": "훅의 agent가 배열이면 reference.agent 구성 오류의 path는 그 이름의 위치다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

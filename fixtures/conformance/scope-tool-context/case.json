@@ -1,0 +1,46 @@
+{
+  "description": "도구 컨텍스트는 에이전트 입력, 그 시점까지 저장된 대화, 에이전트 경로, 대화와 턴 식별자, toolCall 단계를 마친 호출을 담으며 실행 정보가 없으면 execution은 빈 객체다.",
+  "spec": [
+    "도구 컨텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "t-1",
+                "name": "lookup",
+                "args": {
+                  "q": "군단"
+                }
+              }
+            ]
+          },
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "description": "검색",
+        "results": [
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "조회해 줘"
+      }
+    }
+  ]
+}

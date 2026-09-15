@@ -1,0 +1,30 @@
+{
+  "description": "훅 단계를 선언한 확장을 가리키는 훅이 선언에 없는 단계에 있으면 바인딩 단계의 binding.extension_hook 구성 오류다.",
+  "spec": [
+    "확장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "memo": {
+        "definition": {
+          "hooks": [
+            "modelInput"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "identity"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,46 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "root": {
+          "model": "m",
+          "params": {
+            "locale": "ko",
+            "depth": 1
+          },
+          "tools": [
+            "search",
+            "write"
+          ]
+        },
+        "mid": {
+          "model": "m",
+          "params": {
+            "locale": "ko",
+            "depth": 2
+          },
+          "tools": [
+            "search"
+          ]
+        },
+        "leaf": {
+          "model": "m",
+          "params": {
+            "locale": "ko",
+            "depth": 2,
+            "extra": true
+          },
+          "tools": [
+            "search"
+          ]
+        }
+      },
+      "flow": {
+        "in": "root"
+      }
+    }
+  }
+}

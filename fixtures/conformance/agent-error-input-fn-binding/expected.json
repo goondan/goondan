@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.function",
+        "path": "/agents/main/input/fn"
+      }
+    ]
+  }
+}

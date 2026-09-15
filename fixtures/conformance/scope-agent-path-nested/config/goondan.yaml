@@ -1,0 +1,5 @@
+agents:
+  wrap:
+    config: inner/goondan.yaml
+flow:
+  in: wrap

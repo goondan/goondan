@@ -1,0 +1,12 @@
+resources:
+  - frag/frag.yaml
+agents:
+  child:
+    inherit: parent
+  over:
+    systemMessage:
+      template: sys.md
+  local:
+    model: m
+    input:
+      template: ./tpl/../in.md

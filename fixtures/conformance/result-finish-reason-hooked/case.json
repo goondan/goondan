@@ -1,0 +1,37 @@
+{
+  "description": "에이전트 실행의 finishReason은 modelResult 훅을 적용한 뒤의 값이고, step.done 이벤트는 모델이 반환한 결과의 값을 그대로 알린다.",
+  "spec": [
+    "종료 사유",
+    "이벤트 종류"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "본문",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "mark": {
+        "op": "set",
+        "path": "/finishReason",
+        "value": "length"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    }
+  ]
+}

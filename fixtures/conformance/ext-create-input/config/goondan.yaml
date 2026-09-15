@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    params:
+      locale: ko
+    extensions:
+      memo: {}

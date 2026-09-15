@@ -1,0 +1,9 @@
+{
+  "description": "파일을 UTF-8로 해석할 수 없으면 빈 path의 load.yaml 구성 오류다.",
+  "spec": [
+    "YAML 해석",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

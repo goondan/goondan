@@ -20,7 +20,7 @@ async def test_input_object_defaults_to_asis_and_prefers_fn(tmp_path):
     async def model(value):
         seen.append(value["messages"][0]["content"][0]["text"])
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}, "finishReason": "stop"}
-    fields_runtime = create_runtime(config={"agents": {"main": {"model": "m", "input": {"fields": {"name": {"description": "name"}}}}}}, models={"m": model})
+    fields_runtime = create_runtime(config={"agents": {"main": {"model": "m", "input": {"fields": {"name": "the name to greet"}}}}}, models={"m": model})
     await fields_runtime.run_turn({"name": "Ada"}, conversation_id="fields")
     unused = tmp_path / "unused.md"
     unused.write_text("template", encoding="utf-8")
@@ -36,7 +36,7 @@ async def test_serial_flow_defaults():
         assert value["messages"][0]["content"][0]["text"] == "analysis"
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "edited"}]}, "finishReason": "stop"}
     runtime = create_runtime(config={"agents": {"a": {"model": "a"}, "e": {"inherit": "a", "model": "e"}}, "flow": ["a", "e"]}, models={"a": analyst, "e": editor})
-    assert (await runtime.run_turn("input"))[0]["output"]["content"][0]["text"] == "edited"
+    assert (await runtime.run_turn("input"))["output"]["content"][0]["text"] == "edited"
 
 
 @pytest.mark.asyncio
@@ -55,10 +55,10 @@ async def test_completion_saves_entire_batch_after_32_steps():
         if calls == 67: ctx.execution.complete({"id": "complete", "role": "assistant", "source": "policy", "content": [{"type": "text", "text": "complete"}]})
         return value
     store = InMemoryConversationStore()
-    runtime = create_runtime(config={"agents": {"main": {"model": "m", "tools": ["work"], "extensions": {"policy": {}}, "hooks": {"toolResult": [{"extension": "policy"}]}}}}, models={"m": model}, tools={"work": define_tool(name="work", description="work", input={}, execute=execute)}, extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"toolResult": complete}))}, store=store)
+    runtime = create_runtime(config={"agents": {"main": {"model": "m", "tools": ["work"], "extensions": {"policy": {}}, "hooks": {"toolResult": [{"extension": "policy"}]}}}}, models={"m": model}, tools={"work": define_tool(name="work", description="work", input={}, execute=execute)}, extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"toolResult": complete}))}, conversation_store=store)
     result = await runtime.run_turn("input", conversation_id="long")
     assert generations == 34 and calls == 68
-    assert result[0]["output"]["content"][0]["text"] == "complete"
+    assert result["output"]["content"][0]["text"] == "complete"
     assert len([p for m in await store.load("long", "main") for p in m["content"] if p["type"] == "tool.result"]) == 68
 
 

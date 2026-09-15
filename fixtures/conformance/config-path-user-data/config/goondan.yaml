@@ -1,0 +1,15 @@
+agents:
+  main:
+    model: m
+    params:
+      template: nope.md
+      config: nope
+      extends: nope.yaml
+      resources:
+        - nope.yaml
+    extensions:
+      memo:
+        enabled: true
+        options:
+          template: nope.md
+          config: nope

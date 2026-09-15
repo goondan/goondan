@@ -1,0 +1,21 @@
+{
+  "description": "정의되지 않은 값에 키를 접근하면 실행 오류다.",
+  "spec": [
+    "정의되지 않은 값"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "conversation",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

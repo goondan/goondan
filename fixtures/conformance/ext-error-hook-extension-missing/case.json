@@ -1,0 +1,7 @@
+{
+  "description": "훅의 extension이 같은 에이전트의 유효 구성 extensions에 없는 이름이면 참조 단계의 reference.extension 구성 오류다.",
+  "spec": [
+    "확장"
+  ],
+  "steps": []
+}

@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    hooks:
+      toolResult:
+        - fn: touch

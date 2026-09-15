@@ -1,0 +1,150 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답변"
+            }
+          ]
+        },
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "질문"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "답변"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ],
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "alpha",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {},
+              "gamma": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "create",
+        "instance": 2,
+        "extension": "beta",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {},
+              "gamma": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "create",
+        "instance": 3,
+        "extension": "gamma",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {},
+              "gamma": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "event",
+        "instance": 3,
+        "name": "step.start"
+      },
+      {
+        "action": "event",
+        "instance": 1,
+        "name": "turn.done"
+      },
+      {
+        "action": "event",
+        "instance": 3,
+        "name": "turn.done"
+      }
+    ]
+  }
+}

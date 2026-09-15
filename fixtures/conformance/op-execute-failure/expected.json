@@ -1,0 +1,192 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "실행해 줘"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "humanApproval.created",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "operationId": "<op:d-1>",
+          "tool": "danger",
+          "callId": "d-1",
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "대기합니다"
+              }
+            ]
+          },
+          "steps": 2,
+          "usage": {
+            "input": 4,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      },
+      {
+        "name": "tool.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "danger",
+          "callId": "d-1",
+          "args": {},
+          "operationId": "<op:d-1>"
+        }
+      },
+      {
+        "name": "tool.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "danger",
+          "callId": "d-1",
+          "args": {},
+          "codes": [
+            "tool_error"
+          ],
+          "operationId": "<op:d-1>"
+        }
+      }
+    ],
+    "hostCalls": [
+      {
+        "callback": "deliverOperationCompletion",
+        "value": {
+          "type": "operation_completion",
+          "deliveryId": "operation:<op:d-1>:completion",
+          "operationId": "<op:d-1>",
+          "conversationId": "c1",
+          "agent": "main",
+          "status": "failed",
+          "toolCall": {
+            "id": "d-1",
+            "name": "danger",
+            "args": {}
+          },
+          "error": "도구 폭발",
+          "errorCode": "execution_failed"
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "failed",
+        "deliveryStatus": "delivered",
+        "error": "도구 폭발",
+        "errorCode": "execution_failed"
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "failed/pending",
+        "failed/delivering",
+        "failed/delivered"
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "description": "length 필터의 입력이 문자열, 배열, 객체가 아니면 실행 오류다.",
+  "spec": [
+    "필터와 테스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

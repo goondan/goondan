@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    params:
+      locale: ko
+    hooks:
+      conversation:
+        - name: pipe
+          fn: toTask
+          agent: helper
+          template: templates/wrap.md
+          using: input
+  helper:
+    model: h

@@ -1,0 +1,7 @@
+{
+  "description": "to가 가리키는 에이전트를 from으로 하는 route가 없으면 그 에이전트를 가리키는 route마다 to 위치에 flow.no_route를 보고한다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

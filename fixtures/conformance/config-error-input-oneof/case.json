@@ -1,0 +1,8 @@
+{
+  "description": "input: raw는 두 분기 모두 형식이 맞지 않으므로 그 값 위치의 schema.oneOf 구성 오류다.",
+  "spec": [
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

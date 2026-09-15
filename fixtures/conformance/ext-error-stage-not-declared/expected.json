@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.extension_hook",
+        "path": "/agents/main/hooks/output/0/extension"
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: worker
+  worker:
+    model: w
+    description: 자료를 정리한다.

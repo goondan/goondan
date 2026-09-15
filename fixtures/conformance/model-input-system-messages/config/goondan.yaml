@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      text: 기본 지시
+    extensions:
+      seed: {}
+    hooks:
+      conversation:
+        - extension: seed
+      modelInput:
+        - name: note
+          fn: opsText
+          role: system

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "chunkSize": 3,
+  "stream": ": comment\revent: message_start\rid: 1\rdata:{\"type\":\"message_start\",\"message\":{\"id\":\"msg_cr\",\"model\":\"claude-sonnet-5\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}}\r\rdata: {\"type\":\"content_block_start\",\"index\":0,\rdata: \"content_block\":{\"type\":\"text\",\"text\":\"\"}}\r\rretry: 100\rdata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"줄\"}}\r\rdata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\r\rdata: {\"type\":\"message_stop\"}"
+}

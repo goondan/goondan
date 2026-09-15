@@ -1,0 +1,1 @@
+{% include "/goondan-conformance/absolute.md" %}

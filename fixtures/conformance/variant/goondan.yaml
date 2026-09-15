@@ -1,8 +1,0 @@
-version: 1
-name: conformance-variant
-agents:
-  main:
-    model: fixture
-    input: asis
-    systemMessage: {text: "기본"}
-flow: {in: main}

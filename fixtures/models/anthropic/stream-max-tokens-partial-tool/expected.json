@@ -1,0 +1,32 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "Partial answer"
+        }
+      ],
+      "meta": {
+        "anthropic": {
+          "id": "msg_2",
+          "model": "claude-sonnet-5",
+          "stopReason": "max_tokens"
+        }
+      }
+    },
+    "usage": {
+      "input": 7,
+      "output": 4096,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "finishReason": "length"
+  },
+  "deltas": [
+    "Partial ",
+    "answer"
+  ]
+}

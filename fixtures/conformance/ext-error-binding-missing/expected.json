@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.extension",
+        "path": "/agents/main/extensions/memo"
+      }
+    ]
+  }
+}

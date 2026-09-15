@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    params:
+      tag: v1
+    hooks:
+      input:
+        - name: first
+          template: templates/system.md
+        - name: second
+          template: templates/second.md

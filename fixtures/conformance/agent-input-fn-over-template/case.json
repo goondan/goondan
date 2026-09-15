@@ -1,0 +1,31 @@
+{
+  "description": "fn과 template을 함께 선언하면 fn의 결과를 사용자 메시지로 쓰며, 이때에도 template은 읽고 검증한다.",
+  "spec": [
+    "입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "pick": {
+        "op": "constant",
+        "value": "FN"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "무시되는 입력"
+      }
+    }
+  ]
+}

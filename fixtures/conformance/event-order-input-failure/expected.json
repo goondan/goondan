@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "input",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "hook.failed",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "input",
+          "hook": "boom"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "input",
+          "codes": [
+            "hook_error"
+          ]
+        }
+      }
+    ],
+    "conversations": {}
+  }
+}

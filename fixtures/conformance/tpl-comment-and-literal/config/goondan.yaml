@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

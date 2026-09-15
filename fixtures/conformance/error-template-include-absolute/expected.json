@@ -1,0 +1,12 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "template.unsupported",
+        "path": "/agents/main/systemMessage/0/template",
+        "message": "templates/bad.md includes \"/goondan-conformance/absolute.md\": absolute paths are not allowed"
+      }
+    ]
+  }
+}

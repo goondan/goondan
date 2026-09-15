@@ -1,0 +1,7 @@
+{
+  "description": "route의 to가 구성에 없는 에이전트를 가리키면 참조 단계에서 그 route의 to 위치에 reference.agent를 보고한다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

@@ -1,0 +1,9 @@
+{
+  "description": "extends는 비어 있지 않은 경로 문자열이어야 하므로 빈 문자열은 /extends 위치의 schema.minLength 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

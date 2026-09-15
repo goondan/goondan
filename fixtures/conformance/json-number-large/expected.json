@@ -1,0 +1,125 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        },
+        "usage": {
+          "input": 2,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "modelInputs": {
+      "mf": [
+        {
+          "system": [
+            {
+              "text": "10000000000000000|10000000000000000|{\"v\":10000000000000000}",
+              "source": "system:0"
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "first",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"n\":10000000000000000}"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ],
+      "ms": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "second",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "합계 {\"total\":15000000000000000}"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/first": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"n\":10000000000000000}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "합계 "
+            },
+            {
+              "type": "json",
+              "value": {
+                "total": 1.5e16
+              }
+            }
+          ]
+        }
+      ],
+      "c1/second": [
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "합계 {\"total\":15000000000000000}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

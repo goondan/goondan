@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - keep
+      - fail
+    hooks:
+      conversation:
+        - name: tap
+          fn: tap

@@ -1,0 +1,33 @@
+{
+  "description": "인스턴스를 만든 뒤 확장 훅이 있는 단계의 훅 함수를 인스턴스가 제공하지 않으면 optional과 관계없이 구성 오류로 턴 전체가 실패하고, 메시지를 저장하거나 모델을 호출하지 않으며 만든 인스턴스는 정리된다.",
+  "spec": [
+    "확장 인스턴스",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "output": {
+              "op": "identity"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

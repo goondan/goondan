@@ -1,0 +1,45 @@
+{
+  "description": "실행 중단을 알린 뒤에 끝난 모델 호출은 모델 실패가 아니라 aborted 실행 오류로 보고한다.",
+  "spec": [
+    "모델 실패",
+    "실행 중단"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "await": "never",
+            "then": {
+              "error": "늦은 오류"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "run": {
+              "conversationId": "c1",
+              "input": "안녕"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "never"
+          },
+          {
+            "abort": {
+              "conversationId": "c1"
+            }
+          }
+        ]
+      ]
+    }
+  ]
+}

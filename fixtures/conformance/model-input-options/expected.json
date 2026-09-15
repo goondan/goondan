@@ -1,0 +1,61 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {
+            "maxTokens": 64,
+            "temperature": 0.2,
+            "toolChoice": "none",
+            "anthropic": {
+              "topK": 5
+            },
+            "openai": {
+              "seed": 7
+            }
+          }
+        }
+      ]
+    },
+    "hookCalls": [
+      {
+        "extension": "opts",
+        "stage": "modelInput",
+        "value": {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      }
+    ]
+  }
+}

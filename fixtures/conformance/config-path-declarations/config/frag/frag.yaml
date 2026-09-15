@@ -1,0 +1,9 @@
+agents:
+  parent:
+    model: m
+    systemMessage:
+      template: shared.md
+  over:
+    model: m
+    systemMessage:
+      template: shared.md

@@ -1,0 +1,12 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "template.unsupported",
+        "path": "/agents/main/systemMessage/0/template",
+        "message": "templates/system.md includes \"link.md\": resolves outside templates"
+      }
+    ]
+  }
+}

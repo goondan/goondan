@@ -1,0 +1,145 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "operations": [
+      {
+        "operationId": "<op:c-1>",
+        "deliveryId": "operation:<op:c-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "c-1",
+          "name": "danger",
+          "args": {
+            "n": 1
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      },
+      {
+        "operationId": "<op:c-1#2>",
+        "deliveryId": "operation:<op:c-1#2>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "c-1",
+          "name": "danger",
+          "args": {
+            "n": 2
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "실행해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "danger",
+              "args": {
+                "n": 1
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:c-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:c-1>"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "danger",
+              "args": {
+                "n": 2
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:c-1#2>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:c-1#2>"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

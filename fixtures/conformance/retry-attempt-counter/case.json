@@ -1,0 +1,91 @@
+{
+  "description": "실행 오류의 attempt는 그 시점까지 따른 재시도 횟수에 1을 더한 값이므로, 한 번 재시도한 뒤의 실패는 attempt가 2다.",
+  "spec": [
+    "재시도",
+    "실행 오류"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "a",
+                "args": {}
+              },
+              {
+                "callId": "c-2",
+                "name": "b",
+                "args": {}
+              },
+              {
+                "callId": "c-3",
+                "name": "c",
+                "args": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "a": {
+        "results": [
+          {
+            "text": "A"
+          }
+        ]
+      },
+      "b": {
+        "results": [
+          {
+            "error": "b 실패"
+          },
+          {
+            "text": "B"
+          }
+        ]
+      },
+      "c": {
+        "results": [
+          {
+            "error": "c 실패"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "sequence",
+              "items": [
+                {
+                  "op": "constant",
+                  "value": {
+                    "retry": true,
+                    "target": "tool"
+                  }
+                },
+                {
+                  "op": "identity"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

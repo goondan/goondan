@@ -1,0 +1,54 @@
+{
+  "description": "input을 생략한 에이전트는 문자열이 아닌 턴 입력을 공백 없는 한 줄의 JSON 텍스트로 직렬화해 첫 사용자 메시지를 만든다.",
+  "spec": [
+    "입력",
+    "JSON 텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "하나"
+          },
+          {
+            "text": "둘"
+          },
+          {
+            "text": "셋"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": {
+          "title": "보고서",
+          "count": 2,
+          "ratio": 1.0,
+          "tags": [
+            "a",
+            "b"
+          ],
+          "done": true,
+          "note": null
+        }
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": 1.0
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c3",
+        "input": null
+      }
+    }
+  ]
+}

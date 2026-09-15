@@ -1,0 +1,45 @@
+{
+  "description": "agent로 config 에이전트를 지정하면 중첩 구성은 자신의 흐름대로 실행되지만 바깥 구성의 route는 따르지 않으며, config 에이전트 자체는 실행 기록 항목을 만들지 않는다.",
+  "spec": [
+    "시작 에이전트와 단일 에이전트 실행",
+    "에이전트 실행 기록"
+  ],
+  "bindings": {
+    "models": {
+      "mi1": {
+        "responses": [
+          {
+            "text": "속1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mi2": {
+        "responses": [
+          {
+            "text": "속2",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mt": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문",
+        "agent": "wrap"
+      }
+    }
+  ]
+}

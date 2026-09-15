@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: helperNote
+          agent: helper
+          mode: async
+          using: input
+  helper:
+    model: h

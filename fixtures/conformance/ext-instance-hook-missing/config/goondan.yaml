@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      modelInput:
+        - extension: memo
+          optional: true

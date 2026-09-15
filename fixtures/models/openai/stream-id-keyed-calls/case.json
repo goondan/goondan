@@ -1,0 +1,7 @@
+{
+  "config": {
+    "model": "gpt-test",
+    "apiKey": "test-key"
+  },
+  "stream": "data: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"alpha\",\"arguments\":\"{\\\"x\\\":\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_2\",\"function\":{\"name\":\"beta\",\"arguments\":\"\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"arguments\":\"1}\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"y\\\":2}\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_3\",\"function\":{\"name\":\"gamma\",\"arguments\":{\"z\":true}}}]}}]}\n\ndata: {\"id\":\"chatcmpl-3\",\"model\":\"gpt-test\",\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+}

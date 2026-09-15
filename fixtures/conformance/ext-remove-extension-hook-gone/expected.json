@@ -1,0 +1,43 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "extensions": {
+            "memo": {}
+          },
+          "hooks": {
+            "modelInput": [
+              {
+                "extension": "memo"
+              }
+            ]
+          }
+        },
+        "mid": {
+          "model": "m",
+          "extensions": {},
+          "hooks": {
+            "modelInput": []
+          }
+        },
+        "child": {
+          "model": "m",
+          "extensions": {
+            "memo": {}
+          },
+          "hooks": {
+            "modelInput": []
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    }
+  }
+}

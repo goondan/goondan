@@ -1,0 +1,190 @@
+{
+  "steps": [
+    {},
+    {}
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "안녕"
+        }
+      },
+      {
+        "name": "hook.applied",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "conversation",
+          "hook": "note"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "첫"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      },
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "input": "다시"
+        }
+      },
+      {
+        "name": "hook.skipped",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "value": "conversation",
+          "hook": "note"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "둘"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "note",
+          "content": [
+            {
+              "type": "text",
+              "text": "메모"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "다시"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

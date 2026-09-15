@@ -1,0 +1,1 @@
+[{{ params.t }}|{{ params.whole }}|{{ params.arr }}|{{ params.obj }}|{{ params.n }}|{{ params.arr | join('-') }}]

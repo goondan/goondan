@@ -1,0 +1,47 @@
+{
+  "description": "호출 이름이 유효한 tools 목록에 없으면 승인 사유가 있어도 승인 작업을 만들지 않고 tool_unavailable 실행 오류로 처리한다.",
+  "spec": [
+    "승인 작업 생성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "x-1",
+                "name": "missing",
+                "args": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "functions": {
+      "askApproval": {
+        "op": "constant",
+        "value": {
+          "approval": {
+            "reason": "검토 필요"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    }
+  ]
+}

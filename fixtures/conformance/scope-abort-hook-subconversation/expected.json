@@ -1,0 +1,121 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "result": {
+              "status": "done",
+              "finishReason": "stop"
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": false
+          },
+          {}
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "advisors",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "조언"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ],
+      "h": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "helper",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ],
+      "c1:main:modelInput:advisors/helper": [
+        {
+          "role": "user",
+          "source": "helper",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "조언"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

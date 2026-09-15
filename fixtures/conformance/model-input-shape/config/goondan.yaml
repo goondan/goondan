@@ -1,0 +1,15 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - text: 규칙을 지킨다.
+        cache: true
+      - text: 간결하게 답한다.
+    tools:
+      - search
+      - tool: publish
+        hint: 초안을 먼저 보여 준다.
+      - agent: worker
+  worker:
+    model: w
+    description: 자료를 정리한다.

@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.exclusiveMinimum",
+        "path": "/agents/main/hooks/output/0/timeout"
+      }
+    ]
+  }
+}

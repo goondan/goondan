@@ -1,0 +1,78 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "nope",
+        "value": "안녕"
+      }
+    ],
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "안녕"
+        }
+      },
+      {
+        "name": "hook.skipped",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "conversation",
+          "hook": "note"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "완료"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ]
+  }
+}

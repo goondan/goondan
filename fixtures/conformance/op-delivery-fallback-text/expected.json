@@ -1,0 +1,124 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:r-1>",
+        "deliveryId": "operation:<op:r-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "r-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "rejected",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "실행해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "r-1",
+              "name": "danger",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "r-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:r-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:r-1>"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "대기합니다"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"type\":\"operation_completion\",\"deliveryId\":\"operation:<op:r-1>:completion\",\"operationId\":\"<op:r-1>\",\"conversationId\":\"c1\",\"agent\":\"main\",\"status\":\"rejected\",\"toolCall\":{\"id\":\"r-1\",\"name\":\"danger\",\"args\":{}}}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "거절을 확인했습니다"
+            }
+          ]
+        }
+      ]
+    },
+    "operations": [
+      {
+        "operationId": "<op:r-1>",
+        "deliveryId": "operation:<op:r-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "r-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "rejected",
+        "deliveryStatus": "delivered"
+      }
+    ]
+  }
+}

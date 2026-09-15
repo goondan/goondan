@@ -1,0 +1,36 @@
+{
+  "description": "선택 훅의 에이전트가 실패해도 턴은 계속 진행하며, 실패한 실행은 finishReason이 없고 status가 failed인 항목으로 runs에 남는다.",
+  "spec": [
+    "에이전트 실행 기록"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "본문",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "hm": {
+        "responses": [
+          {
+            "error": "도우미 실패"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문"
+      }
+    }
+  ]
+}

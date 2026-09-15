@@ -1,0 +1,7 @@
+{
+  "description": "model은 비어 있지 않은 문자열이어야 하므로 빈 문자열은 schema.minLength 구성 오류다.",
+  "spec": [
+    "에이전트"
+  ],
+  "steps": []
+}

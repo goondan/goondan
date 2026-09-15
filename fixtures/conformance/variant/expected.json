@@ -1,0 +1,21 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "conformance-variant",
+      "agents": {
+        "main": {
+          "model": "m",
+          "params": {
+            "tone": "changed",
+            "topic": "base"
+          }
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

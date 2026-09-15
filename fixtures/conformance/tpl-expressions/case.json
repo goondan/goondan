@@ -1,0 +1,25 @@
+{
+  "description": "식은 리터럴, 변수, 키 접근, 필터, 비교, 조건 식으로 이루어지며 비교는 JSON 값 비교를 따른다.",
+  "spec": [
+    "식"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

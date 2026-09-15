@@ -1,0 +1,8 @@
+{
+  "description": "짝이 맞지 않는 태그는 template.syntax 구성 오류다.",
+  "spec": [
+    "템플릿 구성 오류",
+    "태그와 공백"
+  ],
+  "steps": []
+}

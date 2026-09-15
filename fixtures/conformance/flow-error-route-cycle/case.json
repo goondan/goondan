@@ -1,0 +1,7 @@
+{
+  "description": "when이 없는 route만으로 이루어진 순환은 끝나지 않으므로 순환에 속한 route마다 flow.cycle을 보고한다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

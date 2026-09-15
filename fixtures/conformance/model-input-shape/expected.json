@@ -1,0 +1,65 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [
+            {
+              "text": "규칙을 지킨다.",
+              "source": "system:0",
+              "cache": true
+            },
+            {
+              "text": "간결하게 답한다.",
+              "source": "system:1"
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "search",
+              "description": "검색한다.",
+              "input": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "publish",
+              "description": "게시한다.\n초안을 먼저 보여 준다.",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "worker",
+              "description": "자료를 정리한다.",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "model": "anthropic/claude-sonnet-5",
+    "baseUrl": "https://gateway.example.com/api/v1",
+    "apiKey": "test-key"
+  },
+  "stream": ": OPENROUTER PROCESSING\n\ndata: {\"id\":\"gen-1\",\"object\":\"chat.completion.chunk\",\"model\":\"anthropic/claude-sonnet-5\",\"error\":{\"code\":502,\"message\":\"Provider disconnected\"},\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"finish_reason\":\"error\"}]}\n\n"
+}

@@ -1,0 +1,7 @@
+{
+  "description": "mode: async 훅은 timeout을 선언할 수 없으므로 mode 위치의 스키마 단계 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

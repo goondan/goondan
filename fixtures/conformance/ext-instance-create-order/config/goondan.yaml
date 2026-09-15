@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      zeta:
+        options:
+          n: 1
+      alpha:
+        options:
+          n: 2

@@ -1,0 +1,38 @@
+{
+  "description": "일치한 route가 없으면 흐름 오류로 실패하며, 턴이 실패해도 그전에 끝난 에이전트 실행이 저장한 대화는 되돌리지 않는다.",
+  "spec": [
+    "route 진행"
+  ],
+  "bindings": {
+    "models": {
+      "ma": {
+        "responses": [
+          {
+            "text": "A",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mb": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "never": {
+        "op": "constant",
+        "value": false
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "시작"
+      }
+    }
+  ]
+}

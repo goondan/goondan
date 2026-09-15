@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "flow_error"
+        ],
+        "attempt": 1
+      }
+    },
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "flow_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "events": [],
+    "conversations": {}
+  }
+}

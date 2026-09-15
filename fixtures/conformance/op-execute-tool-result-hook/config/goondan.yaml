@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: danger
+        approval: required
+    hooks:
+      toolResult:
+        - name: tag
+          fn: addTag

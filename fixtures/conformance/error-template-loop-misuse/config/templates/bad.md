@@ -1,0 +1,1 @@
+{% for x in params.list %}{{ loop["index"] }}{% endfor %}

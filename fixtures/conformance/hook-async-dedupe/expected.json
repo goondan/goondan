@@ -1,0 +1,59 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "asyncNote",
+        "value": "첫"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답2"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": true
+          }
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "w-1",
+              "name": "worker",
+              "args": {
+                "n": 1
+              }
+            }
+          ]
+        }
+      ],
+      "c1:<turn:1>:worker/worker": [
+        {
+          "role": "user",
+          "source": "worker",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"n\":1}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    },
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "danger",
+        "args": {}
+      }
+    ],
+    "hostCalls": [
+      {
+        "callback": "deliverOperationCompletion",
+        "value": {
+          "type": "operation_completion",
+          "deliveryId": "operation:<op:d-1>:completion",
+          "operationId": "<op:d-1>",
+          "conversationId": "c1",
+          "agent": "main",
+          "status": "failed",
+          "toolCall": {
+            "id": "d-1",
+            "name": "danger",
+            "args": {}
+          },
+          "error": "Operation execution outcome is unknown because the runtime stopped",
+          "errorCode": "execution_interrupted"
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "failed",
+        "deliveryStatus": "delivered",
+        "error": "Operation execution outcome is unknown because the runtime stopped",
+        "errorCode": "execution_interrupted"
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "failed/pending",
+        "failed/delivering",
+        "failed/delivered"
+      ]
+    }
+  }
+}

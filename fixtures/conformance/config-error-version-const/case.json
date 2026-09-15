@@ -1,0 +1,9 @@
+{
+  "description": "version이 1이 아니면 /version 위치의 schema.const 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      output:
+        - extension: memo

@@ -1,0 +1,29 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    hooks:
+      input:
+        - fn: hInput
+          using: input
+      conversation:
+        - fn: hConversation
+          using: input
+      modelInput:
+        - fn: hModelInput
+          using: input
+      modelResult:
+        - fn: hModelResult
+          using: input
+      toolCall:
+        - fn: hToolCall
+          using: input
+      toolResult:
+        - fn: hToolResult
+          using: input
+      output:
+        - fn: hOutput
+          using: input
+      error:
+        - fn: hError
+          using: input

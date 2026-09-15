@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    tools:
+      - echo
+    hooks:
+      modelInput:
+        - name: mark
+          fn: markInput
+      error:
+        - name: capture
+          fn: captureError

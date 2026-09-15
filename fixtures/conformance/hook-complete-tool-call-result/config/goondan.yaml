@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    extensions:
+      memo: {}
+    hooks:
+      toolCall:
+        - name: shortcut
+          fn: giveResult
+      toolResult:
+        - name: done
+          extension: memo

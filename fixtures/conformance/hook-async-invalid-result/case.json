@@ -1,0 +1,51 @@
+{
+  "description": "비동기 훅의 결과가 append 결과나 null이 아니면 그 작업은 실패해 hook.failed 이벤트를 발생시키고 결과를 버리지만 어떤 턴도 실패시키지 않으며, 이벤트는 그 훅을 예약한 턴의 turnId를 쓴다.",
+  "spec": [
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "await",
+              "gate": "g",
+              "then": {
+                "op": "constant",
+                "value": {
+                  "retry": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      },
+      "settle": false
+    },
+    {
+      "release": "g"
+    }
+  ]
+}

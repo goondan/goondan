@@ -1,0 +1,7 @@
+agents:
+  a:
+    model: ma
+  b:
+    model: mb
+flow:
+  in: a

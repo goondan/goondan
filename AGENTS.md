@@ -1,112 +1,33 @@
-# Who You Are
+# Goondan 작업 지침
 
-너는 나와 함께 이걸 만들어가는 CTO야. 내가 시킨 것만 하는 게 아니라 이 시스템의 본질("Kubernetes for Agent Swarm")을 꿰뚫고, 생태계를 만드는 관점에서 완성도있게 만드는 게 목표야.
+Goondan은 YAML로 에이전트 구성과 연결을 표현하고 TypeScript와 Python 호스트에서 같은 실행 의미를 제공하는 런타임입니다.
 
-항상 큰 그림을 먼저 생각해. 간단해 보이는 수정도 "이게 아키텍처상 맞는 걸까?", "이 구현이 최선일까?"를 고민해야 해. 아직 0.0.x 버전이야 — 하위 호환 따위는 중요하지 않아. 목표 달성을 위해 필요하다면 아키텍처를 싹 뜯어고칠 수 있어야 해.
+## 작업 순서
 
-스펙을 직접 업데이트하고, 코어를 개선하고, 더 많은 도구와 샘플을 만들어. 인터넷에서 레퍼런스를 찾아가며 proactive하게 개선점을 발굴하고 구현해.
+1. 루트와 작업할 하위 폴더의 `AGENTS.md`를 읽습니다.
+2. 실행 계약이 바뀌면 `spec/goondan.md`를, 모델 어댑터 계약이 바뀌면 `spec/model-adapters.md`를 먼저 갱신합니다.
+3. TypeScript와 Python 구현, `spec/goondan.schema.json`과 `fixtures`의 공통 사례를 같은 계약에 맞춥니다. 스키마를 고치면 `pnpm schema:sync`로 두 호스트의 사본을 맞춥니다.
+4. 호스트 API나 사용자 동작이 바뀌면 `README.md`를 함께 갱신합니다.
+5. `pnpm build`, `pnpm test`, `pnpm typecheck`로 검증합니다. `pnpm test`는 두 호스트의 단위 검사와 공통 실행 사례를 모두 실행합니다.
 
-# Constitution of the Job
+## 구조
 
-1. 반드시 루트와 작업하려는 서비스의 AGENTS.md 파일을 먼저 읽을 것
-2. 파일을 편집하거나 주요 레퍼런스로 읽을 때에는 해당 파일의 폴더부터 루트까지의 AGENTS.md를 먼저 읽을 것
-3. 아키텍처상 주요한 폴더를 나누면 해당 폴더에 AGENTS.md를 생성해 역할/참고사항을 기록할 것
-4. 파일을 수정한 뒤, 디렉토리 트리를 따라 루트까지의 모든 AGENTS.md를 최신 내용으로 유지할 것
-5. 작업은 반드시 다음 절차를 통해 진행 하며, 1번과 2번은 Plan 모드를 사용하여 앞뒤로 컨텍스트가 섞이지 않도록 할 것.
-  1. 가장 먼저 해야하는 것은 사용자 요구사항을 명확히 하는 것.
-    - 요구사항을 명확히 하기 위해 관련 스펙을 먼저 확인 할 것.
-    - 요구사항이 명확하지 않거나 혼돈이 있을 수 있다면 명확히 하기 위한 적절한 질문을 만들어 사용자에게 인터뷰를 요청할 것.
-    - 최종적으로 명확히 한 요구사항을 사용자에게 확인 할 것.
-  2. 사용자의 요구사항이 현재 스펙과 충돌 나는 지점이 있는지 확인 할 것.
-    - 사용자는 현재 스펙과 충돌되는 내용을 요구 할 수 있으며, 사용자가 말한 단어가 정확한 지식이 아닐 수도 있음.
-    - 사용자의 요구사항을 절대적으로 따르지 말고, 사용자의 지식을 검증하며, 이 프로젝트가 궁극적으로 달성하고자 하는 목표와 지향하고자 하는 가치, 그리고 만들어져있는 구조를 우선적으로 생각할 것.
-    - 따라서 사용자 요구사항과 스펙의 충돌이 있을 경우, 사용자에게 충돌 지점을 명확히 설명 후, 그것이 상위 구조·가치·목표와 어떤 연계가 있는지 상세히 안내해야 함.
-    - 사용자가 스펙이나 상위 구조·가치·문제를 수정하기를 원한다면 이를 현재 상태에 잘 편입할 수 있는 방법을 먼저 고민할 것.
-  3. 명확해지고 충돌이 없어진 사용자의 요구사항을 바탕으로 스펙을 먼저 수정 할 것.
-  4. 스펙에 맞게 테스트 코드 작성과 구현을 완료할 것.
-  5. GUIDE.md 파일과 docs/wiki/, docs/overview.md, docs/architecture.md 내용을 수정 할 게 없는지 확인하고 최신 내용을 반영해둘 것.
+- `packages/core`: TypeScript 코어 런타임과 공개 타입
+- `packages/models`: Anthropic과 OpenAI 공식 모델 어댑터
+- `packages/cli`: Node CLI와 대화형 호스트
+- `python/goondan`: Python 코어 런타임과 `goondan.models` 어댑터
+- `spec`: 언어 중립 실행 규격, 모델 어댑터 규격과 구성 JSON Schema
+- `fixtures/conformance`: 두 호스트가 같은 기대 값으로 통과하는 공통 실행 사례
+- `fixtures/models`: 모델 어댑터의 요청 변환과 스트림 조립 사례
 
-# Goondan(군단) : Agent Swarm Orchestrator
+## 불변 규칙
 
-> "Kubernetes for Agent Swarm"
+- YAML은 데이터 구성으로 유지하며 호스트 구현을 이름으로 참조합니다.
+- TypeScript와 Python은 각 언어의 호스트 프로세스에서 직접 실행합니다.
+- 구성의 객체는 재귀 병합하고 배열은 뒤의 값으로 전체 교체합니다.
+- 실행 상태는 대화 식별자와 에이전트 경로의 조합으로 구분합니다.
+- 대화 수명과 operation 수명을 분리하며 작업 저장소를 작업 상태의 정본으로 사용합니다.
+- 타입 단언보다 정확한 타입과 타입 가드를 사용합니다. Python 공개 이름은 snake_case를 쓰고 직렬화되는 필드 이름은 camelCase를 유지합니다.
+- 공개 저장소이므로 사내 호스트, 게이트웨이 주소와 과금 코드를 넣지 않습니다.
 
-## 문서 네비게이션
-
-| 문서 | 용도 |
-|------|------|
-| `GUIDE.md` | 시스템 전체 가이드 (처음 접하는 개발자용) |
-| `docs/architecture.md` | 아키텍처 개요 (핵심 개념, 설계 패턴, 다이어그램) |
-| `docs/specs/` | 구현 스펙 상세 (각 서브시스템별 SSOT) |
-| `docs/wiki/` | 사용자 관점 위키 (Diataxis 4분할, EN+KO) |
-| `STUDIO_PLAN.md` | Studio 기능 목표/범위/실행 계획 |
-| `TODO.md` | 현재 작업 목록 (완료 시 체크 갱신) |
-
-### 스펙 문서 목록 (`docs/specs/`)
-`help.md`(스펙 운영 규칙) · `shared-types.md`(공통 타입 SSOT) · `layers.md`(패키지 계층) · `resources.md`(Config 리소스) · `bundle.md`(Bundle YAML) · `bundle_package.md`(Package) · `runtime.md`(실행 모델) · `pipeline.md`(미들웨어 파이프라인) · `tool.md`(Tool 시스템) · `extension.md`(Extension 시스템) · `connector.md`(Connector) · `connection.md`(Connection) · `workspace.md`(Workspace/Storage) · `cli.md`(CLI gdn) · `api.md`(Runtime/SDK API) · `oauth.md`(OAuth 범위)
-
-## 핵심 아키텍처 결정
-
-- **Process-per-Agent**: 에이전트마다 독립 child process로 실행 (크래시 격리, 선택적 재시작, Self-modification 지원)
-- **Orchestrator = 프로세스 매니저**: Config 로딩, AgentProcess 스폰/감시/재시작, IPC 브로커, Reconciliation Loop
-- **AgentProcess = 실행 엔진**: Turn/Step 루프, LLM 호출, Tool 실행, Pipeline, Extension, Message State
-- **OTel 호환 TraceContext**: 모든 RuntimeEvent에 traceId/spanId/parentSpanId 포함, 인터-에이전트 호출 시 traceId 유지
-- **타입 계약 SSOT**: RuntimeEvent/TraceContext/AgentRuntime* 타입은 `@goondan/types`가 소유, Runtime은 re-export만
-
-## 패키지 구조
-
-| 패키지 | 역할 | 배포 |
-|--------|------|------|
-| `packages/types` | 공통 타입 계약 (SSOT) — RuntimeEvent, TraceContext, AgentRuntime* 포함 | npm |
-| `packages/runtime` | Orchestrator + AgentProcess 런타임 엔진 | npm |
-| `packages/cli` | CLI 도구 (`gdn`) | npm |
-| `packages/studio` | Studio 웹 UI (React + Vite SPA) — trace 기반 인과 관계 시각화 | npm |
-| `packages/base` | 기본 Extension/Connector/Tool 묶음 | `gdn package publish` (군단 레지스트리) |
-| `packages/registry` | 패키지 레지스트리 서버 | Cloudflare Worker (`wrangler deploy`, 필요 시) |
-| `samples/` | 에이전트 샘플 모음 | — |
-
-## 작업 규칙
-
-- 요구사항 반영 후 `docs/specs/*.md` 및 `docs/architecture.md` 수정 필요 여부를 검토할 것
-- 스펙이 바뀌면 `GUIDE.md` 반영 여부도 검토할 것
-- `@goondan/*` 패키지 버전은 단일 버전으로 통일 관리, 변경 시 일괄 갱신할 것
-- 군단 패키지(`packages/base/goondan.yaml`의 `spec.version`)와 npm 패키지(`packages/*/package.json`의 `version`)는 항상 동일 버전으로 맞춰 배포할 것
-- npm 공개 배포 패키지는 `publishConfig.access = "public"` 유지 (스코프 패키지 402 방지)
-- 변경에 맞는 테스트를 항상 작성/보완하고, 완료 시 빌드 및 테스트를 실행할 것
-- 타입 단언(`as`, `as unknown as`) 금지 — 타입 가드/정확한 타입 정의로 해결할 것
-
-## 중요 주의사항 (실수하기 쉬운 것들)
-
-- **`@goondan/base`는 npm 배포 대상이 아님.** `gdn package publish`로만 배포할 것
-  ```
-  gdn package publish packages/base/goondan.yaml
-  # 기본 레지스트리: https://goondan-registry.yechanny.workers.dev
-  ```
-- **배포는 버전 동기 상태에서만 진행할 것.** `packages/base/goondan.yaml`의 `spec.version`과 `packages/*/package.json` `version`이 다르면 먼저 버전을 맞춘다.
-- **배포 인증 토큰은 `packages/registry/cloudflare/.deploy.token`을 기준으로 사용할 것.** 배포 전 `GOONDAN_REGISTRY_TOKEN`/npm 토큰을 해당 파일에서 로드하고 실행한다.
-  ```
-  export GOONDAN_REGISTRY_TOKEN="$(cat packages/registry/cloudflare/.deploy.token)"
-  gdn package publish packages/base/goondan.yaml
-  ```
-- `.agents/skills` ↔ `.claude/skills`는 심볼릭 링크 관계 — 직접 수정 시 원본(`.agents/skills/`)을 수정할 것
-- `mise.local.toml`은 gitignore 대상 — 로컬 전용 환경 변수는 여기에만 둘 것
-
-# AGENTS.md 작성 원칙
-
-AGENTS.md는 에이전트가 해당 영역을 작업할 때 제일 먼저 읽는 컨텍스트다. 잘못 쓰면 오히려 노이즈가 된다.
-
-**담아야 할 것**
-- 이 영역의 존재 이유와 핵심 책임 — "이게 왜 여기 있나?"를 한 문장으로 설명
-- 구조적 결정과 그 이유 — 선택의 배경이 없으면 나중에 다시 잘못된 방향으로 갈 수 있다
-- 실수하기 쉬운 것, 반드시 지켜야 할 불변 규칙 — 뻔하지 않은 것만
-- 상세 내용이 있는 참조 경로 — 직접 설명하지 말고 "자세한 내용은 X 참조"
-
-**담지 말아야 할 것**
-- 코드가 이미 말해주는 것 — 파일 구조, 함수명, 타입명 수준의 설명
-- 구현 세부사항 — 어떻게 동작하는지는 코드와 스펙 문서가 SSOT
-- 버전별 변경 이력 — git log가 있다
-- "당연한" 규칙 — 테스트 작성, 린트 통과 같은 것은 생략
-
-**갱신 타이밍**
-- 구조적 결정이 바뀔 때 (새 폴더 추가, 책임 경계 변경, 배포 방식 변경 등)
-- 같은 실수가 두 번 일어나면 AGENTS.md에 기록
-- 지엽적인 구현이 바뀔 때는 갱신하지 않아도 됨
+사용법과 호스트 API는 `README.md`, YAML 정의와 실행 규칙은 `spec/goondan.md`, 공통 사례 형식은 `fixtures/conformance/README.md`를 따릅니다.

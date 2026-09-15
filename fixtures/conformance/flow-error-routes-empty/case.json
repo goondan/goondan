@@ -1,0 +1,7 @@
+{
+  "description": "객체형 흐름에 routes를 선언하려면 route가 하나 이상 있어야 하므로 빈 배열은 schema.minItems다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

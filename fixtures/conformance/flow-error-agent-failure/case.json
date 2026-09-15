@@ -1,0 +1,37 @@
+{
+  "description": "흐름 단계의 에이전트 실행이 실패하면 흐름은 더 진행하지 않고 턴이 그 실행 오류로 실패하며, 실패한 턴은 결과를 반환하지 않는다.",
+  "spec": [
+    "route 진행",
+    "실행 결과"
+  ],
+  "bindings": {
+    "models": {
+      "mf": {
+        "responses": [
+          {
+            "text": "정리본",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ms": {
+        "responses": [
+          {
+            "error": "모델 장애"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "원문"
+      }
+    }
+  ]
+}

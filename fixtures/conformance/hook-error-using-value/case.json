@@ -1,0 +1,7 @@
+{
+  "description": "훅의 using은 input, conversation 또는 {fn: 이름}이어야 하므로 다른 문자열은 스키마 단계의 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

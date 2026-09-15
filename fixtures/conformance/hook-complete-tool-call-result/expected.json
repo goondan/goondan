@@ -1,0 +1,75 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "memo",
+          "content": [
+            {
+              "type": "text",
+              "text": "마무리"
+            }
+          ]
+        },
+        "finishReason": "tool",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "lookup",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "대체"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "memo",
+          "content": [
+            {
+              "type": "text",
+              "text": "마무리"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

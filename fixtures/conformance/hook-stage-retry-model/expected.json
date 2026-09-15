@@ -1,0 +1,81 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        },
+        "usage": {
+          "input": 3,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 3,
+              "output": 2,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "hConversation",
+        "value": "안녕"
+      },
+      {
+        "fn": "retryOnce",
+        "value": "안녕"
+      },
+      {
+        "fn": "retryOnce",
+        "value": "안녕"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

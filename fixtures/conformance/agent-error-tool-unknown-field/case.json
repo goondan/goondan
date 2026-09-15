@@ -1,0 +1,7 @@
+{
+  "description": "tools 객체 항목에 규격이 정한 필드 밖의 키가 있으면 그 키의 위치에서 schema.additionalProperties 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

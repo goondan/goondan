@@ -1,0 +1,76 @@
+{
+  "description": "예약은 호출한 시점에 확정되므로 예약한 선택 훅이 그 뒤에 실패해도 예약은 유지되고, 실패한 선택 훅의 결과는 버려 훅을 실행하기 전의 도구 결과가 대화에 저장된다.",
+  "spec": [
+    "`execution.complete`",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "lookup",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 5,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "results": [
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "toolResult": {
+              "op": "chain",
+              "ops": [
+                {
+                  "op": "complete",
+                  "message": {
+                    "id": "done-1",
+                    "role": "assistant",
+                    "source": "memo",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "마무리"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "op": "throw",
+                  "message": "훅 실패"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

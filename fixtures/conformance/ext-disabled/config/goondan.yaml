@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo:
+        enabled: false
+    hooks:
+      modelInput:
+        - extension: memo
+      output:
+        - extension: memo

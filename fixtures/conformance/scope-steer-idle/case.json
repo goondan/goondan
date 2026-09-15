@@ -1,0 +1,40 @@
+{
+  "description": "진행 중인 턴이 없을 때 보낸 실행 중 입력은 다음 턴의 첫 흐름 단계가 입력 메시지를 저장한 뒤 conversation 단계 직전에 받으며, input 단계 훅과 input 규칙을 거치지 않고 JSON 텍스트로 직렬화된다. 중단 요청은 대기열을 비우지 않는다.",
+  "spec": [
+    "실행 중 입력",
+    "입력",
+    "JSON 텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "응답"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "steer": {
+        "conversationId": "c1",
+        "value": {
+          "n": 1
+        }
+      }
+    },
+    {
+      "abort": {
+        "conversationId": "c1"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "description": "resources는 경로 배열이어야 하므로 문자열은 /resources 위치의 schema.type 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

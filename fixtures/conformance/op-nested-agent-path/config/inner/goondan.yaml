@@ -1,0 +1,6 @@
+agents:
+  inner:
+    model: n
+    tools:
+      - tool: danger
+        approval: required

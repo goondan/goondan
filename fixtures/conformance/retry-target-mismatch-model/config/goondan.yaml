@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - danger
+    extensions:
+      policy: {}
+    hooks:
+      error:
+        - extension: policy

@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    tools:
+      - echo
+    hooks:
+      modelResult:
+        - name: retryOnce
+          fn: retryOnce

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "model": "gpt-test",
+    "apiKey": "test-key"
+  },
+  "chunkSize": 1,
+  "stream": "data: {\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"id\":\"chatcmpl-4\",\"model\":\"gpt-test\",\"choices\":[{\"index\":1,\"delta\":{\"content\":\"ignored\"}},{\"delta\":{\"content\":\"kept\"}}]}\n\ndata: {\"id\":\"chatcmpl-other\",\"model\":\"other\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+}

@@ -27,3 +27,10 @@ credentials.json
 **/.secrets/
 **/oauth/grants/
 **/oauth/sessions/
+
+# Python build and test state
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/

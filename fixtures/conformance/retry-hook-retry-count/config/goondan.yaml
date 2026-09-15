@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      policy: {}
+    hooks:
+      modelInput:
+        - extension: policy
+      modelResult:
+        - extension: policy

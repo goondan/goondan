@@ -1,0 +1,17 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: worker
+    hooks:
+      output:
+        - agent: [reviewer, checker]
+  worker:
+    model: w
+  reviewer:
+    model: rv
+  checker:
+    model: ck
+  wrap:
+    config: inner/goondan.yaml
+flow: [main, wrap]

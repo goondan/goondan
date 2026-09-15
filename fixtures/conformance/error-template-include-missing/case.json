@@ -1,0 +1,8 @@
+{
+  "description": "실행되지 않는 조건 분기 안의 include도 검증하므로, 없는 대상은 template.not_found 구성 오류다.",
+  "spec": [
+    "템플릿 구성 오류",
+    "템플릿을 읽는 시점"
+  ],
+  "steps": []
+}

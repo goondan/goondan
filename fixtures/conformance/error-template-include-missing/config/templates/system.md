@@ -1,0 +1,1 @@
+{% if params.flag %}{% include "gone.md" %}{% endif %}ok

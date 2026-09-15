@@ -1,0 +1,8 @@
+{
+  "description": "심볼릭 링크를 따라간 include 대상의 실제 경로가 포함하는 파일의 디렉터리 밖이면 template.unsupported 구성 오류다.",
+  "spec": [
+    "템플릿 구성 오류",
+    "템플릿 파일과 `include`"
+  ],
+  "steps": []
+}

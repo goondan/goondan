@@ -1,0 +1,7 @@
+{
+  "description": "에이전트 이름에 /가 들어가면 그 키의 위치에서 schema.propertyNames 구성 오류가 된다.",
+  "spec": [
+    "에이전트"
+  ],
+  "steps": []
+}

@@ -1,0 +1,57 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "failed",
+        "deliveryStatus": "delivered",
+        "error": "정책 서버 중단",
+        "errorCode": "validation_failed"
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending",
+        "approved/pending",
+        "failed/pending",
+        "failed/delivering",
+        "failed/delivered"
+      ]
+    }
+  }
+}

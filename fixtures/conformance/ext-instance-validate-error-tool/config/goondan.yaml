@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: worker
+  worker:
+    model: w
+    extensions:
+      guard: {}

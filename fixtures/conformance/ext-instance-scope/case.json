@@ -1,0 +1,67 @@
+{
+  "description": "활성화된 확장은 실행 범위마다 인스턴스를 하나씩 가지므로 같은 대화의 다음 턴은 인스턴스를 재사용하고 다른 대화는 새 인스턴스를 만든다.",
+  "spec": [
+    "확장 인스턴스",
+    "실행 범위"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답3",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "identity"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": "셋"
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "description": "agent 배열 훅의 식별자는 선언 순서대로 +로 이은 값이며, 그 값으로 remove.hooks가 훅을 제거하고 하위 대화 식별자에서 훅을 가리킨다.",
+  "spec": [
+    "훅 식별자",
+    "인라인 훅",
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mx": {
+        "responses": [
+          {
+            "text": "좌",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "my": {
+        "responses": [
+          {
+            "text": "우",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕",
+        "agent": "base"
+      }
+    }
+  ]
+}

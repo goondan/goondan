@@ -1,0 +1,92 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "rejected",
+        "deliveryStatus": "pending"
+      }
+    },
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "hostCalls": [
+      {
+        "callback": "deliverOperationCompletion",
+        "value": {
+          "type": "operation_completion",
+          "deliveryId": "operation:<op:d-1>:completion",
+          "operationId": "<op:d-1>",
+          "conversationId": "c1",
+          "agent": "main",
+          "status": "rejected",
+          "toolCall": {
+            "id": "d-1",
+            "name": "danger",
+            "args": {}
+          }
+        }
+      },
+      {
+        "callback": "deliverOperationCompletion",
+        "value": {
+          "type": "operation_completion",
+          "deliveryId": "operation:<op:d-1>:completion",
+          "operationId": "<op:d-1>",
+          "conversationId": "c1",
+          "agent": "main",
+          "status": "rejected",
+          "toolCall": {
+            "id": "d-1",
+            "name": "danger",
+            "args": {}
+          }
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "rejected",
+        "deliveryStatus": "delivered"
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending",
+        "rejected/pending",
+        "rejected/delivering",
+        "rejected/pending",
+        "rejected/delivering",
+        "rejected/delivered"
+      ]
+    }
+  }
+}

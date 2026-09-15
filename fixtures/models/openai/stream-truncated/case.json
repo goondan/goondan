@@ -1,0 +1,7 @@
+{
+  "config": {
+    "model": "gpt-test",
+    "apiKey": "test-key"
+  },
+  "stream": "data: {\"id\":\"chatcmpl-5\",\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"par\"}}]}\n\n"
+}

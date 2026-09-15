@@ -1,0 +1,15 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - name: tag
+          fn: tagIt
+      conversation:
+        - fn: skipMe
+          when: {fn: never}
+      output:
+        - fn: boom
+          optional: true
+flow:
+  in: main

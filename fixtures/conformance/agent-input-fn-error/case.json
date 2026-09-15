@@ -1,0 +1,27 @@
+{
+  "description": "input.fn이 실패하면 현재 실행은 where가 input인 runtime_error 실행 오류로 끝나며, turn.start 뒤에 turn.error만 발생한다.",
+  "spec": [
+    "입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "boom": {
+        "op": "throw",
+        "message": "입력 함수 실패"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

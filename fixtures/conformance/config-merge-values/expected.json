@@ -1,0 +1,29 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "main": {
+          "model": "m",
+          "params": {
+            "obj": {
+              "a": 1,
+              "b": 20,
+              "c": 30
+            },
+            "arr": [
+              9
+            ],
+            "s": "entry",
+            "nul": null
+          }
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

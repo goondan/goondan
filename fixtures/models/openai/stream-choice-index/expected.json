@@ -1,0 +1,25 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "kept"
+        }
+      ],
+      "meta": {
+        "openai": {
+          "id": "chatcmpl-4",
+          "model": "gpt-test",
+          "finishReason": "stop"
+        }
+      }
+    },
+    "finishReason": "stop"
+  },
+  "deltas": [
+    "kept"
+  ]
+}

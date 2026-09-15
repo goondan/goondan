@@ -1,0 +1,25 @@
+{
+  "description": "조건에서 false, null, 수 0, 빈 문자열, 빈 배열, 빈 객체는 거짓이고 나머지 값은 참이다.",
+  "spec": [
+    "식"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

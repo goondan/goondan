@@ -1,0 +1,114 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "최종본"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "최종본"
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input": 3,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "first",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "second",
+            "turnId": "<turn:2>",
+            "kind": "flow",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/first": [
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "원문"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리본"
+            }
+          ]
+        }
+      ],
+      "c1/second": [
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리본"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "최종본"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

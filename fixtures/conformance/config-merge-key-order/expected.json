@@ -1,0 +1,21 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "alpha": {
+          "model": "m",
+          "description": "overridden"
+        },
+        "zeta": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "alpha"
+      }
+    }
+  }
+}

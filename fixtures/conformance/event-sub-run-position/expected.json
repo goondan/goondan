@@ -1,0 +1,206 @@
+{
+  "steps": [
+    {
+      "result": {
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 2,
+              "output": 2,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "worker",
+            "turnId": "<turn:2>",
+            "kind": "tool",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "부탁해"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "tool.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "worker",
+          "callId": "w-1",
+          "args": {
+            "task": "정리"
+          }
+        }
+      },
+      {
+        "name": "turn.start",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "input": {
+            "task": "정리"
+          }
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "작업 결과"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      },
+      {
+        "name": "tool.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "worker",
+          "callId": "w-1",
+          "args": {
+            "task": "정리"
+          },
+          "result": {
+            "callId": "w-1",
+            "name": "worker",
+            "args": {
+              "task": "정리"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "작업 결과"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "완료"
+              }
+            ]
+          },
+          "steps": 2,
+          "usage": {
+            "input": 2,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ]
+  }
+}

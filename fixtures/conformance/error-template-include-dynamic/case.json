@@ -1,0 +1,8 @@
+{
+  "description": "include 대상이 문자열 리터럴 하나가 아니면 template.syntax 구성 오류다.",
+  "spec": [
+    "템플릿 파일과 `include`",
+    "템플릿 구성 오류"
+  ],
+  "steps": []
+}

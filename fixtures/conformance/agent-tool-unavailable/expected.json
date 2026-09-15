@@ -1,0 +1,94 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_unavailable"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "s-1",
+          "name": "secret",
+          "args": {
+            "k": 1
+          }
+        }
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "요청"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "tool",
+          "codes": [
+            "tool_unavailable"
+          ]
+        }
+      }
+    ],
+    "toolCalls": [],
+    "operations": [],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "s-1",
+              "name": "secret",
+              "args": {
+                "k": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

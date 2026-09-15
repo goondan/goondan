@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    hooks:
+      output:
+        - fn: polish
+          retries: 2

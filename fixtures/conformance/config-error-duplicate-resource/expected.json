@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "load.duplicate_resource",
+        "path": "/resources/1"
+      }
+    ]
+  }
+}

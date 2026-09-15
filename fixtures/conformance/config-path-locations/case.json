@@ -1,0 +1,15 @@
+{
+  "description": "systemMessage 배열 항목, 훅 항목과 route의 carry.message에 적은 template도 경로 선언이므로 선언 파일의 실제 디렉터리를 기준으로 절대 경로가 된다.",
+  "spec": [
+    "경로 선언",
+    "합성 결과와 유효 구성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,44 @@
+{
+  "description": "재시도 요청의 afterMs가 0보다 크면 런타임은 그 밀리초만큼 기다린 뒤 재시도한다.",
+  "spec": [
+    "재시도"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "일시 오류"
+          },
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "constant",
+              "value": {
+                "retry": true,
+                "target": "model",
+                "afterMs": 10
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

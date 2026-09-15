@@ -1,0 +1,7 @@
+{
+  "description": "훅이 extension, fn, agent, template을 하나도 선언하지 않으면 스키마 단계의 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

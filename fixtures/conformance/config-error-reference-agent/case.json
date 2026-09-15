@@ -1,0 +1,8 @@
+{
+  "description": "loadConfig는 참조 단계까지 적용하므로 구성에 없는 에이전트를 가리키는 flow.in은 읽기 시점에 reference.agent 구성 오류가 된다.",
+  "spec": [
+    "검증 단계",
+    "오류 코드"
+  ],
+  "steps": []
+}

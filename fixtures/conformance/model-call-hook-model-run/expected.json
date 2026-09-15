@@ -1,0 +1,84 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "probe",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "사전 확인"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "probe",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "사후 확인"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "modelContexts": {
+      "m": [
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 0
+        },
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 1
+        },
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 1
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "steps": [
+    {
+      "result": {
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "질문"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.textDelta",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "delta": "안"
+        }
+      },
+      {
+        "name": "step.textDelta",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "delta": "녕"
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 2,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ]
+  }
+}

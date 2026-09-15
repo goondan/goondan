@@ -1,0 +1,25 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "input": {
+    "system": [],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "media",
+            "ref": "upload-1",
+            "mediaType": "image/png"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "options": {}
+  }
+}

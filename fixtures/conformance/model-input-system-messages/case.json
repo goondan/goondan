@@ -1,0 +1,71 @@
+{
+  "description": "모델 입력의 messages는 맨 앞의 system 메시지와 뒤에 추가된 system 메시지를 그 위치 그대로 전달하며, modelInput 단계에서 추가한 메시지는 대화에 저장하지 않는다.",
+  "spec": [
+    "모델 입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "seed": {
+        "definition": {
+          "hooks": [
+            "conversation"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "constant",
+              "value": [
+                {
+                  "id": "s-seed",
+                  "role": "system",
+                  "source": "ops",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "선두 지시"
+                    }
+                  ]
+                },
+                {
+                  "id": "u-seed",
+                  "role": "user",
+                  "source": "main",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "안녕"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "functions": {
+      "opsText": {
+        "op": "constant",
+        "value": "운영 지시"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

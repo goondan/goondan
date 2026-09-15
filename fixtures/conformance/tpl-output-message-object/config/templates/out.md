@@ -1,0 +1,1 @@
+[{{ text.role }}:{{ text.content[0].text }}]

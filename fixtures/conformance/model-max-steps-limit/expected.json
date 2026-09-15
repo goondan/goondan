@@ -1,0 +1,51 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "runtime_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "echo",
+        "args": {}
+      }
+    ],
+    "functionCalls": [
+      {
+        "fn": "markInput",
+        "value": {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "echo",
+              "description": "되돌려 준다",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        }
+      }
+    ]
+  }
+}

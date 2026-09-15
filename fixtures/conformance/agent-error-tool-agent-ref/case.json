@@ -1,0 +1,7 @@
+{
+  "description": "에이전트 도구의 agent 값이 같은 구성의 에이전트 이름이 아니면 참조 단계에서 reference.agent 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

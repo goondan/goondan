@@ -1,0 +1,7 @@
+{
+  "description": "inherit를 따라가면 같은 에이전트로 돌아오면 순환마다 한 번, 순환에 속한 에이전트 가운데 가장 먼저 선언된 에이전트의 위치에 reference.inherit_cycle 구성 오류를 보고한다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "steps": []
+}

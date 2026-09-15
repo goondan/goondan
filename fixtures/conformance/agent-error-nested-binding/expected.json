@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.model",
+        "path": "/agents/wrap/config/agents/inner/model"
+      }
+    ]
+  }
+}

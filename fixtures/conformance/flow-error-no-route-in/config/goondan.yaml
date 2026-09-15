@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+  other:
+    model: m
+flow:
+  in: main
+  routes:
+    - from: other
+      to: out

@@ -1,0 +1,53 @@
+{
+  "description": "복구가 다시 보낸 승인 요청 전달이 실패하면 그 작업은 pending으로 남고 복구 요청이 그 오류로 실패한다.",
+  "spec": [
+    "복구",
+    "승인 작업 생성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "host": {
+      "requestApproval": {
+        "op": "throw",
+        "message": "전달 실패"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "restart": {}
+    },
+    {
+      "recover": {}
+    },
+    {
+      "list": {}
+    }
+  ]
+}

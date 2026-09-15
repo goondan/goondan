@@ -1,0 +1,53 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "뿌리: 뿌리 공통"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ],
+      "c1/frag": [
+        {
+          "role": "user",
+          "source": "frag",
+          "content": [
+            {
+              "type": "text",
+              "text": "조각: 조각 공통"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

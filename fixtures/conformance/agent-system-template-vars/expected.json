@@ -1,0 +1,48 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [
+            {
+              "text": "agent=main model=m locale=ko-KR\ntool=search\ntool=helper\n",
+              "source": "system:0"
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "search",
+              "description": "검색",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "helper",
+              "description": "Run helper",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

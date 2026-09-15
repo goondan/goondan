@@ -1,0 +1,50 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "env": {
+      "ANTHROPIC_BASE_URL": "http://localhost:8080/"
+    }
+  },
+  "input": {
+    "system": [
+      {
+        "text": "Stay short.",
+        "cache": true,
+        "source": "system:0"
+      }
+    ],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "data:"
+          },
+          {
+            "type": "json",
+            "value": {
+              "a": [
+                1,
+                "x"
+              ],
+              "b": null
+            }
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "noop",
+        "description": "Does nothing",
+        "input": {
+          "type": "object"
+        }
+      }
+    ],
+    "options": {}
+  }
+}

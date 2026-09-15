@@ -1,0 +1,49 @@
+{
+  "description": "런타임을 닫으면 남은 비동기 작업에 취소를 알리고 닫은 뒤에 끝난 작업의 결과는 반영하지 않으며, 닫은 런타임에 턴 실행을 요청하면 runtime_error 실행 오류로 실패한다.",
+  "spec": [
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "await",
+        "gate": "never",
+        "then": {
+          "op": "constant",
+          "value": "비동기"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      },
+      "settle": false
+    },
+    {
+      "close": {}
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    params:
+      locale: ko-KR
+    systemMessage:
+      - template: templates/system.md
+    tools:
+      - search
+      - agent: helper
+  helper:
+    model: h
+flow:
+  in: main

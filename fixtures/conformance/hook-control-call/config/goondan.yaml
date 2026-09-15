@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    hooks:
+      toolCall:
+        - name: p1
+          extension: policy
+        - name: p2
+          fn: secondCall
+    extensions:
+      policy: {}

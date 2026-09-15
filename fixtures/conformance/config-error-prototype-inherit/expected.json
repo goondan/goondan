@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "reference.inherit",
+        "path": "/agents/b/inherit"
+      }
+    ]
+  }
+}

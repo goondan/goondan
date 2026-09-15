@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    extensions:
+      alpha: {}
+      beta: {}
+    hooks:
+      toolResult:
+        - name: first
+          extension: alpha
+        - name: second
+          extension: beta

@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    params:
+      n: 2
+    systemMessage:
+      - template: templates/system.md

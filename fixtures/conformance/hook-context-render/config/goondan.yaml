@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - template: templates/greet.md
+    extensions:
+      memo: {}
+    hooks:
+      input:
+        - name: note
+          extension: memo

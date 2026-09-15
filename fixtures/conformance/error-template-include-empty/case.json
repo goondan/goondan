@@ -1,0 +1,8 @@
+{
+  "description": "include 경로가 빈 문자열이면 template.unsupported 구성 오류이며 사유는 path is empty다.",
+  "spec": [
+    "템플릿 구성 오류",
+    "템플릿 파일과 `include`"
+  ],
+  "steps": []
+}

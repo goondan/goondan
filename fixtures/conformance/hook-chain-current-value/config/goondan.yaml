@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - fn: first
+        - fn: second

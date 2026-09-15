@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    tools:
+      - fail
+    hooks:
+      conversation:
+        - name: tap
+          fn: tap

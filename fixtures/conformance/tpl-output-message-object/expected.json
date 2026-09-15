@@ -1,0 +1,45 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "polish",
+          "content": [
+            {
+              "type": "text",
+              "text": "[assistant:완료]"
+            }
+          ]
+        },
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "polish",
+          "content": [
+            {
+              "type": "text",
+              "text": "[assistant:완료]"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

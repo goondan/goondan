@@ -1,0 +1,41 @@
+{
+  "steps": [
+    {},
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "operation_invalid"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "hostCalls": [],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {}
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      }
+    ],
+    "operationHistory": {
+      "<op:d-1>": [
+        "pending/pending"
+      ]
+    }
+  }
+}

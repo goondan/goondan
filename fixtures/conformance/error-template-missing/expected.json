@@ -1,0 +1,12 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "template.not_found",
+        "path": "/agents/main/systemMessage/0/template",
+        "message": "cannot read templates/missing.md"
+      }
+    ]
+  }
+}

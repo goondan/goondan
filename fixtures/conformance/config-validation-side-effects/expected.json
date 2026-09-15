@@ -1,0 +1,11 @@
+{
+  "steps": [],
+  "observations": {
+    "events": [],
+    "toolCalls": [],
+    "functionCalls": [],
+    "hookCalls": [],
+    "hostCalls": [],
+    "extensionLog": []
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "10truefalse2a21falsetrue2b||요청|1p2q1r"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

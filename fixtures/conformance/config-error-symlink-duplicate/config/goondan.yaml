@@ -1,0 +1,6 @@
+resources:
+  - frag.yaml
+  - alias.yaml
+agents:
+  main:
+    model: m

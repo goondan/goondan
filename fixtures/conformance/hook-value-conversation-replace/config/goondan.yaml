@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    extensions:
+      compact: {}
+    hooks:
+      conversation:
+        - extension: compact

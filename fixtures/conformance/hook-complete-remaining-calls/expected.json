@@ -1,0 +1,104 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "memo",
+          "content": [
+            {
+              "type": "text",
+              "text": "마무리"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "first",
+        "args": {}
+      },
+      {
+        "tool": "second",
+        "args": {}
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "a-1",
+              "name": "first",
+              "args": {}
+            },
+            {
+              "type": "tool.call",
+              "callId": "b-1",
+              "name": "second",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "a-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "하나"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "b-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "둘"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "memo",
+          "content": [
+            {
+              "type": "text",
+              "text": "마무리"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: search
+        agent: helper
+  helper:
+    model: m
+flow:
+  in: main

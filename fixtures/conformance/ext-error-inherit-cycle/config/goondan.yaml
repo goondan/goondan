@@ -1,0 +1,5 @@
+agents:
+  first:
+    inherit: second
+  second:
+    inherit: first

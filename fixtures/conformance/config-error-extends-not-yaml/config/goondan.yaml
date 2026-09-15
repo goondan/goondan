@@ -1,0 +1,4 @@
+extends: base.txt
+agents:
+  main:
+    model: m

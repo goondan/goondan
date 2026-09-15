@@ -1,0 +1,34 @@
+{
+  "description": "extensions는 객체이므로 상속에서 확장 이름별로 재귀 병합되며, 자식이 바꾼 옵션 키만 교체되고 나머지 키는 유지된 채 확장 생성 입력으로 전달된다.",
+  "spec": [
+    "확장",
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {}
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕",
+        "agent": "child"
+      }
+    }
+  ]
+}

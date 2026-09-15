@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: note
+          fn: maybeNote
+          template: templates/note.md
+          using: input
+      modelResult:
+        - fn: keep
+          using: input

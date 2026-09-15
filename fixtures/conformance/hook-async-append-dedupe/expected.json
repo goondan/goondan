@@ -1,0 +1,83 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "note",
+          "content": [
+            {
+              "type": "text",
+              "text": "메모"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답2"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "셋"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답3"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "description": "when의 함수가 오류를 던지면 훅을 건너뛰지 않고 그 훅이 실패한다.",
+  "spec": [
+    "훅 실행과 결과",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "polish": {
+        "op": "identity"
+      },
+      "gate": {
+        "op": "throw",
+        "message": "when이 실패했다"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

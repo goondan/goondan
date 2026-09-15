@@ -1,0 +1,153 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "recall",
+        "args": {
+          "q": "이름"
+        }
+      }
+    ],
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "recall",
+              "description": "기억 조회",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "source": "model",
+              "content": [
+                {
+                  "type": "tool.call",
+                  "callId": "r-1",
+                  "name": "recall",
+                  "args": {
+                    "q": "이름"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "source": "tool",
+              "content": [
+                {
+                  "type": "tool.result",
+                  "callId": "r-1",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "없음"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "recall",
+              "description": "기억 조회",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "r-1",
+              "name": "recall",
+              "args": {
+                "q": "이름"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "r-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "없음"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

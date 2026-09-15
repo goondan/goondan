@@ -1,0 +1,32 @@
+{
+  "description": "다른 디렉터리에서 합성한 조각의 템플릿은 그 조각 안의 파일을 포함하므로, 같은 이름의 조각을 선언한 두 템플릿이 서로 다른 파일을 포함한다.",
+  "spec": [
+    "템플릿 파일과 `include`"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      },
+      "f": {
+        "responses": [
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "description": "훅의 mode는 sync 또는 async여야 하므로 다른 값은 스키마 단계의 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

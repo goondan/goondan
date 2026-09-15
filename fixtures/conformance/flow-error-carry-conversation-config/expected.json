@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "flow.carry_conversation",
+        "path": "/flow/routes/0/carry/conversation"
+      }
+    ]
+  }
+}

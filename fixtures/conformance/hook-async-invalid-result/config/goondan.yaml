@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      conversation:
+        - name: note
+          extension: memo
+          mode: async

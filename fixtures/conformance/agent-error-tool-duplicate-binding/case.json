@@ -1,0 +1,29 @@
+{
+  "description": "tools에 적은 이름을 호스트 도구와 확장 도구가 함께 제공하면 바인딩 단계에서 그 항목 위치의 binding.duplicate_tool 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "search": {
+        "description": "검색",
+        "results": []
+      }
+    },
+    "extensions": {
+      "memory": {
+        "definition": {
+          "tools": [
+            "search"
+          ]
+        }
+      }
+    }
+  },
+  "steps": []
+}

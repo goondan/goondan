@@ -1,0 +1,7 @@
+{
+  "description": "훅의 agent가 같은 구성의 agents에 선언되지 않은 이름이면 참조 단계의 reference.agent 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

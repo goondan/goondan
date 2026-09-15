@@ -1,0 +1,54 @@
+{
+  "description": "toolCall 훅이 도구 결과를 반환한 호출은 승인 사유가 있어도 승인 작업을 만들지 않고 그 결과로 toolResult 단계를 실행한다.",
+  "spec": [
+    "승인 작업 생성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "functions": {
+      "canned": {
+        "op": "result",
+        "content": [
+          {
+            "type": "text",
+            "text": "대체 결과"
+          }
+        ]
+      },
+      "record": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    }
+  ]
+}

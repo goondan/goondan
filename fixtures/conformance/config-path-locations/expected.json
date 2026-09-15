@@ -1,0 +1,50 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "main": {
+          "model": "m",
+          "systemMessage": [
+            {
+              "template": "<case>/config/sys-a.md"
+            },
+            {
+              "text": "인라인 블록"
+            }
+          ],
+          "hooks": {
+            "modelInput": [
+              {
+                "template": "<case>/config/hook.md"
+              }
+            ]
+          }
+        },
+        "second": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "main",
+        "routes": [
+          {
+            "from": "main",
+            "to": "second",
+            "carry": {
+              "message": {
+                "template": "<case>/config/carry.md"
+              }
+            }
+          },
+          {
+            "from": "second",
+            "to": "out"
+          }
+        ]
+      }
+    }
+  }
+}

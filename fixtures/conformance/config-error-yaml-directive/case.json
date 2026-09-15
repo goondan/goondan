@@ -1,0 +1,9 @@
+{
+  "description": "%YAML 지시자는 생략하거나 %YAML 1.2로 선언해야 하므로 다른 버전은 빈 path의 load.yaml 구성 오류다.",
+  "spec": [
+    "YAML 해석",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

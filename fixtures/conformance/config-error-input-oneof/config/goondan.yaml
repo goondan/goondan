@@ -1,0 +1,4 @@
+agents:
+  main:
+    model: m
+    input: raw

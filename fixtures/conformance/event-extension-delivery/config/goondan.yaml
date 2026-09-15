@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      alpha: {}
+      beta: {}
+      gamma: {}
+flow:
+  in: main

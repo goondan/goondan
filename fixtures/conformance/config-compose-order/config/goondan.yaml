@@ -1,0 +1,8 @@
+extends: base
+resources:
+  - r1.yaml
+  - r2.yaml
+agents:
+  main:
+    params:
+      d: entry

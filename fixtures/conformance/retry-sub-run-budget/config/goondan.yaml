@@ -1,0 +1,17 @@
+agents:
+  main:
+    model: mm
+    tools:
+      - agent: worker
+    extensions:
+      policy: {}
+    hooks:
+      error:
+        - extension: policy
+  worker:
+    model: wm
+    extensions:
+      policy: {}
+    hooks:
+      error:
+        - extension: policy

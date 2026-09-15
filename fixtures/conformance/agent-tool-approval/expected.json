@@ -1,0 +1,183 @@
+{
+  "steps": [
+    {
+      "result": {
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "게시해 줘"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "humanApproval.created",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "operationId": "<op:pub-1>",
+          "tool": "publish",
+          "callId": "pub-1",
+          "reasons": [
+            "Tool publish requires approval"
+          ]
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "승인을 기다립니다"
+              }
+            ]
+          },
+          "steps": 2,
+          "usage": {
+            "input": 12,
+            "output": 3,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ],
+    "toolCalls": [],
+    "operations": [
+      {
+        "operationId": "<op:pub-1>",
+        "deliveryId": "operation:<op:pub-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "pub-1",
+          "name": "publish",
+          "args": {
+            "draft": "초안"
+          }
+        },
+        "reasons": [
+          "Tool publish requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "게시해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "pub-1",
+              "name": "publish",
+              "args": {
+                "draft": "초안"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "pub-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:pub-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:pub-1>"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "승인을 기다립니다"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

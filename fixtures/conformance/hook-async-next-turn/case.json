@@ -1,0 +1,66 @@
+{
+  "description": "비동기 훅은 현재 단계의 진행을 막지 않으며 완료된 작업의 메시지는 같은 실행 범위의 다음 안전한 대화 처리 지점에서 한 번 대화 끝에 추가되고 저장된다.",
+  "spec": [
+    "비동기 훅",
+    "단계 실행 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "await",
+            "gate": "g",
+            "then": {
+              "op": "constant",
+              "value": "비동기1"
+            }
+          },
+          {
+            "op": "constant",
+            "value": "비동기2"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      },
+      "settle": false
+    },
+    {
+      "release": "g"
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

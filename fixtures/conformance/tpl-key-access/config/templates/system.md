@@ -1,0 +1,1 @@
+{{ params["my-key"] }}|{{ params.list[1] }}|{{ params.tags.items[0] }}|{{ params.list.length is defined }}|{{ params.list[5] is defined }}|{{ params.text[0] is defined }}

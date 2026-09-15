@@ -1,0 +1,17 @@
+agents:
+  main:
+    model: m
+    params:
+      v: {a: [1, 2], b: "한"}
+      e: "😀한"
+      n: 2
+      s: "  a b  "
+      ss: "ß"
+      mixed: "ÄB"
+      rep: aaaa
+      arr: [x, y]
+      obj: {k: 1}
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

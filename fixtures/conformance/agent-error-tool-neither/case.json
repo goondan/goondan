@@ -1,0 +1,7 @@
+{
+  "description": "객체 항목이 tool과 agent를 모두 생략하면 그 항목 위치에서 schema.oneOf 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

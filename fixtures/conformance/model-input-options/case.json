@@ -1,0 +1,54 @@
+{
+  "description": "모델 입력의 options는 빈 객체로 시작하고 modelInput 훅이 채운 값을 런타임이 검사하거나 바꾸지 않고 모델 구현에 그대로 전달한다.",
+  "spec": [
+    "모델 입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "opts": {
+        "definition": {
+          "hooks": [
+            "modelInput"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "merge",
+              "value": {
+                "options": {
+                  "maxTokens": 64,
+                  "temperature": 0.2,
+                  "toolChoice": "none",
+                  "anthropic": {
+                    "topK": 5
+                  },
+                  "openai": {
+                    "seed": 7
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

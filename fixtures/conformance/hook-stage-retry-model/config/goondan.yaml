@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - fn: hConversation
+          using: input
+      modelResult:
+        - fn: retryOnce
+          using: input

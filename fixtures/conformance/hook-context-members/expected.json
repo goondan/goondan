@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "hookContexts": [
+      {
+        "extension": "memo",
+        "stage": "modelInput",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "input": "안녕",
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ]
+          }
+        ],
+        "retryCount": 0
+      }
+    ]
+  }
+}

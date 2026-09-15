@@ -1,0 +1,105 @@
+{
+  "description": "에이전트 도구의 하위 대화 식별자는 <부모 대화 식별자>:<부모 턴 식별자>:<대상 이름>이므로 같은 부모 턴의 호출은 대화를 이어 가고 다음 턴은 새 하위 대화에서 시작한다.",
+  "spec": [
+    "하위 대화",
+    "에이전트 도구"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "worker",
+                "args": {
+                  "n": 1
+                }
+              },
+              {
+                "callId": "c-2",
+                "name": "worker",
+                "args": {
+                  "n": 2
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "턴1 끝",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "toolCalls": [
+              {
+                "callId": "c-3",
+                "name": "worker",
+                "args": {
+                  "n": 3
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "턴2 끝",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "w": {
+        "responses": [
+          {
+            "text": "w1",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          },
+          {
+            "text": "w2",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          },
+          {
+            "text": "w3",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

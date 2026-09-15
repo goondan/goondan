@@ -1,0 +1,17 @@
+{
+  "description": "params와 extensions.<이름>.options 안의 template, config, extends, resources는 사용자 데이터이므로 경로나 합성 지시로 해석하지 않고 값을 그대로 둔다.",
+  "spec": [
+    "경로 선언"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "memo": {}
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,27 @@
+agents:
+  base:
+    model: m
+    tools:
+      - search
+      - tool: publish
+        approval: required
+      - agent: helper
+    extensions:
+      audit: {}
+      memory: {}
+    hooks:
+      modelInput:
+        - name: trim
+          fn: trimContext
+        - fn: other
+      output:
+        - extension: audit
+  helper:
+    model: m
+  reader:
+    inherit: base
+    remove:
+      tools: [publish, helper, ghost]
+      extensions: [audit]
+      hooks:
+        modelInput: [trim]

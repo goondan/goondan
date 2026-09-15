@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "modelResult",
+        "codes": [
+          "value_invalid"
+        ],
+        "attempt": 1
+      }
+    },
+    {
+      "error": {
+        "where": "modelResult",
+        "codes": [
+          "value_invalid"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ]
+        }
+      ],
+      "c2/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      slow: {}
+    hooks:
+      modelInput:
+        - name: hold
+          extension: slow
+          timeout: 20

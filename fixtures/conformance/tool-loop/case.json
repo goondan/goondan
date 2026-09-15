@@ -1,0 +1,78 @@
+{
+  "description": "모델 응답의 도구 호출을 실행하고 도구 결과를 저장한 뒤 모델을 다시 호출하며, 호출이 없는 응답에서 실행을 끝낸다.",
+  "spec": [
+    "도구",
+    "단계 실행 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "call-1",
+                "name": "lookup",
+                "args": {
+                  "query": "군단"
+                }
+              }
+            ],
+            "usage": {
+              "input": 5,
+              "output": 1
+            }
+          },
+          {
+            "toolCalls": [
+              {
+                "callId": "call-2",
+                "name": "finish",
+                "args": {
+                  "summary": "찾음"
+                }
+              }
+            ],
+            "usage": {
+              "input": 7,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 9,
+              "output": 2
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "description": "검색",
+        "results": [
+          {
+            "text": "검색 결과"
+          }
+        ]
+      },
+      "finish": {
+        "description": "마무리",
+        "results": [
+          {
+            "text": "최종 결과"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "찾아 주세요"
+      }
+    }
+  ]
+}

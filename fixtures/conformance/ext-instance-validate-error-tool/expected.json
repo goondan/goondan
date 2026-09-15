@@ -1,0 +1,53 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_error"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "w-1",
+          "name": "worker",
+          "args": {}
+        }
+      }
+    }
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "validateOptions",
+        "extension": "guard",
+        "options": {}
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "부탁"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "w-1",
+              "name": "worker",
+              "args": {}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

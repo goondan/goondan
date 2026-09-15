@@ -1,0 +1,101 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "flow_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "bad",
+        "value": {
+          "output": "A",
+          "input": "시작",
+          "conversation": [
+            {
+              "role": "user",
+              "source": "a",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "source": "model",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "A"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "a",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "시작"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "a",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "a",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "a",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ]
+  }
+}

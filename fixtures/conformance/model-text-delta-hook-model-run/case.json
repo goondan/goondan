@@ -1,0 +1,68 @@
+{
+  "description": "훅 컨텍스트의 model.run 호출에서 전달한 텍스트 조각은 알리지 않고, 에이전트 실행의 모델 호출이 전달한 조각만 step.textDelta 이벤트가 된다.",
+  "spec": [
+    "텍스트 조각"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "숨김 응답",
+            "deltas": [
+              "숨",
+              "김"
+            ]
+          },
+          {
+            "text": "보임 응답",
+            "deltas": [
+              "보임"
+            ],
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "probe": {
+        "definition": {
+          "hooks": [
+            "conversation"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "runModel",
+              "messages": [
+                {
+                  "id": "h-1",
+                  "role": "user",
+                  "source": "probe",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "사전 확인"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

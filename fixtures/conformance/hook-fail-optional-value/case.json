@@ -1,0 +1,42 @@
+{
+  "description": "선택 훅이 단계 값의 형식과 맞지 않는 결과를 반환하면 hook.failed 이벤트를 발생시킨 뒤 그 결과를 버리고 훅을 실행하기 전의 현재 값으로 계속한다.",
+  "spec": [
+    "훅 실패",
+    "단계 값과 대화 저장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "output": {
+              "op": "constant",
+              "value": "평문"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

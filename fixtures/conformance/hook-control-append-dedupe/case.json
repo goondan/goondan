@@ -1,0 +1,74 @@
+{
+  "description": "추가할 메시지와 source와 key가 같은 가장 뒤 메시지가 role과 content까지 같으면 그 메시지는 추가하지 않고, 내용이 달라지면 새 메시지로 추가한다.",
+  "spec": [
+    "제어 결과"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답3",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "ctxText": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "constant",
+            "value": "CTX"
+          },
+          {
+            "op": "constant",
+            "value": "CTX"
+          },
+          {
+            "op": "constant",
+            "value": "CTX2"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "셋"
+      }
+    }
+  ]
+}

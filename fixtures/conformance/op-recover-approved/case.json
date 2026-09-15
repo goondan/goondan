@@ -1,0 +1,79 @@
+{
+  "description": "저장소에 approved로 남은 작업은 복구가 승인된 작업의 실행을 시작해 도구를 실행하고 완료를 전달한다.",
+  "spec": [
+    "복구",
+    "승인된 작업의 실행"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": [
+          {
+            "text": "실행 완료"
+          }
+        ]
+      }
+    },
+    "host": {
+      "validateOperation": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "await",
+            "gate": "never"
+          },
+          {
+            "op": "constant",
+            "value": true
+          }
+        ]
+      },
+      "deliverOperationCompletion": true
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "approved"
+        }
+      },
+      "settle": false
+    },
+    {
+      "reach": "never"
+    },
+    {
+      "restart": {}
+    },
+    {
+      "recover": {}
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: helper
+        hint: 안내
+  helper:
+    model: m
+flow:
+  in: main

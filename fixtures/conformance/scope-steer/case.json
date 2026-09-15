@@ -1,0 +1,67 @@
+{
+  "description": "진행 중인 턴에 보낸 실행 중 입력은 다음 안전한 대화 처리 지점, 즉 모델을 다시 호출하기 위한 modelInput 단계 직전에 사용자 메시지로 대화에 추가된다.",
+  "spec": [
+    "실행 중 입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "await": "open",
+            "then": {
+              "toolCalls": [
+                {
+                  "callId": "n-1",
+                  "name": "noop",
+                  "args": {}
+                }
+              ]
+            }
+          },
+          {
+            "text": "끝"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "noop": {
+        "description": "아무것도 하지 않음",
+        "results": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "run": {
+              "conversationId": "c1",
+              "input": "시작"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "open"
+          },
+          {
+            "steer": {
+              "conversationId": "c1",
+              "value": "중간 지시"
+            }
+          },
+          {
+            "release": "open"
+          }
+        ]
+      ]
+    }
+  ]
+}

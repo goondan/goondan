@@ -1,0 +1,1 @@
+{{ params.a | safe }}{{ params.b | safe }}{% if params.c is odd %}x{% endif %}

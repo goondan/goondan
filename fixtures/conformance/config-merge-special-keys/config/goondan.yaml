@@ -1,0 +1,8 @@
+extends: base.yaml
+agents:
+  constructor:
+    model: m
+  __proto__:
+    model: m
+  toString:
+    description: overridden

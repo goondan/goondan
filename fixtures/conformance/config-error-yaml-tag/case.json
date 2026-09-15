@@ -1,0 +1,9 @@
+{
+  "description": "core 스키마에 없는 태그를 쓰면 빈 path의 load.yaml 구성 오류다.",
+  "spec": [
+    "YAML 해석",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

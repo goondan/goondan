@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    extensions:
+      alpha: {}
+      beta: {}
+    hooks:
+      input:
+        - fn: mark
+      error:
+        - fn: markErr

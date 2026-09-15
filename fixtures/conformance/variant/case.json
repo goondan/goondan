@@ -1,0 +1,21 @@
+{
+  "description": "variant는 진입 파일의 실제 디렉터리에 있는 variants/<이름>.yaml이며 요청 순서대로 앞의 결과 위에 병합한다. variant는 별개의 리소스 그래프이므로 진입 파일을 다시 extends할 수 있고, 그러면 앞선 variant가 바꾼 값이 진입 파일의 값으로 돌아간다.",
+  "spec": [
+    "variant"
+  ],
+  "config": {
+    "path": "config",
+    "variants": [
+      "tweak",
+      "changed"
+    ]
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,15 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.tool",
+        "path": "/agents/base/tools/2"
+      },
+      {
+        "code": "binding.tool",
+        "path": "/agents/reader/tools/1"
+      }
+    ]
+  }
+}

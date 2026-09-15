@@ -1,0 +1,5 @@
+agents:
+  main:
+    model: m
+    input:
+      fn: makeText

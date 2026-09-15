@@ -1,0 +1,87 @@
+{
+  "request": {
+    "model": "llama3.2",
+    "messages": [
+      {
+        "role": "developer",
+        "content": "Be helpful."
+      },
+      {
+        "role": "user",
+        "content": "hi"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "screenshot",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": "(image output attached in the next user message)"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Images returned by tool calls: c1"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgo="
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "<system-reminder>\nuse metric units\n</system-reminder>"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "a"
+          },
+          {
+            "type": "text",
+            "text": "b"
+          }
+        ]
+      }
+    ],
+    "stream": true,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "screenshot",
+          "description": "Take a screenshot",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ],
+    "max_tokens": 64,
+    "top_p": 0.5,
+    "tool_choice": {
+      "type": "function",
+      "function": {
+        "name": "screenshot"
+      }
+    }
+  }
+}

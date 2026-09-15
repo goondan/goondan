@@ -1,0 +1,16 @@
+agents:
+  first:
+    model: m
+  middle:
+    model: m
+  last:
+    model: m
+flow:
+  in: first
+  routes:
+    - from: first
+      to: last
+    - from: middle
+      to: last
+    - from: first
+      to: middle

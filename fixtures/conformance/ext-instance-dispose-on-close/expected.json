@@ -1,0 +1,99 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "alpha",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "create",
+        "instance": 2,
+        "extension": "beta",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "create",
+        "instance": 3,
+        "extension": "alpha",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "create",
+        "instance": 4,
+        "extension": "beta",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "alpha": {},
+              "beta": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      },
+      {
+        "action": "dispose",
+        "instance": 2
+      },
+      {
+        "action": "dispose",
+        "instance": 3
+      },
+      {
+        "action": "dispose",
+        "instance": 4
+      }
+    ]
+  }
+}

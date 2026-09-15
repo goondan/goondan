@@ -1,0 +1,7 @@
+{
+  "description": "include 관계가 순환하면 template.unsupported 구성 오류이며 다시 나타난 파일부터 순환 경로를 나열한다.",
+  "spec": [
+    "템플릿 구성 오류"
+  ],
+  "steps": []
+}

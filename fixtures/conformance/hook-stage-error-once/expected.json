@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "model",
+        "codes": [
+          "model_error",
+          "overloaded"
+        ],
+        "attempt": 1,
+        "message": "모델이 멈췄다"
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "recordError",
+        "value": {
+          "where": "model",
+          "codes": [
+            "model_error",
+            "overloaded"
+          ],
+          "message": "모델이 멈췄다",
+          "attempt": 1
+        }
+      }
+    ]
+  }
+}

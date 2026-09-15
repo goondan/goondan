@@ -1,0 +1,40 @@
+{
+  "description": "인라인 훅의 fn이 null을 반환하면 agent와 template을 실행하지 않고 메시지를 추가하지 않으며 현재 값도 바꾸지 않지만 hook.applied 이벤트는 발생한다.",
+  "spec": [
+    "훅 실행과 결과",
+    "인라인 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "maybeNote": {
+        "op": "constant",
+        "value": null
+      },
+      "keep": {
+        "op": "constant",
+        "value": null
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

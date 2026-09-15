@@ -1,0 +1,17 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: helper
+      - agent: documented
+      - search
+  helper:
+    model: h
+    input:
+      fields:
+        q: 질문 문자열
+  documented:
+    description: 결제 문의를 처리한다.
+    model: h
+flow:
+  in: main

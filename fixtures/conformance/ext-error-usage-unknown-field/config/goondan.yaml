@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo:
+        namespace: support

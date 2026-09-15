@@ -1,0 +1,32 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "main": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/sys.md"
+          }
+        },
+        "linked": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/alias.md"
+          }
+        },
+        "deep": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/sub/deep/note.md"
+          }
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

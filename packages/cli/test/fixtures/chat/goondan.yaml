@@ -1,0 +1,7 @@
+version: 1
+name: cli-chat-smoke
+agents:
+  assistant:
+    model: fixture
+flow:
+  in: assistant

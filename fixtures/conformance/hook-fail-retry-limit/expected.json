@@ -1,0 +1,67 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "modelResult",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    },
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        },
+        "finishReason": "stop",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/strict": [
+        {
+          "role": "user",
+          "source": "strict",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        }
+      ],
+      "c1/lenient": [
+        {
+          "role": "user",
+          "source": "lenient",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

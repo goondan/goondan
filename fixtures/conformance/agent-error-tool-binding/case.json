@@ -1,0 +1,14 @@
+{
+  "description": "tools에 적은 이름을 제공하는 호스트 도구나 확장 도구가 없으면 바인딩 단계에서 그 항목 위치의 binding.tool 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

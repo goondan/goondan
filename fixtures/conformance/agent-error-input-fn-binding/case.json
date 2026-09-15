@@ -1,0 +1,14 @@
+{
+  "description": "input.fn이 호스트에 등록된 함수가 아니면 런타임 생성의 바인딩 단계에서 binding.function 구성 오류가 된다.",
+  "spec": [
+    "입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

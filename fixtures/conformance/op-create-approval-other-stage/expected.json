@@ -1,0 +1,16 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "modelResult",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "operations": []
+  }
+}

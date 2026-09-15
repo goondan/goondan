@@ -1,0 +1,315 @@
+{
+  "steps": [
+    {
+      "result": {
+        "finishReason": "stop",
+        "status": "done",
+        "usage": {
+          "input": 12,
+          "output": 3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 12,
+              "output": 3,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    },
+    {
+      "result": {
+        "operationId": "<op:danger-1>",
+        "deliveryId": "operation:<op:danger-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "danger-1",
+          "name": "danger",
+          "args": {
+            "value": 7
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "실행해 줘"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "humanApproval.created",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "operationId": "<op:danger-1>",
+          "tool": "danger",
+          "callId": "danger-1",
+          "reasons": [
+            "Tool danger requires approval"
+          ]
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 2,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "승인을 기다립니다"
+              }
+            ]
+          },
+          "steps": 2,
+          "usage": {
+            "input": 12,
+            "output": 3,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      },
+      {
+        "name": "tool.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "danger",
+          "callId": "danger-1",
+          "args": {
+            "value": 7
+          },
+          "operationId": "<op:danger-1>"
+        }
+      },
+      {
+        "name": "tool.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "danger",
+          "callId": "danger-1",
+          "args": {
+            "value": 7
+          },
+          "result": {
+            "callId": "danger-1",
+            "name": "danger",
+            "args": {
+              "value": 7
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "실행 완료"
+              }
+            ]
+          },
+          "operationId": "<op:danger-1>"
+        }
+      },
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "input": {
+            "type": "operation_completion",
+            "deliveryId": "operation:<op:danger-1>:completion",
+            "operationId": "<op:danger-1>",
+            "conversationId": "c1",
+            "agent": "main",
+            "status": "completed",
+            "toolCall": {
+              "id": "danger-1",
+              "name": "danger",
+              "args": {
+                "value": 7
+              }
+            },
+            "result": {
+              "callId": "danger-1",
+              "name": "danger",
+              "args": {
+                "value": 7
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "실행 완료"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "name": "turn.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:2>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "완료를 확인했습니다"
+              }
+            ]
+          },
+          "steps": 1,
+          "usage": {
+            "input": 3,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      }
+    ],
+    "toolCalls": [
+      {
+        "tool": "danger",
+        "args": {
+          "value": 7
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:danger-1>",
+        "deliveryId": "operation:<op:danger-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "danger-1",
+          "name": "danger",
+          "args": {
+            "value": 7
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "completed",
+        "deliveryStatus": "delivered",
+        "result": {
+          "callId": "danger-1",
+          "name": "danger",
+          "args": {
+            "value": 7
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            }
+          ]
+        }
+      }
+    ],
+    "operationHistory": {
+      "<op:danger-1>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "completed/pending",
+        "completed/delivering",
+        "completed/delivered"
+      ]
+    }
+  }
+}

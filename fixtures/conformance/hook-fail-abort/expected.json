@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": true
+          }
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "안녕"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "runtime",
+          "codes": [
+            "aborted"
+          ]
+        }
+      }
+    ]
+  }
+}

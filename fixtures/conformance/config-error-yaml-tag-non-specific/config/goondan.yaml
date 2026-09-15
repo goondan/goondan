@@ -1,0 +1,5 @@
+agents:
+  main:
+    model: m
+    params:
+      v: ! 5

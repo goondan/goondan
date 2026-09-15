@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - template: templates/bad.md
+      - template: templates/bad.md

@@ -1,0 +1,94 @@
+{
+  "description": "도구 컨텍스트의 agents.run은 같은 구성의 에이전트를 에이전트 도구와 같은 하위 대화에서 실행해 tool 실행 기록을 만들고, 선언되지 않은 이름이면 실행을 시작하지 않고 호출이 실패한다.",
+  "spec": [
+    "도구 컨텍스트",
+    "하위 대화"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "dispatch",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "끝",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "toolCalls": [
+              {
+                "callId": "d-2",
+                "name": "dispatch",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "w": {
+        "responses": [
+          {
+            "text": "작업 완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "dispatch": {
+        "description": "위임",
+        "results": [
+          {
+            "runAgent": {
+              "name": "worker",
+              "input": {
+                "task": "정리"
+              }
+            }
+          },
+          {
+            "runAgent": {
+              "name": "ghost",
+              "input": {}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      }
+    }
+  ]
+}

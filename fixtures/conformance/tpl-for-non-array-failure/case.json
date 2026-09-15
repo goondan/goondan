@@ -1,0 +1,21 @@
+{
+  "description": "for의 대상이 배열이 아니면 실행 오류이므로 시스템 블록 템플릿의 렌더링이 where가 modelInput인 runtime_error로 실패한다.",
+  "spec": [
+    "반복"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

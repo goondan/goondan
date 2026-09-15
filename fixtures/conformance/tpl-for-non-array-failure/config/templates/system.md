@@ -1,0 +1,1 @@
+{% for x in params.obj %}{{ x }}{% endfor %}

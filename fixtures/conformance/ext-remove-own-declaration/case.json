@@ -1,0 +1,22 @@
+{
+  "description": "inherit 없이 remove만 선언하면 그 에이전트가 직접 선언한 항목에도 제거가 적용된다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "search": {
+        "results": []
+      },
+      "write": {
+        "results": []
+      }
+    }
+  },
+  "steps": []
+}

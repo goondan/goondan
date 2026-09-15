@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [
+            {
+              "text": "첫 블록",
+              "source": "system:0"
+            },
+            {
+              "text": "둘째 블록",
+              "source": "system:1"
+            },
+            {
+              "text": "셋째 블록",
+              "source": "system:2",
+              "cache": true
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

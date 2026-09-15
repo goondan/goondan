@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: note
+          fn: makeNote
+          when:
+            fn: isOne
+          using: input

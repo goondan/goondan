@@ -1,0 +1,22 @@
+{
+  "description": "자식은 부모의 제거를 적용한 상속 결과를 받으므로 부모가 제거한 항목은 전해지지 않지만, 자식이 같은 항목을 다시 선언하면 사용할 수 있다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "search": {
+        "results": []
+      },
+      "write": {
+        "results": []
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,46 @@
+{
+  "description": "재시도로 다시 호출하는 모델도 새 모델 호출 번호를 받으며, 재시도를 요청한 모델 결과의 메시지는 대화에 저장하지 않는다.",
+  "spec": [
+    "모델 호출",
+    "재시도"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "첫 응답"
+          },
+          {
+            "text": "둘째 응답"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "retryOnce": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "constant",
+            "value": {
+              "retry": true,
+              "target": "model"
+            }
+          },
+          {
+            "op": "identity"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

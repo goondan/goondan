@@ -1,0 +1,14 @@
+{
+  "description": "훅의 fn이 호스트에 등록된 함수 이름이 아니면 바인딩 단계의 binding.function 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,20 @@
+agents:
+  a:
+    model: m
+  b:
+    model: m
+  c:
+    model: m
+  d:
+    model: m
+  e:
+    model: m
+  f:
+    model: m
+  g:
+    model: m
+  h:
+    model: m
+  i:
+    model: m
+flow: [a, b, a, c, d, e, f, g, h, i, b]

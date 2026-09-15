@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+flow:
+  in: main
+  routes:
+    - from: main
+      to: ghost

@@ -1,0 +1,7 @@
+agents:
+  a:
+    config: inner/goondan.yaml
+  b:
+    config: inner/goondan.yaml
+flow:
+  in: a

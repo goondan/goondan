@@ -1,0 +1,105 @@
+{
+  "config": {
+    "model": "claude-opus-5",
+    "apiKey": "test-key",
+    "midConversationSystem": "system",
+    "autoCache": false
+  },
+  "input": {
+    "system": [],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "question"
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "use metric units"
+          }
+        ]
+      },
+      {
+        "id": "a1",
+        "role": "assistant",
+        "source": "model",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ]
+      },
+      {
+        "id": "u2",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "follow up"
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "  "
+          }
+        ]
+      },
+      {
+        "id": "s3",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "be brief"
+          }
+        ]
+      },
+      {
+        "id": "u3",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "more"
+          }
+        ]
+      },
+      {
+        "id": "s4",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "final note"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "options": {
+      "toolChoice": "none"
+    }
+  }
+}

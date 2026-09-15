@@ -1,0 +1,1 @@
+{% set x = 1 %}{{ params.a | safe }}

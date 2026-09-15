@@ -1,0 +1,69 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

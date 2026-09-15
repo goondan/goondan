@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: ctx
+          fn: makeObject
+          using: input
+      output:
+        - name: wrapUp
+          fn: makeOut

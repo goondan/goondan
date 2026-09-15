@@ -1,0 +1,72 @@
+{
+  "description": "running 작업은 취소할 수 없으므로 취소 요청은 저장된 현재 작업을 그대로 반환하고 도구 실행은 끝까지 진행된다.",
+  "spec": [
+    "결정과 취소",
+    "승인된 작업의 실행"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": [
+          {
+            "await": "hold",
+            "then": {
+              "text": "실행 완료"
+            }
+          }
+        ]
+      }
+    },
+    "host": {
+      "deliverOperationCompletion": true
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "approved"
+        }
+      },
+      "settle": false
+    },
+    {
+      "reach": "hold"
+    },
+    {
+      "cancel": {
+        "operation": "<op:d-1>"
+      },
+      "settle": false
+    },
+    {
+      "release": "hold"
+    }
+  ]
+}

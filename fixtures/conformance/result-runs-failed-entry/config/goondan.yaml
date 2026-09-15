@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    hooks:
+      output:
+        - agent: helper
+  helper:
+    model: hm
+flow:
+  in: main

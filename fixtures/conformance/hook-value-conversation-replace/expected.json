@@ -1,0 +1,70 @@
+{
+  "steps": [
+    {},
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "system",
+              "source": "compact",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요약"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "system",
+          "source": "compact",
+          "content": [
+            {
+              "type": "text",
+              "text": "요약"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

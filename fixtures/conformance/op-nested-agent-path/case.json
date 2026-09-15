@@ -1,0 +1,56 @@
+{
+  "description": "중첩 구성의 에이전트가 만든 작업도 호스트가 만든 런타임의 작업 저장소에 저장되며, 작업의 agent는 중첩 구성의 에이전트 경로이고 런타임은 그 경로로 작업을 실행한다.",
+  "spec": [
+    "승인 작업",
+    "승인된 작업의 실행"
+  ],
+  "bindings": {
+    "models": {
+      "n": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": [
+          {
+            "text": "실행 완료"
+          }
+        ]
+      }
+    },
+    "host": {
+      "deliverOperationCompletion": true
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "approved"
+        }
+      }
+    }
+  ]
+}

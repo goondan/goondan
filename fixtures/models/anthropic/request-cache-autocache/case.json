@@ -1,0 +1,69 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "input": {
+    "system": [
+      {
+        "text": "S0",
+        "cache": true,
+        "source": "system:0"
+      },
+      {
+        "text": "S1",
+        "cache": true,
+        "source": "system:1"
+      },
+      {
+        "text": "S2",
+        "cache": true,
+        "source": "system:2"
+      },
+      {
+        "text": "S3",
+        "cache": true,
+        "source": "system:3"
+      },
+      {
+        "text": "S4",
+        "cache": true,
+        "source": "system:4"
+      },
+      {
+        "text": "   ",
+        "cache": true,
+        "source": "system:blank"
+      }
+    ],
+    "messages": [
+      {
+        "id": "s0",
+        "role": "system",
+        "source": "carry",
+        "content": [
+          {
+            "type": "text",
+            "text": "operator note"
+          }
+        ]
+      },
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "options": {
+      "toolChoice": "required",
+      "topP": 0.9
+    }
+  }
+}

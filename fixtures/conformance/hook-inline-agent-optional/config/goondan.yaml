@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelInput:
+        - agent: helper
+          using: input
+  helper:
+    model: h

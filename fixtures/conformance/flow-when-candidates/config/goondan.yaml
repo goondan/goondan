@@ -1,0 +1,23 @@
+agents:
+  a:
+    model: ma
+  b:
+    model: mb
+  c:
+    model: mc
+flow:
+  in: a
+  routes:
+    - from: a
+      to: out
+      when: {fn: first}
+    - from: a
+      to: b
+      when: {fn: second}
+    - from: a
+      to: c
+      when: {fn: third}
+    - from: b
+      to: out
+    - from: c
+      to: out

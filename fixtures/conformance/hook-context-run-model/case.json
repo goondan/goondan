@@ -1,0 +1,66 @@
+{
+  "description": "훅 컨텍스트의 model.run은 modelInput 훅을 적용하기 전의 시스템 블록과 도구 정의, 전달한 메시지 배열과 빈 options로 모델을 한 번 호출하고 결과를 대화에 저장하지 않으며 실행 기록에 model 항목을 만든다.",
+  "spec": [
+    "훅 컨텍스트와 호스트 함수",
+    "에이전트 실행 기록"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "참고",
+            "usage": {
+              "input": 4,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "results": []
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "runModel",
+              "messages": [
+                {
+                  "id": "q-1",
+                  "role": "user",
+                  "source": "probe",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "질문"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

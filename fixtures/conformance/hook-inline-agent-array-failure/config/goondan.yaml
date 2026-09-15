@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    hooks:
+      output:
+        - name: advisors
+          agent: [alpha, beta]
+          optional: false
+  alpha:
+    model: ma
+  beta:
+    model: mb
+flow:
+  in: main

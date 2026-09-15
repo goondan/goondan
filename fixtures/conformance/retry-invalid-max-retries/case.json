@@ -1,0 +1,15 @@
+{
+  "description": "maxRetries가 0 이상의 정수가 아니면 런타임 생성이 인수 오류로 실패한다.",
+  "spec": [
+    "재시도"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "maxRetries": -1
+  },
+  "steps": []
+}

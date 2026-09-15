@@ -1,0 +1,71 @@
+{
+  "steps": [
+    {
+      "result": {
+        "usage": {
+          "input": 13,
+          "output": 3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 13,
+              "output": 3,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "hInput",
+        "value": "안녕"
+      },
+      {
+        "fn": "hConversation",
+        "value": "안녕"
+      },
+      {
+        "fn": "hModelInput",
+        "value": "안녕"
+      },
+      {
+        "fn": "hModelResult",
+        "value": "안녕"
+      },
+      {
+        "fn": "hToolCall",
+        "value": "안녕"
+      },
+      {
+        "fn": "hToolResult",
+        "value": "안녕"
+      },
+      {
+        "fn": "hModelInput",
+        "value": "안녕"
+      },
+      {
+        "fn": "hModelResult",
+        "value": "안녕"
+      },
+      {
+        "fn": "hOutput",
+        "value": "안녕"
+      }
+    ]
+  }
+}

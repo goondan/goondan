@@ -1,0 +1,106 @@
+{
+  "config": {
+    "model": "llama3.2",
+    "baseUrl": "http://localhost:11434/v1",
+    "streamUsage": false,
+    "midConversationSystem": "user",
+    "systemRole": "developer"
+  },
+  "input": {
+    "system": [
+      {
+        "text": "Be helpful.",
+        "cache": true,
+        "source": "system:0"
+      }
+    ],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      },
+      {
+        "id": "a1",
+        "role": "assistant",
+        "source": "model",
+        "content": [
+          {
+            "type": "text",
+            "text": "  "
+          },
+          {
+            "type": "tool.call",
+            "callId": "c1",
+            "name": "screenshot",
+            "args": null
+          }
+        ]
+      },
+      {
+        "id": "t1",
+        "role": "tool",
+        "source": "tool",
+        "content": [
+          {
+            "type": "tool.result",
+            "callId": "c1",
+            "content": [
+              {
+                "type": "image",
+                "url": "data:image/png;base64,iVBORw0KGgo=",
+                "mediaType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "use metric units"
+          }
+        ]
+      },
+      {
+        "id": "u2",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "a"
+          },
+          {
+            "type": "text",
+            "text": "b"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "screenshot",
+        "description": "Take a screenshot",
+        "input": {}
+      }
+    ],
+    "options": {
+      "maxTokens": 64,
+      "topP": 0.5,
+      "toolChoice": {
+        "name": "screenshot"
+      }
+    }
+  }
+}

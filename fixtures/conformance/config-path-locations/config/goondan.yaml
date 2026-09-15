@@ -1,0 +1,21 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - template: sys-a.md
+      - text: 인라인 블록
+    hooks:
+      modelInput:
+        - template: hook.md
+  second:
+    model: m
+flow:
+  in: main
+  routes:
+    - from: main
+      to: second
+      carry:
+        message:
+          template: carry.md
+    - from: second
+      to: out

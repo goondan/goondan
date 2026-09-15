@@ -1,0 +1,5 @@
+resources:
+  - ''
+agents:
+  main:
+    model: m

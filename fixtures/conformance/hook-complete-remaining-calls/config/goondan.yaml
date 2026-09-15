@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools: [first, second]
+    extensions:
+      memo: {}
+    hooks:
+      toolResult:
+        - name: done
+          extension: memo

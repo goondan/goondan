@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      probe: {}
+    hooks:
+      conversation:
+        - extension: probe
+      output:
+        - extension: probe

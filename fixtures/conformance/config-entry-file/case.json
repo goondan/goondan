@@ -1,0 +1,17 @@
+{
+  "description": "진입 경로가 파일이면 그 파일을 진입 파일로 쓰며 .yml 확장자도 읽는다.",
+  "spec": [
+    "파일 합성, variant와 경로 기준"
+  ],
+  "config": {
+    "path": "config/main.yml"
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

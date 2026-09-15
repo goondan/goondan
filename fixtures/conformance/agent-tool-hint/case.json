@@ -1,0 +1,31 @@
+{
+  "description": "hint를 선언한 도구 항목의 설명은 도구 구현의 설명 뒤에 줄바꿈 하나와 hint를 이어 붙인 문자열이다.",
+  "spec": [
+    "도구"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "search": {
+        "description": "검색",
+        "results": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

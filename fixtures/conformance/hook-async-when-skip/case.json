@@ -1,0 +1,39 @@
+{
+  "description": "비동기 훅의 when이 false를 반환하면 hook.skipped 이벤트를 발생시키고 작업을 예약하지 않는다.",
+  "spec": [
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "constant",
+        "value": "비동기"
+      },
+      "nope": {
+        "op": "constant",
+        "value": false
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

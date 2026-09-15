@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.anyOf",
+        "path": "/agents/main"
+      }
+    ]
+  }
+}

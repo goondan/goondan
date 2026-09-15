@@ -1,0 +1,9 @@
+{
+  "description": "최상위의 알 수 없는 필드는 그 필드 위치의 schema.additionalProperties 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

@@ -1,0 +1,71 @@
+{
+  "description": "target tool 재시도는 실패한 호출을 다시 처리하며, 도구 실행을 시도할 때마다 tool.start와 뒤따르는 tool.done 또는 tool.error를 알린다.",
+  "spec": [
+    "재시도",
+    "이벤트 순서"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "flaky",
+                "args": {}
+              }
+            ],
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 5,
+              "output": 2
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "flaky": {
+        "description": "불안정",
+        "results": [
+          {
+            "error": "일시 실패"
+          },
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "constant",
+              "value": {
+                "retry": true,
+                "target": "tool"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

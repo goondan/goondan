@@ -1,0 +1,9 @@
+{
+  "description": "<<는 병합 키가 아닌 일반 키이므로 에이전트에 이름이 <<인 필드가 생기고 그 위치의 schema.additionalProperties 구성 오류가 된다.",
+  "spec": [
+    "YAML 해석",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

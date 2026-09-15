@@ -1,0 +1,50 @@
+{
+  "description": "인라인 결과가 문자열이 아니면 결과 텍스트는 JSON 텍스트로 직렬화한 문자열이며, conversation 단계는 그 텍스트를 가진 메시지를 추가하고 output 단계는 새 assistant 메시지가 현재 값을 대신한다.",
+  "spec": [
+    "인라인 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "makeObject": {
+        "op": "constant",
+        "value": {
+          "a": 1,
+          "b": [
+            true,
+            null
+          ],
+          "s": "é"
+        }
+      },
+      "makeOut": {
+        "op": "constant",
+        "value": {
+          "k": [
+            1
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

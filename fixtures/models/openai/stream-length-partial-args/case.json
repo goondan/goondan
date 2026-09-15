@@ -1,0 +1,7 @@
+{
+  "config": {
+    "model": "gpt-test",
+    "apiKey": "test-key"
+  },
+  "stream": "data: {\"id\":\"chatcmpl-2\",\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Part\"}}]}\n\ndata: {\"id\":\"chatcmpl-2\",\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_p\",\"type\":\"function\",\"function\":{\"name\":\"write\",\"arguments\":\"{\\\"text\\\":\\\"unfinished\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl-2\",\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: {\"id\":\"chatcmpl-2\",\"model\":\"gpt-test\",\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":50}}\n\ndata: [DONE]\n\n"
+}

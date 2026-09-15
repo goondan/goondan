@@ -1,0 +1,40 @@
+{
+  "request": {
+    "model": "claude-sonnet-5",
+    "max_tokens": 64000,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "Stay short.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "data:"
+          },
+          {
+            "type": "text",
+            "text": "{\"a\":[1,\"x\"],\"b\":null}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "noop",
+        "description": "Does nothing",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ]
+  }
+}

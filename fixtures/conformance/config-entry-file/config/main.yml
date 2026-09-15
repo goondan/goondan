@@ -1,0 +1,4 @@
+name: entry-file
+agents:
+  main:
+    model: m

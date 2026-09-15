@@ -1,0 +1,109 @@
+{
+  "request": {
+    "model": "gpt-test",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a lookup agent.\n\nAnswer briefly.\n\nleading operator note"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgo="
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Looking.",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{\"q\":1}"
+            }
+          },
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{\"q\":2}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": "one"
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "c2",
+        "content": "{\"ok\":false,\"n\":1.5,\"s\":\"é \"}"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Images returned by tool calls: c2"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgo="
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "steer"
+      },
+      {
+        "role": "system",
+        "content": "be brief"
+      }
+    ],
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "lookup",
+          "description": "Look up",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "max_completion_tokens": 100,
+    "temperature": 0,
+    "stop": [
+      "END"
+    ],
+    "tool_choice": "auto",
+    "seed": 7
+  }
+}

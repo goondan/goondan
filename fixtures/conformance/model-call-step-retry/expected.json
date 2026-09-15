@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelContexts": {
+      "m": [
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 1
+        },
+        {
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "step": 2
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘째 응답"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

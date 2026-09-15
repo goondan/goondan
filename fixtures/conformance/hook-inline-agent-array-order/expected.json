@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "output",
+              "codes": [
+                "hook_error"
+              ],
+              "attempt": 1,
+              "message": "앞선 대상의 오류"
+            }
+          }
+        ],
+        [
+          {},
+          {}
+        ]
+      ]
+    }
+  ]
+}

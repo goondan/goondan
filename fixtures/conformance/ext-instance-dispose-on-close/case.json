@@ -1,0 +1,49 @@
+{
+  "description": "런타임을 닫으면 저장된 모든 확장 인스턴스를 만든 순서대로 정리한다.",
+  "spec": [
+    "확장 인스턴스"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "alpha": {},
+      "beta": {}
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": "둘"
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

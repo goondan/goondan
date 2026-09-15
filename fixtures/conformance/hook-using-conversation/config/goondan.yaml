@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: note
+          fn: makeNote
+          using: input
+        - name: peek
+          fn: readSecond
+          using: conversation
+          role: system

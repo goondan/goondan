@@ -1,0 +1,1 @@
+{% for item in params.list %}{{ loop.index }}{% include "row.md" %}{% endfor %}

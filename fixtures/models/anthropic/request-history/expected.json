@@ -1,0 +1,142 @@
+{
+  "request": {
+    "model": "claude-sonnet-5",
+    "max_tokens": 100,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a lookup agent.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "Answer briefly."
+      },
+      {
+        "type": "text",
+        "text": "leading operator note"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "iVBORw0KGgo="
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig"
+          },
+          {
+            "type": "text",
+            "text": "Looking."
+          },
+          {
+            "type": "tool_use",
+            "id": "c1",
+            "name": "lookup",
+            "input": {
+              "q": 1
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "c2",
+            "name": "lookup",
+            "input": {
+              "q": 2
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "c1",
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              }
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "c2",
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"ok\":false,\"n\":1.5,\"s\":\"é \"}"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgo="
+                }
+              }
+            ],
+            "is_error": true
+          },
+          {
+            "type": "text",
+            "text": "steer"
+          },
+          {
+            "type": "text",
+            "text": "<system-reminder>\nbe brief\n</system-reminder>"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Look up",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "q": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    ],
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "temperature": 0,
+    "stop_sequences": [
+      "END"
+    ],
+    "tool_choice": {
+      "type": "auto"
+    },
+    "thinking": {
+      "type": "adaptive"
+    }
+  }
+}

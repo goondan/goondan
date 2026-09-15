@@ -1,0 +1,16 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "input",
+        "codes": [
+          "value_invalid"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {}
+  }
+}

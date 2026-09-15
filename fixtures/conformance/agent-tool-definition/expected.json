@@ -1,0 +1,55 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "helper",
+              "description": "Run helper",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "documented",
+              "description": "결제 문의를 처리한다.",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "search",
+              "description": "검색",
+              "input": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

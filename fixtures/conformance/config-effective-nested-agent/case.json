@@ -1,0 +1,15 @@
+{
+  "description": "유효 구성의 config 에이전트에는 config와 선언한 description만 남고 나머지 필드는 남지 않는다. config 경로는 절대 경로가 된다.",
+  "spec": [
+    "합성 결과와 유효 구성",
+    "경로 선언"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

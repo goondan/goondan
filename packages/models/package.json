@@ -1,0 +1,44 @@
+{
+  "name": "@goondan/models",
+  "version": "0.0.3-alpha29",
+  "description": "Anthropic Messages and OpenAI Chat Completions model adapters for the Goondan runtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic.d.ts",
+      "import": "./dist/anthropic.js"
+    },
+    "./openai": {
+      "types": "./dist/openai.d.ts",
+      "import": "./dist/openai.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@goondan/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@goondan/core": "workspace:*",
+    "@types/node": "^22.19.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

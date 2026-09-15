@@ -1,0 +1,80 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "validateOptions",
+        "extension": "zeta",
+        "options": {
+          "n": 1
+        }
+      },
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "zeta",
+        "options": {
+          "n": 1,
+          "checked": true
+        },
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "zeta": {
+                "options": {
+                  "n": 1
+                }
+              },
+              "alpha": {
+                "options": {
+                  "n": 2
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "action": "validateOptions",
+        "extension": "alpha",
+        "options": {
+          "n": 2
+        }
+      },
+      {
+        "action": "create",
+        "instance": 2,
+        "extension": "alpha",
+        "options": {
+          "n": 2
+        },
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "zeta": {
+                "options": {
+                  "n": 1
+                }
+              },
+              "alpha": {
+                "options": {
+                  "n": 2
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

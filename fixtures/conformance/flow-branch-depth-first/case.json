@@ -1,0 +1,63 @@
+{
+  "description": "여러 route가 일치하면 선언 순서대로 진행하되 한 route에서 이어지는 흐름을 모두 마친 뒤 다음 route를 진행하므로 분기는 깊이 우선으로 실행된다.",
+  "spec": [
+    "route 진행",
+    "턴 결과"
+  ],
+  "bindings": {
+    "models": {
+      "msp": {
+        "responses": [
+          {
+            "text": "S",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ma": {
+        "responses": [
+          {
+            "text": "A",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mb": {
+        "responses": [
+          {
+            "text": "B",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mc": {
+        "responses": [
+          {
+            "text": "C",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "시작"
+      }
+    }
+  ]
+}

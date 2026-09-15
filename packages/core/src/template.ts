@@ -1,64 +1,44 @@
-import nunjucks from "nunjucks";
+import { includeSegments, renderKey, resolveIncludeKey } from "./template-load.ts";
+import { renderTemplate, TemplateRenderError, type RenderEnvironment } from "./template-render.ts";
+import { checkTemplate, type TemplateAst } from "./template-syntax.ts";
 import { type Json } from "./types.ts";
 
-function json(value: unknown, indent = 2): string { return JSON.stringify(value, undefined, indent === 0 ? undefined : 2); }
+export { TemplateRenderError } from "./template-render.ts";
 
-const allowedFilters = new Set(["default", "join", "trim", "length", "upper", "lower", "replace", "json"]);
-const allowedTags = new Set(["if", "elif", "else", "endif", "for", "endfor", "include"]);
-
-function withoutStrings(value: string): string {
-  let quote: "\"" | "'" | undefined;
-  let escaped = false;
-  return [...value].map((character) => {
-    if (escaped) { escaped = false; return " "; }
-    if (quote && character === "\\") { escaped = true; return " "; }
-    if (quote) { if (character === quote) quote = undefined; return " "; }
-    if (character === "\"" || character === "'") { quote = character; return " "; }
-    return character;
-  }).join("");
-}
-
-function validateExpression(name: string, expression: string): void {
-  const unquoted = withoutStrings(expression);
-  for (const match of unquoted.matchAll(/\|\s*([A-Za-z_][A-Za-z0-9_]*)/g)) {
-    const filter = match[1];
-    if (filter && !allowedFilters.has(filter)) throw new Error(`Unsupported filter ${filter} in ${name}`);
-  }
-  for (const match of unquoted.matchAll(/\bis\s+(?:not\s+)?([A-Za-z_][A-Za-z0-9_]*)/g)) {
-    const test = match[1];
-    if (test && test !== "defined") throw new Error(`Unsupported test ${test} in ${name}`);
-  }
-}
-
-function validateSyntax(name: string, source: string): void {
-  for (const match of source.matchAll(/{%-?\s*([A-Za-z_][A-Za-z0-9_]*)([\s\S]*?)-?%}|{{-?([\s\S]*?)-?}}/g)) {
-    const tag = match[1];
-    if (tag) {
-      if (!allowedTags.has(tag)) throw new Error(`Unsupported Jinja syntax in ${name}: ${tag}`);
-      const expression = match[2] ?? "";
-      if (tag === "include" && !/^\s*["']/.test(expression)) throw new Error(`Dynamic include is unsupported in ${name}`);
-      validateExpression(name, expression);
-    } else validateExpression(name, match[3] ?? "");
-  }
-}
-
+/**
+ * Renders the templates the reference phase read. It never touches the file system: every template
+ * and every statically included file is already in the map, keyed by its absolute path.
+ */
 export class TemplateRenderer {
-  readonly #environment: nunjucks.Environment;
   readonly #templates: ReadonlyMap<string, string>;
-  constructor(templates: ReadonlyMap<string, string>) {
+  readonly #directory: string;
+  readonly #parsed = new Map<string, TemplateAst>();
+  readonly #environment: RenderEnvironment;
+
+  constructor(templates: ReadonlyMap<string, string>, directory = ".") {
     this.#templates = templates;
-    const loader: nunjucks.ILoader = { async: false, getSource(name) { const source = templates.get(name); if (source === undefined) throw new Error(`Template not found: ${name}`); return { src: source, path: name, noCache: true }; } };
-    this.#environment = new nunjucks.Environment(loader, { autoescape: false, throwOnUndefined: true, trimBlocks: true, lstripBlocks: true });
-    this.#environment.addFilter("json", json);
+    this.#directory = directory;
+    this.#environment = {
+      template: (key) => this.#ast(key),
+      resolveInclude: (from, path) => resolveIncludeKey(from, includeSegments(path)),
+    };
   }
+
+  #ast(key: string): TemplateAst {
+    const cached = this.#parsed.get(key);
+    if (cached) return cached;
+    const source = this.#templates.get(key);
+    if (source === undefined) throw new TemplateRenderError(`Template not loaded: ${key}`);
+    const check = checkTemplate(source);
+    if (!check.ok) throw new TemplateRenderError(`Template ${key} is not valid`);
+    this.#parsed.set(key, check.ast);
+    return check.ast;
+  }
+
+  /** Renders a loaded template. `name` is its absolute path or a configuration-relative path. */
   render(name: string, variables: Record<string, Json>): string {
-    const template = this.#environment.getTemplate(name, true);
-    return template.render(variables);
-  }
-  validate(): void {
-    for (const [name, source] of this.#templates) {
-      validateSyntax(name, source);
-      this.#environment.getTemplate(name, true);
-    }
+    const key = renderKey(this.#templates, this.#directory, name);
+    if (key === undefined) throw new TemplateRenderError(`Template not loaded: ${name}`);
+    return renderTemplate(this.#environment, key, variables);
   }
 }

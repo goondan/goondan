@@ -1,0 +1,57 @@
+{
+  "description": "출력 텍스트는 text 부분의 text와 json 부분의 JSON 텍스트를 구분자 없이 이어 붙인 문자열이며 다른 종류의 부분은 제외한다.",
+  "spec": [
+    "출력 텍스트",
+    "흐름"
+  ],
+  "bindings": {
+    "models": {
+      "mf": {
+        "responses": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "T"
+              },
+              {
+                "type": "json",
+                "value": {
+                  "k": 1
+                }
+              },
+              {
+                "type": "media",
+                "ref": "note-1",
+                "mediaType": "text/plain"
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ms": {
+        "responses": [
+          {
+            "text": "받음",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "원문"
+      }
+    }
+  ]
+}

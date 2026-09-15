@@ -1,0 +1,62 @@
+{
+  "steps": [
+    {},
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"n\":1}"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "note",
+          "content": [
+            {
+              "type": "text",
+              "text": "메모"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"n\":true}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답2"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "toString": {
+          "model": "m",
+          "description": "overridden"
+        },
+        "constructor": {
+          "model": "m"
+        },
+        "__proto__": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "toString"
+      }
+    }
+  }
+}

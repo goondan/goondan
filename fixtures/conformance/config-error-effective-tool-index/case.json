@@ -1,0 +1,23 @@
+{
+  "description": "유효 구성을 기준으로 한 tools의 번호는 상속과 제거를 적용한 뒤의 배열 위치이므로, 제거로 앞 항목이 빠진 자식의 오류는 줄어든 번호를 가리킨다.",
+  "spec": [
+    "구성 오류",
+    "오류 코드"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "alpha": {
+        "results": []
+      },
+      "beta": {
+        "results": []
+      }
+    }
+  },
+  "steps": []
+}

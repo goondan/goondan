@@ -1,0 +1,71 @@
+{
+  "description": "input.fn은 에이전트 입력을 받아 메시지 텍스트를 만들며, 문자열 반환값은 그대로, 다른 JSON 값은 JSON 텍스트로 쓴다.",
+  "spec": [
+    "입력",
+    "JSON 텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "하나"
+          },
+          {
+            "text": "둘"
+          },
+          {
+            "text": "셋"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "makeText": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "constant",
+            "value": {
+              "a": 1,
+              "b": [
+                1,
+                2
+              ]
+            }
+          },
+          {
+            "op": "constant",
+            "value": "직접 문자열"
+          },
+          {
+            "op": "constant",
+            "value": null
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": {
+          "q": "첫"
+        }
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": "둘째"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c3",
+        "input": 3
+      }
+    }
+  ]
+}

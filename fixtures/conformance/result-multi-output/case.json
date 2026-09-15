@@ -1,0 +1,81 @@
+{
+  "description": "출력이 여럿이면 output은 출력 텍스트를 빈 줄로 연결한 새 메시지이고 어떤 대화에도 저장되지 않으며, 턴의 종료 사유는 출력들의 종료 사유가 모두 같을 때만 그 값이다.",
+  "spec": [
+    "턴 결과",
+    "종료 사유",
+    "출력 텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "msp": {
+        "responses": [
+          {
+            "text": "나눔",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "나눔",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ml": {
+        "responses": [
+          {
+            "text": "왼쪽",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "왼쪽2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mr": {
+        "responses": [
+          {
+            "text": "오른쪽",
+            "usage": {
+              "input": 1,
+              "output": 1
+            },
+            "finishReason": "length"
+          },
+          {
+            "text": "오른쪽2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "시작"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c2",
+        "input": "시작"
+      }
+    }
+  ]
+}

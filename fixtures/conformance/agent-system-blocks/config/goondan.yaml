@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - text: 첫 블록
+        cache: false
+      - text: 둘째 블록
+      - text: 셋째 블록
+        cache: true

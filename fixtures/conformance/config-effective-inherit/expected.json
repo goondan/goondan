@@ -1,0 +1,20 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "parent": {
+          "model": "m"
+        },
+        "child": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "parent"
+      }
+    }
+  }
+}

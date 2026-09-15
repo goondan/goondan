@@ -1,0 +1,5 @@
+agents:
+  parent:
+    model: m
+  child:
+    inherit: parent

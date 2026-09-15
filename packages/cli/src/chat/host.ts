@@ -1,4 +1,4 @@
-import { createRuntime, type Json, type LoadedConfig, type RuntimeBindings } from '@goondan/core';
+import { createRuntime, textOf, type Json, type LoadedConfig, type RuntimeBindings } from '@goondan/core';
 import { FileConversationStore } from './session.js';
 
 export interface ChatHostOptions {
@@ -76,16 +76,16 @@ export class ChatHost {
   }
 
   async close(): Promise<void> {
-    this.interrupt();
+    const interrupted = this.interrupt();
     await this.#active?.catch(() => undefined);
+    if (!interrupted) await this.#runtime.idle();
     await this.#runtime.close();
   }
 
   async #run(input: Json): Promise<ChatTurnResult> {
     try {
       const result = await this.#runtime.runTurn(input, { conversationId: this.#conversationId });
-      const text = result.output.content.map((part) => part.type === 'text' ? part.text : '').join('');
-      return { kind: 'completed', text, streamed: this.#streamed };
+      return { kind: 'completed', text: textOf(result.output.content), streamed: this.#streamed };
     } catch (error) {
       if (this.#interrupted) throw new DOMException('Chat turn interrupted', 'AbortError');
       throw error;

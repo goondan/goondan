@@ -1,0 +1,100 @@
+{
+  "steps": [
+    {},
+    {},
+    {},
+    {
+      "result": [
+        {
+          "operationId": "<op:a-1>",
+          "deliveryId": "operation:<op:a-1>:completion",
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "toolCall": {
+            "id": "a-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ],
+          "status": "pending",
+          "deliveryStatus": "pending"
+        },
+        {
+          "operationId": "<op:b-1>",
+          "deliveryId": "operation:<op:b-1>:completion",
+          "agent": "main",
+          "conversationId": "c2",
+          "turnId": "<turn:2>",
+          "toolCall": {
+            "id": "b-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ],
+          "status": "pending",
+          "deliveryStatus": "pending"
+        },
+        {
+          "operationId": "<op:a-2>",
+          "deliveryId": "operation:<op:a-2>:completion",
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:3>",
+          "toolCall": {
+            "id": "a-2",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ],
+          "status": "pending",
+          "deliveryStatus": "pending"
+        }
+      ]
+    },
+    {
+      "result": [
+        {
+          "operationId": "<op:a-1>",
+          "deliveryId": "operation:<op:a-1>:completion",
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:1>",
+          "toolCall": {
+            "id": "a-1",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ],
+          "status": "pending",
+          "deliveryStatus": "pending"
+        },
+        {
+          "operationId": "<op:a-2>",
+          "deliveryId": "operation:<op:a-2>:completion",
+          "agent": "main",
+          "conversationId": "c1",
+          "turnId": "<turn:3>",
+          "toolCall": {
+            "id": "a-2",
+            "name": "danger",
+            "args": {}
+          },
+          "reasons": [
+            "Tool danger requires approval"
+          ],
+          "status": "pending",
+          "deliveryStatus": "pending"
+        }
+      ]
+    }
+  ]
+}

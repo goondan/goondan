@@ -1,0 +1,6 @@
+extends: base.yaml
+agents:
+  zeta:
+    model: m
+  alpha:
+    description: overridden

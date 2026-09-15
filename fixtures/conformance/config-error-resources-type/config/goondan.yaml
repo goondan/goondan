@@ -1,0 +1,4 @@
+resources: a.yaml
+agents:
+  main:
+    model: m

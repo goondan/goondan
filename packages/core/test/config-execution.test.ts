@@ -1,5 +1,18 @@
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRuntime, defineExtension, MemoryConversationStore, TemplateRenderer, validateConfig, type ModelResult } from "../src/index.ts";
+import { createRuntime, defineExtension, GoondanConfigError, MemoryConversationStore, TemplateRenderer, validateConfig, type ConfigIssue, type ModelResult } from "../src/index.ts";
+
+function issuesOf(action: () => unknown): readonly ConfigIssue[] {
+  try {
+    action();
+  } catch (error) {
+    if (error instanceof GoondanConfigError) return error.issues;
+    throw error;
+  }
+  throw new Error("Expected a configuration error");
+}
 
 describe("configuration and execution contracts", () => {
   it("resolves inheritance, overrides and individual removals without mutating the parent", () => {
@@ -11,24 +24,48 @@ describe("configuration and execution contracts", () => {
     expect(config.agents.base?.tools).toEqual(["read", "write"]);
     expect(config.agents.base?.hooks?.modelInput).toHaveLength(3);
     expect(config.flow).toEqual({ in: "base" });
-    expect(() => validateConfig({ agents: { a: { model: "m" } }, flow: ["a", "a"] })).toThrow("unique");
+    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m" } }, flow: ["a", "a"] })))
+      .toMatchObject([{ code: "schema.uniqueItems", path: "/flow/1" }]);
     expect(validateConfig(config)).toEqual(config);
-    expect(() => validateConfig({ agents: { a: { inherit: "b" }, b: { inherit: "a" } } })).toThrow("Circular");
-    expect(() => validateConfig({ agents: { a: { inherit: "missing" } } })).toThrow("Unknown inherited");
-    expect(() => validateConfig({ agents: { a: { model: "m", hooks: { output: [{ fn: "later", mode: "async" }] } } } })).toThrow("only valid for conversation");
+    expect(issuesOf(() => validateConfig({ agents: { a: { inherit: "b" }, b: { inherit: "a" } } })))
+      .toMatchObject([{ code: "reference.inherit_cycle", path: "/agents/a/inherit" }]);
+    expect(issuesOf(() => validateConfig({ agents: { a: { inherit: "missing" } } })))
+      .toMatchObject([{ code: "reference.inherit", path: "/agents/a/inherit" }]);
+    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m", hooks: { output: [{ fn: "later", mode: "async" }] } } } })))
+      .toMatchObject([{ code: "schema.const", path: "/agents/a/hooks/output/0/mode" }]);
     expect(validateConfig({ agents: { a: { model: "m", hooks: { conversation: [{ fn: "later", mode: "async" }] } } } }).agents.a?.hooks?.conversation).toHaveLength(1);
   });
 
   it("accepts only the shared template filters, defined test and static includes", () => {
     const renderer = new TemplateRenderer(new Map([
-      ["main.md", "{% if value is defined %}{{ value | default('x') | upper }}{% endif %}{% include 'tail.md' %}"],
-      ["tail.md", "{{ items | join(',') | trim }}"],
-    ]));
-    expect(() => renderer.validate()).not.toThrow();
+      ["/cfg/main.md", "{% if value is defined %}{{ value | default('x') | upper }}{% endif %}{% include 'tail.md' %}"],
+      ["/cfg/tail.md", "{{ items | join(',') | trim }}"],
+    ]), "/cfg");
+    expect(renderer.render("/cfg/main.md", { value: "ok", items: ["a", "b"] })).toBe("OKa,b");
     expect(renderer.render("main.md", { value: "ok", items: ["a", "b"] })).toBe("OKa,b");
-    expect(() => new TemplateRenderer(new Map([["bad.md", "{{ value | safe }}"]])).validate()).toThrow("Unsupported filter safe");
-    expect(() => new TemplateRenderer(new Map([["bad.md", "{% include target %}"]])).validate()).toThrow("Dynamic include");
-    expect(() => new TemplateRenderer(new Map([["bad.md", "{% set value = 1 %}"]])).validate()).toThrow("Unsupported Jinja syntax");
+    for (const source of ["{{ value | safe }}", "{% include target %}", "{% set value = 1 %}"]) {
+      expect(() => new TemplateRenderer(new Map([["/cfg/bad.md", source]]), "/cfg").render("/cfg/bad.md", {})).toThrow("is not valid");
+    }
+  });
+
+  it("reads the templates of a configuration document once, relative to the configuration directory", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "goondan-runtime-")));
+    writeFileSync(join(root, "greeting.md"), "Hi {{ params.who }}");
+    const document = { agents: { main: { model: "m", params: { who: "you" }, systemMessage: { template: "./greeting.md" } } } };
+    let system = "";
+    const runtime = createRuntime(document, { directory: root, models: {
+      m: { async generate(input): Promise<ModelResult> {
+        system = input.system[0]?.text ?? "";
+        return { message: { id: "a", role: "assistant", source: "model", content: [{ type: "text", text: "ok" }] }, finishReason: "stop" };
+      } },
+    } });
+    expect(runtime.loaded.templates.get(join(root, "greeting.md"))).toBe("Hi {{ params.who }}");
+    writeFileSync(join(root, "greeting.md"), "changed");
+    await runtime.runTurn("x", { conversationId: "c" });
+    expect(system).toBe("Hi you");
+    await runtime.close();
+    expect(issuesOf(() => createRuntime({ agents: { main: { model: "m", systemMessage: { template: "./nowhere.md" } } } }, { directory: root, models: {} })))
+      .toMatchObject([{ code: "template.not_found", path: "/agents/main/systemMessage/template" }]);
   });
 
   it("connects a serial flow with only the last output", async () => {

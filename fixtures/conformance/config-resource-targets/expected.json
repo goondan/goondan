@@ -1,0 +1,23 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "resource-targets",
+      "agents": {
+        "a": {
+          "model": "m"
+        },
+        "b": {
+          "model": "m"
+        },
+        "c": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "a"
+      }
+    }
+  }
+}

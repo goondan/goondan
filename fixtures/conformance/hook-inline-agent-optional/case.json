@@ -1,0 +1,38 @@
+{
+  "description": "agent를 선언한 인라인 훅의 optional은 기본값이 true이므로 훅 에이전트 실행이 실패해도 그 훅을 실행하기 전의 값으로 실행을 계속하며, 실패한 하위 실행은 status가 failed인 항목으로 남는다.",
+  "spec": [
+    "인라인 훅",
+    "훅 선언",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "h": {
+        "responses": [
+          {
+            "error": "도우미 실패"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

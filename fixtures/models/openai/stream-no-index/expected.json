@@ -1,0 +1,27 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "tool.call",
+          "callId": "call_x",
+          "name": "lookup",
+          "args": {
+            "q": 3
+          }
+        }
+      ],
+      "meta": {
+        "openai": {
+          "id": "chatcmpl-9",
+          "model": "llama3.2",
+          "finishReason": "stop"
+        }
+      }
+    },
+    "finishReason": "tool"
+  },
+  "deltas": []
+}

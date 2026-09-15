@@ -1,0 +1,5 @@
+agents:
+  deep:
+    config: leaf/goondan.yaml
+flow:
+  in: deep

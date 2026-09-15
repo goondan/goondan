@@ -1,0 +1,64 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "memo",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "memo": {}
+            },
+            "hooks": {
+              "modelInput": [
+                {
+                  "extension": "memo"
+                }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "memo",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "기억"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

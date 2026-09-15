@@ -1,0 +1,8 @@
+agents:
+  first:
+    model: n1
+  second:
+    model: n2
+flow:
+  - first
+  - second

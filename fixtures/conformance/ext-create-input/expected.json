@@ -1,0 +1,33 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "memo",
+        "options": {},
+        "ports": {
+          "db": {
+            "dsn": "local"
+          }
+        },
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "params": {
+              "locale": "ko"
+            },
+            "extensions": {
+              "memo": {}
+            }
+          }
+        }
+      }
+    ]
+  }
+}

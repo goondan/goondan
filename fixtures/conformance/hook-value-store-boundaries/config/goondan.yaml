@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelInput:
+        - name: hint
+          fn: addHint
+          using: input
+      output:
+        - name: polish
+          fn: polish

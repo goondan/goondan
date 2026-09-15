@@ -1,0 +1,9 @@
+{
+  "description": "resources의 각 항목은 비어 있지 않은 문자열이어야 하므로 빈 문자열 항목은 그 항목 위치의 schema.minLength 구성 오류다.",
+  "spec": [
+    "최상위 구성",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

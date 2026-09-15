@@ -1,0 +1,6 @@
+extends: base.yaml
+agents:
+  main:
+    params:
+      n: 1
+      k: 2

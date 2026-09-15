@@ -1,0 +1,177 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_error"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "w-1",
+          "name": "worker",
+          "args": {
+            "task": "x"
+          }
+        }
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "부탁해"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.done",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "finishReason": "tool"
+        }
+      },
+      {
+        "name": "tool.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "worker",
+          "callId": "w-1",
+          "args": {
+            "task": "x"
+          }
+        }
+      },
+      {
+        "name": "turn.start",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "input": {
+            "task": "x"
+          }
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.error",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "step": 1,
+          "codes": [
+            "model_error"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "worker",
+        "conversationId": "c1:<turn:1>:worker",
+        "turnId": "<turn:2>",
+        "data": {
+          "where": "model",
+          "codes": [
+            "model_error"
+          ]
+        }
+      },
+      {
+        "name": "tool.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "tool": "worker",
+          "callId": "w-1",
+          "args": {
+            "task": "x"
+          },
+          "codes": [
+            "tool_error"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "tool",
+          "codes": [
+            "tool_error"
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "부탁해"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "w-1",
+              "name": "worker",
+              "args": {
+                "task": "x"
+              }
+            }
+          ]
+        }
+      ],
+      "c1:<turn:1>:worker/worker": [
+        {
+          "role": "user",
+          "source": "worker",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"task\":\"x\"}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

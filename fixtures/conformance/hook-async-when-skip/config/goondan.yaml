@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: note
+          fn: asyncNote
+          mode: async
+          when:
+            fn: nope
+          using: input

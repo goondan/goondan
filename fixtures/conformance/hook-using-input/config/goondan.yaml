@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - fn: normalize
+      modelInput:
+        - name: fromInput
+          fn: showInput
+          using: input

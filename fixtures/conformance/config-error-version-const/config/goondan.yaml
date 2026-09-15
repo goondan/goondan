@@ -1,0 +1,4 @@
+version: true
+agents:
+  main:
+    model: m

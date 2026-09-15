@@ -1,0 +1,8 @@
+{
+  "description": "공백 제어에 +를 붙인 구분자는 template.syntax 구성 오류다.",
+  "spec": [
+    "태그와 공백",
+    "템플릿 구성 오류"
+  ],
+  "steps": []
+}

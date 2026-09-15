@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelResult:
+        - fn: mark
+flow:
+  in: main

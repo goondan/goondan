@@ -1,0 +1,67 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "Goondan runs YAML agents."
+        }
+      ],
+      "meta": {
+        "anthropic": {
+          "id": "msg_4",
+          "model": "claude-sonnet-5",
+          "stopReason": "end_turn",
+          "content": [
+            {
+              "type": "server_tool_use",
+              "id": "srvtoolu_1",
+              "name": "web_search",
+              "input": {
+                "query": "goondan"
+              }
+            },
+            {
+              "type": "web_search_tool_result",
+              "tool_use_id": "srvtoolu_1",
+              "content": [
+                {
+                  "type": "web_search_result",
+                  "url": "https://example.com/goondan",
+                  "title": "Goondan",
+                  "encrypted_content": "enc",
+                  "page_age": null
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Goondan runs YAML agents.",
+              "citations": [
+                {
+                  "type": "web_search_result_location",
+                  "url": "https://example.com/goondan",
+                  "title": "Goondan",
+                  "encrypted_index": "idx",
+                  "cited_text": "Goondan runs YAML agents."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "usage": {
+      "input": 40,
+      "output": 30,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "finishReason": "stop"
+  },
+  "deltas": [
+    "Goondan runs YAML agents."
+  ]
+}

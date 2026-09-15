@@ -1,0 +1,17 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "partial",
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

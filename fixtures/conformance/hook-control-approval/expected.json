@@ -1,0 +1,112 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "askApproval",
+        "value": {
+          "id": "p-1",
+          "name": "publish",
+          "args": {
+            "doc": "초안"
+          }
+        }
+      },
+      {
+        "fn": "mark",
+        "value": {
+          "id": "p-1",
+          "name": "publish",
+          "args": {
+            "doc": "초안"
+          }
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:p-1>",
+        "deliveryId": "operation:<op:p-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "p-1",
+          "name": "publish",
+          "args": {
+            "doc": "초안"
+          }
+        },
+        "reasons": [
+          "검토 필요",
+          "Tool publish requires approval"
+        ],
+        "status": "pending",
+        "deliveryStatus": "pending"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "p-1",
+              "name": "publish",
+              "args": {
+                "doc": "초안"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:p-1>"
+          },
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "p-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:p-1>"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+agents:
+  base:
+    model: m
+    tools: [alpha, beta, gamma]
+  reader:
+    inherit: base
+    remove:
+      tools: [beta]

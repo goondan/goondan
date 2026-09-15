@@ -1,0 +1,9 @@
+{
+  "description": "flow의 기본값은 필드가 없을 때만 적용하므로 flow: null은 두 분기 모두 형식이 맞지 않는 /flow 위치의 schema.oneOf 구성 오류다.",
+  "spec": [
+    "값 병합",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

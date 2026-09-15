@@ -1,0 +1,83 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "model",
+        "codes": [
+          "model_error"
+        ],
+        "attempt": 1,
+        "message": "모델 폭발"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "안녕"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "codes": [
+            "model_error"
+          ]
+        }
+      },
+      {
+        "name": "hook.applied",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "error",
+          "hook": "capture"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "model",
+          "codes": [
+            "model_error"
+          ]
+        }
+      }
+    ],
+    "functionCalls": [
+      {
+        "fn": "captureError",
+        "value": {
+          "where": "model",
+          "codes": [
+            "model_error"
+          ],
+          "message": "모델 폭발",
+          "attempt": 1
+        }
+      }
+    ]
+  }
+}

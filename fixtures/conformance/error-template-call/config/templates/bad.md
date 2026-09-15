@@ -1,0 +1,1 @@
+{{ params.mode.upper() }}

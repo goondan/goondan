@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: danger
+        approval: required
+flow:
+  in: main

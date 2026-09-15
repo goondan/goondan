@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - fn: note
+          mode: async
+          timeout: 20

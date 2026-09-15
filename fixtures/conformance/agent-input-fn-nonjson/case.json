@@ -1,0 +1,26 @@
+{
+  "description": "input.fn이 JSON 값이 아닌 값을 반환하면 현재 실행은 where가 input인 value_invalid 실행 오류로 끝난다.",
+  "spec": [
+    "입력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "bad": {
+        "op": "nonJson"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

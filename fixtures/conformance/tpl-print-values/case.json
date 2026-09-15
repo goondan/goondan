@@ -1,0 +1,25 @@
+{
+  "description": "문자열은 그대로 출력하고 문자열이 아닌 JSON 값은 JSON 텍스트로 출력한다.",
+  "spec": [
+    "값 출력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

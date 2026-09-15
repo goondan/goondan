@@ -7,18 +7,21 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && pnpm test:python",
     "typecheck": "pnpm -r typecheck",
     "check:type": "pnpm typecheck",
     "clean": "pnpm -r clean",
     "gdn": "node ./packages/cli/dist/goondan-bin.js",
     "validate": "pnpm gdn validate",
+    "schema:sync": "pnpm --filter @goondan/core schema:sync && cp spec/goondan.schema.json python/goondan/goondan/goondan.schema.json",
     "build:core": "pnpm --filter @goondan/core build",
+    "build:models": "pnpm --filter @goondan/models build",
     "build:cli": "pnpm --filter @goondan/cli build",
     "test:core": "pnpm --filter @goondan/core test",
+    "test:models": "pnpm --filter @goondan/models test",
     "test:cli": "pnpm --filter @goondan/cli test",
-    "test:python": "cd python/goondan && uv run --extra test python -m pytest",
-    "deploy": "pnpm build && pnpm --filter @goondan/core publish --access public && pnpm --filter @goondan/cli publish --access public"
+    "test:python": "cd python/goondan && uv run --extra test --extra models python -m pytest",
+    "deploy": "pnpm build && pnpm --filter @goondan/core publish --access public && pnpm --filter @goondan/models publish --access public && pnpm --filter @goondan/cli publish --access public"
   },
   "devDependencies": {
     "@types/node": "^22.19.7",

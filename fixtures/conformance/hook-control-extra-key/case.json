@@ -1,0 +1,49 @@
+{
+  "description": "제어 결과는 표의 형식에 적힌 키만 가져야 하므로 다른 키를 함께 가진 결과를 반환한 훅은 실패한다.",
+  "spec": [
+    "제어 결과",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "extensions": {
+      "bad": {
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "constant",
+              "value": {
+                "append": [
+                  {
+                    "id": "x-1",
+                    "role": "user",
+                    "source": "bad",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "추가"
+                      }
+                    ]
+                  }
+                ],
+                "extra": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "result": {
+    "message": {
+      "role": "assistant",
+      "source": "model",
+      "content": [
+        {
+          "type": "text",
+          "text": "줄"
+        }
+      ],
+      "meta": {
+        "anthropic": {
+          "id": "msg_cr",
+          "model": "claude-sonnet-5",
+          "stopReason": "end_turn"
+        }
+      }
+    },
+    "usage": {
+      "input": 3,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "finishReason": "stop"
+  },
+  "deltas": [
+    "줄"
+  ]
+}

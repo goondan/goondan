@@ -1,0 +1,25 @@
+{
+  "description": "if는 조건을 차례로 평가해 처음 참이 된 분기를 출력하고, 참인 조건이 없으면 else를 출력하며 else가 없으면 아무것도 출력하지 않는다.",
+  "spec": [
+    "태그와 공백"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

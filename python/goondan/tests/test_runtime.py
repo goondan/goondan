@@ -7,9 +7,10 @@ import pytest
 
 from goondan import (
     Extension,
-    HookSpec,
     GoondanConfig,
+    GoondanConfigError,
     GoondanError,
+    GoondanExecutionError,
     InMemoryOperationStore,
     InMemoryConversationStore,
     create_runtime,
@@ -17,13 +18,15 @@ from goondan import (
     define_tool,
     load_config,
 )
-from goondan.runtime import _json
+from goondan._json import json_pretty_text, json_text
+from goondan._values import output_text
 
 
 def test_load_config_merges_resources_in_order_and_preserves_declaring_paths(tmp_path: Path):
     fragments = tmp_path / "fragments"
     nested = fragments / "nested"
-    nested.mkdir(parents=True)
+    (nested / "templates").mkdir(parents=True)
+    (nested / "templates" / "system.md").write_text("system", encoding="utf-8")
     (nested / "goondan.yaml").write_text(
         """version: 1
 name: base
@@ -67,50 +70,106 @@ agents:
 
 
 @pytest.mark.parametrize(
-    ("files", "message"),
+    ("files", "code", "path"),
     [
-        ({"goondan.yaml": "resources: [missing.yaml]\n"}, "does not exist"),
+        ({"goondan.yaml": "resources: [missing.yaml]\n"}, "load.not_found", "/resources/0"),
         (
             {
                 "goondan.yaml": "resources: [shared.yaml, shared.yaml]\n",
-                "shared.yaml": "version: 1\n",
+                "shared.yaml": "agents: {main: {model: m}}\n",
             },
-            "duplicate configuration resource",
+            "load.duplicate_resource",
+            "/resources/1",
         ),
         (
             {
                 "goondan.yaml": "resources: [child.yaml]\n",
                 "child.yaml": "resources: [goondan.yaml]\n",
             },
-            "configuration resource cycle",
+            "load.resource_cycle",
+            "/resources/0",
         ),
+        ({"goondan.yaml": "resources: 'one.yaml'\n"}, "schema.type", "/resources"),
+        ({"goondan.yaml": "extends: ''\n"}, "schema.minLength", "/extends"),
     ],
 )
-def test_load_config_rejects_invalid_resource_graph(tmp_path: Path, files: dict[str, str], message: str):
+def test_load_config_rejects_invalid_resource_graph(tmp_path: Path, files: dict[str, str], code: str, path: str):
     for relative_path, content in files.items():
         (tmp_path / relative_path).write_text(content, encoding="utf-8")
 
-    with pytest.raises(GoondanError, match=message):
+    with pytest.raises(GoondanConfigError) as error:
         load_config(tmp_path)
+    assert [(item["code"], item["path"]) for item in error.value.issues] == [(code, path)]
 
 
-def test_runtime_rejects_duplicate_agents_in_serial_flow(tmp_path: Path):
+def test_runtime_rejects_duplicate_agents_in_serial_flow():
     config = {
         "version": 1,
         "name": "duplicate-flow",
-        "__root__": str(tmp_path),
         "agents": {"worker": {"model": "scripted"}},
         "flow": ["worker", "worker"],
     }
 
-    with pytest.raises(GoondanError, match="flow must contain unique agent names"):
+    with pytest.raises(GoondanConfigError) as error:
         create_runtime(config=config, models={"scripted": lambda value: value})
+    assert [(item["code"], item["path"]) for item in error.value.issues] == [("schema.uniqueItems", "/flow/1")]
 
 
 def test_portable_json_filter():
     value = {"한글": [1.0, 0.000001, 1e-7, True, None]}
-    assert _json(value, 0) == '{"한글":[1,0.000001,1e-7,true,null]}'
-    assert _json({"a": [1, 2]}) == '{\n  "a": [\n    1,\n    2\n  ]\n}'
+    assert json_text(value) == '{"한글":[1,0.000001,1e-7,true,null]}'
+    assert json_pretty_text({"a": [1, 2]}) == '{\n  "a": [\n    1,\n    2\n  ]\n}'
+
+
+@pytest.mark.parametrize(("value", "text"), [
+    (1e16, "10000000000000000"),
+    (1.5e16, "15000000000000000"),
+    (-1.5e16, "-15000000000000000"),
+    (1e20, "100000000000000000000"),
+    (123456789012345680000.0, "123456789012345680000"),
+    (1e21, "1e+21"),
+    (1e-6, "0.000001"),
+    (1e-7, "1e-7"),
+    (1.5e-7, "1.5e-7"),
+    (5e-324, "5e-324"),
+    (-0.0, "0"),
+    (100.0, "100"),
+    (0.1, "0.1"),
+])
+def test_a_number_written_with_an_exponent_keeps_every_digit(value: float, text: str):
+    """§JSON 텍스트: trailing zeros go only from a fractional tail, so `1e16` is not `1`."""
+    assert json_text(value) == text
+    assert json_text([value]) == f"[{text}]"
+    assert json_pretty_text({"n": value}) == '{\n  "n": ' + text + "\n}"
+
+
+def test_the_package_serializes_json_text_in_one_place():
+    """The adapters must not drift from the runtime about the text a model receives."""
+    from goondan.models._values import json_text as adapter_json_text
+
+    assert adapter_json_text is json_text
+
+
+def test_output_text_writes_a_json_part_with_the_shared_serializer():
+    """§출력 텍스트: a `json` part prints as its JSON text, whatever the magnitude."""
+    message = {"content": [{"type": "text", "text": "n="}, {"type": "json", "value": {"n": 1e16}}]}
+    assert output_text(message) == 'n={"n":10000000000000000}'
+
+
+@pytest.mark.asyncio
+async def test_a_turn_input_reaches_the_model_with_every_digit():
+    """§JSON 텍스트: the user message of a whole float is the number, not a truncated one."""
+    store = InMemoryConversationStore()
+    runtime = create_runtime(
+        config={"agents": {"main": {"model": "scripted"}}},
+        models={"scripted": ScriptedModel([[{"type": "text", "text": "ok"}]])}, conversation_store=store,
+    )
+    try:
+        await runtime.run_turn({"n": 1e16, "half": 1.5e16}, conversation_id="c1")
+        first = (await store.load("c1", "main"))[0]
+        assert first["content"] == [{"type": "text", "text": '{"n":10000000000000000,"half":15000000000000000}'}]
+    finally:
+        await runtime.close()
 
 
 class ScriptedModel:
@@ -194,46 +253,23 @@ async def test_native_turn_hooks_tool_storage_and_templates(tmp_path: Path):
             "decorate": lambda value: {**value, "meta": {"decorated": True}},
             "polish": lambda value: "POLISHED=" + "".join(p.get("text", "") for p in value["content"]),
         },
-        extensions={"marks": define_extension(name="marks", hooks={"conversation": HookSpec(append_only=True, async_safe=True)}, create=create_marks)},
-        store=store,
+        extensions={"marks": define_extension(name="marks", hooks=["conversation"], create=create_marks)},
+        conversation_store=store,
     )
-    outputs = await runtime.run_turn({"text": "hello"}, conversation_id="conv")
-    assert outputs[0]["output"]["content"][0]["text"] == "POLISHED=done"
+    result = await runtime.run_turn({"text": "hello"}, conversation_id="conv")
+    assert result["output"]["content"][0]["text"] == "POLISHED=done"
     assert model.inputs[0]["system"][0]["text"] == "Agent worker / ko\n"
     assert model.inputs[0]["messages"][-1]["content"][0]["text"] == 'NOTE={"text":"hello","normalized":true}\n'
     stored = await store.load("conv", "worker")
     assert any(message["role"] == "tool" for message in stored)
     assert sum(message.get("key") == "one" for message in stored) == 1
-    assert store.finishes[-1]["status"] == "done"
     await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_maintain_and_prewarm(tmp_path: Path):
-    root = write_config(tmp_path)
-    model = ScriptedModel([[{"type": "text", "text": "warm"}]])
-    store = InMemoryConversationStore()
-    await store.append("conv", "worker", [{"id": "u", "role": "user", "source": "user", "content": [{"type": "text", "text": "saved"}]}])
-
-    def create_marks(**_):
-        return Extension(hooks={"conversation": lambda value, ctx: ctx.append(ctx.message.user("maintained", key="m"))})
-
-    runtime = create_runtime(
-        config=load_config(root, variants=["plain"]), models={"scripted": model},
-        tools={"echo": define_tool(name="echo", description="echo", input={}, execute=lambda value, ctx: value)},
-        functions={"normalize": lambda x: x, "delayed": lambda x: x, "decorate": lambda x: x, "polish": lambda x: x},
-        extensions={"marks": define_extension(name="marks", hooks={"conversation": HookSpec(append_only=True)}, create=create_marks)}, store=store,
-    )
-    maintained = await runtime.maintain("conv")
-    assert maintained[-1]["content"][0]["text"] == "maintained"
-    await runtime.prewarm("conv")
-    assert model.inputs[-1]["options"] == {"maxTokens": 1}
 
 
 @pytest.mark.asyncio
 async def test_async_approval_continues_then_delivers_completion_after_restart_once(tmp_path: Path):
     config = {
-        "version": 1, "name": "approval", "__root__": str(tmp_path),
+        "version": 1, "name": "approval",
         "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}, "lookup"]}},
         "flow": {"in": "worker"},
     }
@@ -252,27 +288,33 @@ async def test_async_approval_continues_then_delivers_completion_after_restart_o
     tool = define_tool(name="write", description="write", input={}, execute=lambda value, _: executions.append(value) or value)
     lookup = define_tool(name="lookup", description="lookup", input={}, execute=lambda value, _: lookups.append(value) or value)
 
-    first_runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": tool, "lookup": lookup}, store=conversations, operation_store=approvals)
+    first_runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": tool, "lookup": lookup}, conversation_store=conversations, operation_store=approvals)
     initial = await first_runtime.run_turn("start", conversation_id="restart")
-    assert initial[0]["status"] == "done"
-    assert initial[0]["output"]["content"][0]["text"] == "continued while pending"
+    assert initial["status"] == "done"
+    assert initial["output"]["content"][0]["text"] == "continued while pending"
     assert executions == []
     assert lookups == [{"key": "safe"}]
-    pending = await first_runtime.list_pending_operations("restart")
-    assert len(pending) == 1
+    pending = await first_runtime.list_operations("restart")
+    assert [item["status"] for item in pending] == ["pending"]
     operation_id = pending[0]["operationId"]
+    assert pending[0]["deliveryId"] == f"operation:{operation_id}:completion"
+    assert set(pending[0]) == {"operationId", "deliveryId", "agent", "conversationId", "turnId", "toolCall", "reasons", "status", "deliveryStatus", "createdAt", "updatedAt"}
     stored = await conversations.load("restart", "worker")
     write_results = [part for message in stored for part in message["content"] if part.get("type") == "tool.result" and part["callId"] == "write-1"]
     assert write_results == [{"type": "tool.result", "callId": "write-1", "content": [{"type": "json", "value": {"status": "pending", "operationId": operation_id}}]}]
     await first_runtime.close()
 
-    restarted_runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": tool, "lookup": lookup}, store=conversations, operation_store=approvals)
-    completed = await restarted_runtime.approve_operation("restart", operation_id)
-    duplicate = await restarted_runtime.approve_operation("restart", operation_id)
+    restarted_runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": tool, "lookup": lookup}, conversation_store=conversations, operation_store=approvals)
+    # §결정과 취소: the decision returns right after it is recorded, before the execution.
+    approved = await restarted_runtime.decide_operation("restart", operation_id, {"decision": "approved"})
+    assert approved["status"] == "approved"
+    await restarted_runtime.idle()
+    repeated = await restarted_runtime.decide_operation("restart", operation_id, {"decision": "approved"})
     await restarted_runtime.recover_operations("restart")
-    assert completed["status"] == duplicate["status"] == "completed"
+    await restarted_runtime.idle()
+    assert repeated["status"] == "completed"
     assert executions == [{"text": "once"}]
-    assert await restarted_runtime.list_pending_operations("restart") == []
+    assert [item["status"] for item in await restarted_runtime.list_operations("restart")] == ["completed"]
     completion = __import__("json").loads(model.inputs[-1]["messages"][-1]["content"][0]["text"])
     assert completion == {"type": "operation_completion", "deliveryId": f"operation:{operation_id}:completion", "operationId": operation_id, "conversationId": "restart", "agent": "worker", "status": "completed", "toolCall": {"id": "write-1", "name": "write", "args": {"text": "once"}}, "result": {"callId": "write-1", "name": "write", "args": {"text": "once"}, "content": [{"type": "json", "value": {"text": "once"}}]}}
     stored = await conversations.load("restart", "worker")
@@ -281,24 +323,31 @@ async def test_async_approval_continues_then_delivers_completion_after_restart_o
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("action", "expected"), [("reject_operation", "rejected"), ("cancel_operation", "cancelled")])
+@pytest.mark.parametrize(("action", "expected"), [("decide", "rejected"), ("cancel", "cancelled")])
 async def test_terminal_approval_without_execution_is_delivered(tmp_path: Path, action: str, expected: str):
-    config = {"version": 1, "name": "approval", "__root__": str(tmp_path), "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
+    config = {"version": 1, "name": "approval", "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
     model = ScriptedModel([[{"type": "tool.call", "callId": "write-1", "name": "write", "args": {"text": "blocked"}}], [{"type": "text", "text": "pending acknowledged"}], [{"type": "text", "text": "terminal acknowledged"}]])
     executions = []
     runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=lambda value, _: executions.append(value))})
     await runtime.run_turn("start", conversation_id=expected)
-    operation = (await runtime.list_pending_operations(expected))[0]
-    terminal = await getattr(runtime, action)(expected, operation["operationId"])
-    await runtime.recover_operations(expected)
+    operation = (await runtime.list_operations(expected))[0]
+    if action == "decide":
+        terminal = await runtime.decide_operation(expected, operation["operationId"], {"decision": "rejected"})
+    else:
+        terminal = await runtime.cancel_operation(expected, operation["operationId"])
+    await runtime.idle()
     assert terminal["status"] == expected
     assert executions == []
     assert f'"status":"{expected}"' in model.inputs[-1]["messages"][-1]["content"][0]["text"]
+    delivered = (await runtime.list_operations(expected))[0]
+    assert delivered["deliveryStatus"] == "delivered" and isinstance(delivered["deliveredAt"], int)
+    # §완료 전달: a rejected or cancelled completion carries no result, error or errorCode.
+    assert not {"result", "error", "errorCode"} & set(delivered)
 
 
 @pytest.mark.asyncio
 async def test_completion_waits_for_active_turn_safe_boundary(tmp_path: Path):
-    config = {"version": 1, "name": "approval", "__root__": str(tmp_path), "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
+    config = {"version": 1, "name": "approval", "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
     second_started = asyncio.Event()
     release_second = asyncio.Event()
     inputs = []
@@ -320,21 +369,24 @@ async def test_completion_waits_for_active_turn_safe_boundary(tmp_path: Path):
     runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=lambda value, _: executions.append(value) or value)})
     active = asyncio.create_task(runtime.run_turn("start", conversation_id="active"))
     await second_started.wait()
-    operation = (await runtime.list_pending_operations("active"))[0]
-    approved = await runtime.approve_operation("active", operation["operationId"])
-    assert approved["status"] == "completed"
+    operation = (await runtime.list_operations("active"))[0]
+    approved = await runtime.decide_operation("active", operation["operationId"], {"decision": "approved"})
+    assert approved["status"] == "approved"
+    # §승인된 작업의 실행: the execution is not a turn, so it does not wait for the active one.
+    while not executions:
+        await asyncio.sleep(0)
     assert executions == [{"text": "once"}]
     assert len(inputs) == 2
     release_second.set()
     await active
-    await runtime.recover_operations("active")
+    await runtime.idle()
     assert len(inputs) == 3
     assert operation["operationId"] in inputs[-1]["messages"][-1]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
 async def test_approved_operation_failure_is_delivered(tmp_path: Path):
-    config = {"version": 1, "name": "approval", "__root__": str(tmp_path), "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
+    config = {"version": 1, "name": "approval", "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
     model = ScriptedModel([[{"type": "tool.call", "callId": "write-1", "name": "write", "args": {}}], [{"type": "text", "text": "pending"}], [{"type": "text", "text": "failed received"}]])
 
     def fail(value, context):
@@ -342,16 +394,17 @@ async def test_approved_operation_failure_is_delivered(tmp_path: Path):
 
     runtime = create_runtime(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=fail)})
     await runtime.run_turn("start", conversation_id="failed")
-    operation = (await runtime.list_pending_operations("failed"))[0]
-    failed = await runtime.approve_operation("failed", operation["operationId"])
-    await runtime.recover_operations("failed")
-    assert failed["status"] == "failed"
+    operation = (await runtime.list_operations("failed"))[0]
+    await runtime.decide_operation("failed", operation["operationId"], {"decision": "approved"})
+    await runtime.idle()
+    failed = (await runtime.list_operations("failed"))[0]
+    assert failed["status"] == "failed" and failed["errorCode"] == "execution_failed"
     assert '"error":"write failed","errorCode":"execution_failed"' in model.inputs[-1]["messages"][-1]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
 async def test_recovery_reregisters_approval_and_validated_patch_preserves_original_call(tmp_path: Path):
-    config = {"version": 1, "name": "approval", "__root__": str(tmp_path), "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
+    config = {"version": 1, "name": "approval", "agents": {"worker": {"model": "scripted", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}}, "flow": {"in": "worker"}}
     model = ScriptedModel([[{"type": "tool.call", "callId": "write-1", "name": "write", "args": {"value": 1, "keep": True}}], [{"type": "text", "text": "pending"}]])
     operations = InMemoryOperationStore()
     requests = []
@@ -373,12 +426,16 @@ async def test_recovery_reregisters_approval_and_validated_patch_preserves_origi
     )
     await restarted.recover_operations("patch")
     assert [request["operationId"] for request in requests] == [pending["operationId"], pending["operationId"]]
-    with pytest.raises(Exception, match="inputPatch validation failed"):
-        await restarted.decide_operation("patch", pending["operationId"], {"decision": "approved", "inputPatch": {"value": 3}})
-    with pytest.raises(Exception, match="only valid for approval"):
-        await restarted.decide_operation("patch", pending["operationId"], {"decision": "rejected", "inputPatch": {"value": 2}})
+    for value in ({"decision": "approved", "inputPatch": {"value": 3}}, {"decision": "rejected", "inputPatch": {"value": 2}}, {"decision": "maybe"}):
+        with pytest.raises(GoondanError) as rejected:
+            await restarted.decide_operation("patch", pending["operationId"], value)
+        assert (rejected.value.where, rejected.value.codes) == ("runtime", ["operation_invalid"])
+    with pytest.raises(GoondanError) as missing:
+        await restarted.decide_operation("patch", "operation_absent", {"decision": "approved"})
+    assert missing.value.codes == ["operation_invalid"]
+    assert (await restarted.list_operations("patch"))[0]["status"] == "pending"
     approved = await restarted.decide_operation("patch", pending["operationId"], {"decision": "approved", "inputPatch": {"value": 2}})
-    await restarted.recover_operations("patch")
+    await restarted.idle()
     completed = (await restarted.list_operations("patch"))[0]
     assert approved["toolCall"] == {"id": "write-1", "name": "write", "args": {"value": 1, "keep": True}}
     assert approved["inputPatch"] == {"value": 2}
@@ -399,9 +456,10 @@ async def test_surface_start_agent_follows_multistep_routes_and_carries_conversa
         return run
 
     config = {
-        "version": 1, "name": "routes", "__root__": str(tmp_path),
+        "version": 1, "name": "routes",
         "agents": {name: {"model": name, "input": "asis"} for name in ("slack", "api", "finish")},
         "flow": {"in": "slack", "routes": [
+            {"from": "slack", "to": "api"},
             {"from": "api", "to": "finish", "when": {"fn": "has_output"}, "carry": {"message": "output", "conversation": "asis"}},
             {"from": "finish", "to": "out"},
         ]},
@@ -413,19 +471,31 @@ async def test_surface_start_agent_follows_multistep_routes_and_carries_conversa
 
     result = await runtime.run_turn("request", conversation_id="route", start_agent="api")
 
-    assert result[0]["output"]["content"][0]["text"] == "done"
+    assert result["output"]["content"][0]["text"] == "done"
     assert [message["content"][0]["text"] for message in seen["finish"]] == ["request", "handoff", "handoff"]
     assert routed[0]["output"] == "handoff"
 
 
 @pytest.mark.asyncio
-async def test_declared_routes_require_a_match(tmp_path: Path):
+async def test_declared_routes_require_a_match():
     async def model(value):
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}, "finishReason": "stop"}
-    for routes in ([], [{"from": "other", "to": "out"}]):
-        runtime = create_runtime(config={"version": 1, "agents": {"main": {"model": "m"}, "other": {"model": "m"}}, "flow": {"in": "main", "routes": routes}}, models={"m": model})
-        with pytest.raises(Exception, match="no flow route matched from main"):
-            await runtime.run_turn("request", conversation_id=f"route-{len(routes)}")
+    config = {
+        "version": 1,
+        "agents": {"main": {"model": "m"}, "other": {"model": "m"}},
+        "flow": {"in": "main", "routes": [{"from": "main", "to": "other", "when": {"fn": "never"}}, {"from": "other", "to": "out"}]},
+    }
+    runtime = create_runtime(config=config, models={"m": model}, functions={"never": lambda value: False})
+    with pytest.raises(GoondanExecutionError) as error:
+        await runtime.run_turn("request", conversation_id="route-1")
+    assert (error.value.where, error.value.codes, error.value.attempt) == ("runtime", ["flow_error"], 1)
+    await runtime.close()
+
+
+def test_empty_route_list_is_a_schema_error():
+    with pytest.raises(GoondanConfigError) as error:
+        create_runtime(config={"agents": {"main": {"model": "m"}}, "flow": {"in": "main", "routes": []}}, models={"m": lambda value: None})
+    assert [(item["code"], item["path"]) for item in error.value.issues] == [("schema.minItems", "/flow/routes")]
 
 
 def test_variant_names_and_shared_template_syntax(tmp_path: Path):
@@ -434,16 +504,23 @@ def test_variant_names_and_shared_template_syntax(tmp_path: Path):
     (tmp_path / "goondan.yaml").write_text("agents: {main: {model: m}}\n", encoding="utf-8")
     (tmp_path / "variants" / "changed.yaml").write_text("name: changed\n", encoding="utf-8")
     assert load_config(tmp_path, variants=["changed"])["name"] == "changed"
-    with pytest.raises(Exception, match="changed.yaml.yaml"):
+    with pytest.raises(GoondanConfigError) as missing:
         load_config(tmp_path, variants=["changed.yaml"])
+    assert [(item["code"], item["path"]) for item in missing.value.issues] == [("load.not_found", "")]
+    assert "changed.yaml.yaml" in str(missing.value)
+    with pytest.raises(GoondanConfigError) as separator:
+        load_config(tmp_path, variants=["../changed"])
+    assert [(item["code"], item["path"]) for item in separator.value.issues] == [("load.not_found", "")]
 
     tail = tmp_path / "templates" / "tail.md"
-    tail.write_text("{{ items | join(',') | trim }}", encoding="utf-8")
+    tail.write_text("{{ params.items | join(',') | trim }}", encoding="utf-8")
     main = tmp_path / "templates" / "main.md"
-    main.write_text(f"{{% if value is defined %}}{{{{ value | default('x') | upper }}}}{{% endif %}}{{% include '{tail}' %}}", encoding="utf-8")
-    create_runtime(config={"agents": {"main": {"model": "m", "systemMessage": {"template": str(main)}, "params": {"value": "ok", "items": ["a", "b"]}}}}, models={"m": lambda value: None})
+    main.write_text("{% if params.value is defined %}{{ params.value | default('x') | upper }}{% endif %}{% include 'tail.md' %}", encoding="utf-8")
+    runtime = create_runtime(config={"agents": {"main": {"model": "m", "systemMessage": {"template": str(main)}, "params": {"value": "ok", "items": ["a", "b"]}}}}, models={"m": lambda value: None})
+    assert runtime.render(str(main), {"params": {"value": "ok", "items": ["a", "b"]}}) == "OKa,b"
 
     unsupported = tmp_path / "templates" / "unsupported.md"
     unsupported.write_text("{% set value = 1 %}", encoding="utf-8")
-    with pytest.raises(Exception, match="unsupported Jinja syntax"):
+    with pytest.raises(GoondanConfigError) as error:
         create_runtime(config={"agents": {"main": {"model": "m", "systemMessage": {"template": str(unsupported)}}}}, models={"m": lambda value: None})
+    assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.unsupported", "/agents/main/systemMessage/template")]

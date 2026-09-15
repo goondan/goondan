@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "error": {
+        "issues": [
+          {
+            "code": "binding.tool",
+            "path": "/agents/main/tools/0"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "memo",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "path": "main",
+          "spec": {
+            "model": "m",
+            "tools": [
+              "recall"
+            ],
+            "extensions": {
+              "memo": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      }
+    ],
+    "modelInputs": {},
+    "conversations": {},
+    "events": [
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "runtime",
+          "codes": [
+            "binding.tool"
+          ]
+        }
+      }
+    ]
+  }
+}

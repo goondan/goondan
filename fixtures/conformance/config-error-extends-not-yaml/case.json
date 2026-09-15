@@ -1,0 +1,9 @@
+{
+  "description": "extends가 가리키는 파일이 YAML 파일이 아니면 /extends 위치의 load.not_yaml 구성 오류다.",
+  "spec": [
+    "합성 순서와 리소스 그래프",
+    "읽기 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

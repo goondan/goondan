@@ -1,0 +1,5 @@
+extends: ../goondan.yaml
+agents:
+  main:
+    params:
+      tone: changed

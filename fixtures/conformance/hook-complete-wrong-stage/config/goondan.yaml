@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      modelResult:
+        - name: early
+          extension: memo
+          optional: true

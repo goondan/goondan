@@ -1,10 +1,106 @@
 {
-  "system": [{"text": "군단은 Goondan 구성을 실행합니다.\n", "cache": true, "source": "system:0"}],
-  "messages": [
-    {"role": "user", "source": "main", "text": "테스트\n"},
-    {"role": "user", "source": "context", "text": "요청 ID: req-1\n"},
-    {"role": "user", "source": "call-note", "text": "이번 호출에만 보입니다.\n"}
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "완료"
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input": 4,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 4,
+              "output": 2,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
   ],
-  "output": {"role": "assistant", "source": "polish", "text": "완료!"},
-  "storedMessageSources": ["main", "context", "polish"]
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [
+            {
+              "text": "군단 안내\n",
+              "source": "system:0",
+              "cache": true
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "테스트\n"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "테스트\n"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
 }

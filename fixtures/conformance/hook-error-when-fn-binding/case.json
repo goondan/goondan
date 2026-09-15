@@ -1,0 +1,19 @@
+{
+  "description": "훅의 when.fn이 호스트에 등록된 함수 이름이 아니면 그 위치의 binding.function 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "polish": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": []
+}

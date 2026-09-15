@@ -1,0 +1,109 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "hooks": {
+            "input": [
+              {
+                "agent": [
+                  "x",
+                  "y"
+                ]
+              }
+            ]
+          }
+        },
+        "x": {
+          "model": "mx"
+        },
+        "y": {
+          "model": "my"
+        },
+        "child": {
+          "model": "m",
+          "hooks": {
+            "input": []
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    },
+    "conversations": {
+      "c1/base": [
+        {
+          "role": "user",
+          "source": "base",
+          "content": [
+            {
+              "type": "text",
+              "text": "좌\n우"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ],
+      "c1:base:input:x+y/x": [
+        {
+          "role": "user",
+          "source": "x",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "좌"
+            }
+          ]
+        }
+      ],
+      "c1:base:input:x+y/y": [
+        {
+          "role": "user",
+          "source": "y",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "우"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

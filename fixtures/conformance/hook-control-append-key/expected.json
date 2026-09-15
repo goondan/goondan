@@ -1,0 +1,53 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "ctx",
+          "key": "a",
+          "content": [
+            {
+              "type": "text",
+              "text": "메모"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "ctx",
+          "key": "b",
+          "content": [
+            {
+              "type": "text",
+              "text": "메모"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

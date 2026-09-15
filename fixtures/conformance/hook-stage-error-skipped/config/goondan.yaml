@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      output:
+        - fn: boom
+      error:
+        - fn: recordError

@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      modelInput:
+        - name: ctx
+          extension: memo

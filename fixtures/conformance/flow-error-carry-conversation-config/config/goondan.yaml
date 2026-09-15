@@ -1,0 +1,14 @@
+agents:
+  wrap:
+    config: inner/goondan.yaml
+  next:
+    model: m
+flow:
+  in: wrap
+  routes:
+    - from: wrap
+      to: next
+      carry:
+        conversation: asis
+    - from: next
+      to: out

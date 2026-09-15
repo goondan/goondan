@@ -1,0 +1,6 @@
+agents:
+  base: &b
+    model: m
+  main:
+    <<: *b
+    model: m

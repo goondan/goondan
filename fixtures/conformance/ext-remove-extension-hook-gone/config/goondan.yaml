@@ -1,0 +1,16 @@
+agents:
+  base:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      modelInput:
+        - extension: memo
+  mid:
+    inherit: base
+    remove:
+      extensions: [memo]
+  child:
+    inherit: mid
+    extensions:
+      memo: {}

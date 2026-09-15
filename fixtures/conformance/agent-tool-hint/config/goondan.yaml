@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: search
+        hint: 결과를 요약해서 전달한다.

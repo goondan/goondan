@@ -1,17 +1,19 @@
 import { type ConversationStore, type Message, type OperationStatus, type OperationStore, type OperationUpdate, type PendingOperation } from "./types.ts";
 
+/** Distinguishes every (conversationId, agent) pair; a joined string would let two pairs alias. */
+function key(conversationId: string, second: string): string { return JSON.stringify([conversationId, second]); }
+
 export class MemoryConversationStore implements ConversationStore {
   readonly #conversations = new Map<string, Message[]>();
-  #key(conversationId: string, agent: string): string { return `${conversationId}:${agent}`; }
+  #key(conversationId: string, agent: string): string { return key(conversationId, agent); }
   async load(conversationId: string, agent: string): Promise<Message[]> { return structuredClone(this.#conversations.get(this.#key(conversationId, agent)) ?? []); }
   async append(conversationId: string, agent: string, messages: Message[]): Promise<void> { const key = this.#key(conversationId, agent); this.#conversations.set(key, [...(this.#conversations.get(key) ?? []), ...structuredClone(messages)]); }
   async replace(conversationId: string, agent: string, messages: Message[]): Promise<void> { this.#conversations.set(this.#key(conversationId, agent), structuredClone(messages)); }
-  async finish(): Promise<void> {}
 }
 
 export class MemoryOperationStore implements OperationStore {
   readonly #operations = new Map<string, PendingOperation>();
-  #key(conversationId: string, operationId: string): string { return `${conversationId}:${operationId}`; }
+  #key(conversationId: string, operationId: string): string { return key(conversationId, operationId); }
   async list(conversationId?: string): Promise<PendingOperation[]> { return structuredClone([...this.#operations.values()].filter((item) => conversationId === undefined || item.conversationId === conversationId)); }
   async get(conversationId: string, operationId: string): Promise<PendingOperation | undefined> { const value = this.#operations.get(this.#key(conversationId, operationId)); return value ? structuredClone(value) : undefined; }
   async save(operation: PendingOperation): Promise<void> { this.#operations.set(this.#key(operation.conversationId, operation.operationId), structuredClone(operation)); }

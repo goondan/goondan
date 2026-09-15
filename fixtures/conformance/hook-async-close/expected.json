@@ -1,0 +1,41 @@
+{
+  "steps": [
+    {},
+    {},
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "runtime_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "답1"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

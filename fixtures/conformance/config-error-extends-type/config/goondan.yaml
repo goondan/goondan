@@ -1,0 +1,4 @@
+extends: 3
+agents:
+  main:
+    model: m

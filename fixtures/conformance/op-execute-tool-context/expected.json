@@ -1,0 +1,149 @@
+{
+  "steps": [
+    {},
+    {
+      "result": {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {
+            "value": 1
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "approved",
+        "deliveryStatus": "pending",
+        "execution": {
+          "ticket": "T-1"
+        }
+      }
+    }
+  ],
+  "observations": {
+    "toolContexts": [
+      {
+        "tool": "danger",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {
+            "value": 1
+          }
+        },
+        "input": {
+          "type": "operation_execution",
+          "operationId": "<op:d-1>"
+        },
+        "conversation": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "실행해 줘"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "tool.call",
+                "callId": "d-1",
+                "name": "danger",
+                "args": {
+                  "value": 0
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "source": "tool",
+            "content": [
+              {
+                "type": "tool.result",
+                "callId": "d-1",
+                "content": [
+                  {
+                    "type": "json",
+                    "value": {
+                      "status": "pending",
+                      "operationId": "<op:d-1>"
+                    }
+                  }
+                ]
+              }
+            ],
+            "meta": {
+              "status": "pending",
+              "operationId": "<op:d-1>"
+            }
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "대기합니다"
+              }
+            ]
+          }
+        ],
+        "execution": {
+          "ticket": "T-1"
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:d-1>",
+        "deliveryId": "operation:<op:d-1>:completion",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "toolCall": {
+          "id": "d-1",
+          "name": "danger",
+          "args": {
+            "value": 1
+          }
+        },
+        "reasons": [
+          "Tool danger requires approval"
+        ],
+        "status": "completed",
+        "deliveryStatus": "delivered",
+        "execution": {
+          "ticket": "T-1"
+        },
+        "result": {
+          "callId": "d-1",
+          "name": "danger",
+          "args": {
+            "value": 1
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "실행 완료"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

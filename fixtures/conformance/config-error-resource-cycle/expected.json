@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "load.resource_cycle",
+        "path": "/resources/1"
+      }
+    ]
+  }
+}

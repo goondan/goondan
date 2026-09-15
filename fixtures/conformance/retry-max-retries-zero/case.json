@@ -1,0 +1,41 @@
+{
+  "description": "재시도 한도가 0이면 재시도 요청을 따르지 않고 원래 실행 오류로 실패한다.",
+  "spec": [
+    "재시도"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "모델 실패"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "constant",
+              "value": {
+                "retry": true,
+                "target": "model"
+              }
+            }
+          }
+        }
+      }
+    },
+    "maxRetries": 0
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

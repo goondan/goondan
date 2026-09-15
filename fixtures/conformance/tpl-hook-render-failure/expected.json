@@ -1,0 +1,63 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "conversation",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "요청"
+        }
+      },
+      {
+        "name": "hook.failed",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "value": "conversation",
+          "hook": "note"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "conversation",
+          "codes": [
+            "hook_error"
+          ]
+        }
+      }
+    ],
+    "modelInputs": {},
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

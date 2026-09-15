@@ -1,0 +1,1 @@
+{{ 'y' if params.flag else params.missing }}|{{ params.missing if params.negative else 'n' }}|{{ params.zero and params.missing }}|{{ not params.zero }}|{{ (params.zero or 'z') and 'w' }}|{{ params.flag or params.missing }}

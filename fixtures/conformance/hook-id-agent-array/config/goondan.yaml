@@ -1,0 +1,15 @@
+agents:
+  base:
+    model: m
+    hooks:
+      input:
+        - agent: [x, y]
+  x:
+    model: mx
+  y:
+    model: my
+  child:
+    inherit: base
+    remove:
+      hooks:
+        input: ["x+y"]

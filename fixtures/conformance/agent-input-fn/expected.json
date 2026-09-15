@@ -1,0 +1,93 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "makeText",
+        "value": {
+          "q": "첫"
+        }
+      },
+      {
+        "fn": "makeText",
+        "value": "둘째"
+      },
+      {
+        "fn": "makeText",
+        "value": 3
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"a\":1,\"b\":[1,2]}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "하나"
+            }
+          ]
+        }
+      ],
+      "c2/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "직접 문자열"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘"
+            }
+          ]
+        }
+      ],
+      "c3/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "null"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "셋"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

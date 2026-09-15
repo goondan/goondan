@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools:
+      - agent: worker
+  worker:
+    description: 정리를 담당한다.
+    model: w
+flow:
+  in: main

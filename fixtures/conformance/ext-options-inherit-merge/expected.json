@@ -1,0 +1,65 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "extensions": {
+            "memo": {
+              "options": {
+                "namespace": "support",
+                "depth": 2
+              }
+            }
+          }
+        },
+        "child": {
+          "model": "m",
+          "extensions": {
+            "memo": {
+              "options": {
+                "namespace": "support",
+                "depth": 5
+              }
+            }
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    },
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "memo",
+        "options": {
+          "namespace": "support",
+          "depth": 5
+        },
+        "ports": {},
+        "agent": {
+          "name": "child",
+          "path": "child",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "memo": {
+                "options": {
+                  "namespace": "support",
+                  "depth": 5
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

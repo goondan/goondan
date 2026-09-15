@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    tools: [search, write]
+    remove:
+      tools: [write]

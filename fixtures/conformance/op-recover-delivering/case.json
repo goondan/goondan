@@ -1,0 +1,74 @@
+{
+  "description": "종료 상태이면서 deliveryStatus가 delivering으로 남은 작업은 복구가 pending으로 되돌린 뒤 완료 전달을 다시 시작한다.",
+  "spec": [
+    "복구",
+    "완료 전달",
+    "작업 저장소 프로토콜"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "host": {
+      "deliverOperationCompletion": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "await",
+            "gate": "never"
+          },
+          {
+            "op": "identity"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "rejected"
+        }
+      },
+      "settle": false
+    },
+    {
+      "reach": "never"
+    },
+    {
+      "restart": {}
+    },
+    {
+      "recover": {}
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "description": "name의 기본값은 필드가 없을 때만 적용하므로 name: null은 /name 위치의 schema.type 구성 오류다.",
+  "spec": [
+    "값 병합",
+    "구성 오류",
+    "오류 코드"
+  ],
+  "steps": []
+}

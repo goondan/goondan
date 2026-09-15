@@ -1,0 +1,66 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "lookup",
+              "args": {
+                "q": "군단"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "keep": true,
+          "meta": {
+            "fixture": true
+          },
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "결과"
+                }
+              ],
+              "isError": true
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

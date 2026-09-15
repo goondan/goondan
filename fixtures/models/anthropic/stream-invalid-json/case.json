@@ -1,0 +1,7 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "stream": "event: message_start\ndata: {\"type\":\"message_start\"\n\n"
+}

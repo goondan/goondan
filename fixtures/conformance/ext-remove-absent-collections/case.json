@@ -1,0 +1,14 @@
+{
+  "description": "remove는 병합한 결과에 없던 tools, extensions, hooks 키나 단계 배열을 만들지 않는다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

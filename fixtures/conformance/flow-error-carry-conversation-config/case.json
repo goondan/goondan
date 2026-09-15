@@ -1,0 +1,7 @@
+{
+  "description": "to가 out이 아닌 route의 from이 config 에이전트이면 carry.conversation은 생략하거나 none이어야 하므로 asis는 flow.carry_conversation이다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

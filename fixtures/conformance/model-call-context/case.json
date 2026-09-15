@@ -1,0 +1,68 @@
+{
+  "description": "모델 구현은 에이전트 경로, 대화 식별자, 턴 식별자와 모델 호출 번호를 가진 모델 컨텍스트를 받으며, 호출 번호는 에이전트 실행마다 1부터 시작해 모델을 호출할 때마다 1씩 증가한다.",
+  "spec": [
+    "모델 입력과 결과",
+    "모델 호출"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "e-1",
+                "name": "echo",
+                "args": {
+                  "q": "하나"
+                }
+              }
+            ],
+            "usage": {
+              "input": 4,
+              "output": 1
+            }
+          },
+          {
+            "text": "첫 턴 완료",
+            "usage": {
+              "input": 6,
+              "output": 2
+            }
+          },
+          {
+            "text": "둘째 턴 완료",
+            "usage": {
+              "input": 3,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "echo": {
+        "description": "되돌려 준다",
+        "results": [
+          {
+            "text": "메아리"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫 질문"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘째 질문"
+      }
+    }
+  ]
+}

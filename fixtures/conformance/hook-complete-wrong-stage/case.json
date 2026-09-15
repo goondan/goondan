@@ -1,0 +1,52 @@
+{
+  "description": "다른 단계의 훅 컨텍스트로는 메시지를 예약할 수 없으므로 호출이 오류를 던지고, 선택 훅이면 hook.failed를 알린 뒤 다음 훅을 계속한다.",
+  "spec": [
+    "`execution.complete`",
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "modelResult": {
+              "op": "complete",
+              "message": {
+                "id": "done-1",
+                "role": "assistant",
+                "source": "memo",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "마무리"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

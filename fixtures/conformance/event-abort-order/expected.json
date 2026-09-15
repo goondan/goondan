@@ -1,0 +1,85 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": true
+          }
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "시작"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "codes": [
+            "aborted"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "runtime",
+          "codes": [
+            "aborted"
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

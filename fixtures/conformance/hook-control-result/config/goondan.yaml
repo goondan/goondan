@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    tools: [lookup]
+    hooks:
+      toolCall:
+        - name: shortcut
+          fn: giveResult
+        - name: never
+          fn: mark

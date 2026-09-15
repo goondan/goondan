@@ -1,0 +1,14 @@
+agents:
+  base:
+    model: m
+    extensions:
+      memo:
+        enabled: false
+    hooks:
+      modelInput:
+        - extension: memo
+  child:
+    inherit: base
+    extensions:
+      memo:
+        enabled: true

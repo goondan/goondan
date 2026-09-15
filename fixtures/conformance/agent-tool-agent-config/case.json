@@ -1,0 +1,57 @@
+{
+  "description": "에이전트 도구의 대상은 config 에이전트도 될 수 있으며, 중첩 턴의 출력이 도구 결과가 되고 중첩 구성의 에이전트는 그 하위 대화 식별자와 자신의 경로로 실행된다.",
+  "spec": [
+    "에이전트 도구",
+    "중첩 구성",
+    "하위 대화"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "g-1",
+                "name": "wrap",
+                "args": {
+                  "q": "질문"
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "끝",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "n": {
+        "responses": [
+          {
+            "text": "안쪽 응답",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "시작"
+      }
+    }
+  ]
+}

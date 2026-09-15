@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "toolCall",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "operations": [],
+    "toolCalls": []
+  }
+}

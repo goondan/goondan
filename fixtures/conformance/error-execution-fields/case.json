@@ -1,0 +1,44 @@
+{
+  "description": "도구 구현이 오류를 던지면 where가 tool이고 codes가 tool_error이며 toolCall 단계를 마친 호출을 담은 실행 오류가 되고, tool.error와 turn.error가 같은 codes를 알린다.",
+  "spec": [
+    "실행 오류",
+    "오류 코드"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "danger",
+                "args": {
+                  "q": "x"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": [
+          {
+            "error": "도구 실패"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

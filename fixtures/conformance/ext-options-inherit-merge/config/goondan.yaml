@@ -1,0 +1,14 @@
+agents:
+  base:
+    model: m
+    extensions:
+      memo:
+        options:
+          namespace: support
+          depth: 2
+  child:
+    inherit: base
+    extensions:
+      memo:
+        options:
+          depth: 5

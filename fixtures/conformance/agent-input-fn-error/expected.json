@@ -1,0 +1,39 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "input",
+        "codes": [
+          "runtime_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "요청"
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "input",
+          "codes": [
+            "runtime_error"
+          ]
+        }
+      }
+    ],
+    "conversations": {}
+  }
+}

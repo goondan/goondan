@@ -1,0 +1,41 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "toolResult",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "lookup",
+              "args": {}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

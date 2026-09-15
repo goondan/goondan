@@ -1,0 +1,26 @@
+{
+  "description": "fn과 agent 없이 template만 선언한 output 단계 훅에서 text는 assistant 메시지 객체이며, 부분의 키를 읽어 텍스트만 출력한다.",
+  "spec": [
+    "템플릿 위치와 변수",
+    "값 출력"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

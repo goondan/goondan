@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_error"
+        ],
+        "attempt": 1,
+        "toolCall": {
+          "id": "c-1",
+          "name": "danger",
+          "args": {}
+        }
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "danger",
+        "args": {}
+      }
+    ]
+  }
+}

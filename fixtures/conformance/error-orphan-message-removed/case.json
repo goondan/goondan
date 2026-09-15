@@ -1,0 +1,56 @@
+{
+  "description": "짝이 없는 부분을 제거해 content가 빈 배열이 된 메시지는 대화에서 제거한다.",
+  "spec": [
+    "실패한 실행과 대화"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "f-1",
+                "name": "fail",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "fail": {
+        "description": "실패",
+        "results": [
+          {
+            "error": "도구 실패"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "tap": {
+        "op": "constant",
+        "value": null
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "다시"
+      }
+    }
+  ]
+}

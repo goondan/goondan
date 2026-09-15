@@ -1,0 +1,14 @@
+agents:
+  strict:
+    model: m
+    hooks:
+      modelResult:
+        - name: again
+          fn: askRetry
+  lenient:
+    model: m
+    hooks:
+      modelResult:
+        - name: again
+          fn: askRetry
+          optional: true

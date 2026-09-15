@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      policy: {}
+    hooks:
+      modelResult:
+        - extension: policy
+          optional: true

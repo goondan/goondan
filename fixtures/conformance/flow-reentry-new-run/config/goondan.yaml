@@ -1,0 +1,16 @@
+agents:
+  writer:
+    model: mw
+  reviewer:
+    model: mr
+flow:
+  in: writer
+  routes:
+    - from: writer
+      to: reviewer
+    - from: reviewer
+      to: writer
+      when: {fn: needsRevision}
+    - from: reviewer
+      to: out
+      when: {fn: approved}

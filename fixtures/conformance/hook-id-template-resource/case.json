@@ -1,0 +1,32 @@
+{
+  "description": "template 훅의 식별자는 확정한 템플릿 위치를 구성 디렉터리 기준 상대 경로로 나타낸 값이므로 resources로 합성한 조각의 템플릿은 그 조각의 위치를 포함하며, 그 값으로 훅을 제거할 수 있다.",
+  "spec": [
+    "훅 식별자",
+    "인라인 훅",
+    "단계 값과 대화 저장"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕",
+        "agent": "base"
+      }
+    }
+  ]
+}

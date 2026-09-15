@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    systemMessage:
+      - text: 지침
+    tools: [lookup]
+    extensions:
+      memo: {}
+    hooks:
+      modelInput:
+        - name: probe
+          extension: memo

@@ -1,0 +1,70 @@
+{
+  "steps": [
+    {
+      "result": {
+        "finishReason": "tool",
+        "status": "done"
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "echo",
+        "args": {}
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "e-1",
+              "name": "echo",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "e-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "메아리"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

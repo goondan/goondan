@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    params:
+      list: [x, y]
+    systemMessage:
+      - template: templates/bad.md

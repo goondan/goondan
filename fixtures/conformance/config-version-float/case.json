@@ -1,0 +1,14 @@
+{
+  "description": "version은 JSON 값 비교로 판단하므로 1.0은 1과 같고 구성이 유효하다.",
+  "spec": [
+    "최상위 구성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

@@ -1,0 +1,94 @@
+{
+  "description": "toolCall 단계의 {call, execution} 제어 결과는 현재 값을 call로 바꾸고 다음 훅을 계속 실행하며, 뒤의 훅이 반환한 execution이 앞의 값을 대신해 도구 컨텍스트의 execution이 된다.",
+  "spec": [
+    "제어 결과",
+    "도구 컨텍스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "c-1",
+                "name": "lookup",
+                "args": {
+                  "q": "원본"
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "lookup": {
+        "results": [
+          {
+            "text": "결과"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "secondCall": {
+        "op": "constant",
+        "value": {
+          "call": {
+            "id": "c-1",
+            "name": "lookup",
+            "args": {
+              "q": "고침2"
+            }
+          },
+          "execution": {
+            "x": 2
+          }
+        }
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "toolCall": {
+              "op": "constant",
+              "value": {
+                "call": {
+                  "id": "c-1",
+                  "name": "lookup",
+                  "args": {
+                    "q": "고침"
+                  }
+                },
+                "execution": {
+                  "x": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

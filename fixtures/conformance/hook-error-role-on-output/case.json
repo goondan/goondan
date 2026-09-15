@@ -1,0 +1,7 @@
+{
+  "description": "conversation과 modelInput 외의 단계에 있는 훅은 role을 선언할 수 없으므로 그 필드 위치의 스키마 단계 구성 오류다.",
+  "spec": [
+    "훅 선언"
+  ],
+  "steps": []
+}

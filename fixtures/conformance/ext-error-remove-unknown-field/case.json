@@ -1,0 +1,7 @@
+{
+  "description": "remove에는 tools, extensions, hooks 세 필드만 선언할 수 있으므로 다른 필드는 스키마 단계의 구성 오류다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "steps": []
+}

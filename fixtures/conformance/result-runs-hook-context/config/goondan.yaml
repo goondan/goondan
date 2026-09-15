@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    extensions:
+      probe: {}
+    hooks:
+      modelInput:
+        - name: probe
+          extension: probe
+  helper:
+    model: hm
+flow:
+  in: main

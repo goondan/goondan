@@ -1,0 +1,25 @@
+{
+  "description": "정적 include는 include를 적은 템플릿 파일의 디렉터리를 기준으로 해석하며 경로의 . 요소와 빈 요소는 무시한다.",
+  "spec": [
+    "템플릿 파일과 `include`"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

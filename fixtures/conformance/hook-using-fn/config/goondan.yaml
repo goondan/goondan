@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - name: pickId
+          fn: shout
+          using:
+            fn: pick

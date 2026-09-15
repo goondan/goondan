@@ -1,0 +1,57 @@
+{
+  "description": "1e16 이상의 수도 JSON 텍스트 규칙대로 지수 없는 10진 표기가 되며, 에이전트 입력, 출력 텍스트와 json 필터에서 모두 같은 문자열이 된다.",
+  "spec": [
+    "JSON 텍스트",
+    "입력",
+    "출력 텍스트",
+    "값 출력",
+    "필터와 테스트"
+  ],
+  "bindings": {
+    "models": {
+      "mf": {
+        "responses": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "합계 "
+              },
+              {
+                "type": "json",
+                "value": {
+                  "total": 1.5e16
+                }
+              }
+            ],
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ms": {
+        "responses": [
+          {
+            "text": "끝",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": {
+          "n": 1e16
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "description": "한 에이전트의 tools에서 노출 이름이 중복되면 두 번째 항목의 위치에서 reference.duplicate_tool 구성 오류가 된다.",
+  "spec": [
+    "도구"
+  ],
+  "steps": []
+}

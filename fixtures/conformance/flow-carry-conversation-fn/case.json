@@ -1,0 +1,58 @@
+{
+  "description": "carry.conversation의 함수는 직전 에이전트의 대화 배열을 받고, 반환한 메시지 배열이 다음 에이전트의 대화가 된다.",
+  "spec": [
+    "route 함수와 `carry`"
+  ],
+  "bindings": {
+    "models": {
+      "mf": {
+        "responses": [
+          {
+            "text": "정리본",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ms": {
+        "responses": [
+          {
+            "text": "요약",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "seed": {
+        "op": "constant",
+        "value": [
+          {
+            "id": "seed-1",
+            "role": "user",
+            "source": "seed",
+            "content": [
+              {
+                "type": "text",
+                "text": "이전 요약"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "원문"
+      }
+    }
+  ]
+}

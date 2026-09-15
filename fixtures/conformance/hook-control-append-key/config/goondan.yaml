@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      conversation:
+        - name: ctx
+          extension: memo

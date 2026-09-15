@@ -1,0 +1,16 @@
+agents:
+  first:
+    model: mf
+    params:
+      v: 1e16
+    systemMessage:
+      - template: templates/system.md
+  second:
+    model: ms
+flow:
+  in: first
+  routes:
+    - from: first
+      to: second
+    - from: second
+      to: out

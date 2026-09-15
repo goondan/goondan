@@ -1,0 +1,57 @@
+{
+  "description": "같은 실행 범위에서 식별자가 같은 비동기 작업이 실행 중이거나 결과 반영을 기다리고 있으면 작업을 예약하지 않는다.",
+  "spec": [
+    "비동기 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "답1",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          },
+          {
+            "text": "답2",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "asyncNote": {
+        "op": "await",
+        "gate": "g",
+        "then": {
+          "op": "constant",
+          "value": "비동기"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "첫"
+      },
+      "settle": false
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "둘"
+      },
+      "settle": false
+    },
+    {
+      "release": "g"
+    }
+  ]
+}

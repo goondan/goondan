@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      slow: {}
+    hooks:
+      conversation:
+        - name: hold
+          extension: slow
+          optional: true

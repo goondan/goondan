@@ -1,0 +1,15 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.uniqueItems",
+        "path": "/flow/2"
+      },
+      {
+        "code": "schema.uniqueItems",
+        "path": "/flow/10"
+      }
+    ]
+  }
+}

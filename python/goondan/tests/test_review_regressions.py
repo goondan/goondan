@@ -65,8 +65,10 @@ async def test_approval_saves_and_executes_the_hook_transformed_call():
         assert operation["toolCall"]["args"] == {"target": "normalized"}
         assert requests[0]["toolCall"] == operation["toolCall"]
         assert calls == []
-        await runtime.approve_operation("approval", operation["operationId"])
+        await runtime.decide_operation("approval", operation["operationId"], {"decision": "approved"})
+        await runtime.idle()
         assert calls == [{"target": "normalized"}]
+        assert completions[0]["toolCall"] == operation["toolCall"]
     finally: await runtime.close()
 
 
@@ -105,7 +107,7 @@ async def test_async_context_survives_until_next_turn():
     store = InMemoryConversationStore()
     runtime = create_runtime(
         config={"agents": {"main": {"model": "m", "extensions": {"memory": {}}, "hooks": {"conversation": [{"extension": "memory", "mode": "async"}]}}}},
-        models={"m": model}, store=store,
+        models={"m": model}, conversation_store=store,
         extensions={"memory": define_extension(name="memory", create=lambda **kwargs: Extension(hooks={"conversation": hook}))},
     )
     try:
@@ -162,7 +164,7 @@ async def test_routed_flow_aggregates_usage_and_preserves_terminal_finish_reason
         models={"first": first, "final": final},
     )
     try:
-        result = (await runtime.run_turn("input", conversation_id="flow-metadata"))[0]
+        result = await runtime.run_turn("input", conversation_id="flow-metadata")
         assert result["finishReason"] == "length"
         assert result["usage"] == {"input": 6, "output": 8, "cacheRead": 10, "cacheWrite": 12}
     finally: await runtime.close()
@@ -180,7 +182,7 @@ async def test_model_result_retry_counts_raw_model_usage():
         models={"m": model}, functions={"retry_first": lambda value: {"retry": True, "target": "model"} if generations == 1 else value},
     )
     try:
-        result = (await runtime.run_turn("input", conversation_id="retry-usage"))[0]
+        result = await runtime.run_turn("input", conversation_id="retry-usage")
         assert result["usage"]["input"] == 3
     finally: await runtime.close()
 
@@ -197,13 +199,18 @@ async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
         worker_user_counts.append(sum(message["role"] == "user" for message in value["messages"]))
         return answer("worker done")
     tool_use = {"agent": "worker", **({"approval": "required"} if approval else {})}
-    runtime = create_runtime(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker})
+
+    class Host:
+        def deliver_operation_completion(self, value): return None
+
+    runtime = create_runtime(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker}, host=Host())
     try:
         for index in range(2):
             await runtime.run_turn(f"turn {index}", conversation_id="parent")
             if approval:
                 operation = (await runtime.list_operations("parent"))[-1]
-                await runtime.approve_operation("parent", operation["operationId"])
+                await runtime.decide_operation("parent", operation["operationId"], {"decision": "approved"})
+                await runtime.idle()
         assert worker_user_counts == [1, 1]
     finally: await runtime.close()
 
@@ -228,11 +235,12 @@ flow:
         async def run(value): return {**answer(text), "usage": {"input": amount, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": reason}
         return run
     runtime = create_runtime(
-        config={"__root__": str(tmp_path), "agents": {"nested": {"config": str(child)}}},
+        config={"agents": {"nested": {"config": "child.yaml"}}},
+        directory=str(tmp_path),
         models={"split": model("split", 1), "left": model("left", 2), "right": model("right", 3, "length")},
     )
     try:
-        result = (await runtime.run_turn("input", conversation_id="nested-branch"))[0]
+        result = await runtime.run_turn("input", conversation_id="nested-branch")
         assert result["usage"]["input"] == 6
         assert result["finishReason"] == "other"
     finally: await runtime.close()

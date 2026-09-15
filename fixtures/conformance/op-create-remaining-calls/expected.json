@@ -1,0 +1,219 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "실행해 줘"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "danger",
+              "description": "위험 작업",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "safe",
+              "description": "안전 작업",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "실행해 줘"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "source": "model",
+              "content": [
+                {
+                  "type": "tool.call",
+                  "callId": "a-1",
+                  "name": "danger",
+                  "args": {}
+                },
+                {
+                  "type": "tool.call",
+                  "callId": "b-1",
+                  "name": "safe",
+                  "args": {}
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "source": "tool",
+              "content": [
+                {
+                  "type": "tool.result",
+                  "callId": "a-1",
+                  "content": [
+                    {
+                      "type": "json",
+                      "value": {
+                        "status": "pending",
+                        "operationId": "<op:a-1>"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "meta": {
+                "status": "pending",
+                "operationId": "<op:a-1>"
+              }
+            },
+            {
+              "role": "tool",
+              "source": "tool",
+              "content": [
+                {
+                  "type": "tool.result",
+                  "callId": "b-1",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "안전 결과"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "danger",
+              "description": "위험 작업",
+              "input": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "safe",
+              "description": "안전 작업",
+              "input": {
+                "type": "object"
+              }
+            }
+          ],
+          "options": {}
+        }
+      ]
+    },
+    "toolCalls": [
+      {
+        "tool": "safe",
+        "args": {}
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "실행해 줘"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "a-1",
+              "name": "danger",
+              "args": {}
+            },
+            {
+              "type": "tool.call",
+              "callId": "b-1",
+              "name": "safe",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "a-1",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "status": "pending",
+                    "operationId": "<op:a-1>"
+                  }
+                }
+              ]
+            }
+          ],
+          "meta": {
+            "status": "pending",
+            "operationId": "<op:a-1>"
+          }
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "b-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안전 결과"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

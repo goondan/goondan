@@ -1,0 +1,7 @@
+{
+  "description": "에이전트가 model, config, inherit을 하나도 선언하지 않으면 에이전트 위치에서 schema.anyOf 구성 오류가 된다.",
+  "spec": [
+    "에이전트"
+  ],
+  "steps": []
+}

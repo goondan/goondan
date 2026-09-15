@@ -1,0 +1,38 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "parent": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/frag/shared.md"
+          }
+        },
+        "over": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/sys.md"
+          }
+        },
+        "child": {
+          "model": "m",
+          "systemMessage": {
+            "template": "<case>/config/frag/shared.md"
+          }
+        },
+        "local": {
+          "model": "m",
+          "input": {
+            "template": "<case>/config/in.md"
+          }
+        }
+      },
+      "flow": {
+        "in": "parent"
+      }
+    }
+  }
+}

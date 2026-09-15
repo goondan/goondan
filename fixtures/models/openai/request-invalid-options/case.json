@@ -1,0 +1,26 @@
+{
+  "config": {
+    "model": "gpt-test",
+    "apiKey": "test-key"
+  },
+  "input": {
+    "system": [],
+    "messages": [
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "options": {
+      "maxTokens": "100"
+    }
+  }
+}

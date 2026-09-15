@@ -1,0 +1,13 @@
+agents:
+  main:
+    model: m
+    tools:
+      - flaky
+    extensions:
+      policy: {}
+    hooks:
+      toolCall:
+        - name: tap
+          fn: tap
+      error:
+        - extension: policy

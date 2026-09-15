@@ -1,0 +1,8 @@
+resources:
+  - shared/base.yaml
+agents:
+  child:
+    inherit: base
+    remove:
+      hooks:
+        output: [shared/templates/note.md]

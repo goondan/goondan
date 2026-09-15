@@ -1,0 +1,102 @@
+{
+  "steps": [
+    {
+      "result": {
+        "usage": {
+          "input": 3,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "main",
+            "turnId": "<turn:1>",
+            "kind": "flow",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          },
+          {
+            "agent": "helper",
+            "turnId": "<turn:2>",
+            "kind": "hook",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "pipe",
+          "content": [
+            {
+              "type": "text",
+              "text": "[정리됨|안녕|ko]"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ],
+      "c1:main:conversation:pipe/helper": [
+        {
+          "role": "user",
+          "source": "helper",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"task\":\"안녕\"}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "정리됨"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

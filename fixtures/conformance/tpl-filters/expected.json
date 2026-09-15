@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"a\":[1,2],\"b\":\"한\"}\n2|2|1\na b|SS|äb|bbaa|bbbb\nxy|x-y|z|2\n{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": \"한\"\n}\n"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "합성 순서는 extends 결과, resources 항목의 배열 순서, 현재 파일이며 뒤의 값이 앞의 값을 덮어쓴다. resources: []는 합성할 파일이 없다는 뜻이고 extends와 resources는 결과에 남지 않는다.",
+  "spec": [
+    "합성 순서와 리소스 그래프",
+    "값 병합"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

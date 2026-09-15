@@ -1,0 +1,9 @@
+agents:
+  base:
+    model: m
+    tools: [search, write]
+    remove:
+      tools: [write]
+  child:
+    inherit: base
+    tools: [search, write]

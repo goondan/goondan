@@ -1,0 +1,77 @@
+{
+  "description": "훅 컨텍스트의 model.run은 모델 호출 번호를 증가시키지 않고 요청한 실행의 식별자와 마지막으로 시작한 호출 번호를 전달하며, 아직 모델을 호출하지 않은 실행에서는 번호가 0이다.",
+  "spec": [
+    "모델 호출"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "사전 응답"
+          },
+          {
+            "text": "본문 응답"
+          },
+          {
+            "text": "사후 응답"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "probe": {
+        "definition": {
+          "hooks": [
+            "conversation",
+            "output"
+          ]
+        },
+        "instance": {
+          "hooks": {
+            "conversation": {
+              "op": "runModel",
+              "messages": [
+                {
+                  "id": "h-1",
+                  "role": "user",
+                  "source": "probe",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "사전 확인"
+                    }
+                  ]
+                }
+              ]
+            },
+            "output": {
+              "op": "runModel",
+              "messages": [
+                {
+                  "id": "h-2",
+                  "role": "user",
+                  "source": "probe",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "사후 확인"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [
+            {
+              "text": "기본 지시",
+              "source": "system:0"
+            }
+          ],
+          "messages": [
+            {
+              "role": "system",
+              "source": "ops",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "선두 지시"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            },
+            {
+              "role": "system",
+              "source": "note",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "운영 지시"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    },
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "system",
+          "source": "ops",
+          "content": [
+            {
+              "type": "text",
+              "text": "선두 지시"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "끝"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+agents:
+  base:
+    model: m
+    hooks:
+      output:
+        - fn: f
+        - fn: f
+  child:
+    inherit: base
+    remove:
+      hooks:
+        output: [f]

@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelResult:
+        - name: retryOnce
+          fn: retryOnce

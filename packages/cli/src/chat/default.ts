@@ -1,13 +1,13 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import type { LoadedConfig } from '@goondan/core';
-import { DEFAULT_CHAT_MODEL } from './provider.js';
+import { DEFAULT_ANTHROPIC_CHAT_MODEL } from './model.js';
 
 export function defaultChatStateDirectory(): string {
   return resolve(homedir(), '.goondan', 'chat');
 }
 
-export function createDefaultChatConfig(directory: string, model = DEFAULT_CHAT_MODEL): LoadedConfig {
+export function createDefaultChatConfig(directory: string, model = DEFAULT_ANTHROPIC_CHAT_MODEL): LoadedConfig {
   return {
     directory,
     templates: new Map(),

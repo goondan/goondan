@@ -1,0 +1,7 @@
+agents:
+  a:
+    inherit: missing
+  b:
+    inherit: a
+    tools:
+      - agent: nope

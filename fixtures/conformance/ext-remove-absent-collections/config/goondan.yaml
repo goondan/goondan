@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    remove:
+      tools: []
+      extensions: []
+      hooks:
+        output: [x]

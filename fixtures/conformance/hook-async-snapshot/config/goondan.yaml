@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    hooks:
+      conversation:
+        - name: snap
+          fn: snapFn
+          mode: async
+          using: conversation

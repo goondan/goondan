@@ -1,0 +1,5 @@
+agents:
+  a:
+    model: m
+  b:
+    inherit: hasOwnProperty

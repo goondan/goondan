@@ -1,0 +1,14 @@
+{
+  "description": "유효 구성의 에이전트에는 inherit가 남지 않고 상속을 적용한 값만 남는다.",
+  "spec": [
+    "합성 결과와 유효 구성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

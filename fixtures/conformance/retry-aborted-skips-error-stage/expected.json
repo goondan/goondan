@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "result": true
+          }
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "hookCalls": []
+  }
+}

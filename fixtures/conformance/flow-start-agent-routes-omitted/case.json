@@ -1,0 +1,33 @@
+{
+  "description": "routes를 생략한 흐름에서 startAgent를 지정하면 그 에이전트만 실행한다.",
+  "spec": [
+    "시작 에이전트와 단일 에이전트 실행"
+  ],
+  "bindings": {
+    "models": {
+      "ma": {
+        "responses": []
+      },
+      "mb": {
+        "responses": [
+          {
+            "text": "B",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "질문",
+        "startAgent": "b"
+      }
+    }
+  ]
+}

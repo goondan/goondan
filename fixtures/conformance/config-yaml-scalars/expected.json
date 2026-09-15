@@ -1,0 +1,46 @@
+{
+  "steps": [],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "main": {
+          "model": "m",
+          "params": {
+            "t1": true,
+            "t2": true,
+            "t3": true,
+            "f1": false,
+            "f2": false,
+            "f3": false,
+            "n1": null,
+            "n2": null,
+            "n3": null,
+            "n4": null,
+            "n5": null,
+            "i1": 12,
+            "i2": 12,
+            "i3": 10,
+            "i4": 26,
+            "r1": 1.5,
+            "r2": 1000,
+            "s1": "yes",
+            "s2": "no",
+            "s3": "on",
+            "s4": "off",
+            "s5": "1_000",
+            "s6": "1:30",
+            "s7": "2024-01-02",
+            "q1": "12",
+            "q2": "true",
+            "q3": "12\n"
+          }
+        }
+      },
+      "flow": {
+        "in": "main"
+      }
+    }
+  }
+}

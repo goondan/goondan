@@ -1,0 +1,16 @@
+%YAML 1.2
+---
+agents:
+  main:
+    model: m
+    params:
+      a: !!str 12
+      b: !!int "12"
+      c: !!float 1
+      d: !!bool "true"
+      e: !!null ""
+      f: !!seq [1, 2]
+      g: !!map {k: v}
+      anchored: &anc
+        x: 1
+      aliased: *anc

@@ -1,0 +1,63 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "model",
+        "codes": [
+          "model_error",
+          "rate_limited"
+        ],
+        "attempt": 1,
+        "message": "한도 초과"
+      }
+    }
+  ],
+  "observations": {
+    "events": [
+      {
+        "name": "turn.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "input": "질문"
+        }
+      },
+      {
+        "name": "step.start",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1
+        }
+      },
+      {
+        "name": "step.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "step": 1,
+          "codes": [
+            "model_error",
+            "rate_limited"
+          ]
+        }
+      },
+      {
+        "name": "turn.error",
+        "agent": "main",
+        "conversationId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "where": "model",
+          "codes": [
+            "model_error",
+            "rate_limited"
+          ]
+        }
+      }
+    ]
+  }
+}

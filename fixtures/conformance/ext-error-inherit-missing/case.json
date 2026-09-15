@@ -1,0 +1,7 @@
+{
+  "description": "inherit가 agents에 선언되지 않은 이름을 가리키면 참조 단계의 reference.inherit 구성 오류다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "steps": []
+}

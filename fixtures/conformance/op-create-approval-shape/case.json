@@ -1,0 +1,45 @@
+{
+  "description": "동기 toolCall 훅이 반환한 승인 결과의 approval 값이 문자열 reason 키 하나를 가진 객체가 아니면 그 훅은 실패한다.",
+  "spec": [
+    "승인 작업 생성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "functions": {
+      "badApproval": {
+        "op": "constant",
+        "value": {
+          "approval": {}
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    }
+  ]
+}

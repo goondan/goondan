@@ -1,0 +1,56 @@
+{
+  "description": "호스트 작업 검증이 오류를 던지면 작업은 validation_failed로 실패하고 error에 그 오류의 메시지를 기록한다.",
+  "spec": [
+    "승인된 작업의 실행",
+    "작업 기록과 상태"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "d-1",
+                "name": "danger",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "대기합니다"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "danger": {
+        "description": "위험 작업",
+        "results": []
+      }
+    },
+    "host": {
+      "validateOperation": {
+        "op": "throw",
+        "message": "정책 서버 중단"
+      },
+      "deliverOperationCompletion": true
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "실행해 줘"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:d-1>",
+        "value": {
+          "decision": "approved"
+        }
+      }
+    }
+  ]
+}

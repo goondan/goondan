@@ -1,0 +1,61 @@
+{
+  "description": "바깥 구성과 중첩 구성에 같은 이름의 에이전트가 있어도 한 대화 안에서 경로로만 구분되어 저장된 대화를 공유하지 않는다.",
+  "spec": [
+    "실행 범위",
+    "에이전트 경로와 실행 범위"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "밖응답1"
+          },
+          {
+            "text": "밖응답2"
+          }
+        ]
+      },
+      "n": {
+        "responses": [
+          {
+            "text": "안응답1"
+          },
+          {
+            "text": "안응답2"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "밖1",
+        "agent": "main"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안1",
+        "agent": "wrap/main"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "밖2",
+        "agent": "main"
+      }
+    },
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안2",
+        "agent": "wrap/main"
+      }
+    }
+  ]
+}

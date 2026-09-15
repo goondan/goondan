@@ -1,0 +1,54 @@
+{
+  "description": "훅 컨텍스트의 agents.run은 같은 훅 하위 대화에서 대상 에이전트 하나를 실행하고 턴의 에이전트 실행 기록에 hook 항목을 만들며 그 사용량은 턴 사용량에 포함된다.",
+  "spec": [
+    "훅 컨텍스트와 호스트 함수",
+    "하위 대화"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 2,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "h": {
+        "responses": [
+          {
+            "text": "도움",
+            "usage": {
+              "input": 3,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "memo": {
+        "instance": {
+          "hooks": {
+            "modelInput": {
+              "op": "runAgent",
+              "name": "helper",
+              "input": "부탁"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

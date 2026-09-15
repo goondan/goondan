@@ -1,0 +1,22 @@
+{
+  "description": "시스템 블록의 템플릿 렌더링이 실패하면 현재 실행은 where가 modelInput인 runtime_error 실행 오류로 끝나며 모델을 호출하지 않는다.",
+  "spec": [
+    "시스템 메시지와 매개변수",
+    "정의되지 않은 값"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

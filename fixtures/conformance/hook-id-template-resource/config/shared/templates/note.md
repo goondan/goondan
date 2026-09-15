@@ -1,0 +1,1 @@
+[{{ text.content[0].text }}]

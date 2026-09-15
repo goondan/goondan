@@ -1,0 +1,15 @@
+{
+  "description": "병합한 맵의 키 순서는 앞 객체의 순서를 따르고 뒤에만 있는 키를 이어 붙이므로, 처음 선언된 에이전트는 extends가 선언한 alpha이고 기본 flow는 {in: alpha}다.",
+  "spec": [
+    "값 병합",
+    "최상위 구성"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": []
+}

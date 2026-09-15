@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: m
+    hooks:
+      modelInput:
+        - name: advisors
+          using: input
+          agent: [left, right]
+  left:
+    model: l
+  right:
+    model: r
+flow:
+  in: main

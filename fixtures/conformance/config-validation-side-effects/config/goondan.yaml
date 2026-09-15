@@ -1,0 +1,12 @@
+agents:
+  main:
+    model: m
+    input:
+      fn: pick
+    extensions:
+      memo:
+        options:
+          a: 1
+    hooks:
+      output:
+        - extension: memo

@@ -1,0 +1,26 @@
+{
+  "description": "포함된 템플릿은 include 위치의 템플릿 변수와 반복 변수를 그대로 받지만 loop는 받지 않으므로, 포함된 파일 안의 loop는 정의되지 않은 값이다.",
+  "spec": [
+    "템플릿 파일과 `include`",
+    "반복"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

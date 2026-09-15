@@ -1,0 +1,15 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memo: {}
+    hooks:
+      conversation:
+        - name: ctx
+          extension: memo
+        - name: after
+          fn: mark
+          using: input
+      modelInput:
+        - name: mi
+          extension: memo

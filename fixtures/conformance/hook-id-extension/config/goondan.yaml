@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+    extensions:
+      memory: {}
+    hooks:
+      modelInput:
+        - name: ctx
+          extension: memory
+        - extension: memory

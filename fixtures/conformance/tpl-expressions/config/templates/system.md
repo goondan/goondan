@@ -1,0 +1,1 @@
+{% if params.mode == 'brief' %}B{% endif %}{{ 'eq' if params.n == '1' else 'ne' }}{% for x in params.list %}{{ loop.index }}{{ x }}{% endfor %}{{ params.tags.items | join(',') }}

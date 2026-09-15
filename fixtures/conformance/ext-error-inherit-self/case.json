@@ -1,0 +1,7 @@
+{
+  "description": "자기 자신을 가리키는 inherit도 순환이므로 reference.inherit_cycle 구성 오류다.",
+  "spec": [
+    "상속과 제거"
+  ],
+  "steps": []
+}

@@ -1,0 +1,7 @@
+agents:
+  main:
+    model: m
+    tools:
+      - search
+    extensions:
+      memory: {}

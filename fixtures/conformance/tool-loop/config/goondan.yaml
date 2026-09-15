@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    tools:
+      - lookup
+      - finish
+flow:
+  in: main

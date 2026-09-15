@@ -1,0 +1,34 @@
+{
+  "description": "fn 함수가 JSON이 아닌 값을 반환하면 그 훅은 실패하므로 필수 훅이면 그 단계의 hook_error로 실행이 실패하고 저장한 모델 응답 메시지는 남는다.",
+  "spec": [
+    "훅 실패"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "functions": {
+      "broken": {
+        "op": "nonJson"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "안녕"
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "effectiveConfig": {
+      "version": 1,
+      "name": "goondan",
+      "agents": {
+        "base": {
+          "model": "m",
+          "hooks": {
+            "output": [
+              {
+                "fn": "f"
+              },
+              {
+                "fn": "f"
+              }
+            ]
+          }
+        },
+        "child": {
+          "model": "m",
+          "hooks": {
+            "output": []
+          }
+        }
+      },
+      "flow": {
+        "in": "base"
+      }
+    },
+    "conversations": {
+      "c1/base": [
+        {
+          "role": "user",
+          "source": "base",
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "f",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료!!"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

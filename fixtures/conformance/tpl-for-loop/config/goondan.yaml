@@ -1,0 +1,11 @@
+agents:
+  main:
+    model: m
+    params:
+      list: [a, b]
+      empty: []
+      outer: [[p, q], [r]]
+    hooks:
+      input:
+        - name: t
+          template: templates/system.md

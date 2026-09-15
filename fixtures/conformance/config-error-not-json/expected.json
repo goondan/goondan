@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "config.not_json",
+        "path": "/agents/main/params/n"
+      }
+    ]
+  }
+}

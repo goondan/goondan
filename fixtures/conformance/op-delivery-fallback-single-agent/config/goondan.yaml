@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    tools:
+      - tool: danger
+        approval: required
+  after:
+    model: n
+flow: [main, after]

@@ -1,0 +1,40 @@
+{
+  "description": "모델 호출 실패에는 target이 model인 재시도만 따르므로 target tool 요청은 무시되고 원래 model_error로 실패한다.",
+  "spec": [
+    "재시도"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "모델 실패"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "policy": {
+        "instance": {
+          "hooks": {
+            "error": {
+              "op": "constant",
+              "value": {
+                "retry": true,
+                "target": "tool"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "pick",
+        "value": {
+          "requestId": "req-1"
+        }
+      },
+      {
+        "fn": "shout",
+        "value": "req-1"
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "req-1!"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

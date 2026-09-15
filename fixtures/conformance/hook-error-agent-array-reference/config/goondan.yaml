@@ -1,0 +1,8 @@
+agents:
+  main:
+    model: m
+    hooks:
+      output:
+        - agent: [helper, ghost]
+  helper:
+    model: m

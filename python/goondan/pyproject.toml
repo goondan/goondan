@@ -10,7 +10,16 @@ requires-python = ">=3.11"
 dependencies = ["Jinja2>=3.1,<4", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+# `goondan.models`, the official Anthropic and OpenAI adapters, sends its requests with httpx.
+models = ["httpx>=0.27,<1"]
+# The suite covers `goondan.models`, so the test extra pulls in the models extra.
+test = ["goondan[models]", "pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["goondan"]
+# `_schema.py` reads the packaged schema with `importlib.resources`, so the wheel must carry it.
+artifacts = ["goondan/goondan.schema.json"]
+exclude = ["**/AGENTS.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

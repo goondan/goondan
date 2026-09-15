@@ -1,0 +1,26 @@
+{
+  "description": "정의되지 않은 값은 defined 테스트의 대상이나 default 필터의 입력으로만 쓸 수 있으며 null은 정의된 값이다.",
+  "spec": [
+    "정의되지 않은 값",
+    "필터와 테스트"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "conversationId": "c1",
+        "input": "요청"
+      }
+    }
+  ]
+}

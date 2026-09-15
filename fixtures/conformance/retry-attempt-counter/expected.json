@@ -1,0 +1,108 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "tool",
+        "codes": [
+          "tool_error"
+        ],
+        "attempt": 2,
+        "toolCall": {
+          "id": "c-3",
+          "name": "c",
+          "args": {}
+        }
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "a",
+        "args": {}
+      },
+      {
+        "tool": "b",
+        "args": {}
+      },
+      {
+        "tool": "b",
+        "args": {}
+      },
+      {
+        "tool": "c",
+        "args": {}
+      }
+    ],
+    "conversations": {
+      "c1/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "c-1",
+              "name": "a",
+              "args": {}
+            },
+            {
+              "type": "tool.call",
+              "callId": "c-2",
+              "name": "b",
+              "args": {}
+            },
+            {
+              "type": "tool.call",
+              "callId": "c-3",
+              "name": "c",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "A"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "c-2",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "B"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

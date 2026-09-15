@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "flow.cycle",
+        "path": "/flow/routes/0"
+      }
+    ]
+  }
+}

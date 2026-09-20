@@ -7,6 +7,6 @@ agents:
       tags: {items: [z]}
       text: "abc"
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md

@@ -108,6 +108,15 @@ function combine(root: Schema, kind: "oneOf" | "anyOf", branches: readonly Json[
     const chosen = results[only];
     if (chosen) return chosen;
   }
+  if (compatible.length > 1) {
+    const fewest = Math.min(...compatible.map((index) => results[index]?.length ?? Number.POSITIVE_INFINITY));
+    const closest = compatible.filter((index) => results[index]?.length === fewest);
+    const closestIndex = closest[0];
+    if (closest.length === 1 && closestIndex !== undefined) {
+      const chosen = results[closestIndex];
+      if (chosen) return chosen;
+    }
+  }
   return [{ code: `schema.${kind}`, segments: at, message: `must be ${unique(branches.map((branch) => describe(root, branch))).join(" or ")}` }];
 }
 

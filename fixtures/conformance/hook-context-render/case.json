@@ -22,13 +22,25 @@
         "instance": {
           "hooks": {
             "input": {
-              "op": "render",
-              "template": "templates/greet.md",
-              "variables": {
-                "agent": {
-                  "name": "군단"
+              "op": "chain",
+              "ops": [
+                {
+                  "op": "render",
+                  "template": "templates/greet.md",
+                  "variables": {"agent": {"name": "군단"}}
+                },
+                {
+                  "op": "constant",
+                  "value": [
+                    {
+                      "id": "rendered",
+                      "role": "user",
+                      "source": "main",
+                      "content": [{"type": "text", "text": "안녕 군단"}]
+                    }
+                  ]
                 }
-              }
+              ]
             }
           }
         }
@@ -38,7 +50,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "안녕"
       }
     }

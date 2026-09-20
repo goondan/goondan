@@ -3,8 +3,16 @@
     "phase": "load",
     "issues": [
       {
+        "code": "routes.no_input",
+        "path": "/routes"
+      },
+      {
+        "code": "routes.no_output",
+        "path": "/routes"
+      },
+      {
         "code": "reference.agent",
-        "path": "/flow/in"
+        "path": "/routes/0"
       }
     ]
   }

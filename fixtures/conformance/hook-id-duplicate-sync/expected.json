@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -23,12 +24,11 @@
         "child": {
           "model": "m",
           "hooks": {
-            "output": []
+            "output": [
+
+            ]
           }
         }
-      },
-      "flow": {
-        "in": "base"
       }
     },
     "conversations": {

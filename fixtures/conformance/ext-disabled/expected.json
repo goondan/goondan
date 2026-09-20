@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -15,16 +16,19 @@
             }
           },
           "hooks": {
-            "modelInput": [],
-            "output": []
+            "modelInput": [
+
+            ],
+            "output": [
+
+            ]
           }
         }
-      },
-      "flow": {
-        "in": "main"
       }
     },
-    "extensionLog": [],
+    "extensionLog": [
+
+    ],
     "conversations": {
       "c1/main": [
         {

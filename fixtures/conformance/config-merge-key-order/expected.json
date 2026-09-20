@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -12,9 +14,6 @@
         "zeta": {
           "model": "m"
         }
-      },
-      "flow": {
-        "in": "alpha"
       }
     }
   }

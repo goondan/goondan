@@ -14,8 +14,10 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
-        "input": "요청"
+        "sessionId": "c1",
+        "input": {
+          "q": "요청"
+        }
       }
     }
   ]

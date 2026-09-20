@@ -1,0 +1,5 @@
+agents:
+  a:
+    model: ma
+  b:
+    model: mb

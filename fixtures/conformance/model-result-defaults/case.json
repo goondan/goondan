@@ -21,13 +21,13 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "첫 질문"
       }
     },
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "둘째 질문"
       }
     }

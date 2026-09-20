@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: mainModel
+    hooks:
+      conversation:
+        - agent: worker
+  worker:
+    model: workerModel
+    stateful: false
+    tools:
+      - tool: danger
+        approval: required
+    extensions:
+      trace: {}

@@ -93,7 +93,7 @@ export function openAITextStream(text: string): string {
 export function context(options: { signal?: AbortSignal; onTextDelta?: (delta: string) => void } = {}) {
   return {
     agent: "main",
-    conversationId: "c",
+    sessionId: "c",
     turnId: "t",
     step: 1,
     signal: options.signal ?? new AbortController().signal,

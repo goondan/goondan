@@ -4,5 +4,4 @@ agents:
     tools:
       - lookup
       - finish
-flow:
-  in: main
+routes: [main]

@@ -5,8 +5,8 @@ agents:
   main:
     model: m
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md
 
-flow: [main, frag]
+routes: [main, frag]

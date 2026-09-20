@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "extensionLog": [
@@ -19,10 +20,10 @@
           "n": 1,
           "checked": true
         },
-        "ports": {},
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
@@ -54,10 +55,10 @@
         "options": {
           "n": 2
         },
-        "ports": {},
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {

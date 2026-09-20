@@ -31,12 +31,12 @@ export interface SystemBlockSpec { text?: string; template?: string; cache?: boo
 export interface ExtensionUse { options?: Record<string, Json>; enabled?: boolean }
 export interface ToolUse { tool?: string; agent?: string; hint?: string; approval?: "required" }
 export interface InlineHookSpec { name?: string; extension?: string; fn?: string; agent?: string | string[]; template?: string; using?: "input" | "conversation" | { fn: string }; when?: { fn: string }; mode?: "sync" | "async"; optional?: boolean; role?: "user" | "system"; timeout?: number }
-export interface AgentSpec { description?: string; model?: string; config?: string; params?: Record<string, Json>; input?: "asis" | InputRule; systemMessage?: SystemBlockSpec | SystemBlockSpec[]; tools?: Array<string | ToolUse>; extensions?: Record<string, ExtensionUse>; hooks?: Partial<Record<ValueName, InlineHookSpec[]>> }
-export interface CarrySpec { message?: "output" | { fn: string } | { template: string }; conversation?: "none" | "asis" | { fn: string } }
-export interface RouteSpec { from: string; to: string; when?: { fn: string }; carry?: CarrySpec }
-export interface GoondanConfig { version: number; name: string; agents: Record<string, AgentSpec>; flow: { in: string; routes?: RouteSpec[] } }
-/** A loaded configuration with the templates and nested configurations the reference phase read. */
-export interface LoadedConfig { directory: string; config: GoondanConfig; templates: ReadonlyMap<string, string>; nested?: ReadonlyMap<string, LoadedConfig> }
+export interface AgentSpec { description?: string; model?: string; stateful?: boolean; params?: Record<string, Json>; input?: "asis" | InputRule; systemMessage?: SystemBlockSpec | SystemBlockSpec[]; tools?: Array<string | ToolUse>; extensions?: Record<string, ExtensionUse>; hooks?: Partial<Record<ValueName, InlineHookSpec[]>> }
+export type RouteWhen = { fn: string } | { output: string | Record<string, Json> };
+export interface RouteSpec { from: string; to: string; when?: RouteWhen }
+export interface GoondanConfig { version: number; name: string; agents: Record<string, AgentSpec>; routes?: RouteSpec[] }
+/** 참조 단계에서 읽은 템플릿을 포함한 구성입니다. */
+export interface LoadedConfig { directory: string; config: GoondanConfig; templates: ReadonlyMap<string, string> }
 
 /** The schema keywords a configuration error can name. */
 export type SchemaKeyword =
@@ -50,7 +50,8 @@ export type ConfigIssueCode =
   | `schema.${SchemaKeyword}` | "config.not_json"
   | "reference.agent" | "reference.inherit" | "reference.inherit_cycle" | "reference.extension"
   | "reference.duplicate_tool" | "reference.duplicate_hook"
-  | "flow.no_route" | "flow.cycle" | "flow.carry_conversation"
+  | "routes.reserved" | "routes.no_input" | "routes.no_output" | "routes.no_route"
+  | "routes.unreachable" | "routes.cycle" | "routes.wait_cycle"
   | "template.not_found" | "template.syntax" | "template.unsupported"
   | "binding.model" | "binding.tool" | "binding.duplicate_tool" | "binding.function"
   | "binding.extension" | "binding.port" | "binding.extension_hook";
@@ -58,43 +59,41 @@ export type ConfigIssueCode =
 export interface ConfigIssue { code: ConfigIssueCode; path: string; message: string }
 
 /**
- * What a tool implementation receives besides its arguments. `agent` is the agent path of the run
- * that calls the tool, `conversation` a copy of its stored conversation and `execution` the value a
- * `toolCall` hook attached, `{}` when there is none.
+ * 도구 구현이 인수와 함께 받는 컨텍스트입니다. `agent`는 호출한 에이전트의 선언 이름이고,
+ * `conversation`은 저장된 대화의 사본입니다.
  */
-export interface ToolContext { input: Json; conversation: readonly Message[]; agent: string; conversationId: string; turnId: string; toolCall: ToolCall; execution: Record<string, Json>; signal: AbortSignal; agents: { run(name: string, value: Json): Promise<AgentRunResult> } }
+export interface ToolContext { input: readonly Message[] | { type: "operation_execution"; operationId: string }; conversation: readonly Message[]; agent: string; sessionId: string; turnId: string; toolCall: ToolCall; execution: Record<string, Json>; signal: AbortSignal; agents: { run(name: string, value: RunInput): Promise<AgentRunResult> } }
 export interface Tool { name: string; description: string; input: Record<string, Json>; execute(input: Json, ctx: ToolContext): Promise<ToolResult> | ToolResult }
 /**
- * What a model implementation receives besides the model input. `agent` is the agent path of the run
- * that calls the model and `step` its model call number, which starts at 1 and counts retries;
- * `onTextDelta` announces a chunk of the assistant text that is being generated.
+ * 모델 구현이 모델 입력과 함께 받는 컨텍스트입니다. `agent`는 선언 이름이며 `step`은 재시도를
+ * 포함해 1부터 세는 모델 호출 번호입니다.
  */
-export interface ModelContext { agent: string; conversationId: string; turnId: string; step: number; signal: AbortSignal; onTextDelta(delta: string): void }
+export interface ModelContext { agent: string; sessionId: string; turnId: string; step: number; signal: AbortSignal; onTextDelta(delta: string): void }
 export interface Model { generate(input: ModelInput, ctx: ModelContext): Promise<ModelResult> }
 /**
- * Where conversations live. `agent` is an agent path: a store must keep different
- * (conversationId, agent) pairs apart and return each stored message as the same JSON value.
+ * 대화 저장소는 서로 다른 `(sessionId, agent)` 조합을 분리하고 저장한 메시지를 같은 JSON 값으로
+ * 반환해야 합니다. `agent`는 선언 이름입니다.
  */
-export interface ConversationStore { load(conversationId: string, agent: string): Promise<Message[]>; append(conversationId: string, agent: string, messages: Message[]): Promise<void>; replace(conversationId: string, agent: string, messages: Message[]): Promise<void> }
+export interface ConversationStore { load(sessionId: string, agent: string): Promise<Message[]>; append(sessionId: string, agent: string, messages: Message[]): Promise<void>; replace(sessionId: string, agent: string, messages: Message[]): Promise<void>; deleteSession(sessionId: string): Promise<void> }
 export type OperationStatus = "pending" | "approved" | "running" | "completed" | "rejected" | "cancelled" | "failed";
 export type OperationDeliveryStatus = "pending" | "delivering" | "delivered";
 export type OperationErrorCode = "validation_failed" | "execution_failed" | "execution_interrupted";
-/** A stored operation. `agent` is the agent path the runtime runs and delivers the completion to. */
-export interface PendingOperation { operationId: string; deliveryId: string; agent: string; conversationId: string; turnId: string; toolCall: ToolCall; resolvedToolCall?: ToolCall; inputPatch?: Record<string, Json>; execution?: Record<string, Json>; context?: Record<string, Json>; reasons: string[]; status: OperationStatus; deliveryStatus: OperationDeliveryStatus; createdAt: number; updatedAt: number; result?: ToolResult; error?: string; errorCode?: OperationErrorCode; deliveredAt?: number }
+/** 저장된 승인 작업입니다. `agent`는 실행하고 완료를 전달할 에이전트의 선언 이름입니다. */
+export interface PendingOperation { operationId: string; deliveryId: string; agent: string; sessionId: string; turnId: string; toolCall: ToolCall; resolvedToolCall?: ToolCall; inputPatch?: Record<string, Json>; execution?: Record<string, Json>; context?: Record<string, Json>; reasons: string[]; status: OperationStatus; deliveryStatus: OperationDeliveryStatus; createdAt: number; updatedAt: number; result?: ToolResult; error?: string; errorCode?: OperationErrorCode; deliveredAt?: number }
 export type OperationUpdate = Partial<Pick<PendingOperation, "status" | "deliveryStatus" | "resolvedToolCall" | "inputPatch" | "result" | "error" | "errorCode" | "updatedAt" | "deliveredAt">>;
-export interface OperationStore { list(conversationId?: string): Promise<PendingOperation[]>; get(conversationId: string, operationId: string): Promise<PendingOperation | undefined>; save(operation: PendingOperation): Promise<void>; transition(conversationId: string, operationId: string, from: OperationStatus[], update: OperationUpdate): Promise<PendingOperation | undefined>; claimDelivery(conversationId: string, operationId: string, updatedAt: number): Promise<PendingOperation | undefined>; releaseDelivery(conversationId: string, operationId: string, deliveryId: string, updatedAt: number): Promise<PendingOperation | undefined> }
-export interface ApprovalRequest { operationId: string; conversationId: string; turnId: string; agent: string; toolCall: ToolCall; reasons: string[] }
+export interface OperationStore { list(sessionId?: string): Promise<PendingOperation[]>; get(sessionId: string, operationId: string): Promise<PendingOperation | undefined>; save(operation: PendingOperation): Promise<void>; transition(sessionId: string, operationId: string, from: OperationStatus[], update: OperationUpdate): Promise<PendingOperation | undefined>; claimDelivery(sessionId: string, operationId: string, updatedAt: number): Promise<PendingOperation | undefined>; releaseDelivery(sessionId: string, operationId: string, deliveryId: string, updatedAt: number): Promise<PendingOperation | undefined> }
+export interface ApprovalRequest { operationId: string; sessionId: string; turnId: string; agent: string; toolCall: ToolCall; reasons: string[] }
 export interface OperationDecision { decision: "approved" | "rejected"; inputPatch?: Record<string, Json> }
-export interface OperationCompletion { type: "operation_completion"; deliveryId: string; operationId: string; conversationId: string; agent: string; status: "completed" | "rejected" | "cancelled" | "failed"; toolCall: ToolCall; result?: ToolResult; error?: string; errorCode?: OperationErrorCode }
+export interface OperationCompletion { type: "operation_completion"; deliveryId: string; operationId: string; sessionId: string; agent: string; status: "completed" | "rejected" | "cancelled" | "failed"; toolCall: ToolCall; result?: ToolResult; error?: string; errorCode?: OperationErrorCode }
 export interface RuntimeHost { captureOperationContext?(request: ApprovalRequest): Promise<Record<string, Json>> | Record<string, Json>; requestApproval?(request: ApprovalRequest): Promise<void> | void; validateOperationInputPatch?(operation: PendingOperation, patch: Record<string, Json>): Promise<boolean> | boolean; validateOperation?(operation: PendingOperation): Promise<boolean> | boolean; deliverOperationCompletion?(completion: OperationCompletion): Promise<void> | void; emit?(event: RuntimeEvent): Promise<void> | void }
 export interface Logger { info(message: string, fields?: Record<string, Json>): void; warn(message: string, fields?: Record<string, Json>): void; error(message: string, fields?: Record<string, Json>): void }
 export interface ExecutionControl { complete(output: Message): void }
 /**
- * What an extension hook receives besides its value. `agent` is the agent path of the run,
+ * 확장 훅이 값과 함께 받는 컨텍스트입니다. `agent`는 실행의 에이전트 선언 이름이며,
  * `conversation` a copy of the conversation stored so far and `signal` the notice that the hook
  * should stop, which fires on a timeout, an abort and, for an asynchronous hook, on `close()`.
  */
-export interface HookContext { execution: ExecutionControl; agent: string; conversationId: string; turnId: string; step?: number; retryCount: number; input: Json; conversation: readonly Message[]; signal: AbortSignal; agents: { run(name: string, value: Json): Promise<AgentRunResult> }; model: { run(messages: Message[]): Promise<ModelResult> }; render(template: string, variables: Record<string, Json>): Promise<string>; message: { user(text: string, extra?: MessageExtra): Message; system(text: string, extra?: MessageExtra): Message }; append(...items: Message[]): Append; log: Logger }
+export interface HookContext { execution: ExecutionControl; agent: string; sessionId: string; turnId: string; step?: number; retryCount: number; input: readonly Message[]; conversation: readonly Message[]; signal: AbortSignal; agents: { run(name: string, value: RunInput): Promise<AgentRunResult> }; model: { run(messages: Message[]): Promise<ModelResult> }; render(template: string, variables: Record<string, Json>): Promise<string>; message: { user(text: string, extra?: MessageExtra): Message; system(text: string, extra?: MessageExtra): Message }; append(...items: Message[]): Append; log: Logger }
 export interface MessageExtra { key?: string; keep?: boolean; meta?: Record<string, Json> }
 export type HookResult = Json | Message[] | Message | ModelInput | ModelResult | ToolCall | ToolResult | Append | Retry | ToolExecution | Approval | { result: ToolResult } | undefined;
 export type HookFunction = (value: HookResult | TurnError, ctx: HookContext) => Promise<HookResult> | HookResult;
@@ -104,7 +103,7 @@ export interface ExtensionInstance { hooks?: Partial<Record<ValueName, HookFunct
  * `tools` the tool names it provides; a list with at least one entry counts as a declaration the
  * binding phase checks.
  */
-export interface ExtensionDefinition { name: string; options?: { validate(value: Json): Promise<Json | undefined> | Json | undefined }; requires?: readonly string[]; hooks?: readonly ValueName[]; tools?: readonly string[]; create(input: { options: Json; ports: Record<string, unknown>; agent: { name: string; path: string; spec: AgentSpec }; log: Logger }): Promise<ExtensionInstance> | ExtensionInstance }
+export interface ExtensionDefinition { name: string; options?: { validate(value: Json): Promise<Json | undefined> | Json | undefined }; requires?: readonly string[]; hooks?: readonly ValueName[]; tools?: readonly string[]; create(input: { options: Json; ports: Record<string, unknown>; agent: { name: string; spec: AgentSpec }; log: Logger }): Promise<ExtensionInstance> | ExtensionInstance }
 /**
  * A host function a configuration references by name. It takes a copy of one JSON value and returns
  * a JSON value; returning nothing counts as returning `null`.
@@ -121,19 +120,20 @@ export interface RuntimeBindings {
   directory?: string;
 }
 /** The result of one agent run: its output message, its own model usage and how it ended. */
-export interface AgentRunResult { output: Message; usage: Usage; finishReason: string; status: "done" }
+export interface AgentRunResult { output: Message; usage: Usage; finishReason: string; status: "done"; instance: string }
 /** How an agent run or a hook model call was started; see `에이전트 실행 기록`. */
-export type RunKind = "flow" | "nested" | "tool" | "hook" | "model";
+export type RunKind = "turn" | "tool" | "hook" | "model";
 /**
  * One entry of a turn result's `runs`. `usage` counts only the model responses that run received
  * itself, and `finishReason` is present only on an entry whose `status` is `done`.
  */
-export interface AgentRunRecord { agent: string; turnId: string; kind: RunKind; usage: Usage; finishReason?: string; status: "done" | "failed" }
+export interface AgentRunRecord { agent: string; instance: string; turnId: string; kind: RunKind; usage: Usage; finishReason?: string; status: "done" | "failed" | "aborted" }
 /** The result of a successful turn. `usage` is the sum of every entry of `runs`. */
 export interface TurnResult { output: Message; outputs: Message[]; usage: Usage; finishReason: string; status: "done"; runs: AgentRunRecord[] }
-/** `agent` is an agent path and runs only that agent; `startAgent` is a top-level agent name. */
-export interface RunOptions { conversationId: string; agent?: string; startAgent?: string; signal?: AbortSignal }
+/** `agent`는 지정한 에이전트만 실행하고 `startAgent`는 지정한 에이전트부터 route를 진행합니다. */
+export type RunInput = Json | Part[] | Message[];
+export interface RunOptions { sessionId: string; agent?: string; startAgent?: string; signal?: AbortSignal }
 /** The closed set of event names the runtime announces. */
 export type RuntimeEventName = "turn.start" | "turn.done" | "turn.error" | "step.start" | "step.done" | "step.error" | "step.textDelta" | "tool.start" | "tool.done" | "tool.error" | "humanApproval.created" | "hook.applied" | "hook.skipped" | "hook.failed";
-/** One execution event. `agent` is the agent path of the run that announced it, `at` its epoch milliseconds. */
-export interface RuntimeEvent { name: RuntimeEventName; agent: string; conversationId: string; turnId: string; at: number; data: Record<string, Json> }
+/** 실행 이벤트입니다. `agent`는 알린 실행의 선언 이름이고 `at`은 epoch 밀리초입니다. */
+export interface RuntimeEvent { name: RuntimeEventName; agent: string; sessionId: string; turnId: string; at: number; data: Record<string, Json> }

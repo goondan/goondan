@@ -16,16 +16,27 @@
     },
     "functions": {
       "shout": {
-        "op": "textSuffix",
-        "suffix": "!"
+        "op": "chain",
+        "ops": [
+          {
+            "op": "get",
+            "path": "/text"
+          },
+          {
+            "op": "textSuffix",
+            "suffix": "!"
+          }
+        ]
       }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
-        "input": "안녕"
+        "sessionId": "c1",
+        "input": {
+          "text": "안녕"
+        }
       }
     }
   ]

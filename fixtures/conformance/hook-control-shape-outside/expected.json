@@ -1,31 +1,11 @@
 {
   "steps": [
-    {}
-  ],
-  "observations": {
-    "conversations": {
-      "c1/main": [
-        {
-          "role": "user",
-          "source": "main",
-          "content": [
-            {
-              "type": "text",
-              "text": "{\"retry\":true,\"target\":\"model\"}"
-            }
-          ]
-        },
-        {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "완료"
-            }
-          ]
-        }
-      ]
+    {
+      "error": {
+        "where": "input",
+        "codes": ["hook_error"],
+        "attempt": 1
+      }
     }
-  }
+  ]
 }

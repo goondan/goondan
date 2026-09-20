@@ -11,5 +11,4 @@ agents:
       output:
         - fn: boom
           optional: true
-flow:
-  in: main
+routes: [main]

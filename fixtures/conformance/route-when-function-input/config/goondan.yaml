@@ -1,0 +1,5 @@
+agents:
+  main: {model: m}
+routes:
+  - {from: $input, to: main, when: {fn: choose}}
+  - {from: main, to: $output}

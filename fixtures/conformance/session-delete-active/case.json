@@ -1,0 +1,47 @@
+{
+  "description": "sessions.delete는 해당 세션에 진행 중인 턴이 있으면 대화를 지우지 않고 runtime_error로 거부한다.",
+  "spec": [
+    "세션"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "await": "running",
+            "then": {
+              "text": "완료"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "run": {
+              "sessionId": "s",
+              "input": "시작"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "running"
+          },
+          {
+            "deleteSession": {
+              "sessionId": "s"
+            }
+          },
+          {
+            "release": "running"
+          }
+        ]
+      ]
+    }
+  ]
+}

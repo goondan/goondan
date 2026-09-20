@@ -14,7 +14,9 @@
       },
       {
         "fn": "makeText",
-        "value": "둘째"
+          "value": {
+            "q": "둘째"
+          }
       },
       {
         "fn": "makeText",

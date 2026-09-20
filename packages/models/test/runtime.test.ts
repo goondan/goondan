@@ -1,4 +1,4 @@
-import { createRuntime, type Json, type LoadedConfig, type RuntimeEvent, type Tool } from "@goondan/core";
+import { createGoondan, type Json, type LoadedConfig, type RuntimeEvent, type Tool } from "@goondan/core";
 import { describe, expect, it } from "vitest";
 import { createAnthropicModel } from "../src/index.ts";
 import { isJsonObject } from "../src/json.ts";
@@ -49,16 +49,16 @@ describe("@goondan/models with the core runtime", () => {
     const config: LoadedConfig = {
       directory: ".",
       templates: new Map<string, string>(),
-      config: { version: 1, name: "models-e2e", agents: { main: { model: "claude", input: "asis", tools: ["lookup"] } }, flow: { in: "main" } },
+      config: { version: 1, name: "models-e2e", agents: { main: { model: "claude", input: "asis", tools: ["lookup"] } } },
     };
     const events: RuntimeEvent[] = [];
-    const runtime = createRuntime(config, {
+    const runtime = createGoondan(config, {
       models: { claude: createAnthropicModel({ model: MODEL, apiKey: "test-key", env: {}, fetch }) },
       tools: { lookup },
       host: { emit(event) { events.push(event); } },
     });
 
-    const result = await runtime.runTurn("What is q?", { conversationId: "e2e" });
+    const result = await runtime.run("What is q?", { sessionId: "e2e" });
 
     expect(requests).toHaveLength(2);
     const [, assistant, toolTurn] = messagesOf(requests[1]?.body);

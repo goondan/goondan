@@ -1,1 +1,0 @@
-요청: {{ output }} / 원본: {{ input }} / 첫 메시지: {{ conversation[0].content[0].text }}

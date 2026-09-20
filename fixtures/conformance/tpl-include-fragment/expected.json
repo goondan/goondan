@@ -8,6 +8,11 @@
         {
           "role": "user",
           "source": "main",
+          "content": [{"type": "text", "text": "요청"}]
+        },
+        {
+          "role": "user",
+          "source": "t",
           "content": [
             {
               "type": "text",
@@ -30,6 +35,12 @@
         {
           "role": "user",
           "source": "frag",
+          "content": [{"type": "text", "text": "완료"}],
+          "meta": {"from": "main", "instance": "c1/main"}
+        },
+        {
+          "role": "user",
+          "source": "t",
           "content": [
             {
               "type": "text",

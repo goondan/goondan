@@ -1,8 +1,11 @@
 {
   "steps": [
-    {},
-    {},
-    {}
+    {
+    },
+    {
+    },
+    {
+    }
   ],
   "observations": {
     "extensionLog": [
@@ -10,15 +13,17 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "memo": {}
+              "memo": {
+              }
             },
             "hooks": {
               "modelInput": [
@@ -34,15 +39,17 @@
         "action": "create",
         "instance": 2,
         "extension": "memo",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "memo": {}
+              "memo": {
+              }
             },
             "hooks": {
               "modelInput": [

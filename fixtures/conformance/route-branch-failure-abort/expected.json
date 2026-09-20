@@ -1,0 +1,6 @@
+{
+  "steps": [{"parallel": [
+    [{"error": {"where": "model", "codes": ["model_error"], "attempt": 1, "message": "분기 실패"}}],
+    [{}, {}, {}]
+  ]}]
+}

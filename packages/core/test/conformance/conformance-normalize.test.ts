@@ -7,6 +7,7 @@ import {
   compareCodePoints,
   messagesWithoutId,
   normalizeDocument,
+  numberStatelessInstances,
   numberTurnIds,
   replaceStrings,
   scanIdentifiers,
@@ -87,6 +88,16 @@ describe("turn numbering", () => {
   });
 });
 
+describe("stateless instance numbering", () => {
+  it("numbers only instances of stateless agents in document order", () => {
+    const input = document(
+      [{ result: { runs: [{ agent: "worker", instance: "s#t2#worker" }] } }],
+      [["effectiveConfig", { agents: { main: { model: "m" }, worker: { model: "m", stateful: false } } }]],
+    );
+    expect(numberStatelessInstances(input)).toEqual(new Map([["s#t2#worker", "<instance:1>"]]));
+  });
+});
+
 describe("code point order", () => {
   it("orders by code point and then by length", () => {
     expect(["b", "a", "A", "ab"].sort(compareCodePoints)).toEqual(["A", "a", "ab", "b"]);
@@ -94,7 +105,7 @@ describe("code point order", () => {
 });
 
 describe("normalizeDocument", () => {
-  it("applies the four steps in order", () => {
+  it("applies the five steps in order", () => {
     const result = normalizeDocument(
       document(
         [

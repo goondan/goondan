@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -11,9 +13,6 @@
             "search"
           ]
         }
-      },
-      "flow": {
-        "in": "main"
       }
     }
   }

@@ -234,7 +234,7 @@ async function runCase(provider: Provider, directory: string): Promise<void> {
 
   if (stream !== undefined) {
     const deltas: string[] = [];
-    const ctx = { agent: "main", conversationId: "fixture", turnId: "turn", step: 1, signal: new AbortController().signal, onTextDelta: (delta: string) => deltas.push(delta) };
+    const ctx = { agent: "main", sessionId: "fixture", turnId: "turn", step: 1, signal: new AbortController().signal, onTextDelta: (delta: string) => deltas.push(delta) };
     try {
       const result = await model.generate(input ?? EMPTY_INPUT, ctx);
       if (expected.result !== undefined) expect(resultWithoutMessageId(result)).toStrictEqual(expected.result);

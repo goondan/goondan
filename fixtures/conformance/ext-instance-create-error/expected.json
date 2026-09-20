@@ -25,16 +25,19 @@
         "action": "create",
         "instance": 1,
         "extension": "alpha",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {}
+              "alpha": {
+              },
+              "beta": {
+              }
             },
             "hooks": {
               "input": [
@@ -55,16 +58,19 @@
         "action": "create",
         "instance": 2,
         "extension": "beta",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {}
+              "alpha": {
+              },
+              "beta": {
+              }
             },
             "hooks": {
               "input": [
@@ -89,16 +95,19 @@
         "action": "create",
         "instance": 3,
         "extension": "alpha",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {}
+              "alpha": {
+              },
+              "beta": {
+              }
             },
             "hooks": {
               "input": [
@@ -119,16 +128,19 @@
         "action": "create",
         "instance": 4,
         "extension": "beta",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {}
+              "alpha": {
+              },
+              "beta": {
+              }
             },
             "hooks": {
               "input": [
@@ -150,8 +162,12 @@
         "instance": 3
       }
     ],
-    "functionCalls": [],
-    "conversations": {},
-    "modelInputs": {}
+    "functionCalls": [
+
+    ],
+    "conversations": {
+    },
+    "modelInputs": {
+    }
   }
 }

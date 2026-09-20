@@ -1,0 +1,11 @@
+{
+  "steps": [{}],
+  "observations": {
+    "extensionLog": [
+      {"action": "create", "instance": 1, "extension": "trace", "options": {}, "ports": {}, "agent": {"name": "worker", "spec": {"model": "workerModel", "stateful": false, "extensions": {"trace": {}}}}},
+      {"action": "create", "instance": 2, "extension": "trace", "options": {}, "ports": {}, "agent": {"name": "worker", "spec": {"model": "workerModel", "stateful": false, "extensions": {"trace": {}}}}},
+      {"action": "dispose", "instance": 1},
+      {"action": "dispose", "instance": 2}
+    ]
+  }
+}

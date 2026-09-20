@@ -1,7 +1,0 @@
-agents:
-  main:
-    model: m
-  other:
-    model: o
-flow:
-  in: main

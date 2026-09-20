@@ -1,5 +1,5 @@
 {
-  "description": "확장 생성 입력의 ports는 확장 정의가 요구한 포트 이름만 키로 가지며 agent는 선언 이름, 에이전트 경로, 유효 구성의 에이전트 객체를 가진다.",
+  "description": "확장 생성 입력의 ports는 확장 정의가 요구한 포트 이름만 키로 가지며 agent는 선언 이름과 유효 구성의 에이전트 객체를 가진다.",
   "spec": [
     "확장 인스턴스"
   ],
@@ -38,7 +38,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "안녕"
       }
     }

@@ -1,0 +1,6 @@
+{
+  "description": "실행 중 입력의 agent가 선언된 에이전트 이름이 아니면 요청을 남기지 않고 steer_invalid로 거부한다.",
+  "spec": ["실행 중 입력"],
+  "bindings": {"models": {"m": {"responses": []}}},
+  "steps": [{"steer": {"sessionId": "s", "value": "입력", "agent": "missing"}}]
+}

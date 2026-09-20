@@ -1,0 +1,10 @@
+agents:
+  split: {model: splitModel}
+  bad: {model: badModel}
+  slow: {model: slowModel}
+routes:
+  - {from: $input, to: split}
+  - {from: split, to: bad}
+  - {from: split, to: slow}
+  - {from: bad, to: $output}
+  - {from: slow, to: $output}

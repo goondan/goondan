@@ -3,5 +3,4 @@ agents:
     model: m
   wrap/main:
     model: m
-flow:
-  in: main
+routes: [main]

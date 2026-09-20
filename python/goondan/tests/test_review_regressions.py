@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from goondan import (
     Extension, GoondanError, InMemoryConversationStore,
-    create_runtime, define_extension, define_tool,
+    create_goondan, define_extension, define_tool,
 )
 
 
@@ -26,14 +26,14 @@ async def test_only_configured_tools_can_execute(target):
     agents = {"main": {"model": "main", "tools": []}}
     if target == "agent":
         agents["hidden"] = {"model": "hidden"}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": agents},
         models={"main": model, "hidden": forbidden},
         tools={"hidden": define_tool(name="hidden", description="hidden", input={}, execute=forbidden)} if target == "tool" else {},
     )
     try:
         with pytest.raises(GoondanError, match="not available"):
-            await runtime.run_turn("input")
+            await runtime.run("input", session_id="configured-tools")
         assert executed == []
     finally: await runtime.close()
 
@@ -51,14 +51,14 @@ async def test_approval_saves_and_executes_the_hook_transformed_call():
     def normalize(value, ctx): return {**value, "name": "publish", "args": {"target": "normalized"}}
     def approve(value, ctx): return {"approval": {"reason": "confirm"}}
     def execute(value, ctx): calls.append(value); return [{"type": "text", "text": "published"}]
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"main": {"model": "m", "tools": ["draft", "publish"], "extensions": {"policy": {}}, "hooks": {"toolCall": [{"name": "normalize", "fn": "normalize"}, {"extension": "policy"}]}}}},
         models={"m": model}, functions={"normalize": lambda value: normalize(value, None)},
         tools={name: define_tool(name=name, description=name, input={}, execute=execute) for name in ["draft", "publish"]},
         extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"toolCall": approve}))}, host=Host(),
     )
     try:
-        await runtime.run_turn("input", conversation_id="approval")
+        await runtime.run("input", session_id="approval")
         await asyncio.sleep(0)
         operation = (await runtime.list_operations("approval"))[0]
         assert operation["toolCall"]["name"] == "publish"
@@ -83,13 +83,13 @@ async def test_async_hooks_bind_their_own_implementation():
     async def model(value):
         await asyncio.sleep(0)
         return answer()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"main": {"model": "m", "extensions": {"first": {}, "second": {}}, "hooks": {"conversation": [{"extension": "first", "mode": "async"}, {"extension": "second", "mode": "async"}]}}}},
         models={"m": model},
         extensions={name: define_extension(name=name, create=lambda name=name, **kwargs: Extension(hooks={"conversation": implementation(name)})) for name in ["first", "second"]},
     )
     try:
-        await runtime.run_turn("input")
+        await runtime.run("input", session_id="async-hooks")
         assert called == ["first", "second"]
     finally: await runtime.close()
 
@@ -105,17 +105,17 @@ async def test_async_context_survives_until_next_turn():
         captured.append(value)
         return answer()
     store = InMemoryConversationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"main": {"model": "m", "extensions": {"memory": {}}, "hooks": {"conversation": [{"extension": "memory", "mode": "async"}]}}}},
         models={"m": model}, conversation_store=store,
         extensions={"memory": define_extension(name="memory", create=lambda **kwargs: Extension(hooks={"conversation": hook}))},
     )
     try:
-        await runtime.run_turn("first", conversation_id="conversation")
+        await runtime.run("first", session_id="conversation")
         await asyncio.sleep(0)
         release.set()
         await asyncio.sleep(0)
-        await runtime.run_turn("second", conversation_id="conversation")
+        await runtime.run("second", session_id="conversation")
         texts = [p.get("text") for m in captured[-1]["messages"] for p in m["content"]]
         assert "late context" in texts
         assert any(m.get("key") == "memory" for m in await store.load("conversation", "main"))
@@ -124,7 +124,7 @@ async def test_async_context_survives_until_next_turn():
 
 def test_ambiguous_tool_reference_is_rejected():
     with pytest.raises(GoondanError, match="exactly one"):
-        create_runtime(config={"agents": {"main": {"model": "m", "tools": [{"tool": "lookup", "agent": "worker"}]}, "worker": {"model": "m"}}}, models={"m": answer})
+        create_goondan(config={"agents": {"main": {"model": "m", "tools": [{"tool": "lookup", "agent": "worker"}]}, "worker": {"model": "m"}}}, models={"m": answer})
 
 
 @pytest.mark.parametrize("tool, message", [
@@ -133,7 +133,7 @@ def test_ambiguous_tool_reference_is_rejected():
 ])
 def test_tool_entries_follow_the_shared_schema(tool, message):
     with pytest.raises(GoondanError, match=message):
-        create_runtime(config={"agents": {"main": {"model": "m", "tools": [tool]}}}, models={"m": answer})
+        create_goondan(config={"agents": {"main": {"model": "m", "tools": [tool]}}}, models={"m": answer})
 
 
 @pytest.mark.asyncio
@@ -143,28 +143,28 @@ async def test_model_failure_retries_only_for_the_model_target_without_duplicate
         calls.append(sum(message["role"] == "user" for message in value["messages"]))
         if len(calls) == 1: raise RuntimeError("retry model")
         return answer()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "retry_model"}]}}}},
         models={"m": model}, functions={"retry_model": lambda value: {"retry": True, "target": "model"}},
     )
     try:
-        await runtime.run_turn("input", conversation_id="model-retry")
+        await runtime.run("input", session_id="model-retry")
         assert calls == [1, 1]
     finally: await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_routed_flow_aggregates_usage_and_preserves_terminal_finish_reason():
+async def test_routed_turn_aggregates_usage_and_preserves_terminal_finish_reason():
     async def first(value):
         return {**answer("carry"), "usage": {"input": 1, "output": 2, "cacheRead": 3, "cacheWrite": 4}}
     async def final(value):
         return {**answer("truncated"), "usage": {"input": 5, "output": 6, "cacheRead": 7, "cacheWrite": 8}, "finishReason": "length"}
-    runtime = create_runtime(
-        config={"agents": {"first": {"model": "first"}, "final": {"model": "final"}}, "flow": ["first", "final"]},
+    runtime = create_goondan(
+        config={"agents": {"first": {"model": "first"}, "final": {"model": "final"}}, "routes": ["first", "final"]},
         models={"first": first, "final": final},
     )
     try:
-        result = await runtime.run_turn("input", conversation_id="flow-metadata")
+        result = await runtime.run("input", session_id="route-metadata")
         assert result["finishReason"] == "length"
         assert result["usage"] == {"input": 6, "output": 8, "cacheRead": 10, "cacheWrite": 12}
     finally: await runtime.close()
@@ -177,12 +177,12 @@ async def test_model_result_retry_counts_raw_model_usage():
         nonlocal generations
         generations += 1
         return {**answer(), "usage": {"input": generations, "output": 0, "cacheRead": 0, "cacheWrite": 0}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"fn": "retry_first"}]}}}},
         models={"m": model}, functions={"retry_first": lambda value: {"retry": True, "target": "model"} if generations == 1 else value},
     )
     try:
-        result = await runtime.run_turn("input", conversation_id="retry-usage")
+        result = await runtime.run("input", session_id="retry-usage")
         assert result["usage"]["input"] == 3
     finally: await runtime.close()
 
@@ -203,10 +203,10 @@ async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
     class Host:
         def deliver_operation_completion(self, value): return None
 
-    runtime = create_runtime(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker}, host=Host())
+    runtime = create_goondan(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker}, host=Host())
     try:
         for index in range(2):
-            await runtime.run_turn(f"turn {index}", conversation_id="parent")
+            await runtime.run(f"turn {index}", session_id="parent")
             if approval:
                 operation = (await runtime.list_operations("parent"))[-1]
                 await runtime.decide_operation("parent", operation["operationId"], {"decision": "approved"})
@@ -216,31 +216,25 @@ async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
 
 
 @pytest.mark.asyncio
-async def test_nested_branch_result_preserves_aggregate_metadata(tmp_path):
-    child = tmp_path / "child.yaml"
-    child.write_text("""version: 1
-agents:
-  split: {model: split}
-  left: {model: left}
-  right: {model: right}
-flow:
-  in: split
-  routes:
-    - {from: split, to: left}
-    - {from: split, to: right}
-    - {from: left, to: out}
-    - {from: right, to: out}
-""", encoding="utf-8")
+async def test_parallel_branch_result_preserves_aggregate_metadata():
     def model(text, amount, reason="stop"):
         async def run(value): return {**answer(text), "usage": {"input": amount, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": reason}
         return run
-    runtime = create_runtime(
-        config={"agents": {"nested": {"config": "child.yaml"}}},
-        directory=str(tmp_path),
+    runtime = create_goondan(
+        config={
+            "agents": {name: {"model": name} for name in ("split", "left", "right")},
+            "routes": [
+                {"from": "$input", "to": "split"},
+                {"from": "split", "to": "left"},
+                {"from": "split", "to": "right"},
+                {"from": "left", "to": "$output"},
+                {"from": "right", "to": "$output"},
+            ],
+        },
         models={"split": model("split", 1), "left": model("left", 2), "right": model("right", 3, "length")},
     )
     try:
-        result = await runtime.run_turn("input", conversation_id="nested-branch")
+        result = await runtime.run("input", session_id="parallel-branch")
         assert result["usage"]["input"] == 6
         assert result["finishReason"] == "other"
     finally: await runtime.close()

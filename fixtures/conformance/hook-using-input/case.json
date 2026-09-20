@@ -20,19 +20,19 @@
     "functions": {
       "normalize": {
         "op": "set",
-        "path": "/requestId",
+        "path": "/0/content/0/value/requestId",
         "value": "req-2"
       },
       "showInput": {
-        "op": "get",
-        "path": "/requestId"
+        "op": "constant",
+        "value": "req-2"
       }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": {
           "text": "안녕",
           "requestId": "req-1"

@@ -9,6 +9,6 @@ agents:
       n1: null
       n2: null
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md

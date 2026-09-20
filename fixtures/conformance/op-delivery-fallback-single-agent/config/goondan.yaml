@@ -6,4 +6,4 @@ agents:
         approval: required
   after:
     model: n
-flow: [main, after]
+routes: [main, after]

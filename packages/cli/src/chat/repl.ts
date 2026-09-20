@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { isGoondanExecutionError } from '@goondan/core';
 import type { ChatHost } from './host.js';
 
 export interface ChatReplIO {
@@ -27,7 +28,31 @@ export async function runChatRepl(host: ChatHost, io: ChatReplIO): Promise<void>
         if (input === '/quit' || input === '/exit') { closing = true; readline.close(); return; }
         if (input === '/interrupt') { interrupt(); if (io.terminal) readline.prompt(); return; }
 
-        const submitted = host.submit(input);
+        let value = input;
+        let agent: string | undefined;
+        if (input.startsWith('/steer ')) {
+          const separator = input.indexOf(' ', 7);
+          if (separator < 0 || separator === input.length - 1) {
+            io.error.write('Usage: /steer <AGENT> <INPUT>\n');
+            if (io.terminal) readline.prompt();
+            return;
+          }
+          agent = input.slice(7, separator);
+          value = input.slice(separator + 1);
+        }
+
+        let submitted: ReturnType<ChatHost['submit']>;
+        try {
+          submitted = host.submit(value, agent === undefined ? {} : { agent });
+        } catch (error) {
+          if (isGoondanExecutionError(error) && error.codes.includes('steer_invalid')) {
+            io.error.write(`${error.message}. Use /steer <AGENT> <INPUT> while multiple agents are running.\n`);
+          } else {
+            io.error.write(`${error instanceof Error ? error.message : String(error)}\n`);
+          }
+          if (io.terminal) readline.prompt();
+          return;
+        }
         if (submitted.kind === 'steered') {
           if (io.terminal) { io.output.write('[steered]\n'); readline.prompt(); }
           return;

@@ -10,5 +10,4 @@ agents:
     model: ma
   beta:
     model: mb
-flow:
-  in: main
+routes: [main]

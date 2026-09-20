@@ -4,6 +4,6 @@ agents:
     extensions:
       memo: {}
     hooks:
-      input:
+      conversation:
         - name: note
           extension: memo

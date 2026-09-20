@@ -23,8 +23,10 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
-        "input": "무시되는 입력"
+        "sessionId": "c1",
+        "input": {
+          "q": "무시되는 입력"
+        }
       }
     }
   ]

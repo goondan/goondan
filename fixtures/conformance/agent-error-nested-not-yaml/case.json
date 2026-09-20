@@ -1,7 +1,0 @@
-{
-  "description": "config 에이전트가 가리키는 파일이 YAML 파일이 아니면 그 config 필드 위치에서 load.not_yaml 구성 오류가 된다.",
-  "spec": [
-    "중첩 구성"
-  ],
-  "steps": []
-}

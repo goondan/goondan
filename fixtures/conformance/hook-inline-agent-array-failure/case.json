@@ -42,7 +42,7 @@
         [
           {
             "run": {
-              "conversationId": "c1",
+              "sessionId": "c1",
               "input": "질문"
             }
           }
@@ -53,7 +53,7 @@
           },
           {
             "abort": {
-              "conversationId": "c1"
+              "sessionId": "c1"
             }
           },
           {

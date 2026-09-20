@@ -1,0 +1,23 @@
+{
+  "steps": [{}, {}],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "choose",
+        "value": {
+          "output": null,
+          "text": "hello",
+          "input": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "hello"}]}]
+        }
+      },
+      {
+        "fn": "choose",
+        "value": {
+          "output": null,
+          "text": "{\"kind\":\"object\"}",
+          "input": [{"role": "user", "source": "main", "content": [{"type": "json", "value": {"kind": "object"}}]}]
+        }
+      }
+    ]
+  }
+}

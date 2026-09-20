@@ -24,15 +24,15 @@ def test_json_equality_follows_json_types():
 
 def test_issues_are_sorted_by_position_then_code():
     issues = [
-        _schema.issue("schema.type", ["flow", 10], "b"),
-        _schema.issue("schema.type", ["flow", 2], "a"),
-        _schema.issue("schema.type", ["flow"], "a"),
-        _schema.issue("schema.const", ["flow"], "a"),
-        _schema.issue("schema.const", ["flow"], "a"),
+        _schema.issue("schema.type", ["routes", 10], "b"),
+        _schema.issue("schema.type", ["routes", 2], "a"),
+        _schema.issue("schema.type", ["routes"], "a"),
+        _schema.issue("schema.const", ["routes"], "a"),
+        _schema.issue("schema.const", ["routes"], "a"),
     ]
     assert [(item["code"], item["path"]) for item in _schema.report(issues)] == [
-        ("schema.const", "/flow"),
-        ("schema.type", "/flow"),
-        ("schema.type", "/flow/2"),
-        ("schema.type", "/flow/10"),
+        ("schema.const", "/routes"),
+        ("schema.type", "/routes"),
+        ("schema.type", "/routes/2"),
+        ("schema.type", "/routes/10"),
     ]

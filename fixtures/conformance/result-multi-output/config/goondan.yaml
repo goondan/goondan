@@ -5,14 +5,14 @@ agents:
     model: ml
   right:
     model: mr
-flow:
-  in: split
-  routes:
-    - from: split
-      to: left
-    - from: split
-      to: right
-    - from: left
-      to: out
-    - from: right
-      to: out
+routes:
+  - from: $input
+    to: split
+  - from: split
+    to: left
+  - from: split
+    to: right
+  - from: left
+    to: $output
+  - from: right
+    to: $output

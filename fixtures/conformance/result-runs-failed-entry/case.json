@@ -23,12 +23,18 @@
           }
         ]
       }
+    },
+    "functions": {
+      "stableInput": {
+        "op": "constant",
+        "value": "본문"
+      }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "질문"
       }
     }

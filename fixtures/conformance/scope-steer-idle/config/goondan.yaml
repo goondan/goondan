@@ -1,5 +1,0 @@
-agents:
-  main:
-    model: m
-    input:
-      template: templates/wrap.md

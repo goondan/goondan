@@ -7,6 +7,6 @@ agents:
       list: [a, b]
       tags: {items: [x]}
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md

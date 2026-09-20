@@ -15,10 +15,10 @@ async function temporaryDirectory(): Promise<string> {
 
 function context(name: string, input: Json, signal = new AbortController().signal): ToolContext {
   return {
-    input: null,
+    input: [],
     conversation: [],
     agent: 'main',
-    conversationId: 'conversation-1',
+    sessionId: 'session-1',
     turnId: 'turn-1',
     toolCall: { id: `call-${name}`, name, args: input },
     execution: {},

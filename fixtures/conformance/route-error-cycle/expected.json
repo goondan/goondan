@@ -1,0 +1,15 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "routes.cycle",
+        "path": "/routes/1"
+      },
+      {
+        "code": "routes.cycle",
+        "path": "/routes/2"
+      }
+    ]
+  }
+}

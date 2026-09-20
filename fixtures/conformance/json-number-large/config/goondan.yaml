@@ -7,10 +7,10 @@ agents:
       - template: templates/system.md
   second:
     model: ms
-flow:
-  in: first
-  routes:
-    - from: first
-      to: second
-    - from: second
-      to: out
+routes:
+  - from: $input
+    to: first
+  - from: first
+    to: second
+  - from: second
+    to: $output

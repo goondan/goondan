@@ -23,7 +23,6 @@ export function createDefaultChatConfig(directory: string, model = DEFAULT_ANTHR
           tools: ['read_file', 'write_file', 'list_dir', 'bash'],
         },
       },
-      flow: { in: 'assistant' },
     },
   };
 }

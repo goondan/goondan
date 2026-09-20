@@ -47,27 +47,20 @@ describe('parseChatOptions', () => {
 });
 
 describe('createDefaultChatBindings', () => {
-  it('중첩 구성이 선언한 모델 이름까지 선택한 어댑터에 묶는다', () => {
-    const nested: LoadedConfig = {
-      directory: '/tmp/project/inner',
-      templates: new Map(),
-      config: {
-        version: 1,
-        name: 'inner',
-        agents: { helper: { model: 'inner-model' } },
-        flow: { in: 'helper' },
-      },
-    };
+  it('구성이 선언한 모든 모델 이름을 선택한 어댑터에 묶는다', () => {
     const config: LoadedConfig = {
       directory: '/tmp/project',
       templates: new Map(),
       config: {
         version: 1,
-        name: 'outer',
-        agents: { main: { model: 'outer-model' }, wrap: { config: './inner' } },
-        flow: { in: 'main' },
+        name: 'models',
+        agents: { main: { model: 'main-model' }, helper: { model: 'helper-model' } },
+        routes: [
+          { from: '$input', to: 'main' },
+          { from: 'main', to: 'helper' },
+          { from: 'helper', to: '$output' },
+        ],
       },
-      nested: new Map([['wrap', nested]]),
     };
 
     const bindings = createDefaultChatBindings(
@@ -77,8 +70,8 @@ describe('createDefaultChatBindings', () => {
       {},
     );
 
-    expect(Object.keys(bindings.models).sort()).toEqual(['inner-model', 'outer-model']);
-    expect(bindings.models['inner-model']).toBe(bindings.models['outer-model']);
+    expect(Object.keys(bindings.models).sort()).toEqual(['helper-model', 'main-model']);
+    expect(bindings.models['helper-model']).toBe(bindings.models['main-model']);
     expect(Object.keys(bindings.tools ?? {}).sort()).toEqual(['bash', 'list_dir', 'read_file', 'write_file']);
   });
 });

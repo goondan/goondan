@@ -1,14 +1,28 @@
 {
   "steps": [
-    {},
-    {},
-    {}
+    {
+    },
+    {
+    },
+    {
+    }
   ],
   "observations": {
     "functionCalls": [
       {
         "fn": "asyncNote",
-        "value": "첫"
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "첫"
+              }
+            ]
+          }
+        ]
       }
     ],
     "conversations": {

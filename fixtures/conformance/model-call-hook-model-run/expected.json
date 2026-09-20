@@ -62,19 +62,19 @@
       "m": [
         {
           "agent": "main",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "step": 0
         },
         {
           "agent": "main",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "step": 1
         },
         {
           "agent": "main",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "step": 1
         }

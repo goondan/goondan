@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -15,9 +17,6 @@
         "__proto__": {
           "model": "m"
         }
-      },
-      "flow": {
-        "in": "toString"
       }
     }
   }

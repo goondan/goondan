@@ -1,20 +1,12 @@
 {
-  "description": "제어 결과 표에 없는 단계에서 반환한 같은 모양의 값은 제어 결과가 아니므로 input 단계 훅이 반환한 재시도 모양의 객체는 그대로 에이전트 입력이 된다.",
+  "description": "input 단계 훅이 메시지 배열이 아닌 제어 결과 모양의 객체를 반환하면 훅 실패가 된다.",
   "spec": [
     "제어 결과"
   ],
   "bindings": {
     "models": {
       "m": {
-        "responses": [
-          {
-            "text": "완료",
-            "usage": {
-              "input": 1,
-              "output": 1
-            }
-          }
-        ]
+          "responses": []
       }
     },
     "functions": {
@@ -30,7 +22,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "안녕"
       }
     }

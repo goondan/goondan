@@ -36,7 +36,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 4,
               "output": 2,
@@ -44,7 +44,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           }
         ]
       }
@@ -73,8 +74,11 @@
               ]
             }
           ],
-          "tools": [],
-          "options": {}
+          "tools": [
+
+          ],
+          "options": {
+          }
         }
       ]
     },

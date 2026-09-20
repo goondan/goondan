@@ -1,0 +1,216 @@
+{
+  "steps": [
+    {
+      "result": {
+        "output": {
+          "role": "assistant",
+          "source": "goondan",
+          "content": [
+            {
+              "type": "text",
+              "text": "A\n\nC"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "C"
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input": 3,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "finishReason": "stop",
+        "status": "done",
+        "runs": [
+          {
+            "agent": "a",
+            "turnId": "<turn:1>",
+            "kind": "turn",
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "instance": "c1/a"
+          },
+          {
+            "agent": "c",
+            "turnId": "<turn:2>",
+            "kind": "turn",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "instance": "c1/c"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "first",
+        "value": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ]
+          },
+          "text": "A",
+          "input": [
+            {
+              "role": "user",
+              "source": "a",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "fn": "second",
+        "value": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ]
+          },
+          "text": "A",
+          "input": [
+            {
+              "role": "user",
+              "source": "a",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "fn": "third",
+        "value": {
+          "output": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ]
+          },
+          "text": "A",
+          "input": [
+            {
+              "role": "user",
+              "source": "a",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "c1/a": [
+        {
+          "role": "user",
+          "source": "a",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ]
+        }
+      ],
+      "c1/c": [
+        {
+          "role": "user",
+          "source": "c",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ],
+          "meta": {
+            "from": "a",
+            "instance": "c1/a"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "C"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

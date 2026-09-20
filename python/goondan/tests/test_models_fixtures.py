@@ -104,7 +104,7 @@ class _Context:
 
     def __init__(self) -> None:
         self.agent = "main"
-        self.conversation_id = "fixture"
+        self.session_id = "fixture"
         self.turn_id = "turn"
         self.step = 1
         self.deltas: list[str] = []

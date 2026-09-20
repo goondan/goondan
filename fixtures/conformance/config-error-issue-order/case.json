@@ -1,5 +1,5 @@
 {
-  "description": "배열형 flow에 같은 에이전트가 다시 나오면 앞 항목과 같은 항목마다 그 항목 위치에서 schema.uniqueItems를 보고하며, issues는 배열의 번호를 수로 비교해 정렬한다.",
+  "description": "이름 배열형 routes에 같은 에이전트가 다시 나오면 앞 항목과 같은 항목마다 그 항목 위치에서 schema.uniqueItems를 보고하며, issues는 배열의 번호를 수로 비교해 정렬한다.",
   "spec": [
     "구성 오류",
     "오류 코드"

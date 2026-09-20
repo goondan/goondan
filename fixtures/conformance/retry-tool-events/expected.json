@@ -28,16 +28,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "요청"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "요청"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -46,7 +57,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -56,23 +67,25 @@
       {
         "name": "tool.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {}
+          "args": {
+          }
         }
       },
       {
         "name": "tool.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {},
+          "args": {
+          },
           "codes": [
             "tool_error"
           ]
@@ -81,7 +94,7 @@
       {
         "name": "hook.applied",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "error",
@@ -91,27 +104,30 @@
       {
         "name": "tool.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {}
+          "args": {
+          }
         }
       },
       {
         "name": "tool.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {},
+          "args": {
+          },
           "result": {
             "callId": "c-1",
             "name": "flaky",
-            "args": {},
+            "args": {
+            },
             "content": [
               {
                 "type": "text",
@@ -124,7 +140,7 @@
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 2
@@ -133,7 +149,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 2,
@@ -143,7 +159,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

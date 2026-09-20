@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "conversations": {
@@ -8,6 +9,16 @@
         {
           "role": "user",
           "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "t",
           "content": [
             {
               "type": "text",

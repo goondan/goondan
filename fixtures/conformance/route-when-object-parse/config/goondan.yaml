@@ -1,0 +1,10 @@
+agents:
+  source: {model: sourceModel}
+  wrong: {model: wrongModel}
+  good: {model: goodModel}
+routes:
+  - {from: $input, to: source}
+  - {from: source, to: wrong, when: {output: {kind: special}}}
+  - {from: source, to: good}
+  - {from: wrong, to: $output}
+  - {from: good, to: $output}

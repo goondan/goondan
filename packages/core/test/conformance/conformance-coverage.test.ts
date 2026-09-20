@@ -17,7 +17,7 @@ describe("parseSpecHeadings", () => {
   });
 
   it("keeps trailing hashes out of the title but not inline backticks", () => {
-    expect(parseSpecHeadings("## `flow` 선언  ")[0]?.title).toBe("`flow` 선언");
+    expect(parseSpecHeadings("## `routes` 선언  ")[0]?.title).toBe("`routes` 선언");
   });
 });
 

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from goondan import GoondanExecutionError, create_runtime, define_tool
+from goondan import GoondanExecutionError, create_goondan, define_tool
 
 
 def answer(text: str = "done") -> dict[str, Any]:
@@ -62,7 +62,7 @@ def stage_functions() -> dict[str, Any]:
 
 async def test_one_run_reports_its_stages_calls_and_turn_events_in_order():
     host = Host()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=hooked(["work"]),
         models={"m": replies(call("work"), answer())},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: [{"type": "text", "text": "ok"}])},
@@ -70,7 +70,7 @@ async def test_one_run_reports_its_stages_calls_and_turn_events_in_order():
         host=host,
     )
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert host.order() == [
             "hook.applied:input", "turn.start",
             "hook.applied:conversation",
@@ -91,14 +91,14 @@ async def test_the_events_of_an_agent_tool_run_happen_between_tool_start_and_the
             "worker": {"model": "worker"},
         },
     }
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config,
         models={"main": replies(call("worker"), answer()), "worker": replies(answer("worked"))},
         functions={"keep": lambda value: value},
         host=host,
     )
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert host.agents() == [
             ("turn.start", "main"), ("step.start", "main"), ("step.done", "main"),
             ("tool.start", "main"),
@@ -121,9 +121,9 @@ async def test_a_failure_reports_the_error_stage_after_the_step_or_tool_error():
         return answer()
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"name": "again", "fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model"}}, host=host)
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model"}}, host=host)
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert host.order() == [
             "turn.start", "step.start", "step.error", "hook.applied:again",
             "step.start", "step.done", "turn.done",
@@ -139,10 +139,10 @@ async def test_a_run_that_fails_in_the_input_stage_reports_turn_error_without_tu
     def broken(value: Any) -> Any:
         raise RuntimeError("no input")
 
-    runtime = create_runtime(config=config, models={"m": replies(answer())}, functions={"broken": broken}, host=host)
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, functions={"broken": broken}, host=host)
     try:
         with pytest.raises(GoondanExecutionError):
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert host.order() == ["hook.failed:broken", "turn.error"]
         assert host.events[-1]["data"] == {"where": "input", "codes": ["hook_error"], "error": "no input"}
     finally:
@@ -156,7 +156,7 @@ async def test_a_call_a_hook_answered_reports_the_tool_result_stage_and_no_tool_
         "toolResult": [{"name": "after", "fn": "keep"}],
     }}}}
     result = {"callId": "call-1", "name": "work", "args": {}, "content": [{"type": "text", "text": "cached"}]}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config,
         models={"m": replies(call("work"), answer())},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: value)},
@@ -164,7 +164,7 @@ async def test_a_call_a_hook_answered_reports_the_tool_result_stage_and_no_tool_
         host=host,
     )
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert [name for name in host.order() if name.startswith("tool.") or name.startswith("hook.")] == [
             "hook.applied:answer", "hook.applied:after",
         ]
@@ -178,7 +178,7 @@ async def test_a_call_that_created_an_approval_reports_no_tool_event():
         "toolCall": [{"name": "before", "fn": "keep"}],
         "toolResult": [{"name": "after", "fn": "keep"}],
     }}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config,
         models={"m": replies(call("work"), answer())},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: value)},
@@ -186,7 +186,7 @@ async def test_a_call_that_created_an_approval_reports_no_tool_event():
         host=host,
     )
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         # §이벤트 순서 4: the toolCall stage, then humanApproval.created and no tool event.
         # The pending tool result skips the toolResult stage.
         assert [name for name in host.order() if name.startswith("tool.") or name.startswith("hook.") or name.startswith("humanApproval.")] == [
@@ -199,7 +199,7 @@ async def test_a_call_that_created_an_approval_reports_no_tool_event():
 async def test_a_call_that_is_not_available_reports_no_tool_event():
     host = Host()
     config = {"agents": {"main": {"model": "m", "tools": ["work"]}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config,
         models={"m": replies(call("missing"), answer())},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: value)},
@@ -207,7 +207,7 @@ async def test_a_call_that_is_not_available_reports_no_tool_event():
     )
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert error.value.codes == ["tool_unavailable"]
         assert host.order() == ["turn.start", "step.start", "step.done", "turn.error"]
     finally:

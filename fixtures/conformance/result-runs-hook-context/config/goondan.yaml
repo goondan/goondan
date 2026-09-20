@@ -9,5 +9,4 @@ agents:
           extension: probe
   helper:
     model: hm
-flow:
-  in: main
+routes: [main]

@@ -38,7 +38,8 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },
@@ -74,16 +75,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "안녕"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -92,7 +104,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -102,18 +114,19 @@
       {
         "name": "tool.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "lookup",
           "callId": "c-1",
-          "args": {}
+          "args": {
+          }
         }
       },
       {
         "name": "hook.failed",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "toolResult",
@@ -123,16 +136,18 @@
       {
         "name": "tool.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "lookup",
           "callId": "c-1",
-          "args": {},
+          "args": {
+          },
           "result": {
             "callId": "c-1",
             "name": "lookup",
-            "args": {},
+            "args": {
+            },
             "content": [
               {
                 "type": "text",
@@ -145,7 +160,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

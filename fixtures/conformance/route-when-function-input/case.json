@@ -1,0 +1,12 @@
+{
+  "description": "$input route의 when 함수는 output null, 입력 텍스트와 변환된 턴 입력 메시지 배열을 받는다.",
+  "spec": ["route 조건", "입력"],
+  "bindings": {
+    "models": {"m": {"responses": [{"text": "하나"}, {"text": "둘"}]}},
+    "functions": {"choose": {"op": "constant", "value": true}}
+  },
+  "steps": [
+    {"run": {"sessionId": "s1", "input": "hello"}},
+    {"run": {"sessionId": "s2", "input": {"kind": "object"}}}
+  ]
+}

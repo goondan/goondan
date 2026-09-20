@@ -1,0 +1,10 @@
+agents:
+  main:
+    model: m
+routes:
+  - from: $input
+    to: main
+  - from: main
+    to: main
+  - from: main
+    to: $output

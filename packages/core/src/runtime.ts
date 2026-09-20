@@ -3,25 +3,25 @@ import { MemoryConversationStore, MemoryOperationStore } from "./store.ts";
 import { prepareRuntimeConfig } from "./config.ts";
 import { bindingIssues, instanceIssues, toolEntry, type ProvidedExtension } from "./binding.ts";
 import { GoondanConfigError, GoondanExecutionError, isGoondanConfigError, raiseIssues } from "./errors.ts";
-import { isJsonObject, jsonText, pointer } from "./json.ts";
+import { isJsonObject, jsonEqual, jsonText } from "./json.ts";
 import { inlineHookIdentifier, isValueName } from "./effective.ts";
 import {
   approvalReason, completionInput, decisionIssue, decisionUpdate, effectiveCall, interruptedMessage,
   isTerminalStatus, newOperation, patchIssue, patchedCall, pendingToolContent, validationFailedMessage,
 } from "./operation.ts";
 import {
-  appendMessages, controlResult, isControlIssue, isMessage, isMessageArray, isModelInput, isModelResult,
-  isToolCall, isToolResult, repairToolPairs, stageValueIssue, textOf, type ControlResult,
+  appendMessages, controlResult, inputTextOf, isControlIssue, isMessage, isMessageArray, isModelInput, isModelResult,
+  isPartArray, isToolCall, isToolResult, repairToolPairs, stageValueIssue, textOf, type ControlResult,
 } from "./stage.ts";
 import {
-  addUsage, detachedSink, failRun, finishRun, flattenRuns, recordModelCall, startRun, totalUsage, zeroUsage,
+  abortRun, addUsage, detachedSink, failRun, finishRun, flattenRuns, recordModelCall, startRun, totalUsage, zeroUsage,
   type RunNode, type RunSink,
 } from "./runs.ts";
 import {
-  type AgentRunResult, type AgentSpec, type ApprovalRequest, type Block, type ConfigIssue,
+  type AgentRunResult, type AgentSpec, type ApprovalRequest, type Block,
   type ExtensionInstance, type HookContext, type HookResult, type InlineHookSpec, type Json,
   type LoadedConfig, type Message, type GoondanFunction, type ModelInput, type ModelResult, type Part,
-  type RouteSpec, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent, type ErrorLocation, type RuntimeEventName,
+  type RouteSpec, type RunInput, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent, type ErrorLocation, type RuntimeEventName,
   type OperationCompletion, type OperationDecision, type OperationStatus, type OperationUpdate,
   type MessageExtra, type PendingOperation, type Tool, type ToolCall, type ToolContext,
   type ToolDefinition, type ToolResult, type TurnError, type TurnResult, type Usage, type ValueName,
@@ -36,11 +36,10 @@ function abortFailure(cause?: unknown): GoondanExecutionError {
 }
 
 /**
- * The execution error of a failure outside an agent run: an unusable start agent, a route condition
- * or a `carry` the runtime could not apply, and a flow that matched no route.
+ * 에이전트 실행 밖에서 발생한 route 조건 오류나 진행할 route가 없는 오류입니다.
  */
-function flowFailure(message: string, cause?: unknown): GoondanExecutionError {
-  return new GoondanExecutionError({ where: "runtime", codes: ["flow_error"], message }, cause === undefined ? undefined : { cause });
+function routeFailure(message: string, cause?: unknown): GoondanExecutionError {
+  return new GoondanExecutionError({ where: "runtime", codes: ["route_error"], message }, cause === undefined ? undefined : { cause });
 }
 
 /** The execution error of a run that could not prepare its extension instances. */
@@ -135,27 +134,28 @@ interface StageRun {
   /** The retry a `{retry}` result requested; the remaining hooks do not run. */
   retry?: { target: "model" | "tool"; afterMs?: number };
 }
-/** What one branch of the flow produced: the outputs that reached `out` and how each run ended. */
-interface FlowRunResult { outputs: Message[]; finishReasons: string[] }
+/** route 실행이 `$output`에 전달한 출력과 각 실행의 종료 사유입니다. */
+interface RouteRunResult { outputs: Message[]; finishReasons: string[] }
 /**
- * What an agent run is to the host: the conversation identifier the host can abort and steer, and
- * whether the run is a flow step that receives steered input. `host` is `null` for the detached
- * execution of an approved operation, which only `close()` stops.
+ * 호스트가 중단하거나 실행 중 입력을 보낼 세션과 흐름 실행 여부입니다. 승인 작업의 독립 실행은
+ * `host`가 `null`이며 `close()`만 중단합니다.
  */
 interface RunScope { host: string | null; foreground: boolean }
 /** The options an agent run takes; the public {@link RunOptions} never carries a conversation. */
-interface AgentRunOptions { conversationId: string; signal?: AbortSignal; conversation?: Message[] }
+interface AgentRunOptions { sessionId: string; signal?: AbortSignal; foreground: boolean }
 interface RunRegistration { signal: AbortSignal; release(): void }
-interface ResolvedAgent { runtime: GoondanRuntime; agent: string }
+interface QueuedSteer { value: Json; agent?: string }
+interface PendingRouteInput { routeIndex: number; order: number; messages: Message[] }
+interface RouteCompletion { token: string; agent: string; input: PendingRouteInput[]; result?: AgentRunResult; error?: unknown }
 interface TurnState {
-  completion?: Message; retryTool?: RetryToolStage; agent: string; path: string; scope: RunScope;
-  agentSpec: AgentSpec; conversationId: string; turnId: string; input: Json; conversation: Message[];
+  completion?: Message; retryTool?: RetryToolStage; agent: string; instance: string; scope: RunScope;
+  agentSpec: AgentSpec; sessionId: string; turnId: string; input: Message[]; conversation: Message[];
   step: number; retryCount: number; signal: AbortSignal; messageNumber: number;
   /** The usage of the model responses this run received itself; a sub-run keeps its own. */
   usage: Usage;
   /** The records of the runs this one started, in the order it started them. */
   runs: RunNode[];
-  extensions: Map<string, ExtensionInstance>; pending: Map<string, AsyncHookTask>;
+  extensions: Map<string, ExtensionInstance>; pending: Map<string, AsyncHookTask>; asyncController: AbortController;
   /**
    * The calls of the model response being processed whose result this run already stored. A retry
    * does not follow a request for one of them; every new response starts the set again, so a call a
@@ -164,146 +164,136 @@ interface TurnState {
   storedCalls: Set<string>;
   /** An approved operation's execution is not an agent run, so `execution.complete` has no effect. */
   operation: boolean;
+  operationInput?: { type: "operation_execution"; operationId: string };
   /** A failure inside the `error` stage is never sent to the `error` stage again. */
   handlingError: boolean;
   emitting: Promise<void>;
 }
 
-/** Distinguishes (conversationId, agent) pairs without the aliasing a joined string would allow. */
-function scopeKey(conversationId: string, agent: string): string { return JSON.stringify([conversationId, agent]); }
+/** 문자열 결합에서 생길 수 있는 충돌 없이 `(sessionId, agent)` 조합을 구분합니다. */
+function scopeKey(sessionId: string, agent: string): string { return JSON.stringify([sessionId, agent]); }
 
-export class GoondanRuntime {
+export class Goondan {
   readonly #renderer: TemplateRenderer;
   readonly #bindings: RuntimeBindings;
   readonly #store;
   readonly #operationStore;
   readonly #instances = new Map<string, Map<string, ExtensionInstance>>();
   readonly #pendingHooks = new Map<string, Map<string, AsyncHookTask>>();
-  /** Root only: tells every scheduled asynchronous hook that the runtime was closed. */
-  readonly #closing = new AbortController();
-  /** Root only: one controller per agent run, grouped by the conversation the host can abort. */
+  /** 실행 범위별 비동기 훅 작업에 세션 삭제나 객체 종료를 알립니다. */
+  readonly #asyncControllers = new Map<string, AbortController>();
+  /** 실행 중인 턴마다 하나씩 두며, 호스트가 중단할 수 있는 세션별로 묶은 컨트롤러입니다. */
   readonly #controllers = new Map<string, Set<AbortController>>();
-  /** Root only: the controllers of approved-operation executions, which only `close()` aborts. */
+  /** `close()`만 중단하는 승인 작업 실행의 컨트롤러입니다. */
   readonly #detached = new Set<AbortController>();
-  readonly #queuedInput = new Map<string, Json[]>();
-  readonly #nested = new Map<string, GoondanRuntime>();
+  readonly #queuedInput = new Map<string, QueuedSteer[]>();
   readonly #operationExecutions = new Map<string, Promise<void>>();
-  /** Root only: the completion deliveries this runtime is carrying out, which recovery leaves alone. */
+  /** 이 객체가 실행 중인 완료 전달 작업입니다. 복구할 때에는 그대로 둡니다. */
   readonly #deliveries = new Map<string, Promise<void>>();
-  readonly #activeRuns = new Map<string, Promise<AgentRunResult>>();
-  /** Root only: the work `idle()` waits for — async hooks, operation executions and deliveries. */
+  readonly #activeTurns = new Map<string, Promise<TurnResult>>();
+  readonly #turnTails = new Map<string, Promise<void>>();
+  readonly #turnCounts = new Map<string, number>();
+  readonly #agentTails = new Map<string, Promise<void>>();
+  readonly #foregroundAgents = new Map<string, Map<string, number>>();
+  /** `idle()`이 기다리는 비동기 훅, 작업 실행과 완료 전달입니다. */
   readonly #tasks = new Set<Promise<void>>();
-  /** The agent path prefix of this runtime; `""` in the runtime the host created. */
-  #prefix = "";
-  #root: GoondanRuntime = this;
   #closed = false;
   readonly loaded: LoadedConfig;
+  readonly sessions: { delete(sessionId: string): Promise<void> };
   constructor(input: LoadedConfig | unknown, bindings: RuntimeBindings) {
     const retries = bindings.maxRetries;
     if (retries !== undefined && (!Number.isInteger(retries) || retries < 0)) throw new TypeError("maxRetries must be an integer of 0 or more");
     const steps = bindings.maxSteps;
     if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new TypeError("maxSteps must be an integer of 1 or more");
     const loaded = prepareRuntimeConfig(input, bindings.directory);
-    raiseIssues(collectBindingIssues(loaded, bindings, ""));
+    raiseIssues(bindingIssues(loaded.config, bindings));
     this.loaded = loaded;
     this.#bindings = bindings;
     this.#store = bindings.conversationStore ?? new MemoryConversationStore();
     this.#operationStore = bindings.operationStore ?? new MemoryOperationStore();
     this.#renderer = new TemplateRenderer(loaded.templates, loaded.directory);
-    // Nested configurations share the stores this runtime resolved, even when the host bound none.
-    const nestedBindings: RuntimeBindings = { ...bindings, conversationStore: this.#store, operationStore: this.#operationStore };
-    for (const [name, nested] of loaded.nested ?? []) {
-      const child = new GoondanRuntime(nested, nestedBindings);
-      child.#rebase(`${name}/`, this);
-      this.#nested.set(name, child);
-    }
+    this.sessions = { delete: async (sessionId) => { await this.#deleteSession(sessionId); } };
   }
 
-  /** Gives a nested runtime its agent path prefix and the root that owns routing, abort and steering. */
-  #rebase(prefix: string, root: GoondanRuntime): void {
-    this.#prefix = prefix;
-    this.#root = root;
-    for (const [name, child] of this.#nested) child.#rebase(`${prefix}${name}/`, root);
+  run(input: RunInput, options: RunOptions): Promise<TurnResult> {
+    try { this.#hostSession(options.sessionId); } catch (error) { return Promise.reject(error); }
+    if (this.#closed) return Promise.reject(closedFailure());
+    const sessionId = options.sessionId;
+    const previous = this.#turnTails.get(sessionId) ?? Promise.resolve();
+    this.#turnCounts.set(sessionId, (this.#turnCounts.get(sessionId) ?? 0) + 1);
+    const running = previous.catch(() => undefined).then(async () => {
+      if (this.#closed) throw closedFailure();
+      const turn = this.#executeTurn(input, options, { host: sessionId, foreground: true }, { kind: "turn", nodes: [] });
+      this.#activeTurns.set(sessionId, turn);
+      try { return await turn; }
+      finally { if (this.#activeTurns.get(sessionId) === turn) this.#activeTurns.delete(sessionId); }
+    });
+    const tail = running.then(() => undefined, () => undefined);
+    this.#turnTails.set(sessionId, tail);
+    void tail.finally(() => {
+      const count = (this.#turnCounts.get(sessionId) ?? 1) - 1;
+      if (count === 0) { this.#turnCounts.delete(sessionId); if (this.#turnTails.get(sessionId) === tail) this.#turnTails.delete(sessionId); }
+      else this.#turnCounts.set(sessionId, count);
+    });
+    return running;
   }
 
-  /** The agent path of a locally declared agent. */
-  #path(agent: string): string { return `${this.#prefix}${agent}`; }
-
-  /** Finds the runtime and local name an agent path names, or `undefined` when it names no agent. */
-  #resolve(path: string): ResolvedAgent | undefined {
-    const slash = path.indexOf("/");
-    if (slash < 0) return path !== "" && this.loaded.config.agents[path] ? { runtime: this, agent: path } : undefined;
-    const head = path.slice(0, slash);
-    const rest = path.slice(slash + 1);
-    if (head === "" || rest === "") return undefined;
-    const child = this.#nested.get(head);
-    return child ? child.#resolve(rest) : undefined;
-  }
-
-  async runTurn(input: Json, options: RunOptions): Promise<TurnResult> {
-    const root = this.#root;
-    if (root.#closed) throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "The runtime is closed" });
-    const running = this.#runTurn(input, options, { host: options.conversationId, foreground: true }, { kind: "flow", nodes: [] });
-    root.#activeRuns.set(options.conversationId, running);
-    try { return await running; } finally { if (root.#activeRuns.get(options.conversationId) === running) root.#activeRuns.delete(options.conversationId); }
-  }
-
-  /**
-   * Runs one turn. `sink` collects the agent run records of the turn: the runtime the host created
-   * starts a new list, and a nested configuration joins the list of the turn that runs it.
-   */
-  async #runTurn(input: Json, options: RunOptions, scope: RunScope, sink: RunSink): Promise<TurnResult> {
-    if (options.agent !== undefined && options.startAgent !== undefined) throw flowFailure("a turn declares either agent or startAgent, not both");
-    if (options.startAgent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.startAgent)) throw flowFailure(`Unknown agent: ${options.startAgent}`);
-    if (options.agent !== undefined) {
-      const target = this.#resolve(options.agent);
-      if (!target) throw flowFailure(`Unknown agent: ${options.agent}`);
-      if (target.runtime !== this) return target.runtime.#runTurn(input, { ...options, agent: target.agent }, scope, sink);
-    }
-    const routes = this.loaded.config.flow.routes;
+  async #executeTurn(input: RunInput, options: RunOptions, scope: RunScope, sink: RunSink): Promise<TurnResult> {
+    if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a turn declares either agent or startAgent, not both");
+    if (options.startAgent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.startAgent)) throw routeFailure(`Unknown agent: ${options.startAgent}`);
+    if (options.agent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.agent)) throw routeFailure(`Unknown agent: ${options.agent}`);
+    const routes = this.loaded.config.routes;
     // A start agent that no route continues from cannot progress, so no agent runs at all.
     if (options.startAgent !== undefined && routes && !routes.some((route) => route.from === options.startAgent)) {
-      throw flowFailure(`No flow route starts from ${options.startAgent}`);
+      throw routeFailure(`No route starts from ${options.startAgent}`);
     }
     const registration = this.#register(scope, options.signal);
-    // A nested turn shares the list of the turn that runs it, so its own result counts only its part.
     const start = sink.nodes.length;
     try {
-      const agent = options.startAgent ?? options.agent ?? this.loaded.config.flow.in;
-      const flow = await this.#runFlow(agent, input, { conversationId: options.conversationId, signal: registration.signal }, scope, options.agent === undefined, sink);
-      const [first] = flow.outputs;
-      if (first === undefined) throw flowFailure("the flow reached no output");
+      let routed: RouteRunResult;
+      if (options.agent !== undefined) {
+        const messages = this.#toMessages(input, options.agent);
+        const result = await this.#runAgent(options.agent, messages, { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+        routed = { outputs: [result.output], finishReasons: [result.finishReason] };
+      } else if (routes === undefined) {
+        const agent = options.startAgent ?? Object.keys(this.loaded.config.agents)[0];
+        if (agent === undefined) throw routeFailure("the goondan declares no agent");
+        const result = await this.#runAgent(agent, this.#toMessages(input, agent), { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+        routed = { outputs: [result.output], finishReasons: [result.finishReason] };
+      } else {
+        routed = await this.#runRoutes(input, options.startAgent, { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+      }
+      const [first] = routed.outputs;
+      if (first === undefined) throw routeFailure("the routes reached no output");
       // Several outputs are joined into a new message that carries no optional field and is stored
       // in no conversation; a single output is that output itself.
-      const output: Message = flow.outputs.length === 1 ? first : this.#flowOutput(flow.outputs);
-      const finishReason = flow.finishReasons.every((value) => value === flow.finishReasons[0]) ? flow.finishReasons[0] ?? "stop" : "other";
+      const output: Message = routed.outputs.length === 1 ? first : this.#goondanOutput(routed.outputs);
+      const finishReason = routed.finishReasons.every((value) => value === routed.finishReasons[0]) ? routed.finishReasons[0] ?? "stop" : "other";
       const runs = flattenRuns(sink.nodes.slice(start));
-      return { output, outputs: flow.outputs, usage: totalUsage(runs), finishReason, status: "done", runs };
+      return { output, outputs: routed.outputs, usage: totalUsage(runs), finishReason, status: "done", runs };
     } finally { registration.release(); }
   }
 
   /**
-   * The representative output of a turn that reached `out` more than once: a new assistant message
-   * whose `source` is `flow` and whose single `text` part joins the output texts with a blank line.
+   * `$output`에 둘 이상의 메시지가 도달했을 때 만드는 대표 출력입니다. 출력 텍스트를 빈 줄로
+   * 연결한 `text` 부분 하나와 `goondan` source를 가집니다.
    */
-  #flowOutput(outputs: readonly Message[]): Message {
-    return { id: this.#id(), role: "assistant", source: "flow", content: [{ type: "text", text: outputs.map((item) => textOf(item.content)).join("\n\n") }] };
+  #goondanOutput(outputs: readonly Message[]): Message {
+    return { id: this.#id(), role: "assistant", source: "goondan", content: [{ type: "text", text: outputs.map((item) => textOf(item.content)).join("\n\n") }] };
   }
 
   /**
-   * Registers one abort controller for a run. The root keeps it in the set of the conversation the
-   * host aborts, so a run started between flow steps is stopped too, and `release()` removes only
-   * this controller.
+   * 실행 하나의 중단 컨트롤러를 등록합니다. 같은 호스트 세션에서 시작한 하위 실행도 함께
+   * 중단하며 `release()`는 이 컨트롤러만 제거합니다.
    */
   #register(scope: RunScope, parent?: AbortSignal): RunRegistration {
-    const root = this.#root;
     const controller = new AbortController();
     let set: Set<AbortController>;
-    if (scope.host === null) set = root.#detached;
+    if (scope.host === null) set = this.#detached;
     else {
-      const existing = root.#controllers.get(scope.host);
+      const existing = this.#controllers.get(scope.host);
       set = existing ?? new Set<AbortController>();
-      if (!existing) root.#controllers.set(scope.host, set);
+      if (!existing) this.#controllers.set(scope.host, set);
     }
     set.add(controller);
     const onAbort = () => { controller.abort(); };
@@ -313,35 +303,33 @@ export class GoondanRuntime {
       release: () => {
         parent?.removeEventListener("abort", onAbort);
         set.delete(controller);
-        if (scope.host !== null && set.size === 0) root.#controllers.delete(scope.host);
+        if (scope.host !== null && set.size === 0) this.#controllers.delete(scope.host);
       },
     };
   }
 
   /** Records background work so that `idle()` can wait for it. */
   #track(work: Promise<unknown>): void {
-    const root = this.#root;
     const entry = work.then(() => undefined, () => undefined);
-    root.#tasks.add(entry);
-    void entry.then(() => { root.#tasks.delete(entry); });
+    this.#tasks.add(entry);
+    void entry.then(() => { this.#tasks.delete(entry); });
   }
 
   /** Resolves when the work the runtime carries on outside a host request has finished. */
   async idle(): Promise<void> {
-    const root = this.#root;
-    while (root.#tasks.size > 0) await Promise.all([...root.#tasks]);
+    while (this.#tasks.size > 0) await Promise.all([...this.#tasks]);
   }
 
   /** The stored operations in creation order, of one conversation or of the whole store. */
-  async listOperations(conversationId?: string): Promise<PendingOperation[]> { return this.#operationStore.list(conversationId); }
+  async listOperations(sessionId?: string): Promise<PendingOperation[]> { return this.#operationStore.list(sessionId); }
 
   /**
    * Approves or rejects a pending operation. The decision returns as soon as it is recorded and never
    * waits for the execution or the completion delivery it starts.
    */
-  async decideOperation(conversationId: string, operationId: string, resolution: OperationDecision): Promise<PendingOperation> {
-    if (this.#root.#closed) throw closedFailure();
-    const operation = await this.#operationStore.get(conversationId, operationId);
+  async decideOperation(sessionId: string, operationId: string, resolution: OperationDecision): Promise<PendingOperation> {
+    if (this.#closed) throw closedFailure();
+    const operation = await this.#operationStore.get(sessionId, operationId);
     if (!operation) throw operationInvalid(`Unknown operation: ${operationId}`);
     const invalid = decisionIssue(resolution);
     if (invalid) throw operationInvalid(invalid);
@@ -350,7 +338,7 @@ export class GoondanRuntime {
       : await this.#patchUpdate(resolution, operation);
     const updated = await this.#transition(operation, ["pending"], update);
     // A decision that arrives for an operation which is no longer pending changes nothing.
-    if (!updated) return (await this.#operationStore.get(conversationId, operationId)) ?? operation;
+    if (!updated) return (await this.#operationStore.get(sessionId, operationId)) ?? operation;
     if (updated.status === "approved") this.#startOperation(updated);
     else this.#startDelivery(updated);
     return updated;
@@ -376,12 +364,12 @@ export class GoondanRuntime {
   }
 
   /** Cancels an operation that has not started running; a running or settled one does not change. */
-  async cancelOperation(conversationId: string, operationId: string): Promise<PendingOperation> {
-    if (this.#root.#closed) throw closedFailure();
-    const operation = await this.#operationStore.get(conversationId, operationId);
+  async cancelOperation(sessionId: string, operationId: string): Promise<PendingOperation> {
+    if (this.#closed) throw closedFailure();
+    const operation = await this.#operationStore.get(sessionId, operationId);
     if (!operation) throw operationInvalid(`Unknown operation: ${operationId}`);
     const updated = await this.#transition(operation, ["pending", "approved"], { status: "cancelled" });
-    if (!updated) return (await this.#operationStore.get(conversationId, operationId)) ?? operation;
+    if (!updated) return (await this.#operationStore.get(sessionId, operationId)) ?? operation;
     this.#startDelivery(updated);
     return updated;
   }
@@ -391,13 +379,12 @@ export class GoondanRuntime {
    * pending approval was requested again and the remaining work was started, and reports the first
    * failed approval request after processing every operation.
    */
-  async recoverOperations(conversationId?: string): Promise<void> {
-    const root = this.#root;
-    if (root.#closed) throw closedFailure();
+  async recoverOperations(sessionId?: string): Promise<void> {
+    if (this.#closed) throw closedFailure();
     let first: unknown;
-    for (const operation of await this.#operationStore.list(conversationId)) {
+    for (const operation of await this.#operationStore.list(sessionId)) {
       // Work this runtime is still carrying out is not treated as interrupted.
-      if (root.#operationExecutions.has(operation.operationId) || root.#deliveries.has(operation.operationId)) continue;
+      if (this.#operationExecutions.has(operation.operationId) || this.#deliveries.has(operation.operationId)) continue;
       if (operation.status === "pending") {
         try { await this.#requestApproval(operation); } catch (error) { if (first === undefined) first = error; }
         continue;
@@ -410,7 +397,7 @@ export class GoondanRuntime {
       }
       if (operation.deliveryStatus === "delivered") continue;
       const ready = operation.deliveryStatus === "delivering"
-        ? await this.#operationStore.releaseDelivery(operation.conversationId, operation.operationId, operation.deliveryId, this.#now())
+        ? await this.#operationStore.releaseDelivery(operation.sessionId, operation.operationId, operation.deliveryId, this.#now())
         : operation;
       if (ready) this.#startDelivery(ready);
     }
@@ -422,15 +409,31 @@ export class GoondanRuntime {
     const host = this.#bindings.host;
     if (!host?.requestApproval) return;
     await host.requestApproval({
-      operationId: operation.operationId, conversationId: operation.conversationId, turnId: operation.turnId,
+      operationId: operation.operationId, sessionId: operation.sessionId, turnId: operation.turnId,
       agent: operation.agent, toolCall: structuredClone(operation.toolCall), reasons: [...operation.reasons],
     });
   }
-  steer(conversationId: string, input: Json): void { const root = this.#root; if (root.#closed) return; const queue = root.#queuedInput.get(conversationId) ?? []; queue.push(input); root.#queuedInput.set(conversationId, queue); }
-  abort(conversationId: string): boolean {
-    const root = this.#root;
-    if (root.#closed) return false;
-    const controllers = root.#controllers.get(conversationId);
+  steer(sessionId: string, input: Json, options: { agent?: string } = {}): void {
+    this.#hostSession(sessionId);
+    if (this.#closed) return;
+    if (options.agent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.agent)) throw this.#steerFailure(`Unknown agent: ${options.agent}`);
+    const foreground = this.#foregroundAgents.get(sessionId);
+    let agent = options.agent;
+    if (agent !== undefined && (foreground?.get(agent) ?? 0) > 1) throw this.#steerFailure(`More than one ${agent} execution is running`);
+    if (agent === undefined && foreground) {
+      const running = [...foreground.entries()].flatMap(([name, count]) => Array.from({ length: count }, () => name));
+      if (running.length === 1) agent = running[0];
+      else if (running.length > 1) throw this.#steerFailure("agent is required while more than one route execution is running");
+    }
+    const queue = this.#queuedInput.get(sessionId) ?? [];
+    const item: QueuedSteer = { value: structuredClone(input) };
+    if (agent !== undefined) item.agent = agent;
+    queue.push(item); this.#queuedInput.set(sessionId, queue);
+  }
+  abort(sessionId: string): boolean {
+    this.#hostSession(sessionId);
+    if (this.#closed) return false;
+    const controllers = this.#controllers.get(sessionId);
     if (!controllers || controllers.size === 0) return false;
     for (const controller of [...controllers]) controller.abort();
     return true;
@@ -440,115 +443,191 @@ export class GoondanRuntime {
    * extension instances. What an operation left in the store stays as it is, so the recovery of a new
    * runtime built on the same store continues it.
    */
-  async close(): Promise<void> { await this.#root.#shutdown(); }
+  async close(): Promise<void> { await this.#shutdown(); }
 
-  /** Closes one runtime of the tree and then the nested runtimes it owns. */
+  /** 군단 객체가 가진 실행과 비동기 작업을 종료합니다. */
   async #shutdown(): Promise<void> {
     this.#closed = true;
     // Only the runtime the host created holds runs, detached executions and the steering queue.
     for (const controllers of this.#controllers.values()) for (const controller of [...controllers]) controller.abort();
     for (const controller of [...this.#detached]) controller.abort();
     this.#queuedInput.clear();
-    // A closed runtime tells its asynchronous hooks to stop and never applies what they return.
-    this.#closing.abort();
+    // 종료된 객체는 비동기 훅에 중단을 알리고 이후 결과를 반영하지 않습니다.
+    for (const controller of this.#asyncControllers.values()) controller.abort();
+    this.#asyncControllers.clear();
     this.#pendingHooks.clear();
     for (const byConversation of this.#instances.values()) await disposeAll(byConversation);
     this.#instances.clear();
-    for (const runtime of this.#nested.values()) await runtime.#shutdown();
   }
 
-  /**
-   * Runs one flow step and, unless the turn runs a single agent, follows its routes. Matched routes
-   * progress in declaration order and each branch is finished before the next one starts, so several
-   * branches run depth first and `outputs` keeps the order in which they reached `out`.
-   */
-  async #runFlow(agent: string, input: Json, options: AgentRunOptions, scope: RunScope, followRoutes: boolean, sink: RunSink): Promise<FlowRunResult> {
-    if (options.signal?.aborted) throw abortFailure();
-    const result = await this.#runAgent(agent, input, options, scope, sink);
-    if (!followRoutes || !this.loaded.config.flow.routes) return { outputs: [result.output], finishReasons: [result.finishReason] };
-    if (options.signal?.aborted) throw abortFailure();
-    // A config agent has no conversation of its own in the flow.
-    const conversation = this.#agent(agent).config === undefined ? await this.#store.load(options.conversationId, this.#path(agent)) : [];
-    let carried: Record<string, Json>;
-    try {
-      carried = { output: textOf(result.output.content), input: this.#json(input, "the flow input"), conversation: this.#json(conversation, "the flow conversation") };
-    } catch (error) { throw flowFailure(reason(error), error); }
-    const routes = this.loaded.config.flow.routes.filter((route) => route.from === agent);
-    const matched: RouteSpec[] = [];
-    for (const route of routes) {
-      if (!route.when) { matched.push(route); continue; }
-      // A route condition, like a hook condition, must answer with a JSON boolean.
+  /** 일치한 route를 실행하고, 독립 분기는 동시에 시작하며 stateful 입력은 합칩니다. */
+  async #runRoutes(input: RunInput, startAgent: string | undefined, options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<RouteRunResult> {
+    const routes = this.loaded.config.routes ?? [];
+    const pending = new Map<string, PendingRouteInput[]>();
+    const running = new Map<string, Promise<RouteCompletion>>();
+    const active = new Map<string, number>();
+    const outputs: Array<{ route: number; order: number; message: Message; finishReason: string }> = [];
+    let order = 0;
+    const departures = this.#departureSets(routes);
+    const entryAgent = startAgent ?? routes.find((route) => route.from === "$input" && route.to !== "$output")?.to ?? Object.keys(this.loaded.config.agents)[0] ?? "goondan";
+    const turnInput = this.#toMessages(input, entryAgent);
+    const add = (agent: string, item: PendingRouteInput): void => { pending.set(agent, [...(pending.get(agent) ?? []), item]); };
+    const routeMessage = (target: string, from: string, instance: string, message: Message): Message => ({
+      id: this.#id(), role: "user", source: target, content: structuredClone(message.content), meta: { from, instance },
+    });
+    const dispatch = async (from: string, result: AgentRunResult | undefined, initial: RunInput | undefined): Promise<void> => {
+      const candidates = routes.map((route, index) => ({ route, index })).filter(({ route }) => route.from === from);
+      const matched: Array<{ route: RouteSpec; index: number; messages: Message[] }> = [];
+      for (const candidate of candidates) {
+        const messages = initial === undefined
+          ? result === undefined ? [] : candidate.route.to === "$output" ? [] : [routeMessage(candidate.route.to, from, result.instance, result.output)]
+          : candidate.route.to === "$output" ? [] : this.#toMessages(initial, candidate.route.to);
+        const conditionInput = from === "$input" && initial !== undefined
+          ? this.#toMessages(initial, candidate.route.to === "$output" ? entryAgent : candidate.route.to)
+          : turnInput;
+        const output = result?.output ?? null;
+        const text = result ? textOf(result.output.content) : inputTextOf(conditionInput);
+        if (await this.#routeMatches(candidate.route, output, text, conditionInput)) matched.push({ ...candidate, messages });
+      }
+      if (matched.length === 0) throw routeFailure(`No route matched from ${from}`);
+      for (const candidate of matched) {
+        if (candidate.route.to === "$output") {
+          if (result) outputs.push({ route: candidate.index, order: order++, message: result.output, finishReason: result.finishReason });
+          continue;
+        }
+        add(candidate.route.to, { routeIndex: candidate.index, order: order++, messages: candidate.messages });
+      }
+    };
+    if (startAgent !== undefined) add(startAgent, { routeIndex: -1, order: order++, messages: this.#toMessages(input, startAgent) });
+    else await dispatch("$input", undefined, input);
+
+    const launch = (agent: string, items: PendingRouteInput[]): void => {
+      const token = this.#id();
+      active.set(agent, (active.get(agent) ?? 0) + 1);
+      const messages = items.sort((left, right) => left.routeIndex - right.routeIndex || left.order - right.order).flatMap((item) => item.messages);
+      const promise = this.#runAgent(agent, messages, options, scope, sink).then(
+        (result): RouteCompletion => ({ token, agent, input: items, result }),
+        (error): RouteCompletion => ({ token, agent, input: items, error }),
+      );
+      running.set(token, promise);
+    };
+    const startReady = (): boolean => {
+      let started = false;
+      for (const [agent, items] of [...pending]) {
+        if (items.length === 0) { pending.delete(agent); continue; }
+        if (this.#agent(agent).stateful === false) {
+          pending.delete(agent);
+          for (const item of items) launch(agent, [item]);
+          started = true;
+          continue;
+        }
+        if ((active.get(agent) ?? 0) > 0) continue;
+        const waits = [...(departures.get(agent) ?? [])].some((source) => (active.get(source) ?? 0) > 0 || (pending.get(source)?.length ?? 0) > 0);
+        if (waits) continue;
+        pending.delete(agent); launch(agent, items); started = true;
+      }
+      return started;
+    };
+    const stopBranches = async (error: unknown): Promise<never> => {
+      if (scope.host !== null) for (const controller of this.#controllers.get(scope.host) ?? []) controller.abort();
+      await Promise.allSettled(running.values());
+      throw error;
+    };
+
+    while (pending.size > 0 || running.size > 0) {
+      startReady();
+      if (running.size === 0) throw routeFailure("Stateful route inputs cannot make progress");
+      const completed = await Promise.race(running.values());
+      running.delete(completed.token);
+      active.set(completed.agent, Math.max(0, (active.get(completed.agent) ?? 1) - 1));
+      if (completed.error !== undefined) return await stopBranches(completed.error);
+      if (completed.result) {
+        try { await dispatch(completed.agent, completed.result, undefined); }
+        catch (error) { return await stopBranches(error); }
+      }
+    }
+    outputs.sort((left, right) => left.route - right.route || left.order - right.order);
+    return { outputs: outputs.map((item) => item.message), finishReasons: outputs.map((item) => item.finishReason) };
+  }
+
+  async #routeMatches(route: RouteSpec, output: Message | null, text: string, input: Message[]): Promise<boolean> {
+    if (!route.when) return true;
+    if ("fn" in route.when) {
       let decision: Json;
-      try { decision = await this.#callFunction(route.when.fn, carried); }
-      catch (error) { throw flowFailure(`The route condition ${route.when.fn} failed: ${reason(error)}`, error); }
-      if (typeof decision !== "boolean") throw flowFailure(`The route condition ${route.when.fn} must return true or false`);
-      if (decision) matched.push(route);
+      try { decision = await this.#callFunction(route.when.fn, this.#json({ output, text, input }, "route condition")); }
+      catch (error) { throw routeFailure(`The route condition ${route.when.fn} failed: ${reason(error)}`, error); }
+      if (typeof decision !== "boolean") throw routeFailure(`The route condition ${route.when.fn} must return true or false`);
+      return decision;
     }
-    if (matched.length === 0) throw flowFailure(`No flow route matched from ${agent}`);
-    const outputs: Message[] = []; const finishReasons: string[] = [];
-    for (const route of matched) {
-      if (route.to === "out") { outputs.push(result.output); finishReasons.push(result.finishReason); continue; }
-      const carriedInput = await this.#carry(route.carry?.message, carried);
-      const carriedConversation = await this.#carryConversation(route.carry?.conversation, conversation);
-      const child = await this.#runFlow(route.to, carriedInput, { conversationId: options.conversationId, signal: options.signal, conversation: carriedConversation }, scope, true, sink);
-      outputs.push(...child.outputs); finishReasons.push(...child.finishReasons);
-    }
-    return { outputs, finishReasons };
+    if (typeof route.when.output === "string") return text === route.when.output;
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return false; }
+    if (!isObject(parsed)) return false;
+    return Object.entries(route.when.output).every(([key, value]) => Object.hasOwn(parsed, key) && jsonEqual(this.#json(parsed[key], key), value));
   }
 
-  /** The input `carry.message` hands to the next agent; a failure here is a flow error. */
-  async #carry(spec: "output" | { fn: string } | { template: string } | undefined, carried: Record<string, Json>): Promise<Json> {
-    if (!spec || spec === "output") return carried.output ?? null;
-    if ("fn" in spec) {
-      try { return await this.#callFunction(spec.fn, carried); }
-      catch (error) { throw flowFailure(`The carry function ${spec.fn} failed: ${reason(error)}`, error); }
+  #departureSets(routes: readonly RouteSpec[]): Map<string, Set<string>> {
+    const result = new Map<string, Set<string>>();
+    const agents = Object.keys(this.loaded.config.agents);
+    for (const target of agents) {
+      const reachable = new Set<string>();
+      const queue = ["$input"];
+      while (queue.length > 0) {
+        const from = queue.shift();
+        if (from === undefined) continue;
+        for (const route of routes) {
+          if (route.from !== from || route.to === "$output" || route.to === target || reachable.has(route.to)) continue;
+          reachable.add(route.to); queue.push(route.to);
+        }
+      }
+      const reachesTarget = (start: string): boolean => {
+        const seen = new Set<string>(); const work = [start];
+        while (work.length > 0) {
+          const from = work.shift(); if (from === undefined || seen.has(from)) continue; seen.add(from);
+          for (const route of routes) { if (route.from !== from) continue; if (route.to === target) return true; if (route.to !== "$output") work.push(route.to); }
+        }
+        return false;
+      };
+      result.set(target, new Set([...reachable].filter((agent) => reachesTarget(agent))));
     }
-    return this.#render(spec.template, carried, "runtime", "flow_error");
+    return result;
   }
 
-  /** The conversation `carry.conversation` hands to the next agent, or nothing when it carries none. */
-  async #carryConversation(spec: "none" | "asis" | { fn: string } | undefined, conversation: Message[]): Promise<Message[] | undefined> {
-    if (!spec || spec === "none") return undefined;
-    if (spec === "asis") return structuredClone(conversation);
-    let transformed: Json;
-    try { transformed = await this.#callFunction(spec.fn, this.#json(conversation, "the carried conversation")); }
-    catch (error) { throw flowFailure(`The carry function ${spec.fn} failed: ${reason(error)}`, error); }
-    if (!isMessageArray(transformed)) throw flowFailure(`The carry function ${spec.fn} did not return an array of messages`);
-    return transformed;
+  /** 에이전트 하나를 실행하고 stateful 인스턴스의 실행을 직렬화합니다. */
+  async #runAgent(agent: string, rawInput: Message[], options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<AgentRunResult> {
+    const spec = this.#agent(agent);
+    if (spec.stateful === false) return await this.#runAgentNow(agent, rawInput, options, scope, sink);
+    const key = scopeKey(options.sessionId, agent);
+    const previous = this.#agentTails.get(key) ?? Promise.resolve();
+    const running = previous.catch(() => undefined).then(() => this.#runAgentNow(agent, rawInput, options, scope, sink));
+    const tail = running.then(() => undefined, () => undefined);
+    this.#agentTails.set(key, tail);
+    void tail.finally(() => { if (this.#agentTails.get(key) === tail) this.#agentTails.delete(key); });
+    return await running;
   }
 
-  /**
-   * Runs one agent. `sink` records how the run was started; a `config` agent makes no record of its
-   * own and the agents of the nested configuration record themselves as nested flow steps.
-   */
-  async #runAgent(agent: string, rawInput: Json, options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<AgentRunResult> {
+  async #runAgentNow(agent: string, rawInput: Message[], options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<AgentRunResult> {
     // An execution that was told to stop starts no further run, so a sub-run announces nothing.
     if (options.signal?.aborted) throw abortFailure();
     const spec = this.#agent(agent);
-    if (spec.config) {
-      const nested = this.#nested.get(agent);
-      if (!nested) throw new Error(`Nested configuration was not loaded for agent: ${agent}`);
-      const result = await nested.#runTurn(rawInput, { conversationId: options.conversationId, signal: options.signal }, scope, { kind: "nested", nodes: sink.nodes });
-      return { output: result.output, usage: result.usage, finishReason: result.finishReason, status: "done" };
-    }
     const registration = this.#register(scope, options.signal);
-    const path = this.#path(agent);
     const turnId = this.#id();
-    const node = startRun(sink, path, turnId);
+    const stateful = spec.stateful !== false;
+    const instance = stateful ? `${options.sessionId}/${agent}` : this.#id();
+    const node = startRun(sink, agent, instance, turnId);
     let state: TurnState;
     try {
-      // The instances of this execution scope are prepared before a carried conversation or an input hook.
-      const extensions = await this.#extensions(agent, spec, options.conversationId);
-      const loaded = options.conversation ?? await this.#store.load(options.conversationId, path);
-      state = this.#state(agent, spec, rawInput, options.conversationId, turnId, loaded, registration.signal, scope, extensions, node.children);
+      const extensions = await this.#extensions(agent, spec, options.sessionId, instance, stateful);
+      const loaded = stateful ? await this.#store.load(options.sessionId, agent) : [];
+      state = this.#state(agent, instance, spec, rawInput, options.sessionId, turnId, loaded, registration.signal, scope, extensions, node.children);
     } catch (error) {
       // A run that could not prepare its extension instances reports turn.error without turn.start.
-      await this.#preparationError(error, path, options.conversationId, turnId);
+      await this.#preparationError(error, agent, options.sessionId, turnId);
       registration.release();
       throw isGoondanConfigError(error) ? error : preparationFailure(error);
     }
     try {
-      const result = await this.#runStages(state, options.conversation !== undefined);
+      const result = await this.#runStages(state);
       finishRun(node, state.usage, result.finishReason);
       return result;
     } catch (error) {
@@ -559,20 +638,27 @@ export class GoondanRuntime {
         return result;
       } catch (failed) {
         // A failed run still reports the usage of the model responses it received.
-        failRun(node, state.usage);
+        if (carriesAbort(failed)) abortRun(node, state.usage); else failRun(node, state.usage);
         throw failed;
       }
-    } finally { registration.release(); }
+    } finally {
+      registration.release();
+      this.#unmarkForeground(state);
+      if (!stateful) {
+        state.asyncController.abort();
+        await disposeAll(state.extensions);
+        state.pending.clear();
+      }
+    }
   }
 
   /** Steps 1 to 6 of the stage order of one agent run. */
-  async #runStages(state: TurnState, carried: boolean): Promise<AgentRunResult> {
-    // A carried conversation replaces the stored one before the input stage and survives a failure.
-    if (carried) await this.#replace(state);
+  async #runStages(state: TurnState): Promise<AgentRunResult> {
     state.input = await this.#input(state);
-    await this.#emit("turn.start", state, { input: state.input });
-    const inputMessage = await this.#inputMessage(state);
-    state.conversation.push(inputMessage); await this.#append(state, [inputMessage]);
+    state.input = await this.#applyInputRule(state);
+    this.#markForeground(state);
+    await this.#emit("turn.start", state, { input: this.#json(state.input, "input") });
+    state.conversation.push(...state.input); await this.#append(state, state.input);
     // Tool call parts a failed or aborted run left unpaired are repaired before the first safe point.
     await this.#repair(state);
     // The conversation stage runs once per agent run, right after the first safe conversation point.
@@ -606,9 +692,9 @@ export class GoondanRuntime {
     await this.#drainPending(state);
   }
 
-  async #preparationError(error: unknown, path: string, conversationId: string, turnId: string): Promise<void> {
+  async #preparationError(error: unknown, agent: string, sessionId: string, turnId: string): Promise<void> {
     // No extension instance exists in this scope, so the event only reaches the host.
-    await this.#deliver({ name: "turn.error", agent: path, conversationId, turnId, at: Date.now(), data: failureData(error) }, new Map());
+    await this.#deliver({ name: "turn.error", agent, sessionId, turnId, at: Date.now(), data: failureData(error) }, new Map());
   }
 
   /** Steps 3 to 6 of the stage order: model input, model call, tool calls and the output stage. */
@@ -637,7 +723,7 @@ export class GoondanRuntime {
           if (state.signal.aborted) throw abortFailure();
           // The model implementation receives a copy, so what it keeps never changes the conversation.
           const raw = await this.#model(spec).generate(structuredClone(modelInput), {
-            agent: state.path, conversationId: state.conversationId, turnId: state.turnId, step, signal: state.signal,
+            agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, step, signal: state.signal,
             onTextDelta: (delta) => { this.#textDelta(state, streaming, step, delta); },
           });
           streaming.active = false;
@@ -796,13 +882,16 @@ export class GoondanRuntime {
 
   async #finish(state: TurnState, output: Message, finishReason: string): Promise<AgentRunResult> {
     await this.#emit("turn.done", state, { output: this.#json(output, "turn.done"), steps: state.step, usage: this.#json(state.usage, "usage") });
-    return { output, usage: state.usage, finishReason, status: "done" };
+    return { output, usage: state.usage, finishReason, status: "done", instance: state.instance };
   }
 
-  #state(agent: string, agentSpec: AgentSpec, input: Json, conversationId: string, turnId: string, conversation: Message[], signal: AbortSignal, scope: RunScope, extensions: Map<string, ExtensionInstance>, runs: RunNode[]): TurnState {
-    const key = scopeKey(conversationId, agent); let pending = this.#pendingHooks.get(key);
-    if (!pending) { pending = new Map(); this.#pendingHooks.set(key, pending); }
-    return { agent, path: this.#path(agent), scope, agentSpec, conversationId, turnId, input, conversation, step: 0, retryCount: 0, signal, messageNumber: 0, usage: zeroUsage(), runs, extensions, pending, storedCalls: new Set<string>(), operation: false, handlingError: false, emitting: Promise.resolve() };
+  #state(agent: string, instance: string, agentSpec: AgentSpec, input: Message[], sessionId: string, turnId: string, conversation: Message[], signal: AbortSignal, scope: RunScope, extensions: Map<string, ExtensionInstance>, runs: RunNode[]): TurnState {
+    const key = scopeKey(sessionId, agent); const stateful = agentSpec.stateful !== false;
+    let pending = stateful ? this.#pendingHooks.get(key) : undefined;
+    if (!pending) { pending = new Map(); if (agentSpec.stateful !== false) this.#pendingHooks.set(key, pending); }
+    let asyncController = stateful ? this.#asyncControllers.get(key) : undefined;
+    if (!asyncController) { asyncController = new AbortController(); if (stateful) this.#asyncControllers.set(key, asyncController); }
+    return { agent, instance, scope, agentSpec, sessionId, turnId, input, conversation, step: 0, retryCount: 0, signal, messageNumber: 0, usage: zeroUsage(), runs, extensions, pending, asyncController, storedCalls: new Set<string>(), operation: false, handlingError: false, emitting: Promise.resolve() };
   }
 
   /** Where the sub-runs of one agent run record themselves; an asynchronous hook records nothing. */
@@ -815,8 +904,8 @@ export class GoondanRuntime {
    * effective configuration. A failed preparation disposes what it already created and stores
    * nothing, so the next run in the same scope prepares again from the start.
    */
-  async #extensions(agent: string, spec: AgentSpec, conversationId: string): Promise<Map<string, ExtensionInstance>> {
-    const key = scopeKey(conversationId, agent); const cached = this.#instances.get(key); if (cached) return cached;
+  async #extensions(agent: string, spec: AgentSpec, sessionId: string, instance: string, cache: boolean): Promise<Map<string, ExtensionInstance>> {
+    const key = cache ? scopeKey(sessionId, agent) : instance; const cached = cache ? this.#instances.get(key) : undefined; if (cached) return cached;
     const instances = new Map<string, ExtensionInstance>();
     const dispose = async (): Promise<void> => { await disposeAll(instances); };
     try {
@@ -829,7 +918,7 @@ export class GoondanRuntime {
         // Only the ports the definition requires are handed to the extension.
         const ports: Record<string, unknown> = {};
         for (const port of definition.requires ?? []) ports[port] = this.#bindings.ports?.[port];
-        instances.set(name, await definition.create({ options: validated, ports, agent: { name: agent, path: this.#path(agent), spec }, log: this.#bindings.logger ?? noLog }));
+        instances.set(name, await definition.create({ options: validated, ports, agent: { name: agent, spec }, log: this.#bindings.logger ?? noLog }));
       }
     } catch (error) {
       await dispose();
@@ -844,7 +933,7 @@ export class GoondanRuntime {
       await dispose();
       throw new GoondanConfigError(issues);
     }
-    this.#instances.set(key, instances); return instances;
+    if (cache) this.#instances.set(key, instances); return instances;
   }
 
   /** Renders a declared template, reporting a failure as the execution error of its own location. */
@@ -856,30 +945,43 @@ export class GoondanRuntime {
     }
   }
 
-  async #input(state: TurnState): Promise<Json> { const value = (await this.#pipeline("input", state.input, state)).value; return this.#json(value, "input"); }
+  async #input(state: TurnState): Promise<Message[]> {
+    const value = (await this.#pipeline("input", state.input, state)).value;
+    if (!isMessageArray(value)) throw new GoondanExecutionError({ where: "input", codes: ["value_invalid"], message: "the input value is not an array of messages" });
+    return value;
+  }
 
   /**
    * Turns the agent input into the first user message. `fn` wins over `template`, and a value that is
    * not a string becomes JSON text. The message carries the declared agent name as its `source`.
    */
-  async #inputMessage(state: TurnState): Promise<Message> {
+  async #applyInputRule(state: TurnState): Promise<Message[]> {
     const rule = state.agentSpec.input ?? "asis";
-    let text: string;
-    if (rule !== "asis" && typeof rule.fn === "string") text = await this.#inputText(state, rule.fn);
-    else if (rule !== "asis" && typeof rule.template === "string") text = this.#render(rule.template, isObject(state.input) ? this.#jsonRecord(state.input) : { text: state.input }, "input", "runtime_error");
-    else text = typeof state.input === "string" ? state.input : jsonText(state.input);
-    return this.#message(state.agent, "user", text, state.turnId, ++state.messageNumber);
+    const messages: Message[] = [];
+    for (const message of state.input) {
+      const content: Part[] = [];
+      for (const part of message.content) {
+        if (part.type !== "json") { content.push(structuredClone(part)); continue; }
+        let text: string;
+        if (rule !== "asis" && typeof rule.fn === "string") text = await this.#inputPartText(part.value, rule.fn);
+        else if (rule !== "asis" && typeof rule.template === "string") text = this.#render(rule.template, isObject(part.value) ? this.#jsonRecord(part.value) : { text: part.value }, "input", "runtime_error");
+        else text = jsonText(part.value);
+        content.push({ type: "text", text });
+      }
+      messages.push({ ...structuredClone(message), content });
+    }
+    return messages;
   }
 
   /**
    * The message text an `input.fn` produced. A failing call is a `runtime_error` of the `input`
    * location and a result that is not JSON a `value_invalid` of the same location.
    */
-  async #inputText(state: TurnState, name: string): Promise<string> {
+  async #inputPartText(input: Json, name: string): Promise<string> {
     const fn: GoondanFunction | undefined = this.#bindings.functions?.[name];
     if (!fn) throw new GoondanExecutionError({ where: "input", codes: ["runtime_error"], message: `Unknown function: ${name}` });
     let returned: Json | undefined;
-    try { returned = await fn(this.#json(state.input, "input")); }
+    try { returned = await fn(structuredClone(input)); }
     catch (error) { throw new GoondanExecutionError({ where: "input", codes: ["runtime_error"], message: reason(error) }, { cause: error }); }
     let value: Json;
     try { value = this.#json(returned, `the result of the function ${name}`); }
@@ -895,6 +997,7 @@ export class GoondanRuntime {
     const variables: Record<string, Json> = {
       params: state.agentSpec.params ?? {}, tools: this.#json(tools, "modelInput"),
       agent: { name: state.agent }, model: state.agentSpec.model ?? "",
+      input: this.#json(state.input, "input"), inputText: inputTextOf(state.input),
     };
     const system = blocks.map((block, index) => {
       const text = typeof block.text === "string" ? block.text : this.#render(block.template ?? "", variables, "modelInput", "runtime_error");
@@ -948,8 +1051,8 @@ export class GoondanRuntime {
       name: target,
       definition: { name: target, description: spec.description ?? `Run ${target}`, input: { type: "object" } },
       execute: async (input, ctx) => {
-        // The target runs in the sub-conversation of the parent turn, without following flow routes.
-        const result = await this.#runAgent(target, input, { conversationId: `${ctx.conversationId}:${ctx.turnId}:${target}`, signal: ctx.signal }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool"));
+        // 대상은 부모 실행에서 파생한 세션에서 route를 따르지 않고 실행합니다.
+        const result = await this.#runAgent(target, this.#toMessages(input, target), { sessionId: `${ctx.sessionId}#${ctx.turnId}#${target}`, signal: ctx.signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool"));
         return { callId: ctx.toolCall.id, name: target, args: input, content: result.output.content };
       },
     };
@@ -987,7 +1090,7 @@ export class GoondanRuntime {
     state.retryTool = { call, execution, remainingCalls, approvals };
     // Only an exposed name of the effective tools list can run or become an approval operation.
     const entry = this.#tools(state).find((candidate) => candidate.name === call.name);
-    if (!entry) throw new GoondanExecutionError({ where: "tool", codes: ["tool_unavailable"], message: `Tool ${call.name} is not available to ${state.path}`, toolCall: call });
+    if (!entry) throw new GoondanExecutionError({ where: "tool", codes: ["tool_unavailable"], message: `Tool ${call.name} is not available to ${state.agent}`, toolCall: call });
     const reasons = [...approvals, ...this.#approvalReasons(state.agentSpec, call.name)];
     if (reasons.length > 0) {
       await this.#createOperation(call, execution, reasons, state);
@@ -1006,12 +1109,12 @@ export class GoondanRuntime {
   async #createOperation(call: ToolCall, execution: Record<string, Json> | undefined, reasons: string[], state: TurnState): Promise<void> {
     const operationId = this.#id();
     const request: ApprovalRequest = {
-      operationId, conversationId: state.conversationId, turnId: state.turnId, agent: state.path,
+      operationId, sessionId: state.sessionId, turnId: state.turnId, agent: state.agent,
       toolCall: structuredClone(call), reasons: [...reasons],
     };
     // A failed capture stores neither the operation nor the pending tool result.
     const context = await this.#captureContext(request, call);
-    const operation = newOperation({ operationId, agent: state.path, conversationId: state.conversationId, turnId: state.turnId, toolCall: call, reasons, execution, context, now: this.#now() });
+    const operation = newOperation({ operationId, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, toolCall: call, reasons, execution, context, now: this.#now() });
     await this.#operationStore.save(operation);
     // The pending tool result is the runtime's own value, so the toolResult hooks never see it. The
     // JSON part and the `meta` carry equal but separate values, so neither can change the other.
@@ -1047,8 +1150,8 @@ export class GoondanRuntime {
 
   /** Records a conditional transition; a closed runtime leaves every stored operation as it is. */
   async #transition(operation: PendingOperation, from: OperationStatus[], update: OperationUpdate): Promise<PendingOperation | undefined> {
-    if (this.#root.#closed) return undefined;
-    return await this.#operationStore.transition(operation.conversationId, operation.operationId, from, { ...update, updatedAt: this.#now() });
+    if (this.#closed) return undefined;
+    return await this.#operationStore.transition(operation.sessionId, operation.operationId, from, { ...update, updatedAt: this.#now() });
   }
 
   /** Records that an approved operation did not pass its pre-run validation and delivers the failure. */
@@ -1059,23 +1162,19 @@ export class GoondanRuntime {
 
   /** Starts an approved operation's execution as background work; one execution per operation. */
   #startOperation(operation: PendingOperation): void {
-    const root = this.#root;
-    if (root.#closed || root.#operationExecutions.has(operation.operationId)) return;
-    const execution = root.#executeOperation(operation).finally(() => { root.#operationExecutions.delete(operation.operationId); });
-    root.#operationExecutions.set(operation.operationId, execution);
-    root.#track(execution);
+    if (this.#closed || this.#operationExecutions.has(operation.operationId)) return;
+    const execution = this.#executeOperation(operation).finally(() => { this.#operationExecutions.delete(operation.operationId); });
+    this.#operationExecutions.set(operation.operationId, execution);
+    this.#track(execution);
   }
 
-  /** Finds the runtime an approved operation belongs to; a path that names no model agent fails it. */
+  /** 승인 작업의 에이전트를 찾고 선언되지 않은 이름이면 검증 실패로 기록합니다. */
   async #executeOperation(operation: PendingOperation): Promise<void> {
-    const current = await this.#operationStore.get(operation.conversationId, operation.operationId);
+    const current = await this.#operationStore.get(operation.sessionId, operation.operationId);
     if (!current || current.status !== "approved") return;
-    // The operation's agent path names the runtime that owns it, even after a restart.
-    const target = this.#resolve(current.agent);
-    const spec = target ? target.runtime.loaded.config.agents[target.agent] : undefined;
-    if (!target || !spec) { await this.#failValidation(current, `Unknown agent: ${current.agent}`); return; }
-    if (typeof spec.config === "string") { await this.#failValidation(current, `Operation agent is not a model agent: ${current.agent}`); return; }
-    await target.runtime.#runOperation(current, target.agent, spec);
+    const spec = this.loaded.config.agents[current.agent];
+    if (!spec) { await this.#failValidation(current, `Unknown agent: ${current.agent}`); return; }
+    await this.#runOperation(current, current.agent, spec);
   }
 
   /**
@@ -1086,19 +1185,22 @@ export class GoondanRuntime {
   async #runOperation(operation: PendingOperation, agent: string, spec: AgentSpec): Promise<void> {
     const scope: RunScope = { host: null, foreground: false };
     const registration = this.#register(scope);
+    const stateful = spec.stateful !== false;
+    let state: TurnState | undefined;
     try {
       const call = effectiveCall(operation);
-      let state: TurnState;
       let entry: ToolEntry | undefined;
       try {
-        const conversation = await this.#store.load(operation.conversationId, operation.agent);
-        const extensions = await this.#extensions(agent, spec, operation.conversationId);
-        state = this.#state(agent, spec, { type: "operation_execution", operationId: operation.operationId }, operation.conversationId, operation.turnId, conversation, registration.signal, scope, extensions, []);
+        const instance = stateful ? `${operation.sessionId}/${agent}` : this.#id();
+        const conversation = stateful ? await this.#store.load(operation.sessionId, agent) : [];
+        const extensions = await this.#extensions(agent, spec, operation.sessionId, instance, stateful);
+        state = this.#state(agent, instance, spec, [], operation.sessionId, operation.turnId, conversation, registration.signal, scope, extensions, []);
+        state.operationInput = { type: "operation_execution", operationId: operation.operationId };
         // An operation execution is not an agent run, so `execution.complete` cannot end one.
         state.operation = true;
         entry = this.#tools(state).find((candidate) => candidate.name === call.name);
       } catch (error) { await this.#failValidation(operation, reason(error)); return; }
-      if (!entry) { await this.#failValidation(operation, `Tool ${call.name} is not available to ${operation.agent}`); return; }
+      if (!state || !entry) { await this.#failValidation(operation, `Tool ${call.name} is not available to ${operation.agent}`); return; }
       const host = this.#bindings.host;
       if (host?.validateOperation) {
         let valid: unknown;
@@ -1110,7 +1212,14 @@ export class GoondanRuntime {
       // An operation cancelled before this transition never runs its tool.
       if (!running) return;
       await this.#runOperationTool(running, state, entry, call);
-    } finally { registration.release(); }
+    } finally {
+      registration.release();
+      if (!stateful && state) {
+        state.asyncController.abort();
+        await disposeAll(state.extensions);
+        state.pending.clear();
+      }
+    }
   }
 
   /** Runs a `running` operation's tool and its `toolResult` stage, then records what it produced. */
@@ -1119,11 +1228,11 @@ export class GoondanRuntime {
     try {
       await this.#emit("tool.start", state, { ...data });
       const raw = await entry.execute(call.args, {
-        input: state.input, conversation: structuredClone(state.conversation), agent: operation.agent,
-        conversationId: operation.conversationId, turnId: operation.turnId, toolCall: call,
+        input: state.operationInput ?? state.input, conversation: structuredClone(state.conversation), agent: operation.agent,
+        sessionId: operation.sessionId, turnId: operation.turnId, toolCall: call,
         execution: operation.execution ?? {}, signal: state.signal,
         // An approved operation's execution has its own lifetime, so its sub-runs record nothing.
-        agents: { run: (name, value) => this.#runAgent(name, value, { conversationId: `${operation.conversationId}:${operation.turnId}:${name}`, signal: state.signal }, state.scope, detachedSink("tool")) },
+        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${operation.sessionId}#${operation.turnId}#${name}`, signal: state.signal, foreground: false }, state.scope, detachedSink("tool")) },
       });
       const result = this.#toolResult(await this.#pipeline("toolResult", this.#checkToolResult(raw, call.id), state, call.id));
       await this.#emit("tool.done", state, { ...data, result: this.#json(result, "toolResult") });
@@ -1142,12 +1251,11 @@ export class GoondanRuntime {
    * cancellation and an execution never wait for it.
    */
   #startDelivery(operation: PendingOperation): void {
-    const root = this.#root;
-    if (root.#closed || !isTerminalStatus(operation.status) || operation.deliveryStatus === "delivered") return;
-    if (root.#deliveries.has(operation.operationId)) return;
-    const work = root.#deliverOperation(operation).finally(() => { root.#deliveries.delete(operation.operationId); });
-    root.#deliveries.set(operation.operationId, work);
-    root.#track(work);
+    if (this.#closed || !isTerminalStatus(operation.status) || operation.deliveryStatus === "delivered") return;
+    if (this.#deliveries.has(operation.operationId)) return;
+    const work = this.#deliverOperation(operation).finally(() => { this.#deliveries.delete(operation.operationId); });
+    this.#deliveries.set(operation.operationId, work);
+    this.#track(work);
   }
 
   /**
@@ -1155,8 +1263,8 @@ export class GoondanRuntime {
    * outcome of the operation untouched, and is never reported to the request that started it.
    */
   async #deliverOperation(operation: PendingOperation): Promise<void> {
-    if (this.#root.#closed || !isTerminalStatus(operation.status)) return;
-    const claimed = await this.#operationStore.claimDelivery(operation.conversationId, operation.operationId, this.#now());
+    if (this.#closed || !isTerminalStatus(operation.status)) return;
+    const claimed = await this.#operationStore.claimDelivery(operation.sessionId, operation.operationId, this.#now());
     if (!claimed || !isTerminalStatus(claimed.status)) return;
     const completion = completionInput(claimed, claimed.status);
     try {
@@ -1166,21 +1274,14 @@ export class GoondanRuntime {
       await this.#transition(claimed, [claimed.status], { deliveryStatus: "delivered", deliveredAt: this.#now() });
     } catch (error) {
       this.#bindings.logger?.warn(`The completion delivery of the operation ${claimed.operationId} failed`, { error: reason(error) });
-      if (this.#root.#closed) return;
-      await this.#operationStore.releaseDelivery(claimed.conversationId, claimed.operationId, claimed.deliveryId, this.#now());
+      if (this.#closed) return;
+      await this.#operationStore.releaseDelivery(claimed.sessionId, claimed.operationId, claimed.deliveryId, this.#now());
     }
   }
 
   /** Delivers a completion by running the operation's agent once the conversation has no other turn. */
   async #deliverByTurn(operation: PendingOperation, completion: OperationCompletion): Promise<void> {
-    const root = this.#root;
-    let active = root.#activeRuns.get(operation.conversationId);
-    while (active) {
-      try { await active; } catch { /* A delivery is independent of the outcome of the turn before it. */ }
-      const next = root.#activeRuns.get(operation.conversationId);
-      active = next === active ? undefined : next;
-    }
-    await root.runTurn(this.#json(completion, "the operation completion"), { conversationId: operation.conversationId, agent: operation.agent });
+    await this.run(this.#json(completion, "the operation completion"), { sessionId: operation.sessionId, agent: operation.agent });
   }
 
   /**
@@ -1196,10 +1297,10 @@ export class GoondanRuntime {
     let result: ToolResult;
     try {
       result = await entry.execute(call.args, {
-        input: state.input, conversation: structuredClone(state.conversation), agent: state.path,
-        conversationId: state.conversationId, turnId: state.turnId, toolCall: call,
+        input: state.input, conversation: structuredClone(state.conversation), agent: state.agent,
+        sessionId: state.sessionId, turnId: state.turnId, toolCall: call,
         execution: execution ?? {}, signal: state.signal,
-        agents: { run: (name, value) => this.#runAgent(name, value, { conversationId: `${state.conversationId}:${state.turnId}:${name}`, signal: state.signal }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool")) },
+        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${state.sessionId}#${state.turnId}#${name}`, signal: state.signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool")) },
       });
       // A result that arrives after the abort was signalled is not used.
       if (state.signal.aborted) throw abortFailure();
@@ -1368,6 +1469,7 @@ export class GoondanRuntime {
     task.promise = (async (): Promise<void> => {
       try {
         const result = await this.#invoke(name, spec, state, identifier, received, true, conversation);
+        if (state.asyncController.signal.aborted) return;
         if (result !== undefined && result !== null) {
           const control = controlResult("conversation", this.#json(result, "the hook result"));
           if (control === undefined || isControlIssue(control) || control.kind !== "append") throw new Error("an asynchronous hook returns an append result, null or nothing");
@@ -1376,7 +1478,7 @@ export class GoondanRuntime {
         await this.#emit("hook.applied", state, { value: name, hook: identifier });
       } catch (error) {
         task.messages = undefined;
-        await this.#emit("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
+        if (!state.asyncController.signal.aborted) await this.#emit("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
       } finally { task.settled = true; }
     })();
     state.pending.set(identifier, task);
@@ -1389,7 +1491,7 @@ export class GoondanRuntime {
    */
   async #invoke(name: ValueName, spec: InlineHookSpec, state: TurnState, identifier: string, received: Json, asynchronous: boolean, conversation: Message[]): Promise<HookResult> {
     const controller = new AbortController();
-    const parent = asynchronous ? this.#root.#closing.signal : state.signal;
+    const parent = asynchronous ? state.asyncController.signal : state.signal;
     const stop = (): void => { controller.abort(); };
     if (parent.aborted) controller.abort(); else parent.addEventListener("abort", stop, { once: true });
     const active = { value: true };
@@ -1426,10 +1528,9 @@ export class GoondanRuntime {
       }
       if (spec.agent) {
         const names = Array.isArray(spec.agent) ? spec.agent : [spec.agent];
-        const conversationId = this.#hookConversation(state, name, identifier);
         // Every agent starts in declaration order and the hook waits for all of them, failing when one did.
         const sink = this.#sink(state, "hook", asynchronous);
-        const settled = await Promise.allSettled(names.map((target) => this.#runAgent(target, value, { conversationId, signal }, { host: state.scope.host, foreground: false }, sink)));
+        const settled = await Promise.allSettled(names.map((target) => this.#runAgent(target, this.#toMessages(value, target), { sessionId: this.#derivedSession(state, target), signal, foreground: false }, { host: state.scope.host, foreground: false }, sink)));
         const outputs: string[] = [];
         for (const outcome of settled) {
           if (outcome.status === "rejected") continue;
@@ -1439,7 +1540,7 @@ export class GoondanRuntime {
         if (rejected?.status === "rejected") throw rejected.reason instanceof Error ? rejected.reason : new Error(reason(rejected.reason));
         value = outputs.join("\n");
       }
-      if (spec.template) value = this.#renderer.render(spec.template, { text: value, input: state.input, params: state.agentSpec.params ?? {} });
+      if (spec.template) value = this.#renderer.render(spec.template, { text: value, input: this.#json(state.input, "input"), inputText: inputTextOf(state.input), params: state.agentSpec.params ?? {} });
       // The inline result becomes a message only at the stages that take one; elsewhere it is the result.
       if (name !== "conversation" && name !== "modelInput" && name !== "output") return value;
       const text = typeof value === "string" ? value : jsonText(value);
@@ -1448,10 +1549,7 @@ export class GoondanRuntime {
     };
   }
 
-  /** The sub-conversation a hook agent and a hook context's `agents.run` share. */
-  #hookConversation(state: TurnState, phase: ValueName, source: string): string {
-    return `${state.conversationId}:${state.path}:${phase}:${source}`;
-  }
+  #derivedSession(state: TurnState, target: string): string { return `${state.sessionId}#${state.turnId}#${target}`; }
 
   #hookContext(state: TurnState, source: string, phase: ValueName, asynchronous: boolean, signal: AbortSignal, conversation: Message[], active: { value: boolean }): HookContext {
     const make = (role: "user" | "system", text: string, extra?: MessageExtra): Message => {
@@ -1463,10 +1561,10 @@ export class GoondanRuntime {
     };
     return {
       execution: { complete: (output) => { this.#complete(state, output, phase, asynchronous, active); } },
-      agent: state.path, conversationId: state.conversationId, turnId: state.turnId,
+      agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
       step: state.step || undefined, retryCount: state.retryCount,
-      input: this.#json(state.input, "input"), conversation, signal,
-      agents: { run: async (name, value) => await this.#runAgent(name, value, { conversationId: this.#hookConversation(state, phase, source), signal }, { host: state.scope.host, foreground: false }, this.#sink(state, "hook", asynchronous)) },
+      input: structuredClone(state.input), conversation, signal,
+      agents: { run: async (name, value) => await this.#runAgent(name, this.#toMessages(value, name), { sessionId: this.#derivedSession(state, name), signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "hook", asynchronous)) },
       model: { run: async (messages) => await this.#runModel(state, messages, signal, asynchronous) },
       render: async (template, variables) => this.#renderer.render(template, variables),
       message: { user: (text, extra) => make("user", text, extra), system: (text, extra) => make("system", text, extra) },
@@ -1498,19 +1596,19 @@ export class GoondanRuntime {
     let result: ModelResult;
     try {
       // The call carries the number of the last model call the run started, and announces no text chunk.
-      result = this.#modelResult(await this.#model(state.agentSpec).generate(structuredClone(input), { agent: state.path, conversationId: state.conversationId, turnId: state.turnId, step: state.step, signal, onTextDelta() { /* A hook's model call announces no text delta. */ } }));
+      result = this.#modelResult(await this.#model(state.agentSpec).generate(structuredClone(input), { agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, step: state.step, signal, onTextDelta() { /* 훅의 모델 호출은 텍스트 델타를 알리지 않습니다. */ } }));
     } catch (error) {
-      recordModelCall(sink, state.path, state.turnId);
+      recordModelCall(sink, state.agent, state.instance, state.turnId);
       throw error;
     }
     const usage = zeroUsage();
     addUsage(usage, result.usage);
-    recordModelCall(sink, state.path, state.turnId, { usage, finishReason: result.finishReason });
+    recordModelCall(sink, state.agent, state.instance, state.turnId, { usage, finishReason: result.finishReason });
     return result;
   }
   /** Appends messages unless the run was aborted; an aborted run stores nothing more. */
-  async #append(state: TurnState, messages: Message[]): Promise<void> { if (state.signal.aborted || messages.length === 0) return; await this.#store.append(state.conversationId, state.path, messages); }
-  async #replace(state: TurnState): Promise<void> { if (state.signal.aborted) return; await this.#store.replace(state.conversationId, state.path, state.conversation); }
+  async #append(state: TurnState, messages: Message[]): Promise<void> { if (state.signal.aborted || messages.length === 0 || state.agentSpec.stateful === false) return; await this.#store.append(state.sessionId, state.agent, messages); }
+  async #replace(state: TurnState): Promise<void> { if (state.signal.aborted || state.agentSpec.stateful === false) return; await this.#store.replace(state.sessionId, state.agent, state.conversation); }
   /**
    * Applies the results of the asynchronous hooks that have finished, in the order they were
    * scheduled. A task that is still running stays in the map and is looked at again at the next
@@ -1528,14 +1626,16 @@ export class GoondanRuntime {
       await this.#append(state, added);
     }
   }
-  /** Adds the values the host steered into this conversation; only foreground flow steps take them. */
+  /** 호스트가 보낸 실행 중 입력을 해당 흐름 실행의 대화에 추가합니다. */
   async #drainSteering(state: TurnState): Promise<void> {
     const host = state.scope.host;
     if (!state.scope.foreground || host === null) return;
-    const queue = this.#root.#queuedInput.get(host);
+    const queue = this.#queuedInput.get(host);
     if (!queue?.length) return;
-    this.#root.#queuedInput.delete(host);
-    const messages = queue.map((value) => this.#message("user", "user", typeof value === "string" ? value : jsonText(value), state.turnId, ++state.messageNumber));
+    const accepted = queue.filter((item) => item.agent === undefined || item.agent === state.agent);
+    const remaining = queue.filter((item) => item.agent !== undefined && item.agent !== state.agent);
+    if (remaining.length === 0) this.#queuedInput.delete(host); else this.#queuedInput.set(host, remaining);
+    const messages = accepted.map((item) => this.#message("user", "user", typeof item.value === "string" ? item.value : jsonText(item.value), state.turnId, ++state.messageNumber));
     state.conversation.push(...messages);
     await this.#append(state, messages);
   }
@@ -1553,7 +1653,7 @@ export class GoondanRuntime {
    * events in the order they happened even when a `step.textDelta` delivery is not awaited.
    */
   async #emit(name: RuntimeEventName, state: TurnState, data: Record<string, Json>): Promise<void> {
-    const event: RuntimeEvent = { name, agent: state.path, conversationId: state.conversationId, turnId: state.turnId, at: Date.now(), data };
+    const event: RuntimeEvent = { name, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, at: Date.now(), data };
     const delivery = state.emitting.then(() => this.#deliver(event, state.extensions));
     state.emitting = delivery;
     await delivery;
@@ -1563,7 +1663,7 @@ export class GoondanRuntime {
    * instances of the run's scope, in creation order. A receiver failure is ignored.
    */
   async #deliver(event: RuntimeEvent, extensions: ReadonlyMap<string, ExtensionInstance>): Promise<void> {
-    const host = this.#root.#bindings.host;
+    const host = this.#bindings.host;
     if (host?.emit) { try { await host.emit(event); } catch { /* A failed receiver never stops the run. */ } }
     for (const instance of extensions.values()) {
       const handler = instance.on?.[event.name];
@@ -1572,12 +1672,62 @@ export class GoondanRuntime {
     }
   }
   #message(source: string, role: "user" | "system" | "assistant", text: string, turnId: string, number: number): Message { return { id: `${turnId}:${String(number)}:${this.#id()}`, role, source, content: [{ type: "text", text }] }; }
+  #messageWithParts(source: string, content: Part[]): Message { return { id: this.#id(), role: "user", source, content: structuredClone(content) }; }
+  #toMessages(input: RunInput, source: string): Message[] {
+    if (isMessageArray(input)) return structuredClone(input);
+    if (isPartArray(input)) return [this.#messageWithParts(source, input)];
+    const value = this.#json(input, "run input");
+    if (typeof value === "string") return [this.#messageWithParts(source, [{ type: "text", text: value }])];
+    return [this.#messageWithParts(source, [{ type: "json", value }])];
+  }
+  #hostSession(sessionId: string): void {
+    if (sessionId.includes("#")) throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "A host sessionId cannot contain #" });
+  }
+  #steerFailure(message: string): GoondanExecutionError {
+    return new GoondanExecutionError({ where: "runtime", codes: ["steer_invalid"], message });
+  }
+  #markForeground(state: TurnState): void {
+    const sessionId = state.scope.host;
+    if (!state.scope.foreground || sessionId === null) return;
+    const agents = this.#foregroundAgents.get(sessionId) ?? new Map<string, number>();
+    agents.set(state.agent, (agents.get(state.agent) ?? 0) + 1);
+    this.#foregroundAgents.set(sessionId, agents);
+  }
+  #unmarkForeground(state: TurnState): void {
+    const sessionId = state.scope.host;
+    if (!state.scope.foreground || sessionId === null) return;
+    const agents = this.#foregroundAgents.get(sessionId); if (!agents) return;
+    const count = (agents.get(state.agent) ?? 1) - 1;
+    if (count === 0) agents.delete(state.agent); else agents.set(state.agent, count);
+    if (agents.size === 0) this.#foregroundAgents.delete(sessionId);
+  }
+  async #deleteSession(sessionId: string): Promise<void> {
+    this.#hostSession(sessionId);
+    if (this.#closed) throw closedFailure();
+    if ((this.#turnCounts.get(sessionId) ?? 0) > 0) throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "The session has a running or queued turn" });
+    for (const [key, instances] of [...this.#instances]) {
+      const parsed: unknown = JSON.parse(key);
+      if (!Array.isArray(parsed) || typeof parsed[0] !== "string") continue;
+      if (parsed[0] !== sessionId && !parsed[0].startsWith(`${sessionId}#`)) continue;
+      await disposeAll(instances); this.#instances.delete(key); this.#pendingHooks.delete(key);
+    }
+    for (const [key, controller] of [...this.#asyncControllers]) {
+      const parsed: unknown = JSON.parse(key);
+      if (!Array.isArray(parsed) || typeof parsed[0] !== "string") continue;
+      if (parsed[0] !== sessionId && !parsed[0].startsWith(`${sessionId}#`)) continue;
+      controller.abort();
+      this.#asyncControllers.delete(key);
+      this.#pendingHooks.delete(key);
+    }
+    this.#queuedInput.delete(sessionId);
+    await this.#store.deleteSession(sessionId);
+  }
   #id(): string { return globalThis.crypto.randomUUID(); }
   #now(): number { return Date.now(); }
   /** The declared agent of this configuration; an inherited object key never names one. */
   #agent(name: string): AgentSpec {
     const spec = Object.hasOwn(this.loaded.config.agents, name) ? this.loaded.config.agents[name] : undefined;
-    if (!spec) throw new Error(`Unknown agent: ${this.#path(name)}`);
+    if (!spec) throw new Error(`Unknown agent: ${name}`);
     return spec;
   }
   /** Narrows a host value to JSON. An object member that is `undefined` is left out, as in JSON. */
@@ -1586,15 +1736,7 @@ export class GoondanRuntime {
 }
 
 /**
- * Creates a runtime from a `loadConfig` result or a configuration document. The schema, reference and
- * binding phases run before the runtime exists, so a runtime never starts from an invalid configuration.
+ * `loadConfig` 결과나 구성 문서에서 군단 객체를 만듭니다. 스키마, 참조, 바인딩 검증을 먼저
+ * 수행하므로 유효하지 않은 구성으로 실행 엔진을 시작하지 않습니다.
  */
-export function createRuntime(config: LoadedConfig | unknown, bindings: RuntimeBindings): GoondanRuntime { return new GoondanRuntime(config, bindings); }
-
-function collectBindingIssues(loaded: LoadedConfig, bindings: RuntimeBindings, prefix: string): ConfigIssue[] {
-  const issues: ConfigIssue[] = bindingIssues(loaded.config, bindings).map((issue) => (prefix === "" ? issue : { ...issue, path: `${prefix}${issue.path}` }));
-  for (const [name, nested] of loaded.nested ?? []) {
-    issues.push(...collectBindingIssues(nested, bindings, `${prefix}${pointer(["agents", name, "config"])}`));
-  }
-  return issues;
-}
+export function createGoondan(config: LoadedConfig | unknown, bindings: RuntimeBindings): Goondan { return new Goondan(config, bindings); }

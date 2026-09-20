@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
 
 if TYPE_CHECKING:
-    from .runtime import Runtime
+    from .runtime import Goondan
 
 Json = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
 ValueName = str
@@ -43,7 +43,7 @@ class GoondanExecutionError(GoondanError):
 
 
 class GoondanAbortError(GoondanError):
-    """§실행 중단: an agent run that the host stopped with `abort(conversation_id)` or `close()`.
+    """§실행 중단: 호스트가 `abort(session_id)` 또는 `close()`로 중단한 실행이다.
 
     The run fails with `where` `runtime` and `codes` `["aborted"]`, never reaches the
     `error` stage, and is never turned into a tool or hook failure. The error carries the
@@ -67,8 +67,7 @@ class GoondanConfigError(GoondanError):
     """A configuration, template or host binding that does not satisfy the specification.
 
     `issues` holds one `{code, path, message}` entry per violation, sorted by position
-    and de-duplicated. `raw_issues` keeps the same entries with their path segments so
-    that a nested configuration can move them under its `config` field.
+    and de-duplicated. `raw_issues` keeps the same entries with their path segments.
     """
 
     def __init__(self, issues: Sequence[Mapping[str, Any]]):
@@ -93,7 +92,6 @@ class GoondanConfig(dict[str, Any]):
     """
 
     directory: str | None = None
-    nested: dict[str, "GoondanConfig"] | None = None
     templates: dict[str, str] | None = None
 
 
@@ -148,15 +146,16 @@ def define_tool(*, name: str, description: str, input: Mapping[str, Any], execut
 
 
 class ConversationStore(Protocol):
-    async def load(self, conversation_id: str, agent: str) -> list[dict[str, Any]]: ...
-    async def append(self, conversation_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
-    async def replace(self, conversation_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
+    async def load(self, session_id: str, agent: str) -> list[dict[str, Any]]: ...
+    async def append(self, session_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
+    async def replace(self, session_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
+    async def delete_session(self, session_id: str) -> None: ...
 
 
 class OperationStore(Protocol):
     """§작업 저장소 프로토콜: the source of truth for approval operations, in six requests.
 
-    An operation is identified by the (conversation identifier, operation identifier) pair.
+    An operation is identified by the (session identifier, operation identifier) pair.
     `transition`, `claim_delivery` and `release_delivery` are each atomic for one operation
     and change nothing when their condition does not hold, in which case they return `None`.
     `transition` overwrites only the fields it is given; the runtime always puts `updatedAt`
@@ -166,12 +165,12 @@ class OperationStore(Protocol):
     field that was stored without a key comes back without one rather than as `null`.
     """
 
-    async def list(self, conversation_id: str | None = None) -> list[dict[str, Any]]: ...
-    async def get(self, conversation_id: str, operation_id: str) -> dict[str, Any] | None: ...
+    async def list(self, session_id: str | None = None) -> list[dict[str, Any]]: ...
+    async def get(self, session_id: str, operation_id: str) -> dict[str, Any] | None: ...
     async def save(self, operation: dict[str, Any]) -> None: ...
-    async def transition(self, conversation_id: str, operation_id: str, expected: Sequence[str], updates: Mapping[str, Any]) -> dict[str, Any] | None: ...
-    async def claim_delivery(self, conversation_id: str, operation_id: str, updated_at: int) -> dict[str, Any] | None: ...
-    async def release_delivery(self, conversation_id: str, operation_id: str, delivery_id: str, updated_at: int) -> dict[str, Any] | None: ...
+    async def transition(self, session_id: str, operation_id: str, expected: Sequence[str], updates: Mapping[str, Any]) -> dict[str, Any] | None: ...
+    async def claim_delivery(self, session_id: str, operation_id: str, updated_at: int) -> dict[str, Any] | None: ...
+    async def release_delivery(self, session_id: str, operation_id: str, delivery_id: str, updated_at: int) -> dict[str, Any] | None: ...
 
 
 class _Messages:
@@ -250,7 +249,7 @@ class ModelContext:
     """
 
     agent: str
-    conversation_id: str
+    session_id: str
     turn_id: str
     step: int
     on_text_delta: Callable[[str], None]
@@ -260,23 +259,21 @@ class ModelContext:
 class HookContext:
     """§훅 컨텍스트와 호스트 함수.
 
-    `agent` is the [에이전트 경로](spec §에이전트 경로) and `local` the declaration name in its
-    own configuration. `source` is the [훅 식별자](spec §훅 식별자), which every message this
-    hook creates carries.
+    `agent`는 선언된 에이전트 이름이고 `source`는 이 훅이 만드는 메시지에 기록되는
+    [훅 식별자](spec §훅 식별자)다.
     """
 
-    runtime: "Runtime"
+    runtime: "Goondan"
     agent: str
-    conversation_id: str
+    session_id: str
     turn_id: str
-    input: Json
+    input: list[dict[str, Any]] | Json
     conversation: list[dict[str, Any]]
     source: str
     execution: ExecutionHandle
     retry_count: int = 0
     phase: str = ""
     hook: str = ""
-    local: str = ""
     detached: bool = False
     # The runtime's state for the agent run this hook belongs to. It is how `model.run`
     # reads the run's last model call number ([§모델 호출](spec)); hosts do not use it.
@@ -285,17 +282,12 @@ class HookContext:
     @property
     def message(self) -> _Messages: return _Messages(self.source)
 
-    @property
-    def hook_conversation_id(self) -> str:
-        """§하위 대화: `<부모 대화 식별자>:<부모 에이전트 경로>:<단계>:<훅 식별자>`."""
-        return f"{self.conversation_id}:{self.agent}:{self.phase}:{self.hook}"
-
     def append(self, *items: Mapping[str, Any]) -> dict[str, Any]:
         """§제어 결과: the `append` control result carrying these messages."""
         return {"append": [copy.deepcopy(dict(item)) for item in items]}
 
-    async def run_agent(self, name: str, value: Json, conversation: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        return await self.runtime._run_hook_agent(self, name, value, conversation)
+    async def run_agent(self, name: str, value: Json) -> dict[str, Any]:
+        return await self.runtime._run_hook_agent(self, name, value)
 
     async def run_model(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         return await self.runtime._run_hook_model(self, messages)

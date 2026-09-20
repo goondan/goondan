@@ -3,17 +3,18 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createRuntime, loadConfig, textOf, type Json, type RuntimeBindings } from '@goondan/core';
+import { createGoondan, loadConfig, textOf, type RuntimeBindings } from '@goondan/core';
 import { stringify } from 'yaml';
 import { parseChatOptions, runChat } from './chat/command.js';
+import { parseRunInput } from './run-input.js';
 
-interface Options { command: string; directory: string; bindings: string; input?: string; inputFile?: string; conversationId: string; agent?: string; variants: string[] }
+interface Options { command: string; directory: string; bindings: string; input?: string; inputFile?: string; sessionId: string; agent?: string; variants: string[] }
 
 function usage(): string {
   return [
     'Usage:',
     '  gdn run [CONFIG_PATH] --bindings <MODULE> [--input <JSON_OR_TEXT>] [--input-file <PATH>]',
-    '          [--conversation-id <ID>] [--agent <AGENT_PATH>] [--variant <NAME>]',
+    '          [--session-id <ID>] [--agent <AGENT>] [--variant <NAME>]',
     '  gdn chat [--cwd <PATH>] [--provider <anthropic|openai>] [--model <MODEL>] [--base-url <URL>]',
     '           [--session <ID>] [--state-dir <PATH>] [--config <PATH>] [--bindings <MODULE>] [--final-only]',
     '  gdn validate [CONFIG_PATH] [--variant <NAME>]',
@@ -22,13 +23,14 @@ function usage(): string {
     'The bindings module exports `bindings` or a default RuntimeBindings object.',
     '`--variant` may be repeated and applies in the given order.',
     '`gdn run` reads the input from standard input when neither --input nor --input-file is given.',
+    '`gdn chat` uses `/steer <AGENT> <INPUT>` to target additional input during parallel runs.',
   ].join('\n');
 }
 
 function parse(argv: string[]): Options {
   const command = argv.shift() ?? 'help';
   let directory = '.'; let bindings = 'goondan.bindings.js'; let input: string | undefined; let inputFile: string | undefined;
-  let conversationId = `cli:${Date.now().toString(36)}`; let agent: string | undefined; const variants: string[] = [];
+  let sessionId = `cli:${Date.now().toString(36)}`; let agent: string | undefined; const variants: string[] = [];
   if (argv[0] && !argv[0].startsWith('-')) directory = argv.shift() ?? '.';
   while (argv.length > 0) {
     const flag = argv.shift(); const value = argv.shift();
@@ -36,15 +38,14 @@ function parse(argv: string[]): Options {
     if (flag === '--bindings') bindings = value;
     else if (flag === '--input') input = value;
     else if (flag === '--input-file') inputFile = value;
-    else if (flag === '--conversation-id') conversationId = value;
+    else if (flag === '--session-id') sessionId = value;
     else if (flag === '--agent') agent = value;
     else if (flag === '--variant') variants.push(value);
     else throw new Error(`Unknown option: ${flag}`);
   }
-  return { command, directory, bindings, input, inputFile, conversationId, agent, variants };
+  return { command, directory, bindings, input, inputFile, sessionId, agent, variants };
 }
 
-function parseInput(raw: string): Json { try { return JSON.parse(raw); } catch { return raw; } }
 function isBindings(value: unknown): value is RuntimeBindings {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   return 'models' in value && typeof value.models === 'object' && value.models !== null;
@@ -68,11 +69,11 @@ async function main(): Promise<void> {
   const candidate: unknown = module.bindings ?? module.default;
   if (!isBindings(candidate)) throw new Error(`Bindings module must export RuntimeBindings: ${options.bindings}`);
   const raw = options.inputFile ? await readFile(resolve(options.inputFile), 'utf8') : options.input ?? await new Promise<string>((done) => { let value = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (chunk: string) => { value += chunk; }); process.stdin.on('end', () => done(value)); });
-  const runtime = createRuntime(loaded, candidate);
+  const goondan = createGoondan(loaded, candidate);
   try {
-    const result = await runtime.runTurn(parseInput(raw), { conversationId: options.conversationId, agent: options.agent });
+    const result = await goondan.run(parseRunInput(raw), { sessionId: options.sessionId, agent: options.agent });
     process.stdout.write(`${textOf(result.output.content)}\n`);
-  } finally { await runtime.close(); }
+  } finally { await goondan.close(); }
 }
 
 void main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

@@ -1,0 +1,6 @@
+{
+  "description": "시스템 블록 템플릿의 input은 에이전트 입력 메시지 배열이고 inputText는 그 메시지 배열에서 계산한 입력 텍스트다.",
+  "spec": ["입력", "템플릿 위치와 변수", "시스템 메시지와 매개변수"],
+  "bindings": {"models": {"m": {"responses": [{"text": "완료"}]}}},
+  "steps": [{"run": {"sessionId": "s", "input": {"k": 1}}}]
+}

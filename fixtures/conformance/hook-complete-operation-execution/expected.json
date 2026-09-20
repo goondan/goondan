@@ -1,12 +1,13 @@
 {
   "steps": [
-    {},
+    {
+    },
     {
       "result": {
         "operationId": "<op:p-1>",
         "deliveryId": "operation:<op:p-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "p-1",
@@ -29,7 +30,7 @@
         "operationId": "<op:p-1>",
         "deliveryId": "operation:<op:p-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "p-1",
@@ -65,7 +66,7 @@
           "type": "operation_completion",
           "deliveryId": "operation:<op:p-1>:completion",
           "operationId": "<op:p-1>",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "agent": "main",
           "status": "completed",
           "toolCall": {

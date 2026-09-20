@@ -14,7 +14,7 @@
 |---|---|---|
 | `case.json` | 예 | 구성 위치, 바인딩 스크립트와 실행 단계 |
 | `expected.json` | 예 | 정규화한 기대 결과 |
-| `config/` | 구성 파일이나 템플릿을 쓰는 사례 | 진입 파일, variant, 템플릿, 합성할 파일과 중첩 구성 |
+| `config/` | 구성 파일이나 템플릿을 쓰는 사례 | 진입 파일, variant, 템플릿과 합성할 파일 |
 
 기본 진입 경로가 `config`이므로 보통 `config/goondan.yaml`이 진입 파일이다. `config/` 안의 배치는 사례가 정한다. 사례가 읽는 파일은 모두 사례 디렉터리 안에 둔다.
 
@@ -46,7 +46,7 @@ agents:
     },
     "tools": {"lookup": {"description": "검색", "results": [{"text": "결과"}]}}
   },
-  "steps": [{"run": {"conversationId": "c1", "input": "찾아 주세요"}}]
+  "steps": [{"run": {"sessionId": "c1", "input": "찾아 주세요"}}]
 }
 ```
 
@@ -57,7 +57,7 @@ agents:
   "steps": [{"result": {
     "finishReason": "stop",
     "usage": {"input": 13, "output": 3, "cacheRead": 0, "cacheWrite": 0},
-    "runs": [{"agent": "main", "turnId": "<turn:1>", "kind": "flow",
+    "runs": [{"agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "kind": "turn",
       "usage": {"input": 13, "output": 3, "cacheRead": 0, "cacheWrite": 0},
       "finishReason": "stop", "status": "done"}]
   }}],
@@ -91,7 +91,7 @@ agents:
 
 ### 규격 절 인용과 검증 범위
 
-`spec`의 각 값은 `spec/goondan.md`의 제목 줄에서 앞의 `#`들과 공백을 뺀 문자열과 정확히 같아야 한다. 백틱도 제목에 적힌 그대로 쓴다. 예: `"에이전트 실행 기록"`, `` "`execution.complete`" ``, `` "route 함수와 `carry`" ``.
+`spec`의 각 값은 `spec/goondan.md`의 제목 줄에서 앞의 `#`들과 공백을 뺀 문자열과 정확히 같아야 한다. 백틱도 제목에 적힌 그대로 쓴다. 예: `"에이전트 실행 기록"`, `` "`execution.complete`" ``, `"route 조건"`.
 
 두 러너는 사례와 별도로 검증 범위 테스트를 하나씩 둔다. 이 테스트는 다음 경우에 실패한다.
 
@@ -107,8 +107,8 @@ agents:
 
 | 방식 | 키 | 러너의 호출 |
 |---|---|---|
-| 파일 | `path`: 진입 경로. 사례 디렉터리 기준 상대 경로이며 기본값은 `config`다. `variants`: variant 이름 배열이며 기본값은 빈 배열이다. | `loadConfig`(`load_config`)로 구성을 읽고, 그 결과로 `createRuntime`(`create_runtime`)을 호출한다. |
-| 문서 | `document`: 구성 문서인 JSON 객체. `directory`: 구성 디렉터리. 사례 디렉터리 기준 상대 경로이며 기본값은 `config`다. | `validateConfig`(`validate_config`)에 문서를 전달하고, 성공하면 같은 문서와 구성 디렉터리로 `createRuntime`을 호출한다. |
+| 파일 | `path`: 진입 경로. 사례 디렉터리 기준 상대 경로이며 기본값은 `config`다. `variants`: variant 이름 배열이며 기본값은 빈 배열이다. | `loadConfig`(`load_config`)로 구성을 읽고, 그 결과로 `createGoondan`(`create_goondan`)을 호출한다. |
+| 문서 | `document`: 구성 문서인 JSON 객체. `directory`: 구성 디렉터리. 사례 디렉터리 기준 상대 경로이며 기본값은 `config`다. | `validateConfig`(`validate_config`)에 문서를 전달하고, 성공하면 같은 문서와 구성 디렉터리로 `createGoondan`을 호출한다. |
 
 `path`와 `document`는 함께 쓸 수 없다. `variants`는 파일 방식에서만, `directory`는 문서 방식에서만 쓴다. 러너는 사례 디렉터리의 실제 경로 뒤에 `path`나 `directory`를 이은 절대 경로를 전달한다. 문서 방식에서도 구성 디렉터리를 항상 전달하므로, 디렉터리를 생략하면 프로세스의 현재 디렉터리를 쓰는 규칙은 공통 사례로 검증하지 않는다.
 
@@ -303,26 +303,28 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 
 | 동작 | 값 | TypeScript | Python | 반환값 |
 |---|---|---|---|---|
-| `run` | `{conversationId, input, agent?, startAgent?}` | `runTurn(input, {conversationId, agent, startAgent})` | `run_turn(input, conversation_id=, agent=, start_agent=)` | 턴 결과 |
-| `decide` | `{operation, value, conversationId?}` | `decideOperation(conversationId, operationId, value)` | `decide_operation(conversation_id, operation_id, value)` | 작업 |
-| `cancel` | `{operation, conversationId?}` | `cancelOperation(conversationId, operationId)` | `cancel_operation(conversation_id, operation_id)` | 작업 |
-| `list` | `{conversationId?}` | `listOperations(conversationId)` | `list_operations(conversation_id)` | 작업 배열 |
-| `recover` | `{conversationId?}` | `recoverOperations(conversationId)` | `recover_operations(conversation_id)` | 없음 |
-| `abort` | `{conversationId}` | `abort(conversationId)` | `abort(conversation_id)` | 불리언 |
-| `steer` | `{conversationId, value}` | `steer(conversationId, value)` | `steer(conversation_id, value)` | 없음 |
+| `run` | `{sessionId, input, agent?, startAgent?}` | `run(input, {sessionId, agent, startAgent})` | `run(input, session_id=, agent=, start_agent=)` | 턴 결과 |
+| `decide` | `{operation, value, sessionId?}` | `decideOperation(sessionId, operationId, value)` | `decide_operation(session_id, operation_id, value)` | 작업 |
+| `cancel` | `{operation, sessionId?}` | `cancelOperation(sessionId, operationId)` | `cancel_operation(session_id, operation_id)` | 작업 |
+| `list` | `{sessionId?}` | `listOperations(sessionId)` | `list_operations(session_id)` | 작업 배열 |
+| `recover` | `{sessionId?}` | `recoverOperations(sessionId)` | `recover_operations(session_id)` | 없음 |
+| `abort` | `{sessionId}` | `abort(sessionId)` | `abort(session_id)` | 불리언 |
+| `steer` | `{sessionId, value, agent?}` | `steer(sessionId, value, {agent})` | `steer(session_id, value, agent=)` | 없음 |
+| `deleteSession` | `{sessionId}` | `sessions.delete(sessionId)` | `sessions.delete(session_id)` | 없음 |
 | `restart` | `{}` | 새 런타임 생성 | 새 런타임 생성 | 없음 |
 | `close` | `{}` | `close()` | `close()` | 없음 |
 | `release` | 게이트 이름 | 러너가 처리 | 러너가 처리 | 없음 |
 | `reach` | 게이트 이름 | 러너가 처리 | 러너가 처리 | 없음 |
 | `parallel` | 가지 배열 | 러너가 처리 | 러너가 처리 | 없음 |
 
-`?`가 붙은 키는 생략할 수 있으며, 생략한 키는 API에 전달하지 않는다. 실행 단계의 값은 그대로 전달하며, 기대 결과에 쓰는 `<turn:N>` 같은 표기는 실행 단계의 값에서 해석하지 않는다.
+`?`가 붙은 키는 생략할 수 있으며, 생략한 키는 API에 전달하지 않는다. `run.input`에는 메시지 배열, 비어 있지 않은 부분 배열, 문자열, 그 밖의 JSON 값을 쓸 수 있다. 빈 배열은 메시지 배열로 전달한다. 실행 단계의 값은 그대로 전달하며, 기대 결과에 쓰는 `<turn:N>` 같은 표기는 실행 단계의 값에서 해석하지 않는다.
 
-- `decide`와 `cancel`의 `operation`이 `<op:`로 시작하는 [작업 별칭](#작업-별칭)이면 러너는 작업 저장소에서 그 별칭의 작업을 찾아 실제 `operationId`를 전달하며, 찾지 못하면 사례가 실패한다. `conversationId`를 생략하면 찾은 작업의 `conversationId`를 전달한다. 별칭이 아닌 문자열은 그대로 전달하므로 없는 작업을 가리키는 요청을 검증할 수 있으며, 이때 `conversationId`는 필수다.
+- `decide`와 `cancel`의 `operation`이 `<op:`로 시작하는 [작업 별칭](#작업-별칭)이면 러너는 작업 저장소에서 그 별칭의 작업을 찾아 실제 `operationId`를 전달하며, 찾지 못하면 사례가 실패한다. `sessionId`를 생략하면 찾은 작업의 `sessionId`를 전달한다. 별칭이 아닌 문자열은 그대로 전달하므로 없는 작업을 가리키는 요청을 검증할 수 있으며, 이때 `sessionId`는 필수다.
 - `decide`의 `value`는 결정 값으로 그대로 전달한다. 예: `{"decision": "approved", "inputPatch": {"env": "staging"}}`.
-- `restart`는 현재 런타임을 닫지 않고 버린 뒤 새 런타임을 만든다. 새 런타임은 처음과 같은 구성(파일 방식은 처음 `loadConfig`가 반환한 결과, 문서 방식은 같은 문서와 구성 디렉터리), 같은 저장소와 이벤트 수신 기능, 같은 스크립트 진행 상태와 게이트를 쓴다. 이후 실행 단계는 새 런타임에서 실행한다. 버린 런타임에서 진행 중이던 작업은 그대로 둔다. 영속 저장소를 가진 호스트 프로세스가 다시 시작하는 상황을 흉내 낸다.
-- `close`는 [러너의 실행 순서](#러너의-실행-순서)에 정한 방법으로 현재 런타임을 닫는다. 이후 실행 단계도 닫힌 런타임에서 실행하므로 닫힌 런타임에 보낸 요청을 검증할 수 있다.
-- `parallel`의 각 원소는 실행 단계의 배열이며 이를 가지라 한다. 러너는 각 가지의 첫 실행 단계를 배열 순서대로 시작한 뒤 모든 가지를 동시에 진행하고, 가지 안의 실행 단계는 차례로 실행한다. 모든 가지가 끝나면 다음 실행 단계로 간다. 가지 안에는 `restart`, `close`, `parallel`과 `settle`을 쓸 수 없다.
+- `restart`는 현재 군단 객체를 닫지 않고 버린 뒤 새 군단 객체를 만든다. 새 객체는 처음과 같은 구성(파일 방식은 처음 `loadConfig`가 반환한 결과, 문서 방식은 같은 문서와 구성 디렉터리), 같은 저장소와 이벤트 수신 기능, 같은 스크립트 진행 상태와 게이트를 쓴다. 이후 실행 단계는 새 객체에서 실행한다. 버린 객체에서 진행 중이던 작업은 그대로 둔다. 영속 저장소를 가진 호스트 프로세스가 다시 시작하는 상황을 흉내 낸다.
+- `close`는 [러너의 실행 순서](#러너의-실행-순서)에 정한 방법으로 현재 군단 객체를 닫는다. 이후 실행 단계도 닫힌 객체에서 실행하므로 닫힌 객체에 보낸 요청을 검증할 수 있다.
+- `deleteSession`은 해당 세션과 파생 세션의 대화를 삭제한다. 정상 삭제의 기대 결과는 `{}`이며, 진행 중이거나 대기 중인 턴, `#`을 포함한 세션 식별자, 닫힌 군단 객체는 `runtime_error`를 기대 결과로 적는다.
+- `parallel`의 각 원소는 실행 단계의 배열이며 이를 가지라 한다. 러너는 각 가지의 첫 실행 단계를 배열 순서대로 시작한 뒤 모든 가지를 동시에 진행하고, 가지 안의 실행 단계는 차례로 실행한다. 모든 가지가 끝나면 다음 실행 단계로 간다. 가지 안에는 `close`를 쓸 수 있으므로 진행 중인 요청과 시작을 기다리는 요청을 함께 검증할 수 있다. 가지 안에는 `restart`, `parallel`과 `settle`을 쓸 수 없다.
 
 ### 실행 단계 뒤의 대기와 `idle()`
 
@@ -370,7 +372,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 |---|---|
 | `load` | `loadConfig`, `load_config` |
 | `validate` | `validateConfig`, `validate_config` |
-| `create` | `createRuntime`, `create_runtime` |
+| `create` | `createGoondan`, `create_goondan` |
 
 `issues`는 `GoondanConfigError`의 `issues`와 배열 순서까지 비교하므로, 규격의 [구성 오류](../../spec/goondan.md#구성-오류)에 정한 정렬 순서로 적는다. 각 항목의 `code`는 규격의 [오류 코드](../../spec/goondan.md#오류-코드) 표에 있는 구성 오류 코드이고, `path`는 JSON Pointer다. `message`는 규격이 문구를 정한 `template.*` 항목에만 적을 수 있으며([템플릿 구성 오류](../../spec/goondan.md#템플릿-구성-오류)), 적은 경우에만 비교한다.
 
@@ -380,13 +382,13 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 - `schema.<키워드>`. 키워드는 `type`, `const`, `enum`, `required`, `additionalProperties`, `propertyNames`, `minProperties`, `minItems`, `uniqueItems`, `minLength`, `pattern`, `exclusiveMinimum`, `oneOf`, `anyOf`, `not`, `false` 가운데 하나다.
 - `config.not_json`
 - `reference.agent`, `reference.inherit`, `reference.inherit_cycle`, `reference.extension`, `reference.duplicate_tool`, `reference.duplicate_hook`
-- `flow.no_route`, `flow.cycle`, `flow.carry_conversation`
+- `routes.reserved`, `routes.no_route`, `routes.no_input`, `routes.no_output`, `routes.unreachable`, `routes.cycle`, `routes.wait_cycle`
 - `template.not_found`, `template.syntax`, `template.unsupported`
 - `binding.model`, `binding.tool`, `binding.duplicate_tool`, `binding.function`, `binding.extension`, `binding.port`, `binding.extension_hook`
 
-인수 오류는 `maxRetries`나 `maxSteps`가 규격의 조건을 어겨 런타임 생성이 TypeScript에서 `TypeError`, Python에서 `ValueError`로 실패하는 경우다.
+인수 오류는 `maxRetries`나 `maxSteps`가 규격의 조건을 어겨 군단 객체 생성이 TypeScript에서 `TypeError`, Python에서 `ValueError`로 실패하는 경우다.
 
-오류 사례에는 결함을 하나만 둔다. 결함 하나가 규격에 따라 항목 여러 개를 만들 수 있으며(예: 순환에 속한 route마다 보고하는 `flow.cycle`), 이때 `issues`에는 그 항목을 모두 적는다.
+오류 사례에는 결함을 하나만 둔다. 결함 하나가 규격에 따라 항목 여러 개를 만들 수 있으며(예: 순환에 속한 route마다 보고하는 `routes.cycle`), 이때 `issues`에는 그 항목을 모두 적는다.
 
 ### 실행 단계의 기대 결과
 
@@ -407,8 +409,9 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 | `decide`, `cancel` | [관측](#관측)의 `operations`와 같은 작업 투영 |
 | `list` | 작업 투영의 배열 |
 | `abort` | 불리언 |
+| `deleteSession`, `steer`, `recover`, `restart`, `close`, `release`, `reach` | 없음 |
 
-`runs`는 턴이 기다린 에이전트 실행과 모델 호출마다 항목 하나를 규격이 정한 순서로 담는다. 따라서 `runs`를 적으면 흐름 단계, 중첩 구성, 에이전트 도구, 훅 에이전트와 훅 컨텍스트의 모델 호출이 각각 `kind`, `usage`, `finishReason`, `status`와 함께 비교된다. 턴의 `usage`는 러너가 모든 사례에서 `runs`의 합계와 대조한다([러너가 항상 검사하는 조건](#러너가-항상-검사하는-조건)).
+`runs`는 턴이 기다린 에이전트 실행과 모델 호출마다 항목 하나를 규격이 정한 순서로 담는다. 따라서 `runs`를 적으면 route 실행, 에이전트 도구, 훅 에이전트와 훅 컨텍스트의 모델 호출이 각각 `agent`, `instance`, `kind`, `usage`, `finishReason`, `status`와 함께 비교된다. `kind`는 `turn`, `tool`, `hook`, `model` 가운데 하나다. 턴의 `usage`는 러너가 모든 사례에서 `runs`의 합계와 대조한다([러너가 항상 검사하는 조건](#러너가-항상-검사하는-조건)).
 
 실행 단계가 던지는 오류의 기대 값은 다음 가운데 하나다.
 
@@ -418,7 +421,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 | `{"issues": [...]}` | 턴이 [확장 인스턴스](../../spec/goondan.md#확장-인스턴스) 준비의 구성 오류로 실패한 경우 | [구성 오류와 인수 오류](#구성-오류와-인수-오류)의 `issues`와 같다. |
 | `{"scriptError": 메시지}` | 스크립트가 던진 오류가 그대로 실행 단계 밖으로 나온 경우. 예: 복구가 처음 실패한 승인 요청 전달의 오류로 실패한 경우 | 메시지를 비교한다. |
 
-`codes`의 첫 값은 규격의 실행 오류 코드인 `model_error`, `tool_error`, `tool_unavailable`, `hook_error`, `value_invalid`, `flow_error`, `operation_invalid`, `runtime_error`, `aborted` 가운데 하나다. 실행 오류의 `message`는 규격이 내용을 정한 경우에만 적는다. 예를 들어 모델 실패의 `message`는 모델 구현이 던진 오류의 메시지다([모델 실패](../../spec/goondan.md#모델-실패)).
+`codes`의 첫 값은 규격의 실행 오류 코드인 `model_error`, `tool_error`, `tool_unavailable`, `hook_error`, `value_invalid`, `route_error`, `steer_invalid`, `operation_invalid`, `runtime_error`, `aborted` 가운데 하나다. 실행 오류의 `message`는 규격이 내용을 정한 경우에만 적는다. 예를 들어 모델 실패의 `message`는 모델 구현이 던진 오류의 메시지다([모델 실패](../../spec/goondan.md#모델-실패)).
 
 러너는 던진 예외가 `GoondanConfigError`이면 구성 오류로, 스크립트가 던진 오류이면 `scriptError`로, 실행 오류의 필드를 가지면 실행 오류로 투영한다. 그 밖의 예외는 기대 결과와 관계없이 사례를 실패시킨다.
 
@@ -431,31 +434,31 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 | `effectiveConfig` | 유효 구성. 파일 방식은 `loadConfig` 결과에 담긴 유효 구성, 문서 방식은 `validateConfig`의 반환값이다. |
 | `events` | 이벤트 수신 기능이 받은 이벤트를 받은 순서대로 담은 배열 |
 | `modelInputs` | 모델 이름 → 그 모델 구현이 받은 모델 입력을 호출 순서대로 담은 배열 |
-| `modelContexts` | 모델 이름 → 모델 컨텍스트 `{agent, conversationId, turnId, step}`을 `modelInputs`와 같은 순서로 담은 배열 |
+| `modelContexts` | 모델 이름 → 모델 컨텍스트 `{agent, sessionId, turnId, step}`을 `modelInputs`와 같은 순서로 담은 배열 |
 | `toolCalls` | 도구 구현이 호출될 때마다 `{tool, args}`를 호출 순서대로 담은 배열. `tool`은 바인딩 이름이다. |
-| `toolContexts` | 도구 컨텍스트 `{tool, agent, conversationId, turnId, toolCall, input, conversation, execution}`을 `toolCalls`와 같은 순서로 담은 배열 |
+| `toolContexts` | 도구 컨텍스트 `{tool, agent, sessionId, turnId, toolCall, input, conversation, execution}`을 `toolCalls`와 같은 순서로 담은 배열 |
 | `functionCalls` | 함수가 호출될 때마다 `{fn, value}`를 호출 순서대로 담은 배열. `value`는 함수가 받은 인수다. |
 | `hookCalls` | 확장 훅 함수가 호출될 때마다 `{extension, stage, value}`를 호출 순서대로 담은 배열 |
-| `hookContexts` | 훅 컨텍스트 `{extension, stage, agent, conversationId, turnId, input, conversation, retryCount}`를 `hookCalls`와 같은 순서로 담은 배열 |
+| `hookContexts` | 훅 컨텍스트 `{extension, stage, agent, sessionId, turnId, input, conversation, retryCount}`를 `hookCalls`와 같은 순서로 담은 배열 |
 | `hostCalls` | 호스트 콜백이 호출될 때마다 `{callback, value}`를 호출 순서대로 담은 배열. `callback`은 TypeScript 이름이다. |
 | `extensionLog` | 확장 스크립트의 옵션 검증, 생성, 이벤트 처리와 정리를 일어난 순서대로 담은 배열 |
-| `conversations` | `<conversationId>/<에이전트 경로>` → 그 실행 범위에 저장된 메시지 배열. 대화 저장소에 한 번이라도 기록된 모든 실행 범위를 담는다. |
+| `conversations` | `<sessionId>/<에이전트 이름>` → 그 실행 범위에 저장된 메시지 배열. 대화 저장소에 기록된 모든 실행 범위를 담는다. |
 | `operations` | 관측 시점에 현재 런타임의 `listOperations()`가 반환한 작업의 투영 배열 |
 | `operationHistory` | 작업 별칭 → 저장소에 기록된 상태 변화의 배열 |
 
 각 영역의 세부 규칙은 다음과 같다.
 
-- 모든 투영의 키는 camelCase다. Python 러너는 `conversation_id`, `turn_id`, `retry_count`, `tool_call` 같은 이름을 camelCase 키로 바꿔 기록한다.
-- `events`: 각 이벤트를 `{name, agent, conversationId, turnId, data}`로 투영하며 `at`은 넣지 않는다. `data`에는 규격의 [이벤트 종류](../../spec/goondan.md#이벤트-종류) 표가 그 이벤트에 요구하는 키 가운데 오류 문구인 `error`를 뺀 키만 넣고, 호스트가 추가한 키는 넣지 않는다. 다만 승인된 작업을 실행할 때 알린 `tool.*` 이벤트처럼 `data`에 `operationId`가 있으면 그 키를 넣는다.
+- 모든 투영의 키는 camelCase다. Python 러너는 `session_id`, `turn_id`, `retry_count`, `tool_call` 같은 이름을 camelCase 키로 바꿔 기록한다.
+- `events`: 각 이벤트를 `{name, agent, sessionId, turnId, data}`로 투영하며 `at`은 넣지 않는다. `data`에는 규격의 [이벤트 종류](../../spec/goondan.md#이벤트-종류) 표가 그 이벤트에 요구하는 키 가운데 오류 문구인 `error`를 뺀 키만 넣고, 호스트가 추가한 키는 넣지 않는다. 다만 승인된 작업을 실행할 때 알린 `tool.*` 이벤트처럼 `data`에 `operationId`가 있으면 그 키를 넣는다.
 - `toolContexts`: `toolCall`은 도구 컨텍스트의 `{id, name, args}`이고, `execution`은 실행 정보가 없을 때 `{}`다.
 - `hookCalls`, `hookContexts`: `stage`는 훅이 실행된 값 처리 단계의 이름이다.
 - `hostCalls`: 승인 요청과 완료 입력은 받은 값 그대로, 저장된 작업은 작업 투영으로 기록한다. `validateOperationInputPatch`의 값은 `{"operation": 작업 투영, "inputPatch": 입력 수정}`이다.
 - `extensionLog`: 항목은 다음 네 형식이다. `instance`는 사례 전체에서 생성을 시작한 순서대로 1부터 매긴 번호이며, 생성에 실패한 시도도 번호를 받는다.
   - `{"action": "validateOptions", "extension", "options"}`: 옵션 검증 함수가 받은 값
-  - `{"action": "create", "instance", "extension", "options", "ports", "agent"}`: 생성 입력. `agent`는 `{name, path, spec}`이며 `log`는 넣지 않는다.
+  - `{"action": "create", "instance", "extension", "options", "ports", "agent"}`: 생성 입력. `agent`는 `{name, spec}`이며 `log`는 넣지 않는다.
   - `{"action": "event", "instance", "name"}`: 인스턴스의 이벤트 처리기가 받은 이벤트의 이름
   - `{"action": "dispose", "instance"}`: 정리 함수 호출
-- `conversations`: 키는 대화 식별자와 에이전트 경로를 `/`로 이은 문자열이며 하위 대화도 포함한다. 예: `c1/main`, `c1/wrap/main`, `c1:<turn:1>:worker/worker`.
+- `conversations`: 키는 세션 식별자와 에이전트 이름을 `/`로 이은 문자열이며 파생 세션도 포함한다. 예: `c1/main`, `c1#<turn:1>#worker/worker`.
 - `operations`: 작업 투영은 저장된 작업에서 `createdAt`, `updatedAt`, `deliveredAt`을 뺀 값이다. 저장된 작업은 규격의 [작업 기록과 상태](../../spec/goondan.md#작업-기록과-상태)에 정한 필드만 가지므로 그 밖의 키는 비교에서 드러난다.
 - `operationHistory`: 러너 저장소가 작업의 기록을 받아들일 때마다 그 작업의 `<status>/<deliveryStatus>` 문자열을 추가하며, 직전 항목과 같으면 추가하지 않는다. 조건이 맞지 않아 기록하지 않은 전이는 추가하지 않는다. 예: `["pending/pending", "approved/pending", "running/pending", "completed/pending", "completed/delivering", "completed/delivered"]`.
 - 규격이 순서를 정하지 않는 동시 실행이 있다. 병렬로 실행하는 훅 에이전트 사이의 순서와, 비동기 훅의 완료 이벤트와 다른 이벤트 사이의 순서가 여기에 해당한다. 이런 호출이 섞이는 영역은 기대 값에 적지 않거나, 게이트로 순서를 고정한 뒤 적는다.
@@ -467,9 +470,10 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 1. 모든 문자열에서 사례 디렉터리의 실제 경로를 `<case>`로 바꾼다. 예: `<case>/config/templates/system.md`.
 2. `role`과 `content` 키를 함께 가진 모든 객체, 즉 메시지에서 `id` 키를 제거한다. 도구 호출의 `id`처럼 메시지가 아닌 객체의 `id`는 남긴다.
 3. 모든 문자열에서 실제 `operationId`를 [작업 별칭](#작업-별칭)으로 바꾼다.
-4. 모든 문자열에서 턴 식별자를 [턴 번호](#턴-번호) 표기 `<turn:N>`으로 바꾼다.
+4. 유효 구성에서 `stateful: false`인 에이전트의 인스턴스 식별자를 문서에 처음 나타난 순서대로 `<instance:N>`으로 바꾼다.
+5. 모든 문자열에서 턴 식별자를 [턴 번호](#턴-번호) 표기 `<turn:N>`으로 바꾼다.
 
-문자열 치환은 객체의 키와 문자열 값에 모두 적용하며 문자열의 일부도 바꾼다. 따라서 메시지 텍스트에 들어 있는 JSON 텍스트와 하위 대화 식별자 안의 값도 바뀐다. 시각 값(`at`, `createdAt`, `updatedAt`, `deliveredAt`)은 투영에 넣지 않는다. 이 밖의 값은 바꾸지 않으므로 `null`과 키가 없는 경우는 계속 구별된다.
+문자열 치환은 객체의 키와 문자열 값에 모두 적용하며 문자열의 일부도 바꾼다. 따라서 메시지 텍스트에 들어 있는 JSON 텍스트와 파생 세션 식별자 안의 값도 바뀐다. 시각 값(`at`, `createdAt`, `updatedAt`, `deliveredAt`)은 투영에 넣지 않는다. 이 밖의 값은 바꾸지 않으므로 `null`과 키가 없는 경우는 계속 구별된다.
 
 ### 작업 별칭
 
@@ -479,7 +483,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 
 ### 턴 번호
 
-턴 식별자는 문서에서 `turnId` 키의 문자열 값으로 나타나는 모든 값이다. 러너는 정규화 3단계까지 마친 문서를 다음 규칙으로 훑으며, 턴 식별자가 처음 나타나는 순서대로 1부터 번호를 매긴다.
+턴 식별자는 문서에서 `turnId` 키의 문자열 값으로 나타나는 모든 값이다. 러너는 정규화 4단계까지 마친 문서를 다음 규칙으로 훑으며, 턴 식별자가 처음 나타나는 순서대로 1부터 번호를 매긴다.
 
 - `steps`를 먼저 훑고, 이어서 관측 영역을 [관측](#관측) 표의 순서로 훑는다. 기대 값에 적지 않은 영역도 훑는다.
 - 배열은 원소 순서로, 객체는 키의 유니코드 코드 포인트 순서로 훑는다. 객체의 각 항목은 키 문자열을 먼저, 값을 나중에 본다.
@@ -505,7 +509,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 1. **사례 탐색**: `fixtures/conformance`의 사례 디렉터리를 이름의 코드 포인트 순서로 모두 찾아 사례마다 테스트 하나를 만든다. 사례를 거르거나 건너뛰지 않는다.
 2. **사례 파일 검사**: `case.json`과 `expected.json`을 이 문서의 형식대로 검사한다. 모르는 키, 형식이 맞지 않는 값, 허용하지 않는 위치의 연산, 닫힌 집합 밖의 오류 코드가 있으면 사례가 실패한다.
 3. **바인딩 준비**: 스크립트로 바인딩을 만들고 러너 저장소와 이벤트 수신 기능을 준비한다.
-4. **구성 읽기와 런타임 생성**: 파일 방식은 `loadConfig`와 `createRuntime`을, 문서 방식은 `validateConfig`와 `createRuntime`을 호출한다. 오류가 발생하면 5와 6을 건너뛴다.
+4. **구성 읽기와 군단 객체 생성**: 파일 방식은 `loadConfig`와 `createGoondan`을, 문서 방식은 `validateConfig`와 `createGoondan`을 호출한다. 오류가 발생하면 5와 6을 건너뛴다.
 5. **실행 단계 진행**: 실행 단계를 차례로 실행하고 [실행 단계 뒤의 대기와 `idle()`](#실행-단계-뒤의-대기와-idle)에 따라 기다린다.
 6. **관측 수집**: 런타임을 닫기 전에 모든 실행 단계의 투영과 모든 관측 영역을 만든다.
 7. **정리**: 사례에서 만든 모든 런타임을 만든 순서대로 닫고, 이미 닫은 런타임은 건너뛴다. 마지막으로 남은 게이트 대기를 모두 취소한다.

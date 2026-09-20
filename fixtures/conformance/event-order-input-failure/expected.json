@@ -15,7 +15,7 @@
       {
         "name": "hook.failed",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "input",
@@ -25,7 +25,7 @@
       {
         "name": "turn.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "where": "input",

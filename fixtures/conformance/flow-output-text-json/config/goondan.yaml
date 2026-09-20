@@ -1,6 +1,0 @@
-agents:
-  first:
-    model: mf
-  second:
-    model: ms
-flow: [first, second]

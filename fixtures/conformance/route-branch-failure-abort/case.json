@@ -1,0 +1,15 @@
+{
+  "description": "한 병렬 route 실행이 실패하면 턴은 그 오류로 실패하고 닫힌 게이트를 기다리는 다른 실행에는 중단을 알린다.",
+  "spec": ["route 진행", "실행 중단"],
+  "bindings": {
+    "models": {
+      "splitModel": {"responses": [{"text": "분기"}]},
+      "badModel": {"responses": [{"await": "bad-ready", "then": {"error": "분기 실패"}}]},
+      "slowModel": {"responses": [{"await": "slow-hold", "then": {"text": "늦은 결과"}}]}
+    }
+  },
+  "steps": [{"parallel": [
+    [{"run": {"sessionId": "s", "input": "시작"}}],
+    [{"reach": "bad-ready"}, {"reach": "slow-hold"}, {"release": "bad-ready"}]
+  ]}]
+}

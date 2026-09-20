@@ -44,11 +44,11 @@ describe("the schema keyword interpreter", () => {
   });
 
   it("rejects agent names that the two hosts would order differently", () => {
-    for (const name of ["", "a/b", "out", "0", "12"]) {
+    for (const name of ["", "a/b", "$input", "0", "12"]) {
       const issues = validateSchema({ version: 1, name: "t", agents: { [name]: { model: "m" } } });
       expect(issues.some((issue) => issue.code === "schema.propertyNames" && issue.path === `/agents/${name.replaceAll("/", "~1")}`)).toBe(true);
     }
-    expect(validateSchema({ version: 1, name: "t", agents: { "01": { model: "m" }, "a b": { model: "m" } } })).toEqual([]);
+    expect(validateSchema({ version: 1, name: "t", agents: { "01": { model: "m" }, "a b": { model: "m" }, out: { model: "m" } } })).toEqual([]);
   });
 
   it("reduces oneOf branches the way the specification describes", () => {
@@ -61,12 +61,27 @@ describe("the schema keyword interpreter", () => {
       .toMatchObject([{ code: "schema.oneOf", path: "/agents/main/systemMessage" }]);
   });
 
-  it("reports every duplicate of a serial flow at its own position", () => {
-    expect(validateSchema({ version: 1, name: "t", agents: { a: { model: "m" }, b: { model: "m" } }, flow: ["a", "b", "a"] }))
-      .toMatchObject([{ code: "schema.uniqueItems", path: "/flow/2" }]);
+  it("reports a duplicate serial route at the repeated array position", () => {
+    expect(validateSchema({ version: 1, name: "t", agents: { a: { model: "m" }, b: { model: "m" } }, routes: ["a", "b", "a"] }))
+      .toMatchObject([{ code: "schema.uniqueItems", path: "/routes/2" }]);
   });
 
-  it("requires an agent to declare model, config or inherit", () => {
+  it("reports a duplicate hook agent at the repeated array position", () => {
+    expect(validateSchema(agents({ model: "m", hooks: { conversation: [{ agent: ["helper", "helper"] }] } })))
+      .toMatchObject([{ code: "schema.uniqueItems", path: "/agents/main/hooks/conversation/0/agent/1" }]);
+  });
+
+  it("keeps route conditions in exactly one supported form", () => {
+    const config = (when: unknown): Record<string, unknown> => ({
+      version: 1, name: "t", agents: { main: { model: "m" } },
+      routes: [{ from: "$input", to: "main", when }, { from: "main", to: "$output" }],
+    });
+    expect(validateSchema(config({ output: 5 }))).toMatchObject([{ code: "schema.anyOf", path: "/routes/0/when/output" }]);
+    expect(validateSchema(config({}))).toMatchObject([{ code: "schema.oneOf", path: "/routes/0/when" }]);
+    expect(validateSchema(config({ fn: "choose", output: "yes" }))).toMatchObject([{ code: "schema.oneOf", path: "/routes/0/when" }]);
+  });
+
+  it("requires an agent to declare model or inherit", () => {
     expect(validateSchema(agents({ description: "x" }))).toMatchObject([{ code: "schema.anyOf", path: "/agents/main" }]);
     expect(validateSchema(agents({ model: "" }))).toMatchObject([{ code: "schema.minLength", path: "/agents/main/model" }]);
   });

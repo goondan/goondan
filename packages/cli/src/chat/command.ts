@@ -65,12 +65,11 @@ async function loadBindings(path: string): Promise<RuntimeBindings> {
 
 function collectModelNames(config: LoadedConfig, into: Set<string>): void {
   for (const agent of Object.values(config.config.agents)) if (agent.model) into.add(agent.model);
-  for (const nested of config.nested?.values() ?? []) collectModelNames(nested, into);
 }
 
 /**
- * The bindings `gdn chat` uses when no bindings module is given: every model name the configuration
- * and its nested configurations declare is bound to the selected adapter, plus the local tools.
+ * 바인딩 모듈이 없을 때 `gdn chat`이 쓰는 바인딩입니다. 구성에 선언된 모든 모델 이름을
+ * 선택한 어댑터에 연결하고 로컬 도구를 추가합니다.
  */
 export function createDefaultChatBindings(
   config: LoadedConfig,

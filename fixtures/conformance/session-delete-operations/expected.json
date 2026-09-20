@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {},
+    {},
+    {"result": [{
+      "operationId": "<op:d-1>",
+      "deliveryId": "operation:<op:d-1>:completion",
+      "agent": "main",
+      "sessionId": "s",
+      "turnId": "<turn:1>",
+      "toolCall": {"id": "d-1", "name": "danger", "args": {}},
+      "reasons": ["Tool danger requires approval"],
+      "status": "pending",
+      "deliveryStatus": "pending"
+    }]
+    }
+  ],
+  "observations": {
+    "operations": [{
+      "operationId": "<op:d-1>",
+      "deliveryId": "operation:<op:d-1>:completion",
+      "agent": "main",
+      "sessionId": "s",
+      "turnId": "<turn:1>",
+      "toolCall": {"id": "d-1", "name": "danger", "args": {}},
+      "reasons": ["Tool danger requires approval"],
+      "status": "pending",
+      "deliveryStatus": "pending"
+    }],
+    "conversations": {}
+  }
+}

@@ -131,7 +131,7 @@ describe("file composition", () => {
     expect(loaded.config.name).toBe("app");
     expect(Object.keys(loaded.config.agents)).toEqual(["a", "b"]);
     expect(loaded.config.agents.a?.params).toEqual({ x: 1, y: 3 });
-    expect(loaded.config.flow).toEqual({ in: "a" });
+    expect(loaded.config).not.toHaveProperty("routes");
   });
 
   it("keeps the earlier key order and appends new keys", () => {
@@ -141,7 +141,7 @@ describe("file composition", () => {
     });
     const loaded = loadConfigSync(root);
     expect(Object.keys(loaded.config.agents)).toEqual(["a", "b"]);
-    expect(loaded.config.flow.in).toBe("a");
+    expect(loaded.config).not.toHaveProperty("routes");
   });
 
   it("makes declared paths absolute against the declaring file", () => {
@@ -231,60 +231,5 @@ describe("variants", () => {
     const loaded = loadConfigSync(link, { variants: ["loud"] });
     expect(loaded.directory).toBe(join(target, "real"));
     expect(loaded.config.agents.a?.params).toEqual({ tone: "loud" });
-  });
-});
-
-describe("nested configurations", () => {
-  it("reads and validates them while loading the outer configuration", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: m}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner, description: nested}\n",
-    });
-    const loaded = loadConfigSync(root);
-    expect(loaded.config.agents.wrap).toEqual({ config: join(root, "inner"), description: "nested" });
-    expect(loaded.nested?.get("wrap")?.config.agents.main?.model).toBe("m");
-  });
-
-  it("keeps only config and description on a config agent", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: m}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner, model: m, tools: [search], description: nested}\n",
-    });
-    const loaded = loadConfigSync(root);
-    expect(loaded.config.agents.wrap).toEqual({ config: join(root, "inner"), description: "nested" });
-  });
-
-  it("prefixes nested errors with the config field", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: m, tools: [{tool: a, agent: b}]}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner}\n",
-    });
-    expect(issuesOf(() => loadConfigSync(root)))
-      .toMatchObject([{ code: "schema.oneOf", path: "/agents/wrap/config/agents/main/tools/0" }]);
-  });
-
-  it("reports a missing nested configuration at the config field", () => {
-    const root = workspace({ "goondan.yaml": "agents:\n  wrap: {config: ./gone}\n" });
-    expect(issuesOf(() => loadConfigSync(root))).toMatchObject([{ code: "load.not_found", path: "/agents/wrap/config" }]);
-  });
-
-  it("reports a nested configuration that points back at an enclosing entry", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  back: {config: ../goondan.yaml}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner}\n",
-    });
-    expect(issuesOf(() => loadConfigSync(root)))
-      .toMatchObject([{ code: "load.resource_cycle", path: "/agents/wrap/config/agents/back/config" }]);
-  });
-
-  it("does not apply the requested variants to a nested configuration", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: m, params: {tone: plain}}\n",
-      "inner/variants/loud.yaml": "agents:\n  main: {params: {tone: loud}}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner}\n",
-      "variants/loud.yaml": "name: loud\n",
-    });
-    const loaded = loadConfigSync(root, { variants: ["loud"] });
-    expect(loaded.nested?.get("wrap")?.config.agents.main?.params).toEqual({ tone: "plain" });
   });
 });

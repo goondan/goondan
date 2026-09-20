@@ -3,5 +3,4 @@ name: cli-chat-smoke
 agents:
   assistant:
     model: fixture
-flow:
-  in: assistant
+routes: [assistant]

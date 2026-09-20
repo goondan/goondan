@@ -3,5 +3,4 @@ agents:
     model: m
     tools:
       - look
-flow:
-  in: main
+routes: [main]

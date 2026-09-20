@@ -253,29 +253,6 @@ describe("template configuration errors", () => {
     chmodSync(join(root, "templates", "draft.md"), 0o644);
   });
 
-  it("checks templates of nested configurations with the nested configuration directory", () => {
-    const root = workspace({
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner}\n",
-      "inner/goondan.yaml": "agents:\n  main: {model: m, systemMessage: {template: ./t/main.md}}\n",
-      "inner/t/main.md": "{{ a | safe }}",
-    });
-    expect(issuesOf(() => loadConfigSync(root))).toEqual([{
-      code: "template.unsupported",
-      path: "/agents/wrap/config/agents/main/systemMessage/template",
-      message: "t/main.md uses unsupported syntax: filter safe",
-    }]);
-  });
-
-  it("never reads a template left on a config agent", () => {
-    const root = workspace({
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner, systemMessage: {template: ./gone.md}, input: {template: ./gone.md}}\n",
-      "inner/goondan.yaml": "agents:\n  main: {model: m}\n",
-    });
-    const loaded = loadConfigSync(root);
-    expect([...loaded.templates.keys()]).toEqual([]);
-    expect(loaded.config.agents.wrap).toEqual({ config: join(root, "inner") });
-  });
-
   it("names a template outside the configuration directory relative to it", () => {
     const outside = workspace({ "shared.md": "{{ a | safe }}" });
     const root = workspace({ "goondan.yaml": `agents:\n  main: {model: m, systemMessage: {template: ${join(outside, "shared.md")}}}\n` });

@@ -7,5 +7,4 @@ agents:
     inherit: base
     input:
       fn: shout
-flow:
-  in: main
+routes: [main]

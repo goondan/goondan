@@ -1,0 +1,36 @@
+{
+  "description": "stateless 에이전트는 route가 도달할 때마다 빈 대화에서 독립 실행하고 대화 저장소에 기록하지 않는다.",
+  "spec": [
+    "인스턴스",
+    "에이전트 실행 기록"
+  ],
+  "bindings": {
+    "models": {
+      "splitModel": {
+        "responses": [
+          {
+            "text": "분기"
+          }
+        ]
+      },
+      "workerModel": {
+        "responses": [
+          {
+            "text": "첫째"
+          },
+          {
+            "text": "둘째"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "시작"
+      }
+    }
+  ]
+}

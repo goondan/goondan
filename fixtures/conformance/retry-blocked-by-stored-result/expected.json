@@ -22,7 +22,7 @@
         "callback": "requestApproval",
         "value": {
           "operationId": "<op:d-1>",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "agent": "main",
           "toolCall": {

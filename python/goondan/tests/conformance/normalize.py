@@ -1,9 +1,9 @@
 """Normalization of the actual document before it is compared.
 
-The four steps are the ones the README lists: the case directory becomes `<case>`,
-message `id` keys are dropped, operation identifiers become operation aliases and turn
-identifiers become `<turn:N>`. String substitution applies to object keys and to string
-values, and replaces a part of a string as well.
+The five steps are the ones the README lists: the case directory becomes `<case>`,
+message `id` keys are dropped, operation identifiers and stateless instance identifiers
+become aliases, and turn identifiers become `<turn:N>`. String substitution applies to
+object keys and to string values, and replaces a part of a string as well.
 """
 
 from __future__ import annotations
@@ -113,9 +113,47 @@ def turn_aliases(document: Mapping[str, Any]) -> dict[str, str]:
     return {identifier: f"<turn:{index + 1}>" for index, identifier in enumerate(order)}
 
 
+def stateless_instance_aliases(document: Mapping[str, Any]) -> dict[str, str]:
+    """문서에 처음 나타난 순서대로 stateless 인스턴스 식별자에 별칭을 붙입니다."""
+    observations = document.get("observations", {})
+    config = observations.get("effectiveConfig", {}) if isinstance(observations, Mapping) else {}
+    configured = config.get("agents", {}) if isinstance(config, Mapping) else {}
+    agents = {
+        name for name, agent in configured.items()
+        if isinstance(name, str) and isinstance(agent, Mapping) and agent.get("stateful") is False
+    } if isinstance(configured, Mapping) else set()
+    identifiers: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, Mapping):
+            instance = value.get("instance")
+            agent = value.get("agent")
+            source = value.get("from")
+            if isinstance(instance, str) and (
+                agent in agents or source in agents or any(instance.endswith(f"#{name}") for name in agents)
+            ):
+                identifiers.add(instance)
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(document)
+    order: list[str] = []
+    for text in document_strings(document):
+        hits = sorted((text.find(identifier), -len(identifier), identifier)
+                      for identifier in identifiers if identifier in text)
+        for _, _, identifier in hits:
+            if identifier not in order:
+                order.append(identifier)
+    return {identifier: f"<instance:{index + 1}>" for index, identifier in enumerate(order)}
+
+
 def normalize_document(document: Mapping[str, Any], *, case_paths: Sequence[str], operation_aliases: Mapping[str, str]) -> dict[str, Any]:
     result: Any = substitute(document, replacer({path: "<case>" for path in case_paths if path}))
     result = strip_message_ids(result)
     result = substitute(result, replacer(dict(operation_aliases)))
+    result = substitute(result, replacer(stateless_instance_aliases(result)))
     result = substitute(result, replacer(turn_aliases(result)))
     return result

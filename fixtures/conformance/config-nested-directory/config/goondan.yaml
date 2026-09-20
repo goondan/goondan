@@ -1,5 +1,0 @@
-agents:
-  wrap:
-    config: nested
-flow:
-  in: wrap

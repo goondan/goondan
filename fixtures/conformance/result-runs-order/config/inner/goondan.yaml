@@ -1,5 +1,0 @@
-agents:
-  helper:
-    model: h
-flow:
-  in: helper

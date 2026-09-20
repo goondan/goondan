@@ -1,0 +1,14 @@
+{
+  "description": "input 규칙은 json 부분만 text 부분으로 바꾸고 text, image와 media 부분은 같은 순서와 값으로 보존한다.",
+  "spec": ["입력"],
+  "bindings": {
+    "models": {"m": {"responses": [{"text": "완료"}]}},
+    "functions": {"renderJson": {"op": "constant", "value": "변환"}}
+  },
+  "steps": [{"run": {"sessionId": "s", "input": [
+    {"type": "text", "text": "T"},
+    {"type": "image", "url": "memory:image"},
+    {"type": "json", "value": {"k": 1}},
+    {"type": "media", "ref": "memory:media", "mediaType": "text/plain"}
+  ]}}]
+}

@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -18,8 +20,10 @@
             }
           ],
           "extensions": {
-            "audit": {},
-            "memory": {}
+            "audit": {
+            },
+            "memory": {
+            }
           },
           "hooks": {
             "modelInput": [
@@ -47,7 +51,8 @@
             "search"
           ],
           "extensions": {
-            "memory": {}
+            "memory": {
+            }
           },
           "hooks": {
             "modelInput": [
@@ -55,12 +60,11 @@
                 "fn": "other"
               }
             ],
-            "output": []
+            "output": [
+
+            ]
           }
         }
-      },
-      "flow": {
-        "in": "base"
       }
     }
   }

@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "conversations": {
@@ -11,7 +12,27 @@
           "content": [
             {
               "type": "text",
-              "text": "B:A:요청|요청|v1"
+              "text": "요청"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "A:요청\n"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "second",
+          "content": [
+            {
+              "type": "text",
+              "text": "B:요청|v1\n"
             }
           ]
         },

@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -29,9 +31,6 @@
             "template": "<case>/config/in.md"
           }
         }
-      },
-      "flow": {
-        "in": "parent"
       }
     }
   }

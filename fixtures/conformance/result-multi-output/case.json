@@ -67,13 +67,13 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "시작"
       }
     },
     {
       "run": {
-        "conversationId": "c2",
+        "sessionId": "c2",
         "input": "시작"
       }
     }

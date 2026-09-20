@@ -1,0 +1,5 @@
+{
+  "description": "$input에서 도달할 수 없는 에이전트가 출발점인 route는 from 위치에 routes.unreachable을 보고한다.",
+  "spec": ["route 선언과 검증"],
+  "steps": []
+}

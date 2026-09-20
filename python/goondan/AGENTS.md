@@ -16,17 +16,17 @@
 | `config.py` | YAML 로딩, `extends`와 `resources` 합성, variant, 상속과 제거, 참조와 바인딩 단계 검사 |
 | `template.py` | 미리 읽은 맵만 쓰는 렌더러, 구성을 읽을 때 확정하는 정적 `include` 닫힘, 렉서 통과와 AST 허용 목록으로 강제하는 공통 식 문법 |
 | `store.py` | 메모리 대화 저장소와 메모리 작업 저장소 |
-| `runtime.py` | `Runtime`과 `create_runtime`, 확장 세션, 값별 훅, 모델과 도구 반복, 흐름과 작업 실행 |
+| `runtime.py` | `Goondan`과 `create_goondan`, 확장 인스턴스, 값별 훅, 모델과 도구 반복, 병렬 route와 fan-in, 세션과 작업 실행 |
 | `goondan.schema.json` | `spec/goondan.schema.json`의 패키지 사본. `_schema.py`가 `importlib.resources`로 읽습니다. |
 | `models/` | Anthropic과 OpenAI 공식 모델 어댑터. 규칙과 모듈 구성은 `goondan/models/AGENTS.md`를 따릅니다. |
 
-모듈은 순환 없이 한 방향으로 가져옵니다. `_schema.py`와 `store.py`는 패키지의 다른 모듈을 가져오지 않습니다. `_json.py`는 `types.py`를, `_yaml.py`는 `_schema.py`를, `_values.py`는 `_json.py`와 `_schema.py`를, `template.py`는 `_json.py`, `_schema.py`, `types.py`를 가져옵니다. `config.py`는 `_schema.py`, `_yaml.py`, `types.py`를 가져오고 `template.py`는 템플릿을 읽을 때만 지연 가져오기로 씁니다. `runtime.py`는 `_schema.py`, `_values.py`, `config.py`, `store.py`, `template.py`, `types.py`를 가져옵니다. `types.py`는 `Runtime` 타입 표기용 `TYPE_CHECKING` 가져오기와 오류 메시지를 만들 때의 지연 가져오기 외에는 다른 모듈을 가져오지 않습니다. `models/`는 코어 모듈 가운데 `types.py`와 `_json.py`만 가져오므로 어댑터를 설치하지 않아도 런타임은 그대로 동작합니다.
+모듈은 순환 없이 한 방향으로 가져옵니다. `_schema.py`와 `store.py`는 패키지의 다른 모듈을 가져오지 않습니다. `_json.py`는 `types.py`를, `_yaml.py`는 `_schema.py`를, `_values.py`는 `_json.py`와 `_schema.py`를, `template.py`는 `_json.py`, `_schema.py`, `types.py`를 가져옵니다. `config.py`는 `_schema.py`, `_yaml.py`, `types.py`를 가져오고 `template.py`는 템플릿을 읽을 때만 지연 가져오기로 씁니다. `runtime.py`는 `_schema.py`, `_values.py`, `config.py`, `store.py`, `template.py`, `types.py`를 가져옵니다. `types.py`는 `Goondan` 타입 표기용 `TYPE_CHECKING` 가져오기와 오류 메시지를 만들 때의 지연 가져오기 외에는 다른 모듈을 가져오지 않습니다. `models/`는 코어 모듈 가운데 `types.py`와 `_json.py`만 가져오므로 어댑터를 설치하지 않아도 런타임은 그대로 동작합니다.
 
 ## 실행 범위와 호스트 API
 
-런타임은 실행하는 에이전트를 에이전트 경로(`outer/inner`)로 식별하고, 대화 하나와 확장 세션 하나를 대화 식별자와 에이전트 경로의 조합마다 유지합니다. `config` 에이전트마다 자식 `Runtime`을 하나 만들어 캐시하며, 실행 중단·실행 중 입력·작업 라우팅·완료 전달은 최상위 런타임이 소유합니다. 호스트가 사용하는 이름은 `run_turn(value, conversation_id=..., agent=..., start_agent=...)`, `abort`, `steer`, `idle`, `close`이며, `agent`와 `start_agent`는 함께 지정할 수 없습니다. 구성을 읽을 때 확정한 템플릿을 그대로 렌더링하는 `render(template, variables)`도 공개하며, 지금은 템플릿 테스트가 사용합니다.
+군단 객체는 에이전트를 선언 이름으로 식별합니다. `stateful: true`인 에이전트는 세션 식별자와 에이전트 이름의 조합마다 대화와 확장 인스턴스를 유지하고, `stateful: false`인 에이전트는 실행마다 빈 대화와 새 확장 인스턴스를 사용합니다. 호스트가 사용하는 이름은 `run(value, session_id=..., agent=..., start_agent=...)`, `abort`, `steer`, `idle`, `close`, `sessions.delete`이며, `agent`와 `start_agent`는 함께 지정할 수 없습니다. 구성을 읽을 때 확정한 템플릿을 그대로 렌더링하는 `render(template, variables)`도 공개합니다.
 
-`runtime.py`는 흐름을 `_run_flow`와 `_flow_step`으로 깊이 우선 진행하며, 모아 둔 `_RunRecord` 트리가 턴 결과의 `runs`와 `usage`가 됩니다. 흐름 오류는 에이전트 실행 밖에서 발생하므로 이벤트를 알리지 않고 `error` 단계에도 닿지 않습니다. 모델 호출은 `_call_model`이 `generate(model_input, ctx)`를 먼저 찾고 없으면 모델 입력 하나만 받는 호출 가능 객체로 부르며, `max_steps`는 그 실행 자신의 호출만 셉니다. 실패한 도구 구현의 코드는 언제나 `["tool_error"]`이고, 두 번째 코드를 붙이는 것은 모델 실패뿐입니다.
+`runtime.py`는 일치한 route 분기를 동시에 실행합니다. stateful fan-in은 출발 집합의 실행과 대기 입력이 끝난 뒤 route 선언 순서로 메시지를 합쳐 한 번 실행하고, stateless 에이전트는 도달한 입력마다 독립 실행합니다. 같은 세션의 턴과 같은 파생 세션의 stateful 실행은 각각 도착 순서대로 실행합니다. `_RunRecord` 트리는 턴 결과의 `runs`와 `usage`가 되며 각 항목에 인스턴스 식별자를 기록합니다. route 오류는 에이전트 실행 밖에서 발생하므로 이벤트를 알리지 않고 `error` 단계에도 닿지 않습니다. 모델 호출은 `_call_model`이 `generate(model_input, ctx)`를 먼저 찾고 없으면 모델 입력 하나만 받는 호출 가능 객체로 부르며, `max_steps`는 그 실행 자신의 호출만 셉니다. 실패한 도구 구현의 코드는 언제나 `["tool_error"]`이고, 두 번째 코드를 붙이는 것은 모델 실패뿐입니다.
 
 ## 승인 작업
 

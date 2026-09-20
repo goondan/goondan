@@ -2,7 +2,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { isRecord, jsonIssues, ownKeys, pointer, setKey, type PointerSegment } from "./json.ts";
 import { validateDefinition, validateRootProperty, validateSchema } from "./schema.ts";
 import {
-  type AgentSpec, type CarrySpec, type ConfigIssue, type ConfigIssueCode, type ExtensionUse, type GoondanConfig,
+  type AgentSpec, type ConfigIssue, type ConfigIssueCode, type ExtensionUse, type GoondanConfig,
   type InlineHookSpec, type InputRule, type Json, type RouteSpec, type SystemBlockSpec,
   type ToolUse, type ValueName,
 } from "./types.ts";
@@ -61,7 +61,7 @@ export function templateIdentifier(template: string, directory: string | undefin
   return relativePath.split(sep).join("/");
 }
 
-/** The identifier `remove.hooks`, hook events and hook sub-conversations use. */
+/** `remove.hooks`, 훅 이벤트와 훅 파생 세션이 사용하는 식별자입니다. */
 export function hookIdentifier(hook: Json, directory: string | undefined): string | undefined {
   const value = record(hook);
   if (!value) return undefined;
@@ -206,13 +206,10 @@ export function resolveInheritance(agents: Record<string, Json>, directory: stri
 
 /** Builds the effective spec of one agent from its inheritance result. */
 export function effectiveAgent(inherited: Record<string, Json>): Record<string, Json> {
-  const isConfigAgent = typeof inherited.config === "string";
   const result: Record<string, Json> = {};
   for (const key of ownKeys(inherited)) {
-    if (isConfigAgent && key !== "config" && key !== "description") continue;
     setKey(result, key, structuredClone(inherited[key] ?? null));
   }
-  if (isConfigAgent) return result;
   const extensions = record(result.extensions);
   const disabled = new Set(extensions ? ownKeys(extensions).filter((name) => record(extensions[name])?.enabled === false) : []);
   if (disabled.size > 0) {
@@ -221,47 +218,40 @@ export function effectiveAgent(inherited: Record<string, Json>): Record<string, 
   return result;
 }
 
-/** The object-form flow of the effective config. */
-export function normalizeFlow(flow: Json | undefined, firstAgent: string): Record<string, Json> {
-  if (flow === undefined) return { in: firstAgent };
-  const sequence = list(flow);
-  if (sequence) {
-    const steps = sequence.filter((item): item is string => typeof item === "string");
-    const routes: Json[] = steps.map((step, index) => ({ from: step, to: steps[index + 1] ?? "out" }));
-    return { in: steps[0] ?? firstAgent, routes };
+/** 이름 배열 축약형을 유효 구성에 저장할 route 객체로 펼칩니다. */
+export function normalizeRoutes(routes: Json | undefined): Json[] | undefined {
+  if (routes === undefined) return undefined;
+  const entries = list(routes);
+  if (!entries) return [];
+  if (entries.every((entry) => typeof entry === "string")) {
+    const names = entries.filter((entry): entry is string => typeof entry === "string");
+    return names.map((name, index) => ({ from: index === 0 ? "$input" : names[index - 1] ?? "$input", to: name }))
+      .concat(names.length === 0 ? [] : [{ from: names[names.length - 1] ?? "$input", to: "$output" }]);
   }
-  const value = record(flow);
-  if (!value) return { in: firstAgent };
-  return structuredClone(value);
+  return structuredClone(entries);
 }
 
-/** One route of the declared object flow whose `from` and `to` both name something the flow can run. */
-interface FlowEdge { index: number; from: string; to: string; conditional: boolean; carry: Json | undefined }
+interface RouteEdge { index: number; from: string; to: string; conditional: boolean }
 
-/**
- * The routes the structure checks apply to: a route whose `from` or `to` names an agent this
- * configuration does not declare is left out of every one of the three checks.
- */
-function flowEdges(routes: readonly Json[], agents: ReadonlySet<string>): FlowEdge[] {
-  const edges: FlowEdge[] = [];
+function routeEdges(routes: readonly Json[], agents: ReadonlySet<string>): RouteEdge[] {
+  const edges: RouteEdge[] = [];
   routes.forEach((raw, index) => {
     const route = record(raw);
-    if (!route) return;
-    const from = route.from;
-    const to = route.to;
-    if (typeof from !== "string" || typeof to !== "string") return;
-    if (!agents.has(from)) return;
-    if (to !== "out" && !agents.has(to)) return;
-    edges.push({ index, from, to, conditional: isRecord(route.when), carry: route.carry });
+    if (!route || typeof route.from !== "string" || typeof route.to !== "string") return;
+    const { from, to } = route;
+    if (from === "$output" || to === "$input" || (from === "$input" && to === "$output")) return;
+    if (from !== "$input" && !agents.has(from)) return;
+    if (to !== "$output" && !agents.has(to)) return;
+    edges.push({ index, from, to, conditional: isRecord(route.when) });
   });
   return edges;
 }
 
 /** The agents each agent reaches by following routes that declare no `when`. */
-function unconditionalReach(edges: readonly FlowEdge[]): Map<string, Set<string>> {
+function unconditionalReach(edges: readonly RouteEdge[]): Map<string, Set<string>> {
   const next = new Map<string, Set<string>>();
   for (const edge of edges) {
-    if (edge.conditional || edge.to === "out") continue;
+    if (edge.conditional || edge.to === "$output") continue;
     const targets = next.get(edge.from) ?? new Set<string>();
     targets.add(edge.to);
     next.set(edge.from, targets);
@@ -281,66 +271,108 @@ function unconditionalReach(edges: readonly FlowEdge[]): Map<string, Set<string>
   return reach;
 }
 
-/** `flow.no_route`, `flow.cycle` and `flow.carry_conversation` of a declared object flow. */
-function flowStructureIssues(value: Record<string, Json>, agents: ReadonlySet<string>, configAgents: ReadonlySet<string>): ConfigIssue[] {
-  const routes = list(value.routes);
-  if (!routes) return [];
-  const issues: ConfigIssue[] = [];
-  const edges = flowEdges(routes, agents);
-  // Every declared route continues its `from`, even one the three checks leave out for a bad endpoint.
-  const sources = new Set(routes.map((raw) => record(raw)?.from).filter((from): from is string => typeof from === "string"));
-  const entry = value.in;
-  if (typeof entry === "string" && agents.has(entry) && !sources.has(entry)) {
-    issues.push(issue("flow.no_route", ["flow", "in"], `no route declares ${JSON.stringify(entry)} as its from`));
+function allReach(edges: readonly RouteEdge[], start: string): Set<string> {
+  const next = new Map<string, string[]>();
+  for (const edge of edges) next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+  const seen = new Set<string>();
+  const queue = [...(next.get(start) ?? [])];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (node === undefined || node === "$output" || seen.has(node)) continue;
+    seen.add(node);
+    queue.push(...(next.get(node) ?? []));
   }
+  return seen;
+}
+
+/** 대상 에이전트를 지나지 않고 `$input`에서 도달하며 다시 대상에 도달할 수 있는 출발 집합입니다. */
+function departureAgents(edges: readonly RouteEdge[], target: string): Set<string> {
+  const reachable = new Set<string>();
+  const queue = ["$input"];
+  while (queue.length > 0) {
+    const from = queue.shift();
+    if (from === undefined) continue;
+    for (const edge of edges) {
+      if (edge.from !== from || edge.to === "$output" || edge.to === target || reachable.has(edge.to)) continue;
+      reachable.add(edge.to);
+      queue.push(edge.to);
+    }
+  }
+  return new Set([...reachable].filter((agent) => allReach(edges, agent).has(target)));
+}
+
+function routeStructureIssues(routes: readonly Json[], agents: ReadonlySet<string>, specs: ReadonlyMap<string, Record<string, Json>>): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+  const edges = routeEdges(routes, agents);
+  const sources = new Set(edges.map((edge) => edge.from));
+  if (!edges.some((edge) => edge.from === "$input")) issues.push(issue("routes.no_input", ["routes"], "no route starts from $input"));
+  if (!edges.some((edge) => edge.to === "$output")) issues.push(issue("routes.no_output", ["routes"], "no route reaches $output"));
   for (const edge of edges) {
-    if (edge.to === "out" || sources.has(edge.to)) continue;
-    issues.push(issue("flow.no_route", ["flow", "routes", edge.index, "to"], `no route declares ${JSON.stringify(edge.to)} as its from`));
+    if (edge.to === "$output" || sources.has(edge.to)) continue;
+    issues.push(issue("routes.no_route", ["routes", edge.index, "to"], `no route declares ${JSON.stringify(edge.to)} as its from`));
+  }
+  const reachable = allReach(edges, "$input");
+  for (const edge of edges) {
+    if (edge.from === "$input" || reachable.has(edge.from)) continue;
+    issues.push(issue("routes.unreachable", ["routes", edge.index, "from"], `${JSON.stringify(edge.from)} is unreachable from $input`));
   }
   const reach = unconditionalReach(edges);
   for (const edge of edges) {
-    if (edge.conditional || edge.to === "out") continue;
+    if (edge.conditional || edge.to === "$output" || edge.from === "$input") continue;
     if (edge.to !== edge.from && !reach.get(edge.to)?.has(edge.from)) continue;
-    issues.push(issue("flow.cycle", ["flow", "routes", edge.index], "belongs to a cycle of routes that declare no when"));
+    issues.push(issue("routes.cycle", ["routes", edge.index], "belongs to a cycle of routes that declare no when"));
   }
-  for (const edge of edges) {
-    if (edge.to === "out") continue;
-    if (!configAgents.has(edge.from) && !configAgents.has(edge.to)) continue;
-    const conversation = record(edge.carry)?.conversation;
-    if (conversation === undefined || conversation === "none") continue;
-    issues.push(issue("flow.carry_conversation", ["flow", "routes", edge.index, "carry", "conversation"], "a route connected to a config agent cannot carry a conversation"));
+  const wait = new Map<string, Set<string>>();
+  for (const target of agents) {
+    if (specs.get(target)?.stateful === false) continue;
+    const dependencies = new Set([...departureAgents(edges, target)].filter((agent) => specs.get(agent)?.stateful !== false));
+    wait.set(target, dependencies);
   }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  let waitCycle = false;
+  const visit = (agent: string): void => {
+    if (visiting.has(agent)) { waitCycle = true; return; }
+    if (visited.has(agent)) return;
+    visiting.add(agent);
+    for (const dependency of wait.get(agent) ?? []) if (wait.has(dependency)) visit(dependency);
+    visiting.delete(agent); visited.add(agent);
+  };
+  for (const agent of wait.keys()) visit(agent);
+  if (waitCycle) issues.push(issue("routes.wait_cycle", ["routes"], "stateful route waiting forms a cycle"));
   return issues;
 }
 
-function flowIssues(flow: Json | undefined, agents: ReadonlySet<string>, configAgents: ReadonlySet<string>): ConfigIssue[] {
+function routeIssues(raw: Json | undefined, agents: ReadonlySet<string>, specs: ReadonlyMap<string, Record<string, Json>>): ConfigIssue[] {
+  if (raw === undefined) return [];
+  const declared = list(raw);
+  if (!declared) return [];
+  const serial = declared.every((entry) => typeof entry === "string");
   const issues: ConfigIssue[] = [];
-  if (flow === undefined) return issues;
-  const sequence = list(flow);
-  if (sequence) {
-    sequence.forEach((step, index) => {
-      if (typeof step === "string" && !agents.has(step)) issues.push(issue("reference.agent", ["flow", index], "does not name an agent of this configuration"));
+  if (serial) {
+    declared.forEach((entry, index) => {
+      if (entry === "$input" || entry === "$output") issues.push(issue("routes.reserved", ["routes", index], "a reserved route endpoint cannot be an agent"));
+      else if (typeof entry === "string" && !agents.has(entry)) issues.push(issue("reference.agent", ["routes", index], "does not name an agent of this configuration"));
     });
-    return issues;
+  } else {
+    declared.forEach((rawRoute, index) => {
+      const route = record(rawRoute);
+      if (!route || typeof route.from !== "string" || typeof route.to !== "string") return;
+      if (route.from === "$input" && route.to === "$output") issues.push(issue("routes.reserved", ["routes", index], "$input cannot route directly to $output"));
+      else {
+        if (route.from === "$output") issues.push(issue("routes.reserved", ["routes", index, "from"], "$output cannot be a route source"));
+        else if (route.from !== "$input" && !agents.has(route.from)) issues.push(issue("reference.agent", ["routes", index, "from"], "does not name an agent of this configuration"));
+        if (route.to === "$input") issues.push(issue("routes.reserved", ["routes", index, "to"], "$input cannot be a route target"));
+        else if (route.to !== "$output" && !agents.has(route.to)) issues.push(issue("reference.agent", ["routes", index, "to"], "does not name an agent of this configuration"));
+      }
+    });
   }
-  const value = record(flow);
-  if (!value) return issues;
-  if (typeof value.in === "string" && !agents.has(value.in)) issues.push(issue("reference.agent", ["flow", "in"], "does not name an agent of this configuration"));
-  const routes = list(value.routes);
-  if (!routes) return issues;
-  routes.forEach((raw, index) => {
-    const route = record(raw);
-    if (!route) return;
-    if (typeof route.from === "string" && !agents.has(route.from)) issues.push(issue("reference.agent", ["flow", "routes", index, "from"], "does not name an agent of this configuration"));
-    if (typeof route.to === "string" && route.to !== "out" && !agents.has(route.to)) issues.push(issue("reference.agent", ["flow", "routes", index, "to"], "does not name an agent of this configuration"));
-  });
-  issues.push(...flowStructureIssues(value, agents, configAgents));
+  issues.push(...routeStructureIssues(normalizeRoutes(raw) ?? [], agents, specs));
   return issues;
 }
 
 function agentReferenceIssues(name: string, spec: Record<string, Json>, agents: ReadonlySet<string>, directory: string | undefined): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
-  if (typeof spec.config === "string") return issues;
   const tools = list(spec.tools);
   if (tools) {
     const seen = new Set<string>();
@@ -475,7 +507,7 @@ function toAgentSpec(raw: Record<string, Json>): AgentSpec {
     const value = raw[key];
     if (key === "description" && typeof value === "string") spec.description = value;
     else if (key === "model" && typeof value === "string") spec.model = value;
-    else if (key === "config" && typeof value === "string") spec.config = value;
+    else if (key === "stateful" && typeof value === "boolean") spec.stateful = value;
     else if (key === "params" && isRecord(value)) spec.params = value;
     else if (key === "input" && value === "asis") spec.input = value;
     else if (key === "input" && isRecord(value)) spec.input = toInputRule(value);
@@ -498,20 +530,6 @@ function toAgentSpec(raw: Record<string, Json>): AgentSpec {
   return spec;
 }
 
-function toCarry(raw: Json | undefined): CarrySpec | undefined {
-  const value = record(raw);
-  if (!value) return undefined;
-  const carry: CarrySpec = {};
-  const message = value.message;
-  if (message === "output") carry.message = message;
-  else if (isRecord(message) && typeof message.fn === "string") carry.message = { fn: message.fn };
-  else if (isRecord(message) && typeof message.template === "string") carry.message = { template: message.template };
-  const conversation = value.conversation;
-  if (conversation === "none" || conversation === "asis") carry.conversation = conversation;
-  else if (isRecord(conversation) && typeof conversation.fn === "string") carry.conversation = { fn: conversation.fn };
-  return carry;
-}
-
 function toRoutes(raw: Json | undefined): RouteSpec[] | undefined {
   const entries = list(raw);
   if (!entries) return undefined;
@@ -522,8 +540,8 @@ function toRoutes(raw: Json | undefined): RouteSpec[] | undefined {
     const route: RouteSpec = { from: value.from, to: value.to };
     const when = record(value.when);
     if (when && typeof when.fn === "string") route.when = { fn: when.fn };
-    const carry = toCarry(value.carry);
-    if (carry) route.carry = carry;
+    else if (when && typeof when.output === "string") route.when = { output: when.output };
+    else if (when && isRecord(when.output)) route.when = { output: when.output };
     routes.push(route);
   }
   return routes;
@@ -549,23 +567,21 @@ export function buildEffective(composed: Record<string, Json>, directory: string
   const effectiveAgents: Record<string, Json> = {};
   for (const [name, inherited] of inheritance.resolved) setKey(effectiveAgents, name, effectiveAgent(inherited));
 
-  const firstAgent = ownKeys(agents)[0] ?? "";
-  const flow = normalizeFlow(composed.flow, firstAgent);
   const document: Record<string, Json> = {
     version: 1,
     name: typeof composed.name === "string" ? composed.name : "goondan",
     agents: effectiveAgents,
-    flow,
   };
+  const routes = normalizeRoutes(composed.routes);
+  if (routes !== undefined) document.routes = routes;
 
   issues.push(...validateRootProperty("version", document.version, ["version"]));
   issues.push(...validateRootProperty("name", document.name, ["name"]));
-  issues.push(...validateDefinition("flow", flow, ["flow"]));
+  if (routes !== undefined) issues.push(...validateDefinition("routes", routes, ["routes"]));
   for (const name of ownKeys(effectiveAgents)) {
     issues.push(...validateDefinition("agent", effectiveAgents[name], ["agents", name]));
   }
-  const configAgents = new Set(ownKeys(effectiveAgents).filter((name) => typeof record(effectiveAgents[name])?.config === "string"));
-  issues.push(...flowIssues(composed.flow, declared, configAgents));
+  issues.push(...routeIssues(composed.routes, declared, inheritance.resolved));
   for (const name of ownKeys(effectiveAgents)) {
     const spec = record(effectiveAgents[name]);
     if (spec) issues.push(...agentReferenceIssues(name, spec, declared, directory));
@@ -576,14 +592,12 @@ export function buildEffective(composed: Record<string, Json>, directory: string
     const spec = record(effectiveAgents[name]);
     if (spec) setKey(typedAgents, name, toAgentSpec(spec));
   }
-  const routes = toRoutes(flow.routes);
-  const typedFlow: GoondanConfig["flow"] = { in: typeof flow.in === "string" ? flow.in : firstAgent };
-  if (routes) typedFlow.routes = routes;
   const config: GoondanConfig = {
     version: 1,
     name: typeof document.name === "string" ? document.name : "goondan",
     agents: typedAgents,
-    flow: typedFlow,
   };
+  const typedRoutes = toRoutes(routes);
+  if (typedRoutes !== undefined) config.routes = typedRoutes;
   return { config, document, issues };
 }

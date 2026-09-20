@@ -1,0 +1,11 @@
+{
+  "error": {
+    "phase": "create",
+    "issues": [
+      {
+        "code": "binding.function",
+        "path": "/routes/1/when/fn"
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Message } from '@goondan/core';
@@ -22,23 +22,24 @@ async function readSession(root: string, sessionId: string): Promise<unknown> {
 }
 
 describe('FileConversationStore', () => {
-  it('대화 식별자와 에이전트 경로별로 기록을 나눈다', async () => {
+  it('세션 식별자와 에이전트 이름별로 기록을 나눈다', async () => {
     const root = await sessionRoot();
     const store = new FileConversationStore(root, 'keys');
-    await store.append('keys', 'main', [message('a', 'outer')]);
-    await store.append('keys', 'wrap/main', [message('b', 'nested')]);
-    await store.append('keys:turn-1:helper', 'main', [message('c', 'sub')]);
+    await store.append('keys', 'main', [message('a', 'first')]);
+    await store.append('keys', 'helper', [message('b', 'second')]);
+    await store.append('keys#turn-1#helper', 'main', [message('c', 'derived')]);
 
-    expect(await store.load('keys', 'main')).toEqual([message('a', 'outer')]);
-    expect(await store.load('keys', 'wrap/main')).toEqual([message('b', 'nested')]);
-    expect(await store.load('keys:turn-1:helper', 'main')).toEqual([message('c', 'sub')]);
+    expect(await store.load('keys', 'main')).toEqual([message('a', 'first')]);
+    expect(await store.load('keys', 'helper')).toEqual([message('b', 'second')]);
+    expect(await store.load('keys#turn-1#helper', 'main')).toEqual([message('c', 'derived')]);
     expect(await store.load('keys', 'missing')).toEqual([]);
     expect(await readSession(root, 'keys')).toEqual({
-      version: 2,
-      conversations: {
-        keys: { main: [message('a', 'outer')], 'wrap/main': [message('b', 'nested')] },
-        'keys:turn-1:helper': { main: [message('c', 'sub')] },
-      },
+      version: 1,
+      agents: { main: [message('a', 'first')], helper: [message('b', 'second')] },
+    });
+    expect(await readSession(root, 'keys#turn-1#helper')).toEqual({
+      version: 1,
+      agents: { main: [message('c', 'derived')] },
     });
   });
 
@@ -52,29 +53,24 @@ describe('FileConversationStore', () => {
     expect(await store.load('other', 'main')).toEqual([message('b', 'other')]);
   });
 
-  it('버전 1 파일을 세션 대화로 읽고 다음 쓰기에서 버전 2로 올린다', async () => {
+  it('세션과 파생 세션 파일을 함께 삭제한다', async () => {
     const root = await sessionRoot();
-    await mkdir(join(root, 'sessions'), { recursive: true });
-    await writeFile(
-      sessionPath(root, 'old'),
-      `${JSON.stringify({ version: 1, agents: { main: [message('a', 'legacy')] } }, null, 2)}\n`,
-      'utf8',
-    );
-    const store = new FileConversationStore(root, 'old');
-    expect(await store.load('old', 'main')).toEqual([message('a', 'legacy')]);
-    expect(await store.load('old:turn-1:helper', 'main')).toEqual([]);
+    const store = new FileConversationStore(root, 'delete');
+    await store.append('delete', 'main', [message('a', 'base')]);
+    await store.append('delete#turn-1#helper', 'helper', [message('b', 'derived')]);
+    await store.append('keep', 'main', [message('c', 'keep')]);
 
-    await store.append('old', 'main', [message('b', 'new')]);
-    expect(await readSession(root, 'old')).toEqual({
-      version: 2,
-      conversations: { old: { main: [message('a', 'legacy'), message('b', 'new')] } },
-    });
+    await store.deleteSession('delete');
+
+    await expect(access(sessionPath(root, 'delete'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(sessionPath(root, 'delete#turn-1#helper'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readSession(root, 'keep')).toEqual({ version: 1, agents: { main: [message('c', 'keep')] } });
   });
 
   it('형식이 맞지 않는 세션 파일을 거부한다', async () => {
     const root = await sessionRoot();
     await mkdir(join(root, 'sessions'), { recursive: true });
-    await writeFile(sessionPath(root, 'broken'), JSON.stringify({ version: 3, conversations: {} }), 'utf8');
+    await writeFile(sessionPath(root, 'broken'), JSON.stringify({ version: 2, conversations: {} }), 'utf8');
     const store = new FileConversationStore(root, 'broken');
     await expect(store.load('broken', 'main')).rejects.toThrow('Invalid chat session');
   });

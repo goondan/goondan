@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from goondan import GoondanConfigError, create_runtime, load_config, validate_config
+from goondan import GoondanConfigError, create_goondan, load_config, validate_config
 
 from .bindings import CaseState, RuntimeBindings, project_operation, snapshot
 from .casefile import CASE_ID, STEP_ACTIONS, check_case
@@ -227,7 +227,7 @@ class CaseRunner:
 
     # -- setup ---------------------------------------------------------------------------
 
-    def create_runtime(self) -> None:
+    def create_goondan(self) -> None:
         binding = RuntimeBindings(self.state, f"runtime-{len(self.runtimes) + 1}")
         options: dict[str, Any] = {
             "config": self.document if self.document is not None else self.loaded,
@@ -249,7 +249,7 @@ class CaseRunner:
             options["max_retries"] = bindings["maxRetries"]
         if "maxSteps" in bindings:
             options["max_steps"] = bindings["maxSteps"]
-        runtime = self.call(create_runtime, "create_runtime", options)
+        runtime = self.call(create_goondan, "create_goondan", options)
         self.runtimes.append((runtime, binding))
 
     def start(self) -> None:
@@ -271,7 +271,7 @@ class CaseRunner:
                 return
             self.effective_config = dict(self.loaded)
         try:
-            self.create_runtime()
+            self.create_goondan()
         except GoondanConfigError as error:
             self.config_error = ("create", error)
         except ValueError as error:
@@ -332,52 +332,60 @@ class CaseRunner:
             await self.state.gates.reach(argument)
             return NO_RESULT
         if action == "restart":
-            self.create_runtime()
+            self.create_goondan()
             return NO_RESULT
         if action == "close":
             await self.close_runtime(len(self.runtimes) - 1)
             return NO_RESULT
         if action == "run":
-            options: dict[str, Any] = {"conversation_id": argument["conversationId"]}
+            options: dict[str, Any] = {"session_id": argument["sessionId"]}
             if "agent" in argument:
                 options["agent"] = argument["agent"]
             if "startAgent" in argument:
                 options["start_agent"] = argument["startAgent"]
-            result = await resolve(self.call(self.method("run_turn"), "run_turn", options, argument["input"]))
+            result = await resolve(self.call(self.method("run"), "run", options, argument["input"]))
             return {key: snapshot(result[key]) for key in RESULT_KEYS if key in result} if isinstance(result, Mapping) else snapshot(result)
         if action in ("decide", "cancel"):
-            conversation_id, operation_id = self.operation_arguments(argument, label)
+            session_id, operation_id = self.operation_arguments(argument, label)
             name = f"{action}_operation"
-            arguments = [conversation_id, operation_id] + ([argument["value"]] if action == "decide" else [])
+            arguments = [session_id, operation_id] + ([argument["value"]] if action == "decide" else [])
             return project_operation(await resolve(self.call(self.method(name), name, {}, *arguments)))
         if action == "list":
-            arguments = [argument["conversationId"]] if "conversationId" in argument else []
+            arguments = [argument["sessionId"]] if "sessionId" in argument else []
             found = await resolve(self.call(self.method("list_operations"), "list_operations", {}, *arguments))
             return [project_operation(operation) for operation in found] if isinstance(found, list) else snapshot(found)
         if action == "recover":
-            arguments = [argument["conversationId"]] if "conversationId" in argument else []
+            arguments = [argument["sessionId"]] if "sessionId" in argument else []
             await resolve(self.call(self.method("recover_operations"), "recover_operations", {}, *arguments))
             return NO_RESULT
         if action == "abort":
-            return await resolve(self.method("abort")(argument["conversationId"]))
+            return await resolve(self.method("abort")(argument["sessionId"]))
         if action == "steer":
-            await resolve(self.method("steer")(argument["conversationId"], argument["value"]))
+            options = {"agent": argument["agent"]} if "agent" in argument else {}
+            await resolve(self.call(self.method("steer"), "steer", options, argument["sessionId"], argument["value"]))
+            return NO_RESULT
+        if action == "deleteSession":
+            sessions = getattr(self.runtime, "sessions", None)
+            delete = getattr(sessions, "delete", None)
+            if not callable(delete):
+                raise self.state.unsupported_feature("goondan.sessions.delete()")
+            await resolve(delete(argument["sessionId"]))
             return NO_RESULT
         raise CaseFailure(f"the step {label} uses the unknown action {action!r}")
 
     def operation_arguments(self, argument: Mapping[str, Any], label: str) -> tuple[str, str]:
         wanted = argument["operation"]
         if not wanted.startswith("<op:"):
-            if "conversationId" not in argument:
-                raise CaseFailure(f"the step {label} needs a conversationId for the operation {wanted!r}")
-            return argument["conversationId"], wanted
+            if "sessionId" not in argument:
+                raise CaseFailure(f"the step {label} needs a sessionId for the operation {wanted!r}")
+            return argument["sessionId"], wanted
         store = self.state.operation_store
         aliases = store.aliases()
         found = [key for key in store.keys() if aliases.get(key[1]) == wanted]
         if not found:
             raise CaseFailure(f"the step {label} refers to {wanted}, which the operation store does not have")
-        conversation_id, operation_id = found[0]
-        return argument.get("conversationId", conversation_id), operation_id
+        session_id, operation_id = found[0]
+        return argument.get("sessionId", session_id), operation_id
 
     def project_error(self, error: Exception, label: str) -> dict[str, Any]:
         if isinstance(error, GoondanConfigError):

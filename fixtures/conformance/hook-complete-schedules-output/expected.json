@@ -24,7 +24,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 5,
               "output": 1,
@@ -32,7 +32,8 @@
               "cacheWrite": 0
             },
             "finishReason": "tool",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           }
         ]
       }
@@ -59,7 +60,8 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

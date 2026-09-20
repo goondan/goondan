@@ -1,0 +1,7 @@
+{
+  "description": "from과 to가 같은 route도 when이 없으면 끝나지 않는 순환이므로 routes.cycle이다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

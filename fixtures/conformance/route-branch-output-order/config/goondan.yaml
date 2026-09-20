@@ -1,0 +1,22 @@
+agents:
+  split:
+    model: msp
+  a:
+    model: ma
+  b:
+    model: mb
+  c:
+    model: mc
+routes:
+  - from: $input
+    to: split
+  - from: split
+    to: a
+  - from: split
+    to: b
+  - from: a
+    to: c
+  - from: c
+    to: $output
+  - from: b
+    to: $output

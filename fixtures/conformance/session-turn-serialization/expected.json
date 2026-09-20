@@ -1,0 +1,15 @@
+{
+  "steps": [{"parallel": [[{}], [{}, {}], [{}, {}, {}, {}]]}],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {"system": [], "messages": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "첫 입력"}]}], "tools": [], "options": {}},
+        {"system": [], "messages": [
+          {"role": "user", "source": "main", "content": [{"type": "text", "text": "첫 입력"}]},
+          {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "첫 응답"}]},
+          {"role": "user", "source": "main", "content": [{"type": "text", "text": "둘째 입력"}]}
+        ], "tools": [], "options": {}}
+      ]
+    }
+  }
+}

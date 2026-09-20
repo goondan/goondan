@@ -22,16 +22,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "부탁해"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "부탁해"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -40,7 +51,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -50,7 +61,7 @@
       {
         "name": "tool.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "worker",
@@ -63,18 +74,27 @@
       {
         "name": "turn.start",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
-          "input": {
-            "task": "x"
-          }
+          "input": [
+            {
+              "role": "user",
+              "source": "worker",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"task\":\"x\"}"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "step": 1
@@ -83,7 +103,7 @@
       {
         "name": "step.error",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "step": 1,
@@ -95,7 +115,7 @@
       {
         "name": "turn.error",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "where": "model",
@@ -107,7 +127,7 @@
       {
         "name": "tool.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "worker",
@@ -123,7 +143,7 @@
       {
         "name": "turn.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "where": "tool",
@@ -160,7 +180,7 @@
           ]
         }
       ],
-      "c1:<turn:1>:worker/worker": [
+      "c1#<turn:1>#worker/worker": [
         {
           "role": "user",
           "source": "worker",

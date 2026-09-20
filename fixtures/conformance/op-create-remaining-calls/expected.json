@@ -1,12 +1,15 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "modelInputs": {
       "m": [
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -35,10 +38,13 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         },
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -58,13 +64,15 @@
                   "type": "tool.call",
                   "callId": "a-1",
                   "name": "danger",
-                  "args": {}
+                  "args": {
+                  }
                 },
                 {
                   "type": "tool.call",
                   "callId": "b-1",
                   "name": "safe",
-                  "args": {}
+                  "args": {
+                  }
                 }
               ]
             },
@@ -124,14 +132,16 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         }
       ]
     },
     "toolCalls": [
       {
         "tool": "safe",
-        "args": {}
+        "args": {
+        }
       }
     ],
     "conversations": {
@@ -154,13 +164,15 @@
               "type": "tool.call",
               "callId": "a-1",
               "name": "danger",
-              "args": {}
+              "args": {
+              }
             },
             {
               "type": "tool.call",
               "callId": "b-1",
               "name": "safe",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

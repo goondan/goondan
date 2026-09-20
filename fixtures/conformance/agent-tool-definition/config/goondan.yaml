@@ -13,5 +13,4 @@ agents:
   documented:
     description: 결제 문의를 처리한다.
     model: h
-flow:
-  in: main
+routes: [main]

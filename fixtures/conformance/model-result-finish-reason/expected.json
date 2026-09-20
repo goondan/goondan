@@ -11,7 +11,8 @@
     "toolCalls": [
       {
         "tool": "echo",
-        "args": {}
+        "args": {
+        }
       }
     ],
     "conversations": {
@@ -34,7 +35,8 @@
               "type": "tool.call",
               "callId": "e-1",
               "name": "echo",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

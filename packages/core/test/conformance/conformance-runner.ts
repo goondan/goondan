@@ -37,9 +37,10 @@ import {
   asConfigError,
   asExecutionError,
   callMethod,
-  createRuntime,
+  createGoondan,
   effectiveConfigOf,
   loadConfig,
+  member,
   newConversationStore,
   newOperationStore,
   validateConfig,
@@ -195,7 +196,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
     // A document-mode runtime reads its configuration directory from the bindings; see
     // spec/goondan.md "합성 결과와 유효 구성" and RuntimeBindings.directory.
     const bindings = buildBindings({ scripts, owner, conversationStore, operationStore, directory });
-    const runtime = await createRuntime(caseFile.config.mode === "file" ? loaded : caseFile.config.document, bindings);
+    const runtime = await createGoondan(caseFile.config.mode === "file" ? loaded : caseFile.config.document, bindings);
     const handle: RuntimeHandle = { runtime, owner, closed: false };
     handles.push(handle);
     return handle;
@@ -333,43 +334,51 @@ async function runStep(
 async function callRuntimeStep(step: Step, handle: RuntimeHandle, scripts: CaseScripts): Promise<StepOutcome> {
   switch (step.action) {
     case "run": {
-      const options: Record<string, unknown> = { conversationId: step.conversationId };
+      const options: Record<string, unknown> = { sessionId: step.sessionId };
       if (step.agent !== undefined) options["agent"] = step.agent;
       if (step.startAgent !== undefined) options["startAgent"] = step.startAgent;
-      return { kind: "value", value: await awaited(callMethod(handle.runtime, "runTurn", [step.input, options], "runtime.runTurn")) };
+      return { kind: "value", value: await awaited(callMethod(handle.runtime, "run", [step.input, options], "goondan.run")) };
     }
     case "decide": {
-      const target = resolveOperation(step.operation, step.conversationId, scripts);
+      const target = resolveOperation(step.operation, step.sessionId, scripts);
       return {
         kind: "value",
         value: await awaited(
-          callMethod(handle.runtime, "decideOperation", [target.conversationId, target.operationId, step.value], "runtime.decideOperation"),
+          callMethod(handle.runtime, "decideOperation", [target.sessionId, target.operationId, step.value], "runtime.decideOperation"),
         ),
       };
     }
     case "cancel": {
-      const target = resolveOperation(step.operation, step.conversationId, scripts);
+      const target = resolveOperation(step.operation, step.sessionId, scripts);
       return {
         kind: "value",
         value: await awaited(
-          callMethod(handle.runtime, "cancelOperation", [target.conversationId, target.operationId], "runtime.cancelOperation"),
+          callMethod(handle.runtime, "cancelOperation", [target.sessionId, target.operationId], "runtime.cancelOperation"),
         ),
       };
     }
     case "list": {
-      const args = step.conversationId === undefined ? [] : [step.conversationId];
+      const args = step.sessionId === undefined ? [] : [step.sessionId];
       return { kind: "value", value: await awaited(callMethod(handle.runtime, "listOperations", args, "runtime.listOperations")) };
     }
     case "recover": {
-      const args = step.conversationId === undefined ? [] : [step.conversationId];
+      const args = step.sessionId === undefined ? [] : [step.sessionId];
       await awaited(callMethod(handle.runtime, "recoverOperations", args, "runtime.recoverOperations"));
       return { kind: "none" };
     }
     case "abort":
-      return { kind: "value", value: await awaited(callMethod(handle.runtime, "abort", [step.conversationId], "runtime.abort")) };
-    case "steer":
-      await awaited(callMethod(handle.runtime, "steer", [step.conversationId, step.value], "runtime.steer"));
+      return { kind: "value", value: await awaited(callMethod(handle.runtime, "abort", [step.sessionId], "runtime.abort")) };
+    case "steer": {
+      const options: Record<string, unknown> = {};
+      if (step.agent !== undefined) options["agent"] = step.agent;
+      await awaited(callMethod(handle.runtime, "steer", [step.sessionId, step.value, options], "runtime.steer"));
       return { kind: "none" };
+    }
+    case "deleteSession": {
+      const sessions = member(handle.runtime, "sessions");
+      await awaited(callMethod(sessions, "delete", [step.sessionId], "goondan.sessions.delete"));
+      return { kind: "none" };
+    }
     case "close": {
       const pending = callMethod(handle.runtime, "close", [], "runtime.close()");
       handle.closed = true;
@@ -388,22 +397,22 @@ async function awaited(value: unknown): Promise<unknown> {
 
 function resolveOperation(
   operation: string,
-  conversationId: string | undefined,
+  sessionId: string | undefined,
   scripts: CaseScripts,
-): { operationId: string; conversationId: string } {
+): { operationId: string; sessionId: string } {
   if (!operation.startsWith("<op:")) {
-    if (conversationId === undefined) {
-      throw new CaseFailure(`step needs conversationId when operation ${operation} is not an alias`);
+    if (sessionId === undefined) {
+      throw new CaseFailure(`step needs sessionId when operation ${operation} is not an alias`);
     }
-    return { operationId: operation, conversationId };
+    return { operationId: operation, sessionId };
   }
   for (const [operationId, alias] of scripts.observations.operationAliases) {
     if (alias !== operation) continue;
-    if (conversationId !== undefined) return { operationId, conversationId };
+    if (sessionId !== undefined) return { operationId, sessionId };
     const record = scripts.observations.operationRecords.get(operationId);
-    const stored = isJsonObject(record) ? record["conversationId"] : undefined;
-    if (!isString(stored)) throw new CaseFailure(`operation ${operation} has no stored conversationId`);
-    return { operationId, conversationId: stored };
+    const stored = isJsonObject(record) ? record["sessionId"] : undefined;
+    if (!isString(stored)) throw new CaseFailure(`operation ${operation} has no stored sessionId`);
+    return { operationId, sessionId: stored };
   }
   throw new CaseFailure(`no operation matches the alias ${operation}`);
 }
@@ -531,7 +540,7 @@ async function collectObservations(
 
   const conversations: JsonObject = {};
   for (const [key, scope] of [...observations.conversationScopes].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
-    const messages = await awaited(callMethod(conversationStore, "load", [scope.conversationId, scope.agent], "conversationStore.load"));
+    const messages = await awaited(callMethod(conversationStore, "load", [scope.sessionId, scope.agent], "conversationStore.load"));
     conversations[key] = snapshot(messages);
   }
   sections.set("conversations", conversations);
@@ -623,7 +632,7 @@ function compareSetupError(expected: ExpectedFile, phase: "load" | "validate" | 
   }
   if (expectedError.kind === "invalidArgument") {
     if (!(error instanceof TypeError)) {
-      failures.push(`expected a TypeError from createRuntime but got ${error instanceof Error ? error.name : String(error)}`);
+      failures.push(`expected a TypeError from createGoondan but got ${error instanceof Error ? error.name : String(error)}`);
     }
     if (phase !== "create") failures.push(`expected the invalid argument in create but it happened in ${phase}`);
     return;

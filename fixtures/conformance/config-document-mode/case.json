@@ -1,5 +1,5 @@
 {
-  "description": "문서 방식은 구성 디렉터리의 goondan.yaml을 읽지 않고 전달한 문서만 검증하며, 배열형 flow를 같은 의미의 객체형으로 기록한다.",
+  "description": "문서 방식은 구성 디렉터리의 goondan.yaml을 읽지 않고 전달한 문서만 검증하며, 이름 배열형 routes를 route 객체 배열로 전개한다.",
   "spec": [
     "합성 결과와 유효 구성",
     "검증 단계"
@@ -14,18 +14,32 @@
           "model": "m"
         }
       },
-      "flow": [
-        "a",
-        "b"
+      "routes": [
+        {
+          "from": "$input",
+          "to": "a"
+        },
+        {
+          "from": "a",
+          "to": "b"
+        },
+        {
+          "from": "b",
+          "to": "$output"
+        }
       ]
     }
   },
   "bindings": {
     "models": {
       "m": {
-        "responses": []
+        "responses": [
+
+        ]
       }
     }
   },
-  "steps": []
+  "steps": [
+
+  ]
 }

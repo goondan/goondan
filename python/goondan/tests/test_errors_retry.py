@@ -15,7 +15,7 @@ from goondan import (
     GoondanExecutionError,
     InMemoryConversationStore,
     InMemoryOperationStore,
-    create_runtime,
+    create_goondan,
     define_extension,
     define_tool,
 )
@@ -54,10 +54,10 @@ async def test_the_default_limit_calls_the_model_four_times_and_fails_with_the_l
         raise RuntimeError(f"failure {attempts['count']}")
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": retry("model")})
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": retry("model")})
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert attempts["count"] == 4
         assert (error.value.where, error.value.codes, error.value.attempt) == ("model", ["model_error"], 4)
         assert error.value.message == "failure 4"
@@ -74,10 +74,10 @@ async def test_a_smaller_limit_follows_fewer_retries(limit: int):
         raise RuntimeError("no")
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": retry("model")}, max_retries=limit)
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": retry("model")}, max_retries=limit)
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert attempts["count"] == limit + 1
         assert error.value.attempt == limit + 1
     finally:
@@ -103,9 +103,9 @@ async def test_a_sub_run_counts_its_own_retries():
             "helper": {"model": "helper", "hooks": {"error": [{"fn": "again"}]}},
         },
     }
-    runtime = create_runtime(config=config, models={"main": main, "helper": helper}, functions={"again": retry("model")})
+    runtime = create_goondan(config=config, models={"main": main, "helper": helper}, functions={"again": retry("model")})
     try:
-        result = await runtime.run_turn("hello", conversation_id="c1")
+        result = await runtime.run("hello", session_id="c1")
         assert attempts["helper"] == 4
         assert [record["status"] for record in result["runs"]] == ["done", "done"]
     finally:
@@ -123,10 +123,10 @@ async def test_a_retry_target_that_does_not_match_the_failure_is_not_followed():
         raise RuntimeError("model is down")
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": retry("tool")})
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": retry("tool")})
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert attempts["count"] == 1
         assert (error.value.where, error.value.codes, error.value.attempt) == ("model", ["model_error"], 1)
     finally:
@@ -141,14 +141,14 @@ async def test_a_model_target_is_not_followed_for_a_tool_failure():
         raise RuntimeError("tool is down")
 
     config = {"agents": {"main": {"model": "m", "tools": ["work"], "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(calls("work"))},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=broken)},
         functions={"again": retry("model")},
     )
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert runs["count"] == 1
         assert (error.value.where, error.value.codes) == ("tool", ["tool_error"])
         assert error.value.tool_call == {"id": "work-1", "name": "work", "args": {}}
@@ -171,14 +171,14 @@ async def test_a_call_whose_pending_result_is_already_stored_follows_no_retry():
 
     config = {"agents": {"main": {"model": "m", "tools": [{"tool": "work", "approval": "required"}], "hooks": {"error": [{"fn": "again"}]}}}}
     store = InMemoryConversationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(calls("work"))},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: value)},
         functions={"again": watch}, host=Host(), conversation_store=store, operation_store=InMemoryOperationStore(),
     )
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert requests["count"] == 1
         assert (error.value.where, error.value.codes) == ("tool", ["runtime_error"])
         # §재시도: the error stage still runs, only the retry request is refused.
@@ -209,12 +209,12 @@ async def test_attempt_counts_the_retries_this_run_already_followed():
         return {"retry": True, "target": "tool"}
 
     config = {"agents": {"main": {"model": "m", "tools": ["a", "b", "c"], "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(calls("a", "b", "c"), answer("ready"))},
         tools={name: work(name) for name in ("a", "b", "c")}, functions={"again": again},
     )
     try:
-        result = await runtime.run_turn("hello", conversation_id="c1")
+        result = await runtime.run("hello", session_id="c1")
         assert seen == [("b", 1), ("c", 2)]
         assert result["output"]["content"] == [{"type": "text", "text": "ready"}]
     finally:
@@ -237,7 +237,7 @@ async def test_a_retry_repeats_only_the_failed_call_and_reports_tool_start_again
         return [{"type": "text", "text": "ok"}]
 
     config = {"agents": {"main": {"model": "m", "tools": ["steady", "flaky"], "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(calls("steady", "flaky"), answer("ready"))},
         tools={
             "steady": define_tool(name="steady", description="steady", input={"type": "object"}, execute=lambda value, ctx: [{"type": "text", "text": "ok"}]),
@@ -246,7 +246,7 @@ async def test_a_retry_repeats_only_the_failed_call_and_reports_tool_start_again
         functions={"again": retry("tool")}, host=Host(),
     )
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert started == [
             "tool.start:steady", "tool.done:steady",
             "tool.start:flaky", "tool.error:flaky",
@@ -267,19 +267,19 @@ async def test_a_failed_run_keeps_the_messages_it_stored_and_the_next_run_repair
         raise RuntimeError("no")
 
     config = {"agents": {"main": {"model": "m", "tools": ["work"]}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(calls("work"), answer("second"))},
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=broken)},
         conversation_store=store,
     )
     try:
         with pytest.raises(GoondanExecutionError):
-            await runtime.run_turn("first", conversation_id="c1")
+            await runtime.run("first", session_id="c1")
         stored = await store.load("c1", "main")
         assert [message["role"] for message in stored] == ["user", "assistant"]
         assert stored[1]["content"][0]["type"] == "tool.call"
 
-        await runtime.run_turn("second", conversation_id="c1")
+        await runtime.run("second", session_id="c1")
         repaired = await store.load("c1", "main")
         assert [message["role"] for message in repaired] == ["user", "user", "assistant"]
         assert attempts["count"] == 0
@@ -294,9 +294,9 @@ async def test_the_repair_keeps_a_message_whose_content_was_already_empty():
         {"id": "lonely", "role": "assistant", "content": [{"type": "tool.call", "callId": "gone", "name": "work", "args": {}}], "source": "model"},
         {"id": "kept", "role": "assistant", "content": [{"type": "text", "text": "hi"}], "source": "model"},
     ])
-    runtime = create_runtime(config={"agents": {"main": {"model": "m"}}}, models={"m": replies(answer("second"))}, conversation_store=store)
+    runtime = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": replies(answer("second"))}, conversation_store=store)
     try:
-        await runtime.run_turn("second", conversation_id="c1")
+        await runtime.run("second", session_id="c1")
         repaired = await store.load("c1", "main")
         # the message that was already empty stays; the one the repair emptied is gone.
         assert [message["id"] for message in repaired][:2] == ["empty", "kept"]
@@ -314,11 +314,11 @@ async def test_a_failed_flow_step_fails_the_turn_with_its_own_error():
     async def broken(value: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("no model")
 
-    config = {"agents": {"first": {"model": "first"}, "second": {"model": "second"}}, "flow": ["first", "second"]}
-    runtime = create_runtime(config=config, models={"first": replies(answer("one")), "second": broken}, conversation_store=store, max_retries=0)
+    config = {"agents": {"first": {"model": "first"}, "second": {"model": "second"}}, "routes": ["first", "second"]}
+    runtime = create_goondan(config=config, models={"first": replies(answer("one")), "second": broken}, conversation_store=store, max_retries=0)
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("start", conversation_id="c1")
+            await runtime.run("start", session_id="c1")
         assert (error.value.where, error.value.codes) == ("model", ["model_error"])
         # §route 진행: a failed turn does not roll back what an earlier step stored.
         assert [message["role"] for message in await store.load("c1", "first")] == ["user", "assistant"]
@@ -328,35 +328,18 @@ async def test_a_failed_flow_step_fails_the_turn_with_its_own_error():
 
 async def test_a_failure_that_matches_no_other_code_ends_the_run_as_a_runtime_error():
     class BrokenStore(InMemoryConversationStore):
-        async def append(self, conversation_id: str, agent: str, messages: list[dict[str, Any]]) -> None:
+        async def append(self, session_id: str, agent: str, messages: list[dict[str, Any]]) -> None:
             raise RuntimeError("the store is gone")
 
     events: list[dict[str, Any]] = []
     config = {"agents": {"main": {"model": "m"}}}
-    runtime = create_runtime(config=config, models={"m": replies(answer())}, conversation_store=BrokenStore(), emit=lambda event: events.append(event))
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, conversation_store=BrokenStore(), emit=lambda event: events.append(event))
     try:
         with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert (error.value.where, error.value.codes, error.value.attempt) == ("runtime", ["runtime_error"], 1)
         failed = next(event for event in events if event["name"] == "turn.error")
         assert (failed["data"]["where"], failed["data"]["codes"]) == ("runtime", ["runtime_error"])
-    finally:
-        await runtime.close()
-
-
-async def test_a_nested_turn_failure_fails_the_config_agent_run_with_the_same_error(tmp_path):
-    (tmp_path / "inner").mkdir()
-    (tmp_path / "inner" / "goondan.yaml").write_text("agents: {helper: {model: helper}}\n", encoding="utf-8")
-
-    async def broken(value: dict[str, Any]) -> dict[str, Any]:
-        raise RuntimeError("no model")
-
-    config = {"agents": {"wrap": {"config": "inner"}}, "flow": ["wrap"]}
-    runtime = create_runtime(config=config, directory=str(tmp_path), models={"helper": broken}, max_retries=0)
-    try:
-        with pytest.raises(GoondanExecutionError) as error:
-            await runtime.run_turn("start", conversation_id="c1")
-        assert (error.value.where, error.value.codes) == ("model", ["model_error"])
     finally:
         await runtime.close()
 
@@ -371,9 +354,9 @@ async def test_a_retry_that_asks_for_a_delay_waits_before_it_runs_again():
         return answer("late")
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model", "afterMs": 50}})
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model", "afterMs": 50}})
     try:
-        await runtime.run_turn("hello", conversation_id="c1")
+        await runtime.run("hello", session_id="c1")
         assert len(moments) == 2 and moments[1] - moments[0] >= 0.05
     finally:
         await runtime.close()
@@ -387,9 +370,9 @@ async def test_a_run_that_is_aborted_while_it_waits_follows_no_retry():
         raise RuntimeError("no")
 
     config = {"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model", "afterMs": 5000}})
+    runtime = create_goondan(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model", "afterMs": 5000}})
     try:
-        turn = asyncio.create_task(runtime.run_turn("hello", conversation_id="c1"))
+        turn = asyncio.create_task(runtime.run("hello", session_id="c1"))
         await started.wait()
         await asyncio.sleep(0)
         assert runtime.abort("c1") is True
@@ -414,7 +397,7 @@ async def test_an_abort_from_the_running_task_stops_the_retry_instead_of_waiting
             holder["runtime"].abort("c1")
 
     config = {"agents": {"main": {"model": "m", "extensions": {"watch": {}}, "hooks": {"error": [{"fn": "again"}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": model},
         functions={"again": lambda value: {"retry": True, "target": "model", "afterMs": 5000}},
         extensions={"watch": define_extension(name="watch", create=lambda **kwargs: Extension(on={"hook.applied": stop}))},
@@ -423,7 +406,7 @@ async def test_an_abort_from_the_running_task_stops_the_retry_instead_of_waiting
     try:
         started = time.monotonic()
         with pytest.raises(GoondanAbortError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert error.value.codes == ["aborted"]
         assert attempts["count"] == 1 and time.monotonic() - started < 1
     finally:
@@ -434,10 +417,10 @@ async def test_a_failed_turn_leaves_no_run_to_abort():
     async def model(value: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("no")
 
-    runtime = create_runtime(config={"agents": {"main": {"model": "m"}}}, models={"m": model})
+    runtime = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": model})
     try:
         with pytest.raises(GoondanExecutionError):
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert runtime.abort("c1") is False
     finally:
         await runtime.close()
@@ -445,13 +428,13 @@ async def test_a_failed_turn_leaves_no_run_to_abort():
 
 async def test_a_turn_that_fails_while_preparing_an_extension_raises_the_configuration_error():
     config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"output": [{"extension": "ext", "optional": True}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(answer())},
         extensions={"ext": define_extension(name="ext", create=lambda **kwargs: Extension(hooks={}))},
     )
     try:
         with pytest.raises(GoondanConfigError) as error:
-            await runtime.run_turn("hello", conversation_id="c1")
+            await runtime.run("hello", session_id="c1")
         assert [item["code"] for item in error.value.issues] == ["binding.extension_hook"]
     finally:
         await runtime.close()

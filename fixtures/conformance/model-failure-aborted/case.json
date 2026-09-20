@@ -24,7 +24,7 @@
         [
           {
             "run": {
-              "conversationId": "c1",
+              "sessionId": "c1",
               "input": "안녕"
             }
           }
@@ -35,7 +35,7 @@
           },
           {
             "abort": {
-              "conversationId": "c1"
+              "sessionId": "c1"
             }
           }
         ]

@@ -1,17 +1,19 @@
 {
   "steps": [
-    {},
+    {
+    },
     {
       "result": {
         "operationId": "<op:r-1>",
         "deliveryId": "operation:<op:r-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "r-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         },
         "reasons": [
           "Tool danger requires approval"
@@ -42,7 +44,8 @@
               "type": "tool.call",
               "callId": "r-1",
               "name": "danger",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },
@@ -85,7 +88,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\"type\":\"operation_completion\",\"deliveryId\":\"operation:<op:r-1>:completion\",\"operationId\":\"<op:r-1>\",\"conversationId\":\"c1\",\"agent\":\"main\",\"status\":\"rejected\",\"toolCall\":{\"id\":\"r-1\",\"name\":\"danger\",\"args\":{}}}"
+              "text": "{\"type\":\"operation_completion\",\"deliveryId\":\"operation:<op:r-1>:completion\",\"operationId\":\"<op:r-1>\",\"sessionId\":\"c1\",\"agent\":\"main\",\"status\":\"rejected\",\"toolCall\":{\"id\":\"r-1\",\"name\":\"danger\",\"args\":{}}}"
             }
           ]
         },
@@ -106,12 +109,13 @@
         "operationId": "<op:r-1>",
         "deliveryId": "operation:<op:r-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "r-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         },
         "reasons": [
           "Tool danger requires approval"

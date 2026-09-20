@@ -17,4 +17,4 @@ agents:
     model: m
   i:
     model: m
-flow: [a, b, a, c, d, e, f, g, h, i, b]
+routes: [a, b, a, c, d, e, f, g, h, i, b]

@@ -1,22 +1,9 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executionError } from "./execution-error.ts";
 import {
-  createRuntime, defineExtension, loadConfigSync,
+  createGoondan, defineExtension,
   type AgentRunRecord, type Json, type Message, type Model, type ModelResult, type RuntimeEvent, type Tool,
 } from "../src/index.ts";
-
-function workspace(files: Record<string, string>): string {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "goondan-result-")));
-  for (const [name, content] of Object.entries(files)) {
-    const path = join(root, name);
-    mkdirSync(join(path, ".."), { recursive: true });
-    writeFileSync(path, content, "utf8");
-  }
-  return root;
-}
 
 /** The execution error a failed turn throws, read without depending on the exception class. */
 function failure(error: unknown): { where: string; codes: readonly string[]; attempt: number } | undefined {
@@ -46,44 +33,12 @@ function scripted(replies: ModelResult[]): Model {
 
 const ok: Model = { async generate(): Promise<ModelResult> { return { message: assistant("ok"), finishReason: "stop" }; } };
 
-/** The agent path and kind of each run record, which is what the ordering rules are about. */
+/** 에이전트 이름과 실행 종류를 순서 검증용 문자열로 바꿉니다. */
 function shape(runs: readonly AgentRunRecord[]): string[] {
   return runs.map((run) => `${run.agent}:${run.kind}`);
 }
 
 describe("the agent run records of a turn", () => {
-  it("places a sub-run after the run that started it and a nested flow at the config agent", async () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  helper: {model: h}\nflow: [helper]\n",
-      "goondan.yaml": [
-        "agents:",
-        "  main:",
-        "    model: m",
-        "    tools:",
-        "      - agent: worker",
-        "    hooks:",
-        "      output:",
-        "        - agent: [reviewer, checker]",
-        "  worker: {model: w}",
-        "  reviewer: {model: w}",
-        "  checker: {model: w}",
-        "  wrap: {config: ./inner}",
-        "flow: [main, wrap]",
-        "",
-      ].join("\n"),
-    });
-    const main = scripted([{ message: callMessage("c1", "worker"), finishReason: "tool" }, { message: assistant("done"), finishReason: "stop" }]);
-    const runtime = createRuntime(loadConfigSync(root), { models: { m: main, w: ok, h: ok } });
-
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
-
-    expect(shape(result.runs)).toEqual([
-      "main:flow", "worker:tool", "reviewer:hook", "checker:hook", "wrap/helper:nested",
-    ]);
-    expect(result.runs.every((run) => run.status === "done" && typeof run.finishReason === "string")).toBe(true);
-    await runtime.close();
-  });
-
   it("adds a model entry for a model call a synchronous hook requested", async () => {
     const asked = defineExtension({
       name: "asked",
@@ -94,13 +49,13 @@ describe("the agent run records of a turn", () => {
       { message: assistant("side"), finishReason: "length", usage: { input: 2 } },
       { message: assistant("done"), finishReason: "stop", usage: { output: 5 } },
     ]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { asked: {} }, hooks: { conversation: [{ extension: "asked" }] } } },
     }, { directory: ".", models: { m: model }, extensions: { asked } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(shape(result.runs)).toEqual(["main:flow", "main:model"]);
+    expect(shape(result.runs)).toEqual(["main:turn", "main:model"]);
     expect(result.runs[1]).toMatchObject({ kind: "model", finishReason: "length", status: "done", usage: { input: 2, output: 0, cacheRead: 0, cacheWrite: 0 } });
     expect(result.usage).toEqual({ input: 2, output: 5, cacheRead: 0, cacheWrite: 0 });
     await runtime.close();
@@ -120,26 +75,25 @@ describe("the agent run records of a turn", () => {
         return { message: assistant("done"), finishReason: "stop", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } };
       },
     };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { asked: {} }, hooks: { conversation: [{ extension: "asked" }] } } },
     }, { directory: ".", models: { m: model }, extensions: { asked } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(result.runs[1]).toEqual({ agent: "main", turnId: result.runs[1]?.turnId ?? "", kind: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, status: "failed" });
+    expect(result.runs[1]).toEqual({ agent: "main", instance: "c/main", turnId: result.runs[1]?.turnId ?? "", kind: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, status: "failed" });
     await runtime.close();
   });
 
   it("records a failed optional hook agent and keeps the turn going", async () => {
     const broken: Model = { async generate(): Promise<ModelResult> { throw new Error("down"); } };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", hooks: { output: [{ agent: "helper" }] } }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: ok, h: broken } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(shape(result.runs)).toEqual(["main:flow", "helper:hook"]);
+    expect(shape(result.runs)).toEqual(["main:turn", "helper:hook"]);
     expect(result.runs[1]?.status).toBe("failed");
     expect(result.runs[1]?.finishReason).toBeUndefined();
     await runtime.close();
@@ -148,14 +102,13 @@ describe("the agent run records of a turn", () => {
   it("keeps the usage a failed run received and counts it in the turn", async () => {
     const helper = scripted([{ message: callMessage("g1", "ghost"), finishReason: "tool", usage: { output: 4 } }]);
     const model = scripted([{ message: assistant("done"), finishReason: "stop", usage: { input: 1 } }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", hooks: { output: [{ agent: "helper" }] } }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model, h: helper } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(shape(result.runs)).toEqual(["main:flow", "helper:hook"]);
+    expect(shape(result.runs)).toEqual(["main:turn", "helper:hook"]);
     expect(result.runs[1]).toMatchObject({ status: "failed", usage: { input: 0, output: 4, cacheRead: 0, cacheWrite: 0 } });
     expect(result.runs[1]?.finishReason).toBeUndefined();
     expect(result.usage).toEqual({ input: 1, output: 4, cacheRead: 0, cacheWrite: 0 });
@@ -168,13 +121,13 @@ describe("the agent run records of a turn", () => {
       hooks: ["conversation"],
       create: () => ({ hooks: { conversation: async (value, ctx) => { await ctx.agents.run("ghost", "x").catch(() => undefined); return value; } } }),
     });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { asked: {} }, hooks: { conversation: [{ extension: "asked" }] } } },
     }, { directory: ".", models: { m: ok }, extensions: { asked } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(shape(result.runs)).toEqual(["main:flow"]);
+    expect(shape(result.runs)).toEqual(["main:turn"]);
     await runtime.close();
   });
 });
@@ -186,12 +139,11 @@ describe("the usage of a turn", () => {
       { message: callMessage("c1", "helper"), finishReason: "tool", usage: { input: 1 } },
       { message: assistant("done"), finishReason: "stop" },
     ]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ agent: "helper" }] }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model, h: helper } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.runs[0]?.usage).toEqual({ input: 1, output: 0, cacheRead: 0, cacheWrite: 0 });
     expect(result.runs[1]?.usage).toEqual({ input: 0, output: 0, cacheRead: 7, cacheWrite: 0 });
@@ -201,9 +153,9 @@ describe("the usage of a turn", () => {
 
   it("reports a usage value that is not a number of zero or more as an invalid model result", async () => {
     const model: Model = { async generate(): Promise<ModelResult> { return { message: assistant("done"), finishReason: "stop", usage: { input: -1 } }; } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((issue: unknown) => issue);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((issue: unknown) => issue);
 
     expect(failure(error)).toEqual({ where: "modelResult", codes: ["value_invalid"], attempt: 1 });
     await runtime.close();
@@ -216,12 +168,11 @@ describe("the usage of a turn", () => {
       { message: assistant("done"), finishReason: "stop" },
     ]);
     const events: RuntimeEvent[] = [];
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ agent: "helper" }] }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model, h: helper }, host: { emit: (event) => { events.push(event); } } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     const done = events.filter((event) => event.name === "turn.done" && event.agent === "main");
     expect(done[0]?.data.usage).toEqual({ input: 1, output: 0, cacheRead: 0, cacheWrite: 0 });
@@ -232,9 +183,9 @@ describe("the usage of a turn", () => {
 describe("the finish reason of a turn", () => {
   it("uses the value of the single output", async () => {
     const model: Model = { async generate(): Promise<ModelResult> { return { message: assistant("done"), finishReason: "length" }; } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.finishReason).toBe("length");
     expect(result.status).toBe("done");
@@ -244,12 +195,18 @@ describe("the finish reason of a turn", () => {
   it("uses other when several outputs did not end the same way", async () => {
     const stop: Model = { async generate(): Promise<ModelResult> { return { message: assistant("a"), finishReason: "stop" }; } };
     const length: Model = { async generate(): Promise<ModelResult> { return { message: assistant("b"), finishReason: "length" }; } };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { split: { model: "s" }, a: { model: "a" }, b: { model: "b" } },
-      flow: { in: "split", routes: [{ from: "split", to: "a" }, { from: "split", to: "b" }, { from: "a", to: "out" }, { from: "b", to: "out" }] },
+      routes: [
+        { from: "$input", to: "split" },
+        { from: "split", to: "a" },
+        { from: "split", to: "b" },
+        { from: "a", to: "$output" },
+        { from: "b", to: "$output" },
+      ],
     }, { directory: ".", models: { s: stop, a: stop, b: length } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.finishReason).toBe("other");
     await runtime.close();
@@ -263,11 +220,11 @@ describe("the finish reason of a turn", () => {
     });
     const act: Tool = { name: "act", description: "act", input: { type: "object" }, execute: (input, ctx) => ({ callId: ctx.toolCall.id, name: "act", args: input, content: [{ type: "text", text: "acted" }] }) };
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["act"], extensions: { finish: {} }, hooks: { toolResult: [{ extension: "finish" }] } } },
     }, { directory: ".", models: { m: model }, tools: { act }, extensions: { finish } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.finishReason).toBe("tool");
     expect(result.runs[0]?.finishReason).toBe("tool");

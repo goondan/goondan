@@ -34,7 +34,8 @@ CONFIG_ERROR_CODES = frozenset(
         "load.resource_cycle", "config.not_json",
         "reference.agent", "reference.inherit", "reference.inherit_cycle", "reference.extension",
         "reference.duplicate_tool", "reference.duplicate_hook",
-        "flow.no_route", "flow.cycle", "flow.carry_conversation",
+        "routes.reserved", "routes.no_route", "routes.no_input", "routes.no_output",
+        "routes.unreachable", "routes.cycle", "routes.wait_cycle",
         "template.not_found", "template.syntax", "template.unsupported",
         "binding.model", "binding.tool", "binding.duplicate_tool", "binding.function", "binding.extension",
         "binding.port", "binding.extension_hook",
@@ -43,8 +44,8 @@ CONFIG_ERROR_CODES = frozenset(
 )
 
 EXECUTION_ERROR_CODES = frozenset(
-    ("model_error", "tool_error", "tool_unavailable", "hook_error", "value_invalid", "flow_error",
-     "operation_invalid", "runtime_error", "aborted")
+    ("model_error", "tool_error", "tool_unavailable", "hook_error", "value_invalid", "route_error",
+     "steer_invalid", "operation_invalid", "runtime_error", "aborted")
 )
 
 # operation name -> (required arguments, optional arguments)
@@ -75,7 +76,7 @@ HOOK_OPS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 STEP_ACTIONS = (
-    "run", "decide", "cancel", "list", "recover", "abort", "steer", "restart", "close",
+    "run", "decide", "cancel", "list", "recover", "abort", "steer", "deleteSession", "restart", "close",
     "release", "reach", "parallel",
 )
 
@@ -374,7 +375,7 @@ class _Check:
                 self.add(f"{path}/settle", "a parallel branch step cannot use 'settle'")
             else:
                 self.boolean(value["settle"], f"{path}/settle")
-        if branch and action in ("restart", "close", "parallel"):
+        if branch and action in ("restart", "parallel"):
             self.add(path, f"a parallel branch cannot use {action!r}")
         argument = value[action]
         at = f"{path}/{action}"
@@ -391,24 +392,25 @@ class _Check:
         if not self.mapping(argument, at):
             return
         shapes = {
-            "run": (("conversationId", "input", "agent", "startAgent"), ("conversationId", "input")),
-            "decide": (("operation", "value", "conversationId"), ("operation", "value")),
-            "cancel": (("operation", "conversationId"), ("operation",)),
-            "list": (("conversationId",), ()),
-            "recover": (("conversationId",), ()),
-            "abort": (("conversationId",), ("conversationId",)),
-            "steer": (("conversationId", "value"), ("conversationId", "value")),
+            "run": (("sessionId", "input", "agent", "startAgent"), ("sessionId", "input")),
+            "decide": (("operation", "value", "sessionId"), ("operation", "value")),
+            "cancel": (("operation", "sessionId"), ("operation",)),
+            "list": (("sessionId",), ()),
+            "recover": (("sessionId",), ()),
+            "abort": (("sessionId",), ("sessionId",)),
+            "steer": (("sessionId", "value", "agent"), ("sessionId", "value")),
+            "deleteSession": (("sessionId",), ("sessionId",)),
             "restart": ((), ()),
             "close": ((), ()),
         }
         allowed, required = shapes[action]
         self.keys(argument, at, allowed, required)
-        for key in ("conversationId", "operation", "agent", "startAgent"):
+        for key in ("sessionId", "operation", "agent", "startAgent"):
             if key in argument:
                 self.text(argument[key], f"{at}/{key}")
         operation = argument.get("operation")
-        if isinstance(operation, str) and not operation.startswith("<op:") and "conversationId" not in argument:
-            self.add(at, "an operation that is not an alias needs a conversationId")
+        if isinstance(operation, str) and not operation.startswith("<op:") and "sessionId" not in argument:
+            self.add(at, "an operation that is not an alias needs a sessionId")
 
     # -- expected -----------------------------------------------------------------------
 

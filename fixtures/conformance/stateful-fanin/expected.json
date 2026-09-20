@@ -1,0 +1,64 @@
+{
+  "steps": [
+    {"parallel": [
+      [{"result": {"output": {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "합침"}]}}}],
+      [{}, {}, {}, {}]
+    ]}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "keepInput",
+        "value": [
+          {"role": "user", "source": "join", "content": [{"type": "text", "text": "A"}], "meta": {"from": "a", "instance": "s/a"}},
+          {"role": "user", "source": "join", "content": [{"type": "text", "text": "B"}], "meta": {"from": "b", "instance": "s/b"}}
+        ]
+      }
+    ],
+      "conversations": {
+        "s/split": [
+          {
+            "role": "user",
+            "source": "split",
+            "content": [{"type": "text", "text": "시작"}]
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [{"type": "text", "text": "분기"}]
+          }
+        ],
+        "s/a": [
+          {
+            "role": "user",
+            "source": "a",
+            "content": [{"type": "text", "text": "분기"}],
+            "meta": {"from": "split", "instance": "s/split"}
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [{"type": "text", "text": "A"}]
+          }
+        ],
+        "s/b": [
+          {
+            "role": "user",
+            "source": "b",
+            "content": [{"type": "text", "text": "분기"}],
+            "meta": {"from": "split", "instance": "s/split"}
+          },
+          {
+            "role": "assistant",
+            "source": "model",
+            "content": [{"type": "text", "text": "B"}]
+          }
+        ],
+        "s/join": [
+        {"role": "user", "source": "join", "content": [{"type": "text", "text": "A"}], "meta": {"from": "a", "instance": "s/a"}},
+        {"role": "user", "source": "join", "content": [{"type": "text", "text": "B"}], "meta": {"from": "b", "instance": "s/b"}},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "합침"}]}
+      ]
+    }
+  }
+}

@@ -8,5 +8,4 @@ agents:
     systemMessage:
       template: templates/system.md
       cache: true
-flow:
-  in: main
+routes: [main]

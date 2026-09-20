@@ -1,7 +1,0 @@
-{
-  "description": "config 에이전트가 가리키는 경로가 없으면 그 config 필드 위치에서 load.not_found 구성 오류가 된다.",
-  "spec": [
-    "중첩 구성"
-  ],
-  "steps": []
-}

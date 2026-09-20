@@ -9,7 +9,7 @@ import pytest
 from goondan import (
     Extension,
     GoondanConfigError,
-    create_runtime,
+    create_goondan,
     define_extension,
     define_tool,
     load_config,
@@ -163,62 +163,35 @@ def test_duplicate_async_conversation_hooks_are_rejected():
     assert issues_of(error) == [("reference.duplicate_hook", "/agents/a/hooks/conversation/1")]
 
 
-def test_flow_references_use_the_composed_document_position():
+def test_route_references_use_the_composed_document_position():
     with pytest.raises(GoondanConfigError) as error:
-        validate_config({"agents": {"a": {"model": "m"}}, "flow": ["a", "gone"]})
-    assert issues_of(error) == [("reference.agent", "/flow/1")]
+        validate_config({"agents": {"a": {"model": "m"}}, "routes": [{"from": "$input", "to": "gone"}]})
+    assert issues_of(error) == [
+        ("routes.no_input", "/routes"),
+        ("routes.no_output", "/routes"),
+        ("reference.agent", "/routes/0/to"),
+    ]
 
 
-# --- config agents and nested configurations -----------------------------------------------
-
-
-def test_a_config_agent_keeps_only_config_and_description():
-    config = validate_config({"agents": {"wrap": {"config": "./inner", "description": "handles billing", "model": "m", "tools": ["gone"], "systemMessage": {"template": "missing.md"}}}})
-    assert config["agents"]["wrap"] == {"config": "./inner", "description": "handles billing"}
-
-
-def test_an_agent_with_config_and_model_is_a_config_agent():
-    assert "model" not in validate_config({"agents": {"wrap": {"config": "./inner", "model": "m"}}})["agents"]["wrap"]
-
-
-def test_nested_configurations_load_and_validate_eagerly(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {main: {model: inner}}\n")
-    write(tmp_path, "goondan.yaml", "agents: {wrap: {config: ./inner}}\n")
-    config = load_config(tmp_path)
-    assert dict(config.nested["wrap"]["agents"]) == {"main": {"model": "inner"}}
-
+@pytest.mark.parametrize(
+    ("routes", "expected"),
+    [
+        (["gone"], [
+            ("routes.no_input", "/routes"),
+            ("routes.no_output", "/routes"),
+            ("reference.agent", "/routes/0"),
+        ]),
+        (["a", "gone"], [
+            ("routes.no_output", "/routes"),
+            ("routes.no_route", "/routes/0/to"),
+            ("reference.agent", "/routes/1"),
+        ]),
+    ],
+)
+def test_serial_route_references_are_excluded_before_structure_validation(routes: list[str], expected: list[tuple[str, str]]):
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(config=config, models={})
-    assert issues_of(error) == [("binding.model", "/agents/wrap/config/agents/main/model")]
-
-
-def test_a_missing_nested_configuration_is_reported_at_the_config_field(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "agents: {wrap: {config: ./missing}}\n")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path)
-    assert issues_of(error) == [("load.not_found", "/agents/wrap/config")]
-
-
-def test_a_nested_configuration_may_not_point_back_at_an_enclosing_entry(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {back: {config: ../goondan.yaml}}\n")
-    write(tmp_path, "goondan.yaml", "agents: {wrap: {config: ./inner}}\n")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path)
-    assert issues_of(error) == [("load.resource_cycle", "/agents/wrap/config/agents/back/config")]
-
-
-def test_nested_schema_errors_are_prefixed(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {main: {model: m, oops: 1}}\n")
-    write(tmp_path, "goondan.yaml", "agents: {wrap: {config: ./inner}}\n")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path)
-    assert issues_of(error) == [("schema.additionalProperties", "/agents/wrap/config/agents/main/oops")]
-
-
-def test_a_plain_document_resolves_its_nested_configuration_against_the_given_directory(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {main: {model: inner}}\n")
-    runtime = create_runtime(config={"agents": {"wrap": {"config": "./inner"}}}, directory=str(tmp_path), models={"inner": noop_model})
-    assert runtime.config.nested["wrap"]["agents"]["main"]["model"] == "inner"
+        validate_config({"agents": {"a": {"model": "m"}}, "routes": routes})
+    assert issues_of(error) == expected
 
 
 # --- binding phase -------------------------------------------------------------------------
@@ -226,9 +199,11 @@ def test_a_plain_document_resolves_its_nested_configuration_against_the_given_di
 
 def test_every_missing_binding_is_reported_together():
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(
-            config={"agents": {"a": {"model": "gone", "input": {"fn": "shape"}, "tools": ["search"], "hooks": {"output": [{"fn": "polish"}, {"name": "gate", "fn": "gate", "when": {"fn": "ready"}}]}}},
-                    "flow": {"in": "a", "routes": [{"from": "a", "to": "out", "when": {"fn": "done"}, "carry": {"message": {"fn": "carry"}}}]}},
+        create_goondan(
+            config={
+                "agents": {"a": {"model": "gone", "input": {"fn": "shape"}, "tools": ["search"], "hooks": {"output": [{"fn": "polish"}, {"name": "gate", "fn": "gate", "when": {"fn": "ready"}}]}}},
+                "routes": [{"from": "$input", "to": "a"}, {"from": "a", "to": "$output", "when": {"fn": "done"}}],
+            },
             models={},
         )
     assert issues_of(error) == [
@@ -238,21 +213,14 @@ def test_every_missing_binding_is_reported_together():
         ("binding.function", "/agents/a/input/fn"),
         ("binding.model", "/agents/a/model"),
         ("binding.tool", "/agents/a/tools/0"),
-        ("binding.function", "/flow/routes/0/carry/message/fn"),
-        ("binding.function", "/flow/routes/0/when/fn"),
+        ("binding.function", "/routes/1/when/fn"),
     ]
-
-
-def test_config_agents_are_left_out_of_the_binding_phase(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {main: {model: inner}}\n")
-    write(tmp_path, "goondan.yaml", "agents:\n  wrap:\n    config: ./inner\n    model: gone\n    tools: [missing]\n")
-    create_runtime(config=load_config(tmp_path), models={"inner": noop_model})
 
 
 def test_declared_extension_stages_ports_and_tools_are_checked():
     memo = define_extension(name="memo", create=lambda **_: Extension(), hooks=["modelInput"], tools=["recall"], requires=["db"])
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(
+        create_goondan(
             config={"agents": {"a": {"model": "m", "extensions": {"memo": {}, "unknown": {}}, "hooks": {"output": [{"extension": "memo"}]}}}},
             models={"m": noop_model}, extensions={"memo": memo},
         )
@@ -266,7 +234,7 @@ def test_declared_extension_stages_ports_and_tools_are_checked():
 def test_a_tool_name_two_implementations_provide_is_a_binding_error():
     memo = define_extension(name="memo", create=lambda **_: Extension(), tools=["search"])
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(
+        create_goondan(
             config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "tools": ["search"]}}},
             models={"m": noop_model}, extensions={"memo": memo},
             tools={"search": define_tool(name="search", description="s", input={}, execute=lambda value, ctx: None)},
@@ -276,18 +244,18 @@ def test_a_tool_name_two_implementations_provide_is_a_binding_error():
 
 def test_an_extension_without_a_declared_tool_list_defers_the_tool_check():
     memo = define_extension(name="memo", create=lambda **_: Extension(tools=[define_tool(name="search", description="s", input={}, execute=lambda value, ctx: None)]))
-    create_runtime(config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "tools": ["search"]}}}, models={"m": noop_model}, extensions={"memo": memo})
+    create_goondan(config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "tools": ["search"]}}}, models={"m": noop_model}, extensions={"memo": memo})
 
 
 @pytest.mark.asyncio
 async def test_an_instance_that_does_not_provide_a_hooked_stage_fails_the_turn():
     memo = define_extension(name="memo", create=lambda **_: Extension(hooks={"output": lambda value, ctx: value}))
-    runtime = create_runtime(
+    runtime = create_goondan(
         config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "hooks": {"modelInput": [{"extension": "memo"}]}}}},
         models={"m": noop_model}, extensions={"memo": memo},
     )
     with pytest.raises(GoondanConfigError) as error:
-        await runtime.run_turn("input", conversation_id="instance")
+        await runtime.run("input", session_id="instance")
     assert issues_of(error) == [("binding.extension_hook", "/agents/a/hooks/modelInput/0/extension")]
 
 

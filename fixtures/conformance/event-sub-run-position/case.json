@@ -1,5 +1,5 @@
 {
-  "description": "하위 실행의 이벤트는 그 실행을 시작한 위치에서 발생하며 하위 실행 자신의 agent, conversationId, turnId를 가진다.",
+  "description": "하위 실행의 이벤트는 그 실행을 시작한 위치에서 발생하며 하위 실행 자신의 agent, sessionId, turnId를 가진다.",
   "spec": [
     "이벤트 순서",
     "이벤트 형식과 전달"
@@ -48,7 +48,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "부탁해"
       }
     }

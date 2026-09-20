@@ -6,5 +6,4 @@ agents:
         agent: helper
   helper:
     model: m
-flow:
-  in: main
+routes: [main]

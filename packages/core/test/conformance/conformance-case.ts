@@ -96,9 +96,13 @@ export const CONFIG_ERROR_CODES: readonly string[] = [
   "reference.extension",
   "reference.duplicate_tool",
   "reference.duplicate_hook",
-  "flow.no_route",
-  "flow.cycle",
-  "flow.carry_conversation",
+  "routes.reserved",
+  "routes.no_route",
+  "routes.no_input",
+  "routes.no_output",
+  "routes.unreachable",
+  "routes.cycle",
+  "routes.wait_cycle",
   "template.not_found",
   "template.syntax",
   "template.unsupported",
@@ -118,7 +122,8 @@ export const EXECUTION_ERROR_CODES: readonly string[] = [
   "tool_unavailable",
   "hook_error",
   "value_invalid",
-  "flow_error",
+  "route_error",
+  "steer_invalid",
   "operation_invalid",
   "runtime_error",
   "aborted",
@@ -263,13 +268,14 @@ export type CaseConfig =
   | { mode: "document"; document: JsonObject; directory: string };
 
 export type Step =
-  | { action: "run"; settle: boolean; conversationId: string; input: Json; agent?: string; startAgent?: string }
-  | { action: "decide"; settle: boolean; operation: string; value: Json; conversationId?: string }
-  | { action: "cancel"; settle: boolean; operation: string; conversationId?: string }
-  | { action: "list"; settle: boolean; conversationId?: string }
-  | { action: "recover"; settle: boolean; conversationId?: string }
-  | { action: "abort"; settle: boolean; conversationId: string }
-  | { action: "steer"; settle: boolean; conversationId: string; value: Json }
+  | { action: "run"; settle: boolean; sessionId: string; input: Json; agent?: string; startAgent?: string }
+  | { action: "decide"; settle: boolean; operation: string; value: Json; sessionId?: string }
+  | { action: "cancel"; settle: boolean; operation: string; sessionId?: string }
+  | { action: "list"; settle: boolean; sessionId?: string }
+  | { action: "recover"; settle: boolean; sessionId?: string }
+  | { action: "abort"; settle: boolean; sessionId: string }
+  | { action: "steer"; settle: boolean; sessionId: string; value: Json; agent?: string }
+  | { action: "deleteSession"; settle: boolean; sessionId: string }
   | { action: "restart"; settle: boolean }
   | { action: "close"; settle: boolean }
   | { action: "release"; settle: boolean; gate: string }
@@ -791,6 +797,7 @@ const STEP_ACTIONS = [
   "recover",
   "abort",
   "steer",
+  "deleteSession",
   "restart",
   "close",
   "release",
@@ -815,12 +822,12 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
   switch (action) {
     case "run": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["conversationId", "input", "agent", "startAgent"]);
+      requireKeys(payload, valuePointer, ["sessionId", "input", "agent", "startAgent"]);
       if (!Object.hasOwn(payload, "input")) fail(valuePointer, "run requires input");
       const step: Step = {
         action: "run",
         settle,
-        conversationId: readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId")),
+        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
         input: payload["input"] ?? null,
       };
       if (Object.hasOwn(payload, "agent")) step.agent = readNonEmptyString(payload["agent"], at(valuePointer, "agent"));
@@ -831,7 +838,7 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
     }
     case "decide": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["operation", "value", "conversationId"]);
+      requireKeys(payload, valuePointer, ["operation", "value", "sessionId"]);
       if (!Object.hasOwn(payload, "value")) fail(valuePointer, "decide requires value");
       const step: Step = {
         action: "decide",
@@ -839,61 +846,78 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
         operation: readNonEmptyString(payload["operation"], at(valuePointer, "operation")),
         value: payload["value"] ?? null,
       };
-      if (Object.hasOwn(payload, "conversationId")) {
-        step.conversationId = readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId"));
+      if (Object.hasOwn(payload, "sessionId")) {
+        step.sessionId = readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"));
       }
       return step;
     }
     case "cancel": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["operation", "conversationId"]);
+      requireKeys(payload, valuePointer, ["operation", "sessionId"]);
       const step: Step = {
         action: "cancel",
         settle,
         operation: readNonEmptyString(payload["operation"], at(valuePointer, "operation")),
       };
-      if (Object.hasOwn(payload, "conversationId")) {
-        step.conversationId = readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId"));
+      if (Object.hasOwn(payload, "sessionId")) {
+        step.sessionId = readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"));
       }
       return step;
     }
     case "list":
     case "recover": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["conversationId"]);
-      const conversationId = Object.hasOwn(payload, "conversationId")
-        ? readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId"))
+      requireKeys(payload, valuePointer, ["sessionId"]);
+      const sessionId = Object.hasOwn(payload, "sessionId")
+        ? readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"))
         : undefined;
       if (action === "list") {
-        return conversationId === undefined ? { action: "list", settle } : { action: "list", settle, conversationId };
+        return sessionId === undefined ? { action: "list", settle } : { action: "list", settle, sessionId };
       }
-      return conversationId === undefined ? { action: "recover", settle } : { action: "recover", settle, conversationId };
+      return sessionId === undefined ? { action: "recover", settle } : { action: "recover", settle, sessionId };
     }
     case "abort": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["conversationId"]);
+      requireKeys(payload, valuePointer, ["sessionId"]);
       return {
         action: "abort",
         settle,
-        conversationId: readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId")),
+        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
       };
     }
     case "steer": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["conversationId", "value"]);
+      requireKeys(payload, valuePointer, ["sessionId", "value", "agent"]);
       if (!Object.hasOwn(payload, "value")) fail(valuePointer, "steer requires value");
-      return {
+      const step: Step = {
         action: "steer",
         settle,
-        conversationId: readNonEmptyString(payload["conversationId"], at(valuePointer, "conversationId")),
+        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
         value: payload["value"] ?? null,
       };
+      if (Object.hasOwn(payload, "agent")) {
+        step.agent = readNonEmptyString(payload["agent"], at(valuePointer, "agent"));
+      }
+      return step;
     }
-    case "restart":
+    case "deleteSession": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId"]);
+      return {
+        action: "deleteSession",
+        settle,
+        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
+      };
+    }
+    case "restart": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, []);
+      if (inBranch) fail(pointer, "restart is not allowed inside a parallel branch");
+      return { action, settle };
+    }
     case "close": {
       const payload = readObject(value, valuePointer);
       requireKeys(payload, valuePointer, []);
-      if (inBranch) fail(pointer, `${action} is not allowed inside a parallel branch`);
       return { action, settle };
     }
     case "release": {

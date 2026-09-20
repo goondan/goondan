@@ -10,7 +10,8 @@
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         }
       }
     }
@@ -20,16 +21,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "실행해 줘"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "실행해 줘"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -38,7 +50,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -48,7 +60,7 @@
       {
         "name": "humanApproval.created",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "operationId": "<op:d-1>",
@@ -62,7 +74,7 @@
       {
         "name": "turn.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "where": "tool",
@@ -77,13 +89,14 @@
         "callback": "requestApproval",
         "value": {
           "operationId": "<op:d-1>",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "agent": "main",
           "toolCall": {
             "id": "d-1",
             "name": "danger",
-            "args": {}
+            "args": {
+            }
           },
           "reasons": [
             "Tool danger requires approval"
@@ -96,12 +109,13 @@
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         },
         "reasons": [
           "Tool danger requires approval"
@@ -130,7 +144,8 @@
               "type": "tool.call",
               "callId": "d-1",
               "name": "danger",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

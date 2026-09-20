@@ -124,8 +124,6 @@ def declared_templates(config: Mapping[str, Any]) -> list[tuple[list[Segment], s
             found.append(([*at, "template"], holder["template"]))
 
     for name, agent in config["agents"].items():
-        if "config" in agent:
-            continue
         add(["agents", name, "input"], agent.get("input"))
         blocks = agent.get("systemMessage")
         if isinstance(blocks, Mapping):
@@ -135,10 +133,6 @@ def declared_templates(config: Mapping[str, Any]) -> list[tuple[list[Segment], s
         for phase, entries in agent.get("hooks", {}).items():
             for index, entry in enumerate(entries):
                 add(["agents", name, "hooks", phase, index], entry)
-    flow = config.get("flow")
-    for index, route in enumerate(flow.get("routes", []) if isinstance(flow, Mapping) else []):
-        carry = route.get("carry")
-        add(["flow", "routes", index, "carry", "message"], carry.get("message") if isinstance(carry, Mapping) else None)
     return found
 
 

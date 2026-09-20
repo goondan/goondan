@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -21,9 +22,16 @@
           }
         }
       },
-      "flow": {
-        "in": "main"
-      }
+      "routes": [
+        {
+          "from": "$input",
+          "to": "main"
+        },
+        {
+          "from": "main",
+          "to": "$output"
+        }
+      ]
     },
     "conversations": {
       "c1/main": [

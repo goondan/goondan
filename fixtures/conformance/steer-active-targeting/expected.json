@@ -1,0 +1,97 @@
+{
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+          }
+        ],
+        [
+          {
+          },
+          {
+          },
+          {
+          },
+          {
+          }
+        ]
+      ]
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "s/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "tool.call",
+              "callId": "p-1",
+              "name": "pause",
+              "args": {
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
+              "callId": "p-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "계속"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "자동"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"tag\":true}"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

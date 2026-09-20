@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { executionError } from "./execution-error.ts";
 import {
-  createRuntime, defineExtension, MemoryConversationStore, MemoryOperationStore,
+  createGoondan, defineExtension, MemoryConversationStore, MemoryOperationStore,
   type ApprovalRequest, type Json, type Message, type Model, type ModelResult,
   type OperationCompletion, type PendingOperation, type RuntimeEvent, type RuntimeHost, type Tool,
 } from "../src/index.ts";
@@ -50,7 +50,7 @@ function tool(name: string, run: (input: Json) => Json = () => "done"): Tool {
 const requesting = { agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }] } } };
 
 /** A runtime whose first model answer asks for an approved tool and whose later answers are plain. */
-function approvalRuntime(options: { host?: RuntimeHost; operationStore?: MemoryOperationStore; act?: Tool; args?: Json } = {}): ReturnType<typeof createRuntime> {
+function approvalRuntime(options: { host?: RuntimeHost; operationStore?: MemoryOperationStore; act?: Tool; args?: Json } = {}): ReturnType<typeof createGoondan> {
   const model = scripted([
     { message: callMessage("c1", "act", options.args ?? { target: { id: 1, env: "prod" }, tags: ["a"], note: "x" }), finishReason: "tool" },
     { message: assistant("waiting"), finishReason: "stop" },
@@ -60,11 +60,11 @@ function approvalRuntime(options: { host?: RuntimeHost; operationStore?: MemoryO
     operationStore: options.operationStore ?? new MemoryOperationStore(),
     host: options.host,
   };
-  return createRuntime(requesting, bindings);
+  return createGoondan(requesting, bindings);
 }
 
-async function only(runtime: ReturnType<typeof createRuntime>, conversationId = "c"): Promise<PendingOperation> {
-  const [operation] = await runtime.listOperations(conversationId);
+async function only(runtime: ReturnType<typeof createGoondan>, sessionId = "c"): Promise<PendingOperation> {
+  const [operation] = await runtime.listOperations(sessionId);
   if (!operation) throw new Error("expected one operation");
   return operation;
 }
@@ -74,11 +74,11 @@ describe("creating an approval operation", () => {
     const before = Date.now();
     const runtime = approvalRuntime();
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     expect(Object.keys(operation)).toEqual([
-      "operationId", "deliveryId", "agent", "conversationId", "turnId", "toolCall",
+      "operationId", "deliveryId", "agent", "sessionId", "turnId", "toolCall",
       "reasons", "status", "deliveryStatus", "createdAt", "updatedAt",
     ]);
     expect(operation.deliveryId).toBe(`operation:${operation.operationId}:completion`);
@@ -96,9 +96,9 @@ describe("creating an approval operation", () => {
       { message: { id: "a", role: "assistant", source: "model", content: [{ type: "tool.call", callId: "same", name: "act", args: null }, { type: "tool.call", callId: "same", name: "act", args: null }] }, finishReason: "tool" },
       { message: assistant("waiting"), finishReason: "stop" },
     ]);
-    const runtime = createRuntime(requesting, { directory: ".", models: { m: model }, tools: { act: tool("act") } });
+    const runtime = createGoondan(requesting, { directory: ".", models: { m: model }, tools: { act: tool("act") } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operations = await runtime.listOperations("c");
 
     expect(operations).toHaveLength(2);
@@ -111,11 +111,11 @@ describe("creating an approval operation", () => {
     const calls: Json[] = [];
     const watcher = defineExtension({ name: "watch", hooks: ["toolResult"], create: () => ({ hooks: { toolResult: (value) => { calls.push(value); return value; } } }) });
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }, { message: assistant("waiting"), finishReason: "stop" }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }], extensions: { watch: {} }, hooks: { toolResult: [{ extension: "watch" }] } } },
     }, { directory: ".", models: { m: model }, tools: { act: tool("act") }, extensions: { watch: watcher }, conversationStore: store });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     expect(calls).toEqual([]);
@@ -132,11 +132,11 @@ describe("creating an approval operation", () => {
     const events: RuntimeEvent[] = [];
     const runtime = approvalRuntime({ host: { requestApproval: (request) => { requests.push(request); }, emit: (event) => { events.push(event); } } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     expect(requests).toEqual([{
-      operationId: operation.operationId, conversationId: "c", turnId: operation.turnId,
+      operationId: operation.operationId, sessionId: "c", turnId: operation.turnId,
       agent: "main", toolCall: operation.toolCall, reasons: ["Tool act requires approval"],
     }]);
     const created = events.find((event) => event.name === "humanApproval.created");
@@ -147,7 +147,7 @@ describe("creating an approval operation", () => {
   it("keeps the context the host captured", async () => {
     const runtime = approvalRuntime({ host: { captureOperationContext: (request) => ({ caller: request.agent }) } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
 
     expect((await only(runtime)).context).toEqual({ caller: "main" });
     await runtime.close();
@@ -155,13 +155,13 @@ describe("creating an approval operation", () => {
 
   it("stores nothing when the context capture fails", async () => {
     const store = new MemoryConversationStore();
-    const runtime = createRuntime(requesting, {
+    const runtime = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]) },
       tools: { act: tool("act") }, conversationStore: store,
       host: { captureOperationContext: () => { throw new Error("no context"); } },
     });
 
-    const error: unknown = await runtime.runTurn("go", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("go", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)).toMatchObject({ where: "tool", codes: ["runtime_error"], message: "no context" });
     expect(await runtime.listOperations("c")).toEqual([]);
@@ -170,13 +170,13 @@ describe("creating an approval operation", () => {
   });
 
   it("treats a captured context that is not a JSON object as a failed capture", async () => {
-    const runtime = createRuntime(requesting, {
+    const runtime = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]) },
       tools: { act: tool("act") },
       host: { captureOperationContext: () => { const value: Record<string, Json> = JSON.parse('"text"'); return value; } },
     });
 
-    const error: unknown = await runtime.runTurn("go", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("go", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.codes).toEqual(["runtime_error"]);
     expect(await runtime.listOperations("c")).toEqual([]);
@@ -185,13 +185,13 @@ describe("creating an approval operation", () => {
 
   it("leaves the operation pending when the approval request fails", async () => {
     const store = new MemoryConversationStore();
-    const runtime = createRuntime(requesting, {
+    const runtime = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]) },
       tools: { act: tool("act") }, conversationStore: store,
       host: { requestApproval: () => { throw new Error("no channel"); } },
     });
 
-    const error: unknown = await runtime.runTurn("go", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("go", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)).toMatchObject({ where: "tool", codes: ["runtime_error"], message: "no channel" });
     expect((await only(runtime)).status).toBe("pending");
@@ -203,7 +203,7 @@ describe("creating an approval operation", () => {
 describe("deciding an operation", () => {
   it("refuses an unknown operation and a decision value it cannot read", async () => {
     const runtime = approvalRuntime();
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const unknown: unknown = await runtime.decideOperation("c", "missing", { decision: "approved" }).catch((error: unknown) => error);
@@ -218,7 +218,7 @@ describe("deciding an operation", () => {
 
   it("returns the stored operation unchanged when it is no longer pending", async () => {
     const runtime = approvalRuntime();
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     await runtime.cancelOperation("c", operation.operationId);
@@ -232,7 +232,7 @@ describe("deciding an operation", () => {
     const seen: Json[] = [];
     const act = tool("act", (input) => { seen.push(input); return "done"; });
     const runtime = approvalRuntime({ act, host: { validateOperationInputPatch: () => true } });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const decided = await runtime.decideOperation("c", operation.operationId, { decision: "approved", inputPatch: { target: { env: "staging" }, tags: ["b"] } });
@@ -246,7 +246,7 @@ describe("deciding an operation", () => {
 
   it("refuses an input patch the host cannot allow", async () => {
     const runtime = approvalRuntime();
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const error: unknown = await runtime.decideOperation("c", operation.operationId, { decision: "approved", inputPatch: { note: "y" } }).catch((thrown: unknown) => thrown);
@@ -258,7 +258,7 @@ describe("deciding an operation", () => {
 
   it("refuses an input patch on a rejection and one the validation refuses", async () => {
     const runtime = approvalRuntime({ host: { validateOperationInputPatch: () => false } });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const rejected: unknown = await runtime.decideOperation("c", operation.operationId, { decision: "rejected", inputPatch: { note: "y" } }).catch((error: unknown) => error);
@@ -277,7 +277,7 @@ describe("deciding an operation", () => {
       execute: async (_input, ctx) => { reached.resolve(); await release.promise; return { callId: ctx.toolCall.id, name: "act", args: null, content: [] }; },
     };
     const runtime = approvalRuntime({ act: slow });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const decided = await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
@@ -295,14 +295,14 @@ describe("cancelling an operation", () => {
   it("cancels a pending operation and delivers the completion", async () => {
     const completions: OperationCompletion[] = [];
     const runtime = approvalRuntime({ host: { deliverOperationCompletion: (completion) => { completions.push(completion); } } });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     const cancelled = await runtime.cancelOperation("c", operation.operationId);
     await runtime.idle();
 
     expect(cancelled.status).toBe("cancelled");
-    expect(Object.keys(completions[0] ?? {})).toEqual(["type", "deliveryId", "operationId", "conversationId", "agent", "status", "toolCall"]);
+    expect(Object.keys(completions[0] ?? {})).toEqual(["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall"]);
     expect((await only(runtime)).deliveryStatus).toBe("delivered");
     await runtime.close();
   });
@@ -315,7 +315,7 @@ describe("cancelling an operation", () => {
       execute: async (_input, ctx) => { reached.resolve(); await release.promise; return { callId: ctx.toolCall.id, name: "act", args: null, content: [] }; },
     };
     const runtime = approvalRuntime({ act: slow });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
     await reached.promise;
@@ -338,15 +338,39 @@ describe("cancelling an operation", () => {
 });
 
 describe("running an approved operation", () => {
+  it("uses a fresh extension instance for a stateless operation execution", async () => {
+    let created = 0; let disposed = 0;
+    const probe = defineExtension({ name: "probe", create: () => {
+      created += 1;
+      return { dispose: () => { disposed += 1; } };
+    } });
+    const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }, { message: assistant("waiting"), finishReason: "stop" }]);
+    const runtime = createGoondan({ agents: {
+      main: { model: "m", stateful: false, tools: [{ tool: "act", approval: "required" }], extensions: { probe: {} } },
+    } }, {
+      models: { m: model }, tools: { act: tool("act") }, extensions: { probe },
+      host: { deliverOperationCompletion: () => undefined },
+    });
+
+    await runtime.run("go", { sessionId: "c" });
+    expect({ created, disposed }).toEqual({ created: 1, disposed: 1 });
+    const operation = await only(runtime);
+    await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
+    await runtime.idle();
+
+    expect({ created, disposed }).toEqual({ created: 2, disposed: 2 });
+    await runtime.close();
+  });
+
   it("fails the validation of a call the agent no longer exposes, before any tool event", async () => {
     const operations = new MemoryOperationStore();
     const events: RuntimeEvent[] = [];
     const first = approvalRuntime({ operationStore: operations });
-    await first.runTurn("go", { conversationId: "c" });
+    await first.run("go", { sessionId: "c" });
     const operation = await only(first);
     await first.close();
 
-    const later = createRuntime({ agents: { main: { model: "m" } } }, {
+    const later = createGoondan({ agents: { main: { model: "m" } } }, {
       directory: ".", models: { m: scripted([{ message: assistant("hi"), finishReason: "stop" }]) },
       operationStore: operations, host: { emit: (event) => { events.push(event); } },
     });
@@ -363,7 +387,7 @@ describe("running an approved operation", () => {
 
   it("fails the validation when the host refuses the operation or its validation throws", async () => {
     const refusing = approvalRuntime({ host: { validateOperation: () => false } });
-    await refusing.runTurn("go", { conversationId: "c" });
+    await refusing.run("go", { sessionId: "c" });
     const refused = await only(refusing);
     await refusing.decideOperation("c", refused.operationId, { decision: "approved" });
     await refusing.idle();
@@ -371,7 +395,7 @@ describe("running an approved operation", () => {
     await refusing.close();
 
     const throwing = approvalRuntime({ host: { validateOperation: () => { throw new Error("policy says no"); } } });
-    await throwing.runTurn("go", { conversationId: "c" });
+    await throwing.run("go", { sessionId: "c" });
     const thrown = await only(throwing);
     await throwing.decideOperation("c", thrown.operationId, { decision: "approved" });
     await throwing.idle();
@@ -397,14 +421,14 @@ describe("running an approved operation", () => {
       { message: callMessage("c1", "act", { note: "x" }), finishReason: "tool" },
       { message: assistant("waiting"), finishReason: "stop" },
     ]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }], extensions: { attach: {} }, hooks: { toolCall: [{ extension: "attach" }] } } },
     }, {
       directory: ".", models: { m: model }, tools: { act }, extensions: { attach },
       host: { emit: (event) => { events.push(event); }, validateOperationInputPatch: () => true, deliverOperationCompletion: () => undefined },
     });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.decideOperation("c", operation.operationId, { decision: "approved", inputPatch: { note: "patched" } });
     await runtime.idle();
@@ -423,11 +447,11 @@ describe("running an approved operation", () => {
       create: () => ({ hooks: { toolResult: (value) => (typeof value === "object" && value !== null && !Array.isArray(value) ? { ...value, content: [{ type: "text", text: "LOUD" }] } : value) } }),
     });
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }, { message: assistant("waiting"), finishReason: "stop" }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }], extensions: { shout: {} }, hooks: { toolResult: [{ extension: "shout" }] } } },
     }, { directory: ".", models: { m: model }, tools: { act: tool("act") }, extensions: { shout }, host: { deliverOperationCompletion: () => undefined } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
     await runtime.idle();
@@ -442,7 +466,7 @@ describe("running an approved operation", () => {
     const broken: Tool = { name: "act", description: "act", input: {}, execute: () => { throw new Error("tool broke"); } };
     const events: RuntimeEvent[] = [];
     const runtime = approvalRuntime({ act: broken, host: { deliverOperationCompletion: () => undefined, emit: (event) => { events.push(event); } } });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
@@ -458,14 +482,14 @@ describe("delivering a completion", () => {
   it("gives the host the completion input of a completed operation", async () => {
     const completions: OperationCompletion[] = [];
     const runtime = approvalRuntime({ host: { deliverOperationCompletion: (completion) => { completions.push(completion); } } });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
     await runtime.idle();
 
     const [completion] = completions;
-    expect(Object.keys(completion ?? {})).toEqual(["type", "deliveryId", "operationId", "conversationId", "agent", "status", "toolCall", "result"]);
+    expect(Object.keys(completion ?? {})).toEqual(["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall", "result"]);
     expect(completion?.deliveryId).toBe(operation.deliveryId);
     expect(completion?.status).toBe("completed");
     expect((await only(runtime)).deliveryStatus).toBe("delivered");
@@ -485,9 +509,9 @@ describe("delivering a completion", () => {
         return { message: assistant("acknowledged"), finishReason: "stop" };
       },
     };
-    const runtime = createRuntime(requesting, { directory: ".", models: { m: model }, tools: { act: tool("act") } });
+    const runtime = createGoondan(requesting, { directory: ".", models: { m: model }, tools: { act: tool("act") } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
     await runtime.idle();
@@ -514,11 +538,11 @@ describe("delivering a completion", () => {
     };
     const label = (value: Json): string =>
       typeof value === "object" && value !== null && !Array.isArray(value) ? `finished as ${String(value.status)}` : "?";
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }], input: { fn: "label" } } },
     }, { directory: ".", models: { m: model }, tools: { act: tool("act") }, functions: { label } });
 
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.cancelOperation("c", operation.operationId);
     await runtime.idle();
@@ -536,7 +560,7 @@ describe("delivering a completion", () => {
         deliverOperationCompletion: () => { attempts += 1; if (attempts === 1) throw new Error("channel down"); },
       },
     });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
 
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
@@ -560,13 +584,13 @@ describe("recovering operations", () => {
   it("asks for a pending decision again without capturing the context again", async () => {
     const operations = new MemoryOperationStore();
     const first = approvalRuntime({ operationStore: operations, host: { captureOperationContext: () => ({ round: 1 }) } });
-    await first.runTurn("go", { conversationId: "c" });
+    await first.run("go", { sessionId: "c" });
     const operation = await only(first);
     await first.close();
 
     const requests: ApprovalRequest[] = [];
     let captures = 0;
-    const later = createRuntime(requesting, {
+    const later = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: assistant("hi"), finishReason: "stop" }]) }, tools: { act: tool("act") },
       operationStore: operations,
       host: { requestApproval: (request) => { requests.push(request); }, captureOperationContext: () => { captures += 1; return {}; } },
@@ -589,7 +613,7 @@ describe("recovering operations", () => {
       execute: async (_input, ctx) => { reached.resolve(); await release.promise; return { callId: ctx.toolCall.id, name: "act", args: null, content: [] }; },
     };
     const first = approvalRuntime({ operationStore: operations, act: slow });
-    await first.runTurn("go", { conversationId: "c" });
+    await first.run("go", { sessionId: "c" });
     const operation = await only(first);
     await first.decideOperation("c", operation.operationId, { decision: "approved" });
     await reached.promise;
@@ -597,7 +621,7 @@ describe("recovering operations", () => {
     release.resolve();
 
     const completions: OperationCompletion[] = [];
-    const later = createRuntime(requesting, {
+    const later = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: assistant("hi"), finishReason: "stop" }]) }, tools: { act: tool("act") },
       operationStore: operations, host: { deliverOperationCompletion: (completion) => { completions.push(completion); } },
     });
@@ -616,7 +640,7 @@ describe("recovering operations", () => {
     const operations = new MemoryOperationStore();
     const now = Date.now();
     const base: PendingOperation = {
-      operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", conversationId: "c", turnId: "t",
+      operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", sessionId: "c", turnId: "t",
       toolCall: { id: "c1", name: "act", args: null }, reasons: ["Tool act requires approval"],
       status: "completed", deliveryStatus: "delivering", createdAt: now, updatedAt: now,
     };
@@ -624,7 +648,7 @@ describe("recovering operations", () => {
     await operations.save({ ...base, operationId: "op-2", deliveryId: "operation:op-2:completion", deliveryStatus: "delivered", deliveredAt: now });
 
     const completions: OperationCompletion[] = [];
-    const runtime = createRuntime(requesting, {
+    const runtime = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: assistant("hi"), finishReason: "stop" }]) }, tools: { act: tool("act") },
       operationStore: operations, host: { deliverOperationCompletion: (completion) => { completions.push(completion); } },
     });
@@ -640,7 +664,7 @@ describe("recovering operations", () => {
     const operations = new MemoryOperationStore();
     const now = Date.now();
     const pending: PendingOperation = {
-      operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", conversationId: "c", turnId: "t",
+      operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", sessionId: "c", turnId: "t",
       toolCall: { id: "c1", name: "act", args: null }, reasons: ["Tool act requires approval"],
       status: "pending", deliveryStatus: "pending", createdAt: now, updatedAt: now,
     };
@@ -648,7 +672,7 @@ describe("recovering operations", () => {
     await operations.save({ ...pending, operationId: "op-2", deliveryId: "operation:op-2:completion", status: "completed" });
 
     const completions: OperationCompletion[] = [];
-    const runtime = createRuntime(requesting, {
+    const runtime = createGoondan(requesting, {
       directory: ".", models: { m: scripted([{ message: assistant("hi"), finishReason: "stop" }]) }, tools: { act: tool("act") },
       operationStore: operations,
       host: {
@@ -669,7 +693,7 @@ describe("recovering operations", () => {
 describe("a closed runtime", () => {
   it("refuses a decision, a cancellation and a recovery but still lists operations", async () => {
     const runtime = approvalRuntime();
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.close();
 
@@ -699,7 +723,7 @@ describe("a closed runtime", () => {
     };
     const operations = new MemoryOperationStore();
     const runtime = approvalRuntime({ act: slow, operationStore: operations });
-    await runtime.runTurn("go", { conversationId: "c" });
+    await runtime.run("go", { sessionId: "c" });
     const operation = await only(runtime);
     await runtime.decideOperation("c", operation.operationId, { decision: "approved" });
     await reached.promise;

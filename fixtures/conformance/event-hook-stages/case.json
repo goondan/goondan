@@ -20,8 +20,9 @@
     },
     "functions": {
       "tagIt": {
-        "op": "textSuffix",
-        "suffix": "!"
+        "op": "set",
+        "path": "/0/content/0/text",
+        "value": "질문!"
       },
       "skipMe": {
         "op": "identity"
@@ -39,7 +40,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "질문"
       }
     }

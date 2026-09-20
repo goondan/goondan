@@ -1,0 +1,6 @@
+agents:
+  main: {model: m}
+routes:
+  - {from: $input, to: main, when: {output: go}}
+  - {from: $input, to: main, when: {output: {kind: special}}}
+  - {from: main, to: $output}

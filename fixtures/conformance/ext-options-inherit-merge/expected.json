@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -29,9 +30,6 @@
             }
           }
         }
-      },
-      "flow": {
-        "in": "base"
       }
     },
     "extensionLog": [
@@ -43,10 +41,10 @@
           "namespace": "support",
           "depth": 5
         },
-        "ports": {},
+        "ports": {
+        },
         "agent": {
           "name": "child",
-          "path": "child",
           "spec": {
             "model": "m",
             "extensions": {

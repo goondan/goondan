@@ -5,6 +5,6 @@ agents:
       n: 2
       flag: false
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md

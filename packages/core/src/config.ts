@@ -1,27 +1,12 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { composeConfig, fileIdentity, resolveYamlTarget, type ComposeOptions, type YamlFile } from "./compose.ts";
+import { composeConfig, type ComposeOptions } from "./compose.ts";
 import { buildEffective, composedDocument, schemaIssues } from "./effective.ts";
-import { GoondanConfigError, raiseIssues } from "./errors.ts";
-import { isRecord, pointer, toJsonRecord, type PointerSegment } from "./json.ts";
+import { raiseIssues } from "./errors.ts";
+import { isRecord, toJsonRecord } from "./json.ts";
 import { declaredPaths } from "./paths.ts";
 import { loadTemplates, mapTemplateSource, templateIssues } from "./template-load.ts";
-import { type ConfigIssue, type GoondanConfig, type LoadedConfig } from "./types.ts";
-
-function prefixIssues(issues: readonly ConfigIssue[], prefix: string): ConfigIssue[] {
-  if (prefix === "") return [...issues];
-  return issues.map((issue) => ({ ...issue, path: `${prefix}${issue.path}` }));
-}
-
-function withPrefix<T>(prefix: string, action: () => T): T {
-  if (prefix === "") return action();
-  try {
-    return action();
-  } catch (error) {
-    if (error instanceof GoondanConfigError) throw new GoondanConfigError(prefixIssues(error.issues, prefix), { cause: error });
-    throw error;
-  }
-}
+import { type GoondanConfig, type LoadedConfig } from "./types.ts";
 
 function absolutize(document: Record<string, unknown>, directory: string): void {
   for (const declared of declaredPaths(document)) {
@@ -33,15 +18,13 @@ function absolutize(document: Record<string, unknown>, directory: string): void 
 interface PrepareOptions {
   /** The configuration directory, when one is known. */
   directory?: string;
-  /** The entry files of this configuration and of every configuration containing it. */
-  ancestors?: readonly YamlFile[];
   /** Templates that were already read; the reference phase checks these instead of the disk. */
   templates?: ReadonlyMap<string, string>;
-  /** Whether the reference phase may read template and nested configuration files. */
+  /** 참조 단계에서 템플릿 파일을 읽을 수 있는지 나타냅니다. */
   readFiles: boolean;
 }
 
-/** Runs the schema and reference phases, and reads nested configurations when files may be read. */
+/** 스키마 단계와 참조 단계를 실행하고, 파일 읽기가 허용되면 템플릿을 읽습니다. */
 function prepare(raw: unknown, options: PrepareOptions): LoadedConfig {
   const unchecked = composedDocument(raw);
   if (options.readFiles && options.directory !== undefined) absolutize(unchecked, options.directory);
@@ -57,43 +40,20 @@ function prepare(raw: unknown, options: PrepareOptions): LoadedConfig {
     issues.push(...templateIssues(effective.document, options.directory, mapTemplateSource(options.templates)));
   }
   raiseIssues(issues);
-  const loaded: LoadedConfig = { directory: options.directory ?? process.cwd(), config: effective.config, templates };
-  if (!options.readFiles) return loaded;
-  const nested = readNested(effective.config, loaded.directory, options.ancestors ?? []);
-  if (nested.size > 0) loaded.nested = nested;
-  return loaded;
+  return { directory: options.directory ?? process.cwd(), config: effective.config, templates };
 }
 
-function readNested(config: GoondanConfig, directory: string, ancestors: readonly YamlFile[]): Map<string, LoadedConfig> {
-  const nested = new Map<string, LoadedConfig>();
-  for (const [name, spec] of Object.entries(config.agents)) {
-    const reference = spec?.config;
-    if (typeof reference !== "string") continue;
-    const at: PointerSegment[] = ["agents", name, "config"];
-    const prefix = pointer(at);
-    const target = resolveYamlTarget(reference, directory, at);
-    if (ancestors.some((ancestor) => ancestor.id === target.id)) {
-      const cycle = [...ancestors.map((ancestor) => ancestor.path), target.path].join(" -> ");
-      throw new GoondanConfigError([{ code: "load.resource_cycle", path: prefix, message: `configuration resources form a cycle: ${cycle}` }]);
-    }
-    nested.set(name, withPrefix(prefix, () => loadEntry(target.path, {}, [...ancestors, target])));
-  }
-  return nested;
-}
-
-function loadEntry(input: string, composeOptions: ComposeOptions, ancestors: readonly YamlFile[]): LoadedConfig {
+function loadEntry(input: string, composeOptions: ComposeOptions): LoadedConfig {
   const composed = composeConfig(input, composeOptions);
-  const entry: YamlFile = { path: composed.entry, id: fileIdentity(composed.entry) };
   return prepare(composed.document, {
     directory: composed.directory,
-    ancestors: ancestors.length > 0 ? ancestors : [entry],
     readFiles: true,
   });
 }
 
 /** Reads a configuration from disk and applies the read, schema and reference phases. */
 export function loadConfigSync(input: string, composeOptions: ComposeOptions = {}): LoadedConfig {
-  return loadEntry(resolve(input), composeOptions, []);
+  return loadEntry(resolve(input), composeOptions);
 }
 
 export async function loadConfig(input: string, composeOptions: ComposeOptions = {}): Promise<LoadedConfig> {
@@ -110,15 +70,13 @@ function isLoadedConfig(value: unknown): value is LoadedConfig {
 }
 
 /**
- * The configuration a runtime starts from. A `loadConfig` result keeps its templates and nested
- * configurations; a plain document has them read relative to the configuration directory.
+ * 군단 객체가 시작할 구성입니다. `loadConfig` 결과는 읽은 템플릿을 보존하고, 일반 문서는 구성
+ * 디렉터리를 기준으로 템플릿을 읽습니다.
  */
 export function prepareRuntimeConfig(input: unknown, directory?: string): LoadedConfig {
   if (isLoadedConfig(input)) {
     const checked = prepare(input.config, { directory: input.directory, templates: input.templates, readFiles: false });
-    const loaded: LoadedConfig = { directory: input.directory, config: checked.config, templates: input.templates };
-    if (input.nested) loaded.nested = input.nested;
-    return loaded;
+    return { directory: input.directory, config: checked.config, templates: input.templates };
   }
   let root: string;
   try {

@@ -13,12 +13,12 @@ from goondan import (
     GoondanError,
     InMemoryConversationStore,
     InMemoryOperationStore,
-    create_runtime,
+    create_goondan,
     define_extension,
     define_tool,
 )
 
-RECORD_KEYS = {"operationId", "deliveryId", "agent", "conversationId", "turnId", "toolCall", "reasons", "status", "deliveryStatus", "createdAt", "updatedAt"}
+RECORD_KEYS = {"operationId", "deliveryId", "agent", "sessionId", "turnId", "toolCall", "reasons", "status", "deliveryStatus", "createdAt", "updatedAt"}
 
 
 def answer(text: str = "done") -> dict[str, Any]:
@@ -72,7 +72,7 @@ def approval_config(tool_use: Any = None) -> dict[str, Any]:
 def echo(values: list[Any] | None = None, name: str = "write"):
     def execute(value: Any, ctx: Any) -> Any:
         if values is not None:
-            values.append({"args": value, "input": ctx["input"], "turnId": ctx["turnId"], "toolCall": ctx["toolCall"], "execution": ctx["execution"]})
+            values.append({"args": value, "input": ctx["input"], "turnId": ctx["turn_id"], "toolCall": ctx["tool_call"], "execution": ctx["execution"]})
         return value
 
     return define_tool(name=name, description=name, input={}, execute=execute)
@@ -85,12 +85,12 @@ def echo(values: list[Any] | None = None, name: str = "write"):
 async def test_a_created_operation_has_only_the_declared_fields_and_a_pending_tool_result():
     host = Host()
     store = InMemoryConversationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(args={"text": "x"}), answer("pending"))},
         tools={"write": echo()}, conversation_store=store, host=host,
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         assert set(operation) == RECORD_KEYS
         assert operation["operationId"].startswith("operation_") and operation["toolCall"]["id"] not in operation["operationId"]
@@ -106,19 +106,19 @@ async def test_a_created_operation_has_only_the_declared_fields_and_a_pending_to
             "id": stored[2]["id"], "role": "tool", "source": "tool", "content": [{"type": "tool.result", "callId": "call-1", "content": [{"type": "json", "value": pending}]}], "meta": pending,
         }]
         assert host.names("humanApproval.created")[0]["data"] == {"operationId": operation["operationId"], "tool": "write", "callId": "call-1", "reasons": ["Tool write requires approval"]}
-        assert host.requests[0] == {"operationId": operation["operationId"], "conversationId": "c1", "turnId": host.requests[0]["turnId"], "agent": "main", "toolCall": {"id": "call-1", "name": "write", "args": {"text": "x"}}, "reasons": ["Tool write requires approval"]}
+        assert host.requests[0] == {"operationId": operation["operationId"], "sessionId": "c1", "turnId": host.requests[0]["turnId"], "agent": "main", "toolCall": {"id": "call-1", "name": "write", "args": {"text": "x"}}, "reasons": ["Tool write requires approval"]}
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
 async def test_two_calls_with_the_same_call_id_become_two_operations():
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(calls({"callId": "same", "name": "write", "args": {"n": 1}}, {"callId": "same", "name": "write", "args": {"n": 2}}), answer())},
         tools={"write": echo()},
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operations = await runtime.list_operations("c1")
         assert [item["toolCall"]["args"] for item in operations] == [{"n": 1}, {"n": 2}]
         assert len({item["operationId"] for item in operations}) == 2
@@ -136,15 +136,15 @@ async def test_a_captured_context_is_stored_and_a_capture_failure_stores_nothing
             return {"ticket": len(captured)} if len(captured) == 1 else float("nan")
 
     host = Capturing()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), tool_call(call_id="call-2"), answer())},
         tools={"write": echo()}, host=host,
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         assert (await runtime.list_operations("c1"))[0]["context"] == {"ticket": 1}
         with pytest.raises(GoondanError) as failure:
-            await runtime.run_turn("again", conversation_id="c1")
+            await runtime.run("again", session_id="c1")
         assert (failure.value.where, failure.value.codes) == ("tool", ["runtime_error"])
         assert failure.value.tool_call["id"] == "call-2"
         assert len(await runtime.list_operations("c1")) == 1
@@ -156,13 +156,13 @@ async def test_a_captured_context_is_stored_and_a_capture_failure_stores_nothing
 async def test_a_failing_approval_request_fails_the_run_but_keeps_the_pending_operation():
     host = Host(request_approval_error="cannot reach the reviewer")
     store = InMemoryConversationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer())},
         tools={"write": echo()}, conversation_store=store, host=host,
     )
     try:
         with pytest.raises(GoondanError) as failure:
-            await runtime.run_turn("start", conversation_id="c1")
+            await runtime.run("start", session_id="c1")
         assert (failure.value.where, failure.value.codes) == ("tool", ["runtime_error"])
         assert [item["status"] for item in await runtime.list_operations("c1")] == ["pending"]
         assert any(message["role"] == "tool" for message in await store.load("c1", "main"))
@@ -175,14 +175,14 @@ async def test_a_failing_approval_request_fails_the_run_but_keeps_the_pending_op
 async def test_a_call_that_is_not_in_the_tools_list_makes_no_operation_and_no_tool_event():
     host = Host()
     config = {"agents": {"main": {"model": "m", "input": "asis", "tools": ["write"], "hooks": {"toolCall": [{"name": "ask", "fn": "ask"}]}}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call("absent"), answer())},
         tools={"write": echo()}, host=host,
         functions={"ask": lambda value: {"approval": {"reason": "please look"}}},
     )
     try:
         with pytest.raises(GoondanError) as failure:
-            await runtime.run_turn("start", conversation_id="c1")
+            await runtime.run("start", session_id="c1")
         assert (failure.value.where, failure.value.codes) == ("tool", ["tool_unavailable"])
         assert await runtime.list_operations("c1") == []
         assert host.names("tool.start") == [] and host.names("tool.error") == []
@@ -196,13 +196,13 @@ async def test_a_call_that_is_not_in_the_tools_list_makes_no_operation_and_no_to
 @pytest.mark.asyncio
 async def test_a_decision_on_a_settled_operation_changes_nothing_and_cancel_stops_an_approved_one():
     executed: list[Any] = []
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo(executed)},
         host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         cancelled = await runtime.cancel_operation("c1", operation_id)
         assert cancelled["status"] == "cancelled"
@@ -217,7 +217,7 @@ async def test_a_decision_on_a_settled_operation_changes_nothing_and_cancel_stop
 
 @pytest.mark.asyncio
 async def test_cancelling_an_unknown_operation_is_an_operation_invalid_error():
-    runtime = create_runtime(config=approval_config(), models={"m": replies(answer())}, tools={"write": echo()})
+    runtime = create_goondan(config=approval_config(), models={"m": replies(answer())}, tools={"write": echo()})
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.cancel_operation("c1", "operation_absent")
@@ -230,9 +230,9 @@ async def test_cancelling_an_unknown_operation_is_an_operation_invalid_error():
 @pytest.mark.parametrize("value", ["approved", {"decision": "cancelled"}, {}, None, {"decision": True}])
 async def test_a_decision_that_is_not_approved_or_rejected_is_refused(value: Any):
     """§결정과 취소 2: the decision value decides nothing but `approved` and `rejected`."""
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=Host())
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=Host())
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         with pytest.raises(GoondanError) as failure:
             await runtime.decide_operation("c1", operation_id, value)
@@ -245,9 +245,9 @@ async def test_a_decision_that_is_not_approved_or_rejected_is_refused(value: Any
 @pytest.mark.asyncio
 async def test_an_input_patch_is_refused_when_the_host_offers_no_patch_validation():
     """§결정과 취소 4: no validation function means the input patch was not allowed."""
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(args={"a": 1}), answer("pending"))}, tools={"write": echo()}, host=Host())
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(args={"a": 1}), answer("pending"))}, tools={"write": echo()}, host=Host())
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         with pytest.raises(GoondanError) as failure:
             await runtime.decide_operation("c1", operation_id, {"decision": "approved", "inputPatch": {"a": 2}})
@@ -262,12 +262,12 @@ async def test_an_input_patch_is_refused_when_the_host_offers_no_patch_validatio
 async def test_a_decision_and_a_cancellation_that_arrive_together_change_the_operation_once():
     """§작업 기록과 상태: the store applies one conditional transition, never both."""
     executed: list[Any] = []
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo(executed)}, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         decided, cancelled = await asyncio.gather(
             runtime.decide_operation("c1", operation_id, {"decision": "approved"}),
@@ -290,9 +290,11 @@ async def test_a_decision_and_a_cancellation_that_arrive_together_change_the_ope
 @pytest.mark.asyncio
 async def test_an_approved_execution_runs_the_tool_with_the_operation_context_and_applies_tool_result_hooks():
     seen: list[Any] = []
+    hook_inputs: list[Any] = []
     host = Host()
 
     def decorate(value: Any, ctx: Any) -> Any:
+        hook_inputs.append(ctx.input)
         return {**value, "content": [*value["content"], {"type": "text", "text": "reviewed"}]}
 
     config = {"agents": {"main": {
@@ -300,14 +302,14 @@ async def test_an_approved_execution_runs_the_tool_with_the_operation_context_an
         "tools": [{"tool": "write", "approval": "required"}],
         "hooks": {"toolCall": [{"name": "info", "fn": "info"}], "toolResult": [{"name": "mark", "extension": "ext"}]},
     }}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call(args={"text": "x"}), answer("pending"), answer("completion"))},
         tools={"write": echo(seen)}, host=host,
         functions={"info": lambda value: {"call": value, "execution": {"ticket": 7}}},
         extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"toolResult": decorate}))},
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         assert operation["execution"] == {"ticket": 7}
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
@@ -315,7 +317,9 @@ async def test_an_approved_execution_runs_the_tool_with_the_operation_context_an
         completed = (await runtime.list_operations("c1"))[0]
         assert completed["status"] == "completed"
         assert completed["result"]["content"] == [{"type": "json", "value": {"text": "x"}}, {"type": "text", "text": "reviewed"}]
-        assert seen[0]["input"] == {"type": "operation_execution", "operationId": operation["operationId"]}
+        operation_input = {"type": "operation_execution", "operationId": operation["operationId"]}
+        assert seen[0]["input"] == operation_input
+        assert hook_inputs == [operation_input]
         assert seen[0]["turnId"] == operation["turnId"] and seen[0]["execution"] == {"ticket": 7}
         assert "operationId" not in seen[0]["toolCall"]
         started = host.names("tool.start")[0]
@@ -329,15 +333,55 @@ async def test_an_approved_execution_runs_the_tool_with_the_operation_context_an
 
 
 @pytest.mark.asyncio
+async def test_an_approved_stateless_operation_uses_a_fresh_extension_instance():
+    created: list[int] = []
+    disposed: list[int] = []
+
+    def create(**_: Any) -> Extension:
+        number = len(created) + 1
+        created.append(number)
+        return Extension(dispose=lambda: disposed.append(number))
+
+    class Delivering(Host):
+        def deliver_operation_completion(self, value: dict[str, Any]) -> None:
+            self.completions.append(value)
+
+    host = Delivering()
+    config = approval_config()
+    config["agents"]["main"]["stateful"] = False
+    config["agents"]["main"]["extensions"] = {"ext": {}}
+    runtime = create_goondan(
+        config=config,
+        models={"m": replies(tool_call(), answer("pending"))},
+        tools={"write": echo()},
+        extensions={"ext": define_extension(name="ext", create=create)},
+        host=host,
+    )
+    try:
+        await runtime.run("start", session_id="c1")
+        operation = (await runtime.list_operations("c1"))[0]
+        assert created == [1] and disposed == [1]
+
+        await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
+        await runtime.idle()
+
+        assert created == [1, 2]
+        assert disposed == [1, 2]
+        assert len(host.completions) == 1
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_a_tool_that_left_the_agent_fails_the_operation_before_it_runs():
     host = Host()
     store = InMemoryOperationStore()
-    first = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=host)
-    await first.run_turn("start", conversation_id="c1")
+    first = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=host)
+    await first.run("start", session_id="c1")
     operation_id = (await first.list_operations("c1"))[0]["operationId"]
     await first.close()
 
-    changed = create_runtime(config={"agents": {"main": {"model": "m", "input": "asis", "tools": []}}}, models={"m": replies(answer("completion"))}, operation_store=store, host=host)
+    changed = create_goondan(config={"agents": {"main": {"model": "m", "input": "asis", "tools": []}}}, models={"m": replies(answer("completion"))}, operation_store=store, host=host)
     try:
         await changed.decide_operation("c1", operation_id, {"decision": "approved"})
         await changed.idle()
@@ -359,12 +403,12 @@ async def test_a_host_validation_that_refuses_or_throws_fails_the_operation(outc
             return outcome
 
     executed: list[Any] = []
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo(executed)}, host=Validating(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
         await runtime.idle()
@@ -381,12 +425,12 @@ async def test_a_tool_an_extension_provides_is_a_valid_operation_target():
     tool = define_tool(name="x", description="x", input={}, execute=lambda args, ctx: [{"type": "text", "text": "from the extension"}])
     definition = define_extension(name="ext", create=lambda **_: Extension(tools=[tool]), tools=["x"])
     config = {"agents": {"main": {"model": "m", "input": "asis", "extensions": {"ext": {}}, "tools": [{"tool": "x", "approval": "required"}]}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call("x"), answer("pending"), answer("completion"))},
         extensions={"ext": definition}, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
         await runtime.idle()
@@ -411,12 +455,12 @@ async def test_a_failing_tool_result_hook_fails_the_operation_with_execution_fai
         "hooks": {"toolResult": [{"extension": "ext", "optional": False}]},
     }}}
     host = Host()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo()}, extensions={"ext": definition}, host=host,
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
         await runtime.idle()
@@ -443,12 +487,12 @@ async def test_an_execution_that_ends_after_close_is_not_recorded():
         return args
 
     store = InMemoryOperationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"))},
         tools={"write": define_tool(name="write", description="write", input={}, execute=execute)},
         operation_store=store, host=Host(),
     )
-    await runtime.run_turn("start", conversation_id="c1")
+    await runtime.run("start", session_id="c1")
     operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
     await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
     await started.wait()
@@ -462,18 +506,18 @@ async def test_an_execution_that_ends_after_close_is_not_recorded():
 async def test_an_approved_agent_tool_runs_in_the_sub_conversation_of_the_operation_turn():
     store = InMemoryConversationStore()
     config = {"agents": {"main": {"model": "m", "input": "asis", "tools": [{"agent": "worker", "approval": "required"}]}, "worker": {"model": "worker"}}}
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call("worker"), answer("pending"), answer("completion")), "worker": replies(answer("worker done"))},
         conversation_store=store, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
         await runtime.idle()
         completed = (await runtime.list_operations("c1"))[0]
         assert completed["result"]["content"] == [{"type": "text", "text": "worker done"}]
-        assert (f"c1:{operation['turnId']}:worker", "worker") in store.conversations
+        assert (f"c1#{operation['turnId']}#worker", "worker") in store.conversations
     finally:
         await runtime.close()
 
@@ -488,14 +532,14 @@ async def test_the_host_deliverer_receives_the_completion_input_with_its_keys_in
             self.completions.append(value)
 
     host = Delivering()
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(args={"text": "x"}), answer("pending"))}, tools={"write": echo()}, host=host)
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(args={"text": "x"}), answer("pending"))}, tools={"write": echo()}, host=host)
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
         await runtime.idle()
         completion = host.completions[0]
-        assert list(completion) == ["type", "deliveryId", "operationId", "conversationId", "agent", "status", "toolCall", "result"]
+        assert list(completion) == ["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall", "result"]
         assert completion["deliveryId"] == operation["deliveryId"] and completion["status"] == "completed"
         delivered = (await runtime.list_operations("c1"))[0]
         assert delivered["deliveryStatus"] == "delivered" and isinstance(delivered["deliveredAt"], int)
@@ -512,9 +556,9 @@ async def test_a_failing_delivery_goes_back_to_pending_and_recovery_tries_again(
                 raise RuntimeError("the receiver is down")
 
     host = Flaky()
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=host)
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=host)
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
         await runtime.idle()
@@ -534,14 +578,14 @@ async def test_the_fallback_delivery_turn_runs_one_agent_without_following_route
     store = InMemoryConversationStore()
     config = {
         "agents": {"main": {"model": "m", "input": "asis", "tools": [{"tool": "write", "approval": "required"}]}, "next": {"model": "next"}},
-        "flow": {"in": "main", "routes": [{"from": "main", "to": "next"}, {"from": "next", "to": "out"}]},
+        "routes": ["main", "next"],
     }
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=config, models={"m": replies(tool_call(), answer("pending"), answer("completion")), "next": replies(answer("routed"), answer("routed again"))},
         tools={"write": echo()}, conversation_store=store,
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
         await runtime.idle()
@@ -558,12 +602,12 @@ async def test_the_fallback_delivery_turn_runs_one_agent_without_following_route
 async def test_the_fallback_delivery_message_is_the_json_text_of_the_completion_input():
     """§완료 전달, §JSON 텍스트: an `asis` agent serialises the completion input key by key."""
     store = InMemoryConversationStore()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo()}, conversation_store=store, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation = (await runtime.list_operations("c1"))[0]
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "rejected"})
         await runtime.idle()
@@ -572,7 +616,7 @@ async def test_the_fallback_delivery_message_is_the_json_text_of_the_completion_
             '{"type":"operation_completion"'
             f',"deliveryId":"{operation["deliveryId"]}"'
             f',"operationId":"{operation["operationId"]}"'
-            ',"conversationId":"c1","agent":"main","status":"rejected"'
+            ',"sessionId":"c1","agent":"main","status":"rejected"'
             ',"toolCall":{"id":"call-1","name":"write","args":{}}}'
         )
     finally:
@@ -586,9 +630,9 @@ async def test_the_fallback_delivery_message_is_the_json_text_of_the_completion_
 async def test_recovery_reports_an_interrupted_execution_and_re_requests_pending_approvals():
     store = InMemoryOperationStore()
     host = Host()
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))}, tools={"write": echo()}, operation_store=store, host=host)
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))}, tools={"write": echo()}, operation_store=store, host=host)
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         # An operation the previous runtime left while its tool was running.
         await store.transition("c1", operation_id, ["pending"], {"status": "running", "updatedAt": 1})
@@ -613,12 +657,12 @@ async def test_recovery_leaves_the_execution_this_runtime_is_running_alone():
         await release.wait()
         return value
 
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": define_tool(name="write", description="write", input={}, execute=slow)}, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
         await entered.wait()
@@ -635,15 +679,15 @@ async def test_recovery_leaves_the_execution_this_runtime_is_running_alone():
 async def test_recovery_processes_every_operation_and_then_fails_with_the_first_request_error():
     store = InMemoryOperationStore()
     host = Host(request_approval_error="the reviewer is away")
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(calls({"callId": "a", "name": "write", "args": {}}, {"callId": "b", "name": "write", "args": {}}), answer("pending"))},
         tools={"write": echo()}, operation_store=store,
     )
-    await runtime.run_turn("start", conversation_id="c1")
+    await runtime.run("start", session_id="c1")
     operations = await runtime.list_operations("c1")
     await runtime.close()
 
-    restarted = create_runtime(config=approval_config(), models={"m": replies(answer())}, tools={"write": echo()}, operation_store=store, host=host)
+    restarted = create_goondan(config=approval_config(), models={"m": replies(answer())}, tools={"write": echo()}, operation_store=store, host=host)
     try:
         with pytest.raises(RuntimeError, match="the reviewer is away"):
             await restarted.recover_operations("c1")
@@ -660,9 +704,9 @@ async def test_recovery_takes_over_a_delivery_that_an_earlier_runtime_left_claim
             self.completions.append(value)
 
     host = Delivering()
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=host)
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=host)
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await store.transition("c1", operation_id, ["pending"], {"status": "rejected", "updatedAt": 1})
         await store.claim_delivery("c1", operation_id, 2)
@@ -676,8 +720,8 @@ async def test_recovery_takes_over_a_delivery_that_an_earlier_runtime_left_claim
 
 @pytest.mark.asyncio
 async def test_a_closed_runtime_refuses_decisions_but_still_lists_operations():
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=Host())
-    await runtime.run_turn("start", conversation_id="c1")
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, host=Host())
+    await runtime.run("start", session_id="c1")
     operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
     await runtime.close()
     for request in (
@@ -703,8 +747,8 @@ async def test_closing_leaves_a_claimed_delivery_for_the_next_runtime():
             await release.wait()
             self.completions.append(value)
 
-    runtime = create_runtime(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=Slow())
-    await runtime.run_turn("start", conversation_id="c1")
+    runtime = create_goondan(config=approval_config(), models={"m": replies(tool_call(), answer("pending"))}, tools={"write": echo()}, operation_store=store, host=Slow())
+    await runtime.run("start", session_id="c1")
     operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
     await runtime.cancel_operation("c1", operation_id)
     await entered.wait()
@@ -726,11 +770,11 @@ async def test_closing_leaves_a_running_operation_for_the_next_runtime():
         await release.wait()
         return value
 
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"))},
         tools={"write": define_tool(name="write", description="write", input={}, execute=slow)}, operation_store=store, host=Host(),
     )
-    await runtime.run_turn("start", conversation_id="c1")
+    await runtime.run("start", session_id="c1")
     operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
     await runtime.decide_operation("c1", operation_id, {"decision": "approved"})
     await entered.wait()
@@ -747,7 +791,7 @@ async def test_closing_leaves_a_running_operation_for_the_next_runtime():
 def stored(status: str = "pending", delivery: str = "pending") -> dict[str, Any]:
     return {
         "operationId": "op-1", "deliveryId": "operation:op-1:completion", "agent": "main",
-        "conversationId": "c1", "turnId": "t1", "toolCall": {"id": "call-1", "name": "write", "args": {}},
+        "sessionId": "c1", "turnId": "t1", "toolCall": {"id": "call-1", "name": "write", "args": {}},
         "reasons": ["danger"], "status": status, "deliveryStatus": delivery, "createdAt": 1, "updatedAt": 1,
     }
 
@@ -829,21 +873,21 @@ async def test_the_runtime_asks_the_store_with_the_arguments_the_protocol_names(
             super().__init__()
             self.requests: list[tuple[str, Any]] = []
 
-        async def transition(self, conversation_id: str, operation_id: str, expected: Any, updates: Any) -> Any:
+        async def transition(self, session_id: str, operation_id: str, expected: Any, updates: Any) -> Any:
             self.requests.append(("transition", (list(expected), dict(updates))))
-            return await super().transition(conversation_id, operation_id, expected, updates)
+            return await super().transition(session_id, operation_id, expected, updates)
 
-        async def claim_delivery(self, conversation_id: str, operation_id: str, updated_at: int) -> Any:
+        async def claim_delivery(self, session_id: str, operation_id: str, updated_at: int) -> Any:
             self.requests.append(("claim", updated_at))
-            return await super().claim_delivery(conversation_id, operation_id, updated_at)
+            return await super().claim_delivery(session_id, operation_id, updated_at)
 
     store = Recording()
-    runtime = create_runtime(
+    runtime = create_goondan(
         config=approval_config(), models={"m": replies(tool_call(), answer("pending"), answer("completion"))},
         tools={"write": echo()}, operation_store=store, host=Host(),
     )
     try:
-        await runtime.run_turn("start", conversation_id="c1")
+        await runtime.run("start", session_id="c1")
         operation_id = (await runtime.list_operations("c1"))[0]["operationId"]
         await runtime.decide_operation("c1", operation_id, {"decision": "rejected"})
         await runtime.idle()

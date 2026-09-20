@@ -4,5 +4,4 @@ agents:
     tools:
       - tool: danger
         approval: required
-flow:
-  in: main
+routes: [main]

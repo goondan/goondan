@@ -59,9 +59,14 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "합계 {\"total\":15000000000000000}"
+                  "text": "합계 "
+                },
+                {
+                  "type": "text",
+                  "text": "{\"total\":15000000000000000}"
                 }
-              ]
+              ],
+              "meta": {"from": "first", "instance": "c1/first"}
             }
           ],
           "tools": [],
@@ -105,9 +110,14 @@
           "content": [
             {
               "type": "text",
-              "text": "합계 {\"total\":15000000000000000}"
+              "text": "합계 "
+            },
+            {
+              "type": "text",
+              "text": "{\"total\":15000000000000000}"
             }
-          ]
+          ],
+          "meta": {"from": "first", "instance": "c1/first"}
         },
         {
           "role": "assistant",

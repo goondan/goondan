@@ -13,7 +13,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "input": {
+              "conversation": {
               "op": "render",
               "template": "goondan.yaml",
               "variables": {}
@@ -26,7 +26,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "요청"
       }
     }

@@ -1,0 +1,16 @@
+agents:
+  split: {model: splitModel}
+  a: {model: aModel}
+  b: {model: bModel}
+  join:
+    model: joinModel
+    hooks:
+      input:
+        - fn: keepInput
+routes:
+  - {from: $input, to: split}
+  - {from: split, to: a}
+  - {from: split, to: b}
+  - {from: a, to: join}
+  - {from: b, to: join}
+  - {from: join, to: $output}

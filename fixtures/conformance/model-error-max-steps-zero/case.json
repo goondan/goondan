@@ -1,5 +1,5 @@
 {
-  "description": "maxSteps가 1 이상의 정수가 아니면 런타임 생성이 인수 오류로 실패한다.",
+  "description": "maxSteps가 1 이상의 정수가 아니면 군단 객체 생성이 인수 오류로 실패한다.",
   "spec": [
     "모델 호출"
   ],

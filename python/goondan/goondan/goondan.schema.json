@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://goondan.dev/schema/config-v1.json",
   "title": "Goondan Config v1",
-  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. extends, resources와 variant로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 extends와 resources를 $defs/extends와 $defs/resources로 검사한다. $defs/message와 $defs/part는 구성이 아니라 단계 값의 메시지 형식이다.",
+  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 최상위 문서 하나는 군단(goondan) 하나를 정의한다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. extends, resources와 variant로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 extends와 resources를 $defs/extends와 $defs/resources로 검사한다. $defs/message와 $defs/part는 구성이 아니라 단계 값의 메시지 형식이다.",
   "$comment": "두 호스트의 검사기가 같은 결과를 내도록 draft 2020-12 키워드 가운데 $schema, $id, $comment, title, description, default, $defs, 로컬 $ref, type, const, enum, properties, required, additionalProperties, propertyNames, minProperties, items, minItems, uniqueItems, minLength, pattern, exclusiveMinimum, oneOf, anyOf, allOf, not, dependentSchemas만 사용한다. pattern에는 ECMA-262와 Python re에서 같게 동작하는 식만 쓴다. Python의 $는 문자열 끝의 줄바꿈 앞에서도 일치하므로 문자열 끝은 (?![\\s\\S])로 나타낸다.",
   "type": "object",
   "required": [
@@ -16,13 +16,13 @@
       "default": 1
     },
     "name": {
-      "description": "구성의 이름이다. 생략하면 goondan이다.",
+      "description": "군단의 이름이다. 생략하면 goondan이다.",
       "type": "string",
       "minLength": 1,
       "default": "goondan"
     },
     "agents": {
-      "description": "이름으로 식별하는 에이전트 맵이다. 선언 순서가 기본 진입 에이전트와 중첩 구성의 처리 순서를 정한다.",
+      "description": "이름으로 식별하는 에이전트 맵이다. 선언 순서가 routes를 생략했을 때 실행할 에이전트를 정한다.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
@@ -32,14 +32,14 @@
         "$ref": "#/$defs/agent"
       }
     },
-    "flow": {
-      "description": "최초 에이전트와 후속 연결이다. 생략하면 agents에 처음 선언된 에이전트 하나만 실행한다.",
+    "routes": {
+      "description": "군단의 진입 $input에서 에이전트를 거쳐 종료 $output에 이르는 route의 배열이다. 에이전트 이름 배열은 직렬 실행의 축약형이다. 생략하면 agents에 처음 선언된 에이전트 하나만 실행한다.",
       "oneOf": [
         {
-          "$ref": "#/$defs/flow"
+          "$ref": "#/$defs/routes"
         },
         {
-          "$ref": "#/$defs/serialFlow"
+          "$ref": "#/$defs/serialRoutes"
         }
       ]
     }
@@ -62,7 +62,7 @@
       }
     },
     "agentName": {
-      "description": "에이전트 이름은 비어 있지 않고 /를 포함하지 않으며, 흐름 종료점 out이나 앞자리 0 없이 10진수로 쓴 음이 아닌 정수가 아니다.",
+      "description": "에이전트 이름은 비어 있지 않고 /와 $를 포함하지 않으며, 앞자리 0 없이 10진수로 쓴 음이 아닌 정수가 아니다.",
       "type": "string",
       "minLength": 1,
       "allOf": [
@@ -73,7 +73,7 @@
         },
         {
           "not": {
-            "const": "out"
+            "pattern": "\\$"
           }
         },
         {
@@ -92,8 +92,9 @@
         "model": {
           "$ref": "#/$defs/nonEmptyString"
         },
-        "config": {
-          "$ref": "#/$defs/nonEmptyString"
+        "stateful": {
+          "description": "대화를 저장하고 이어 갈지 정한다. 생략하면 true다.",
+          "type": "boolean"
         },
         "params": {
           "type": "object"
@@ -148,11 +149,6 @@
         {
           "required": [
             "model"
-          ]
-        },
-        {
-          "required": [
-            "config"
           ]
         },
         {
@@ -350,6 +346,7 @@
             {
               "type": "array",
               "minItems": 1,
+              "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/nonEmptyString"
               }
@@ -510,26 +507,15 @@
       },
       "additionalProperties": false
     },
-    "flow": {
-      "type": "object",
-      "required": [
-        "in"
-      ],
-      "properties": {
-        "in": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "routes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/route"
-          }
-        }
-      },
-      "additionalProperties": false
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/route"
+      }
     },
-    "serialFlow": {
+    "serialRoutes": {
+      "description": "에이전트 이름의 배열이다. $input에서 첫 항목으로, 각 항목에서 다음 항목으로, 마지막 항목에서 $output으로 가는 route와 같다.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -538,6 +524,7 @@
       }
     },
     "route": {
+      "description": "from은 에이전트 이름 또는 $input, to는 에이전트 이름 또는 $output이다. when을 생략하면 항상 일치한다.",
       "type": "object",
       "required": [
         "from",
@@ -551,60 +538,45 @@
           "$ref": "#/$defs/nonEmptyString"
         },
         "when": {
-          "$ref": "#/$defs/fnRef"
-        },
-        "carry": {
-          "$ref": "#/$defs/carry"
+          "$ref": "#/$defs/routeWhen"
         }
       },
       "additionalProperties": false
     },
-    "carry": {
+    "routeWhen": {
+      "description": "fn과 output 가운데 정확히 하나를 선언한다. fn은 {output, text, input}을 받아 불리언을 반환하는 호스트 함수 이름이다. output은 조건의 text(출발점이 에이전트이면 출력 메시지의 text 부분만 이어 붙인 출력 텍스트, $input이면 턴 입력의 입력 텍스트)와 같은지 비교할 문자열 또는 그 text를 JSON으로 해석한 객체와 부분 일치를 확인할 객체다.",
       "type": "object",
-      "properties": {
-        "message": {
-          "oneOf": [
-            {
-              "const": "output"
-            },
-            {
-              "$ref": "#/$defs/fnRef"
-            },
-            {
-              "$ref": "#/$defs/templateRef"
-            }
+      "oneOf": [
+        {
+          "required": [
+            "fn"
           ]
         },
-        "conversation": {
-          "oneOf": [
-            {
-              "enum": [
-                "none",
-                "asis"
-              ]
-            },
-            {
-              "$ref": "#/$defs/fnRef"
-            }
+        {
+          "required": [
+            "output"
           ]
         }
-      },
-      "additionalProperties": false
-    },
-    "templateRef": {
-      "type": "object",
-      "required": [
-        "template"
       ],
       "properties": {
-        "template": {
+        "fn": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ]
         }
       },
       "additionalProperties": false
     },
     "message": {
-      "description": "대화 메시지다. 값이 없는 선택 필드는 null로 채우지 않고 키를 생략한다.",
+      "description": "대화 메시지다. 턴 입력과 에이전트 입력은 이 메시지의 배열이다. 값이 없는 선택 필드는 null로 채우지 않고 키를 생략한다.",
       "type": "object",
       "required": [
         "id",
@@ -646,6 +618,7 @@
       "additionalProperties": false
     },
     "part": {
+      "description": "메시지 content의 부분이다. image는 url로, media는 호스트가 해석하는 ref와 mediaType으로 파일을 참조하며, 파일 내용을 직접 담는 부분은 없다.",
       "oneOf": [
         {
           "type": "object",

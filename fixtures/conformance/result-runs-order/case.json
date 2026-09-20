@@ -1,5 +1,5 @@
 {
-  "description": "runs에는 흐름 단계, 에이전트 도구, 훅 에이전트, 중첩 구성의 실행이 규격이 정한 순서로 들어가고 턴의 usage는 그 항목들의 합계다.",
+  "description": "runs에는 route 실행, 에이전트 도구와 훅 에이전트 실행이 규격이 정한 순서로 들어가고 턴의 usage는 그 항목들의 합계다.",
   "spec": [
     "에이전트 실행 기록",
     "사용량 집계"
@@ -81,7 +81,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "시작"
       }
     }

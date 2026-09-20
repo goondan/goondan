@@ -1,0 +1,79 @@
+{
+  "description": "stateful fan-in은 병렬 출발 집합이 모두 끝난 뒤 route 선언 순서의 메시지를 모아 input 단계를 한 번 실행한다.",
+  "spec": [
+    "route 진행",
+    "입력",
+    "인스턴스와 실행 범위"
+  ],
+  "bindings": {
+    "models": {
+      "splitModel": {
+        "responses": [
+          {
+            "text": "분기"
+          }
+        ]
+      },
+      "aModel": {
+        "responses": [
+          {
+            "await": "a-started",
+            "then": {
+              "text": "A"
+            }
+          }
+        ]
+      },
+      "bModel": {
+        "responses": [
+          {
+            "await": "b-started",
+            "then": {
+              "text": "B"
+            }
+          }
+        ]
+      },
+      "joinModel": {
+        "responses": [
+          {
+            "text": "합침"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "keepInput": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "run": {
+              "sessionId": "s",
+              "input": "시작"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "a-started"
+          },
+          {
+            "reach": "b-started"
+          },
+          {
+            "release": "b-started"
+          },
+          {
+            "release": "a-started"
+          }
+        ]
+      ]
+    }
+  ]
+}

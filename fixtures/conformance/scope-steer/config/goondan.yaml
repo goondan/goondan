@@ -1,5 +1,0 @@
-agents:
-  main:
-    model: m
-    tools:
-      - noop

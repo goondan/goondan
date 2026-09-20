@@ -44,7 +44,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "실행해 줘"
       }
     },

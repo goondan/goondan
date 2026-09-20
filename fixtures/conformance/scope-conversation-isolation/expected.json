@@ -69,7 +69,7 @@
           "messages": [
             {
               "role": "user",
-              "source": "main",
+              "source": "other",
               "content": [
                 {
                   "type": "text",
@@ -86,7 +86,7 @@
           "messages": [
             {
               "role": "user",
-              "source": "main",
+              "source": "other",
               "content": [
                 {
                   "type": "text",
@@ -106,7 +106,7 @@
             },
             {
               "role": "user",
-              "source": "main",
+              "source": "other",
               "content": [
                 {
                   "type": "text",
@@ -163,10 +163,10 @@
           ]
         }
       ],
-      "c1/wrap/main": [
+      "c1/other": [
         {
           "role": "user",
-          "source": "main",
+          "source": "other",
           "content": [
             {
               "type": "text",
@@ -186,7 +186,7 @@
         },
         {
           "role": "user",
-          "source": "main",
+          "source": "other",
           "content": [
             {
               "type": "text",

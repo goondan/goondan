@@ -1,0 +1,6 @@
+agents:
+  first:
+    model: m
+  second:
+    model: m
+routes: [first, second, first]

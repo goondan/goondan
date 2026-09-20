@@ -17,18 +17,20 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "tools": [
               "recall"
             ],
             "extensions": {
-              "memo": {}
+              "memo": {
+              }
             }
           }
         }
@@ -38,13 +40,15 @@
         "instance": 1
       }
     ],
-    "modelInputs": {},
-    "conversations": {},
+    "modelInputs": {
+    },
+    "conversations": {
+    },
     "events": [
       {
         "name": "turn.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "where": "runtime",

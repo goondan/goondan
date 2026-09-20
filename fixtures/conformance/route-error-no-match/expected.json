@@ -1,0 +1,39 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "route_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "c1/a": [
+        {
+          "role": "user",
+          "source": "a",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

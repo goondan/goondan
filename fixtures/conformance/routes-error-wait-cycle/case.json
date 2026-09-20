@@ -1,0 +1,10 @@
+{
+  "description": "stateful 에이전트의 출발 집합이 서로를 포함해 대기 관계가 순환하면 routes.wait_cycle을 보고한다.",
+  "spec": [
+    "route 선언과 검증",
+    "route 진행"
+  ],
+  "steps": [
+
+  ]
+}

@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -15,7 +16,9 @@
             }
           },
           "hooks": {
-            "modelInput": []
+            "modelInput": [
+
+            ]
           }
         },
         "child": {
@@ -33,15 +36,14 @@
             ]
           }
         }
-      },
-      "flow": {
-        "in": "base"
       }
     },
     "modelInputs": {
       "m": [
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -64,8 +66,11 @@
               ]
             }
           ],
-          "tools": [],
-          "options": {}
+          "tools": [
+
+          ],
+          "options": {
+          }
         }
       ]
     }

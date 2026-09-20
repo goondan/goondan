@@ -2,7 +2,7 @@ agents:
   base:
     model: m
     hooks:
-      input:
+      conversation:
         - agent: [x, y]
   x:
     model: mx
@@ -12,4 +12,4 @@ agents:
     inherit: base
     remove:
       hooks:
-        input: ["x+y"]
+        conversation: ["x+y"]

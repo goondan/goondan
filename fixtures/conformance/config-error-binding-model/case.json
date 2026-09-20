@@ -1,5 +1,5 @@
 {
-  "description": "바인딩 단계는 createRuntime에만 적용하므로, 호스트에 등록되지 않은 모델 이름은 loadConfig가 아니라 런타임 생성에서 binding.model 구성 오류가 된다.",
+  "description": "바인딩 단계는 createGoondan에만 적용하므로, 호스트에 등록되지 않은 모델 이름은 loadConfig가 아니라 군단 객체 생성에서 binding.model 구성 오류가 된다.",
   "spec": [
     "검증 단계",
     "오류 코드"

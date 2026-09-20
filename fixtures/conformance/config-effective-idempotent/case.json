@@ -15,27 +15,32 @@
           "model": "m"
         }
       },
-      "flow": {
-        "in": "a",
-        "routes": [
-          {
-            "from": "a",
-            "to": "b"
-          },
-          {
-            "from": "b",
-            "to": "out"
-          }
-        ]
-      }
+      "routes": [
+        {
+          "from": "$input",
+          "to": "a"
+        },
+        {
+          "from": "a",
+          "to": "b"
+        },
+        {
+          "from": "b",
+          "to": "$output"
+        }
+      ]
     }
   },
   "bindings": {
     "models": {
       "m": {
-        "responses": []
+        "responses": [
+
+        ]
       }
     }
   },
-  "steps": []
+  "steps": [
+
+  ]
 }

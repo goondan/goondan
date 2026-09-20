@@ -1,30 +1,34 @@
-"""Runtime execution: extension instances, value-stage hooks, the model and tool loop, flow routing and operations."""
+"""Runtime execution: extension instances, value-stage hooks, the model and tool loop, route processing and operations."""
 
 from __future__ import annotations
 
 import asyncio
 import copy
 import inspect
+import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from ._schema import issue as _issue
+from ._json import json_text
 from ._values import (
     USAGE_KEYS,
     Control,
     append_messages,
     control_result,
-    is_carried_conversation,
+    input_text,
     is_json,
+    is_message,
     is_message_array,
     is_part,
     output_text,
     result_text,
     stage_error,
 )
-from .config import _merge, hook_identifier, nested_binding_issues, prepare_config
+from .config import _merge, binding_issues, hook_identifier, prepare_config
+from ._schema import json_equal
 from .store import TERMINAL_STATUSES, InMemoryConversationStore, InMemoryOperationStore, _now
 from .template import TemplateRenderer
 from .types import (
@@ -69,9 +73,9 @@ def _model_codes(error: BaseException) -> list[str]:
     return ["model_error", code] if isinstance(code, str) and code else ["model_error"]
 
 
-def _flow_error(message: str) -> GoondanExecutionError:
-    """§흐름: a failure outside an agent run, which reaches no `error` stage and no event."""
-    return GoondanExecutionError("runtime", ["flow_error"], message)
+def _route_error(message: str) -> GoondanExecutionError:
+    """§흐름: 에이전트 실행 밖에서 발생한 route 오류다."""
+    return GoondanExecutionError("runtime", ["route_error"], message)
 
 
 def _usage() -> dict[str, float]:
@@ -94,6 +98,7 @@ class _RunRecord:
     """
 
     agent: str
+    instance: str
     turn_id: str
     kind: str
     usage: dict[str, float] = field(default_factory=_usage)
@@ -102,7 +107,7 @@ class _RunRecord:
     children: list["_RunRecord"] = field(default_factory=list)
 
     def value(self) -> dict[str, Any]:
-        found: dict[str, Any] = {"agent": self.agent, "turnId": self.turn_id, "kind": self.kind, "usage": dict(self.usage)}
+        found: dict[str, Any] = {"agent": self.agent, "instance": self.instance, "turnId": self.turn_id, "kind": self.kind, "usage": dict(self.usage)}
         if self.finish_reason is not None:
             found["finishReason"] = self.finish_reason
         found["status"] = self.status
@@ -151,7 +156,7 @@ def _completion_input(operation: Mapping[str, Any]) -> dict[str, Any]:
         "type": "operation_completion",
         "deliveryId": str(operation["deliveryId"]),
         "operationId": str(operation["operationId"]),
-        "conversationId": str(operation["conversationId"]),
+        "sessionId": str(operation["sessionId"]),
         "agent": str(operation["agent"]),
         "status": str(operation["status"]),
         "toolCall": copy.deepcopy(operation["toolCall"]),
@@ -217,11 +222,9 @@ class _AgentSession:
 class _Scope:
     """§실행 중단, §실행 중 입력.
 
-    `host` is the conversation identifier the host requested, so that `abort(host)` reaches
-    every run the turn started, including nested configurations and sub-conversations.
-    It is `None` for work with its own lifetime (async hooks, approved operations), which
-    `abort` never stops. `foreground` marks the runs of kind `flow` or `nested`, which are
-    the only ones that take steered input.
+    `host`는 호스트가 요청한 세션 식별자이며, `abort(host)`가 턴이 시작한 모든 실행에
+    도달하도록 한다. 비동기 훅과 승인 작업처럼 자체 수명을 가진 작업은 `None`을 쓴다.
+    `foreground`는 steer 값을 받을 수 있는 흐름 실행을 표시한다.
     """
 
     host: str | None
@@ -233,6 +236,8 @@ class _Run:
     """One agent run or turn in progress, and the task that carries it."""
 
     task: "asyncio.Task[Any] | None"
+    agent: str | None = None
+    foreground: bool = False
     aborted: bool = False
 
 
@@ -241,14 +246,15 @@ class _RunState:
     """One model agent run: everything its value stages share."""
 
     agent_name: str
-    agent_path: str
-    conversation_id: str
+    session_id: str
+    instance: str
     turn_id: str
     session: _AgentSession
     scope: _Scope
     run: _Run | None
-    agent_input: Json
+    agent_input: list[dict[str, Any]] | Json
     conversation: list[dict[str, Any]]
+    stateful: bool
     completion: Completion
     # §에이전트 실행 기록: this run's entry. The runs it starts become its children, so a
     # record that no turn collected keeps its whole subtree out of every turn result.
@@ -270,7 +276,7 @@ class _Deltas:
     after the run was aborted, or that are not strings are dropped.
     """
 
-    def __init__(self, runtime: "Runtime", state: "_RunState", step: int):
+    def __init__(self, runtime: "Goondan", state: "_RunState", step: int):
         self._runtime, self._state, self._step = runtime, state, step
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._task = asyncio.create_task(self._forward())
@@ -286,7 +292,7 @@ class _Deltas:
             delta = await self._queue.get()
             if delta is None:
                 return
-            await self._runtime._emit(self._state.session, "step.textDelta", self._state.agent_path, self._state.conversation_id, self._state.turn_id, {"step": self._step, "delta": delta})
+            await self._runtime._emit(self._state.session, "step.textDelta", self._state.agent_name, self._state.session_id, self._state.turn_id, {"step": self._step, "delta": delta})
 
     async def close(self) -> None:
         """Report every chunk received so far, so they all precede `step.done` or `step.error`."""
@@ -303,7 +309,7 @@ class _Deltas:
 class _Approved:
     """§승인된 작업의 실행: what the checks before `running` resolved for one operation."""
 
-    runtime: "Runtime"
+    runtime: "Goondan"
     agent_name: str
     session: _AgentSession
     configured: Mapping[str, Any]
@@ -320,7 +326,17 @@ class _Stage:
     control: Control | None = None
 
 
-class Runtime:
+class _Sessions:
+    """군단 객체의 세션 관리 API다."""
+
+    def __init__(self, goondan: "Goondan") -> None:
+        self._goondan = goondan
+
+    async def delete(self, session_id: str) -> None:
+        await self._goondan._delete_session(session_id)
+
+
+class Goondan:
     def __init__(self, *, config: Mapping[str, Any], models: Mapping[str, Any], tools: Mapping[str, Tool] | None = None, functions: Mapping[str, Callable[..., Any]] | None = None, extensions: Mapping[str, ExtensionDefinition] | None = None, conversation_store: ConversationStore | None = None, operation_store: OperationStore | None = None, ports: Mapping[str, Any] | None = None, host: Any = None, emit: Callable[..., Any] | None = None, logger: Any = None, max_retries: int = 3, max_steps: int | None = None, directory: str | Path | None = None):
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be an integer that is 0 or more")
@@ -338,20 +354,22 @@ class Runtime:
         self.max_retries, self.max_steps = max_retries, max_steps
         self.operation_store = operation_store or InMemoryOperationStore()
         self.directory = self.config.directory
-        self.sessions: dict[tuple[str, str], _AgentSession] = {}
-        self.child_runtimes: dict[str, Runtime] = {}
+        self._agent_sessions: dict[tuple[str, str], _AgentSession] = {}
+        self.sessions = _Sessions(self)
         self._delivery_tasks: set[asyncio.Task[Any]] = set()
         # §복구: the operations this runtime is executing or delivering right now.
         self._in_flight: dict[tuple[str, str], int] = {}
         self._delivery_locks: dict[str, asyncio.Lock] = {}
-        self._prefix = ""
-        self._root: Runtime = self
+        self._root: Goondan = self
         self._scopes: dict[str, _Scope] = {}
         self._runs: dict[str, set[_Run]] = {}
         self._detached: set[_Run] = set()
-        self._steering: dict[str, list[Json]] = {}
+        self._steering: dict[str, list[tuple[str | None, Json]]] = {}
+        self._turn_locks: dict[str, asyncio.Lock] = {}
+        self._turn_counts: dict[str, int] = {}
+        self._agent_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._closed = False
-        issues = nested_binding_issues(self.config, models=self.models, tools=self.tools, functions=self.functions, extensions=self.extensions, ports=self.ports)
+        issues = binding_issues(self.config, models=self.models, tools=self.tools, functions=self.functions, extensions=self.extensions, ports=self.ports)
         if issues: raise GoondanConfigError(issues)
         self.renderer = TemplateRenderer(self.config.templates, self.directory)
         self.templates = self.renderer.templates
@@ -360,35 +378,15 @@ class Runtime:
         """§템플릿을 읽는 시점: render a template that was read at configuration load."""
         return self.renderer.render(template, variables)
 
-    # --- agent paths, nested runtimes and run registration ------------------------------------
+    # --- 실행 등록 -----------------------------------------------------------------------------
 
-    def _path(self, agent_name: str) -> str:
-        """§에이전트 경로: the declaration name of a top-level agent, `<config agent>/<name>` below it."""
-        return f"{self._prefix}{agent_name}"
+    def _resolve(self, name: str) -> tuple["Goondan", str]:
+        if name not in self.config["agents"]:
+            raise GoondanError(f"unknown agent: {name}")
+        return self, name
 
-    def _child(self, agent_name: str) -> "Runtime":
-        """The runtime of a `config` agent's nested configuration, created once and cached."""
-        child = self.child_runtimes.get(agent_name)
-        if child is None:
-            agent = self.config["agents"].get(agent_name)
-            if not isinstance(agent, Mapping) or "config" not in agent:
-                raise GoondanError(f"agent {self._path(agent_name)} does not run a nested configuration")
-            nested = (self.config.nested or {}).get(agent_name)
-            if nested is None: raise GoondanError(f"nested configuration of {self._path(agent_name)} was not loaded")
-            child = Runtime(config=nested, models=self.models, tools=self.tools, functions=self.functions, extensions=self.extensions, conversation_store=self.conversation_store, operation_store=self.operation_store, ports=self.ports, host=self.host, emit=self.emit, logger=self.logger, max_retries=self.max_retries, max_steps=self.max_steps)
-            child._prefix = f"{self._path(agent_name)}/"
-            child._root = self._root
-            self.child_runtimes[agent_name] = child
-        return child
-
-    def _resolve(self, path: str) -> tuple["Runtime", str]:
-        """§에이전트 경로: split the path on `/` and follow each `config` agent to its runtime."""
-        head, separator, rest = path.partition("/")
-        if head not in self.config["agents"]: raise GoondanError(f"unknown agent path: {self._path(path)}")
-        return self._child(head)._resolve(rest) if separator else (self, head)
-
-    def _register(self, scope: _Scope) -> _Run:
-        run = _Run(asyncio.current_task())
+    def _register(self, scope: _Scope, agent: str | None = None) -> _Run:
+        run = _Run(asyncio.current_task(), agent, scope.foreground)
         if scope.host is None: self._root._detached.add(run)
         else: self._root._runs.setdefault(scope.host, set()).add(run)
         return run
@@ -400,17 +398,22 @@ class Runtime:
         runs.discard(run)
         if not runs: self._root._runs.pop(scope.host, None)
 
-    def abort(self, conversation_id: str) -> bool:
-        """§실행 중단: stop every turn in progress on `conversation_id` and everything it started.
+    def _check_host_session_id(self, session_id: str) -> None:
+        if not isinstance(session_id, str) or "#" in session_id:
+            raise GoondanExecutionError("runtime", ["runtime_error"], "session_id must be a string without #")
+
+    def abort(self, session_id: str) -> bool:
+        """§실행 중단: session_id에서 진행 중인 턴을 중단한다.
 
         Python tells a call in progress by cancelling the task that runs it. The task that
         asks for the abort is not cancelled: it is running rather than waiting, so its own
-        run stops at the next stage, model call, tool execution, hook or flow step, and a
+        run stops at the next stage, model call, tool execution, hook or route step, and a
         host that aborts from inside a tool or hook keeps its task.
         """
+        self._check_host_session_id(session_id)
         root = self._root
         if root._closed: return False
-        runs = root._runs.get(conversation_id)
+        runs = root._runs.get(session_id)
         if not runs: return False
         current = asyncio.current_task()
         tasks: set[asyncio.Task[Any]] = set()
@@ -420,18 +423,29 @@ class Runtime:
         for task in tasks: task.cancel()
         return True
 
-    def steer(self, conversation_id: str, value: Json) -> None:
-        """§실행 중 입력: enqueue a value for the next foreground run that reaches a safe point."""
+    def steer(self, session_id: str, value: Json, *, agent: str | None = None) -> None:
+        """§실행 중 입력: 받을 흐름 실행을 정해 값을 대기열에 넣는다."""
+        self._check_host_session_id(session_id)
         root = self._root
         if root._closed: return
-        root._steering.setdefault(conversation_id, []).append(copy.deepcopy(value))
+        if agent is not None and agent not in self.config["agents"]:
+            raise GoondanExecutionError("runtime", ["steer_invalid"], f"unknown agent {agent!r}")
+        foreground = [run for run in root._runs.get(session_id, set()) if run.foreground and not run.aborted]
+        if agent is None:
+            if len(foreground) > 1:
+                raise GoondanExecutionError("runtime", ["steer_invalid"], "agent is required while several route runs are active")
+            if len(foreground) == 1:
+                agent = foreground[0].agent
+        elif foreground:
+            matching = sum(1 for run in foreground if run.agent == agent)
+            if matching != 1:
+                raise GoondanExecutionError("runtime", ["steer_invalid"], f"agent {agent!r} does not identify exactly one active run")
+        root._steering.setdefault(session_id, []).append((agent, copy.deepcopy(value)))
 
     def _background_tasks(self) -> list[asyncio.Task[Any]]:
         tasks = [task for task in self._delivery_tasks if not task.done()]
-        for session in self.sessions.values():
+        for session in self._agent_sessions.values():
             tasks.extend(task for task in session.pending.values() if not task.done())
-        for child in self.child_runtimes.values():
-            tasks.extend(child._background_tasks())
         return tasks
 
     async def idle(self) -> None:
@@ -441,13 +455,37 @@ class Runtime:
             if not tasks: return
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _delete_session(self, session_id: str) -> None:
+        self._check_host_session_id(session_id)
+        self._require_open()
+        if self._turn_counts.get(session_id, 0) or self._runs.get(session_id):
+            raise GoondanExecutionError("runtime", ["runtime_error"], "the session has an active or waiting turn")
+        prefix = f"{session_id}#"
+        for key, session in list(self._agent_sessions.items()):
+            stored_session = key[1]
+            if stored_session != session_id and not stored_session.startswith(prefix):
+                continue
+            tasks = list(session.pending.values())
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            await self._dispose(session.extensions)
+            self._agent_sessions.pop(key, None)
+        self._steering.pop(session_id, None)
+        for key in [key for key in self._agent_locks if key[0] == session_id or key[0].startswith(prefix)]:
+            self._agent_locks.pop(key, None)
+        await self.conversation_store.delete_session(session_id)
+
     # --- extension instances ------------------------------------------------------------------
 
-    async def _session(self, agent_name: str, conversation_id: str) -> _AgentSession:
+    async def _session(self, agent_name: str, session_id: str) -> _AgentSession:
         """§확장 인스턴스: prepare this execution scope's instances, once, in declaration order."""
-        key = (agent_name, conversation_id)
-        if key in self.sessions: return self.sessions[key]
+        key = (agent_name, session_id)
         agent = self.config["agents"][agent_name]
+        stateful = agent.get("stateful", True) is True
+        if stateful and key in self._agent_sessions:
+            return self._agent_sessions[key]
         instances: dict[str, Extension] = {}
         try:
             for instance_name, use in (agent.get("extensions", {}) or {}).items():
@@ -458,7 +496,7 @@ class Runtime:
                     replaced = await _await(definition.validate_options(copy.deepcopy(options)))
                     if replaced is not None: options = replaced
                 selected_ports = {name: self.ports[name] for name in definition.requires}
-                identity = {"name": agent_name, "path": self._path(agent_name), "spec": copy.deepcopy(dict(agent))}
+                identity = {"name": agent_name, "spec": copy.deepcopy(dict(agent))}
                 instances[instance_name] = await _await(definition.create(options=options, ports=selected_ports, agent=identity, log=self.logger))
         except BaseException:
             await self._dispose(instances)
@@ -473,7 +511,10 @@ class Runtime:
         if issues:
             await self._dispose(instances)
             raise GoondanConfigError(issues)
-        session = _AgentSession(instances, instance_tools); self.sessions[key] = session; return session
+        session = _AgentSession(instances, instance_tools)
+        if stateful:
+            self._agent_sessions[key] = session
+        return session
 
     async def _dispose(self, instances: Mapping[str, Extension]) -> None:
         """§확장 인스턴스: clean up instances in creation order."""
@@ -500,12 +541,12 @@ class Runtime:
                 issues.append(_issue("binding.tool", at, f"names the tool {name!r}, which no host tool or extension provides"))
         return issues
 
-    async def _emit(self, session: _AgentSession | None, name: str, agent_path: str, conversation_id: str, turn_id: str, data: dict[str, Any]) -> None:
+    async def _emit(self, session: _AgentSession | None, name: str, agent_name: str, session_id: str, turn_id: str, data: dict[str, Any]) -> None:
         """§이벤트 형식과 전달: host `emit` first, then this scope's instances in creation order.
 
         A receiver that fails is ignored; the remaining receivers still get the event.
         """
-        event = {"name": name, "agent": agent_path, "conversationId": conversation_id, "turnId": turn_id, "at": _now(), "data": data}
+        event = {"name": name, "agent": agent_name, "sessionId": session_id, "turnId": turn_id, "at": _now(), "data": data}
         sink = self._root.emit
         receivers: list[Callable[..., Any]] = [sink] if sink is not None else []
         if session is not None:
@@ -552,7 +593,7 @@ class Runtime:
                 self._running(state)
                 raise
         if "template" in spec:
-            transformed = self.render(spec["template"], {"text": transformed, "input": state.agent_input, "params": agent.get("params", {})})
+            transformed = self.render(spec["template"], {"text": transformed, "input": state.agent_input, "inputText": input_text(state.agent_input), "params": agent.get("params", {})})
         if stage in ("conversation", "modelInput"):
             return {"append": [_message(spec.get("role", "user"), result_text(transformed), ctx.source)]}
         if stage == "output":
@@ -596,7 +637,7 @@ class Runtime:
     def _running(self, state: _RunState) -> None:
         """§실행 중단: an aborted run starts no further work and stores no further message."""
         if state.aborted():
-            raise GoondanAbortError(f"run of {state.agent_path} in {state.conversation_id} was aborted")
+            raise GoondanAbortError(f"run of {state.agent_name} in {state.session_id} was aborted")
 
     async def _pipeline(self, stage: ValueName, value: Any, state: _RunState, *, call_id: str | None = None, persist: bool = True) -> _Stage:
         """§훅 실행과 결과: run the stage's hooks in declaration order over the current value."""
@@ -610,26 +651,26 @@ class Runtime:
             # §비동기 훅: an asynchronous hook is optional whatever `optional` says.
             optional = True if spec.get("mode") == "async" else spec.get("optional", "agent" in spec)
             ctx = HookContext(
-                self, state.agent_path, state.conversation_id, state.turn_id, copy.deepcopy(state.agent_input),
+                self, state.agent_name, state.session_id, state.turn_id, copy.deepcopy(state.agent_input),
                 copy.deepcopy(result.value if stage == "conversation" else state.conversation), identifier,
-                ExecutionHandle(state.completion), state.retry_count, phase=stage, hook=identifier, local=state.agent_name, run_state=state,
+                ExecutionHandle(state.completion), state.retry_count, phase=stage, hook=identifier, run_state=state,
             )
             try:
                 outcome = await self._hook(spec, stage, result, ctx, state, identifier, call_id)
             except (GoondanAbortError, GoondanConfigError):
                 raise
             except Exception as error:
-                await self._emit(state.session, "hook.failed", state.agent_path, state.conversation_id, state.turn_id, {"value": stage, "hook": identifier, "error": str(error)})
+                await self._emit(state.session, "hook.failed", state.agent_name, state.session_id, state.turn_id, {"value": stage, "hook": identifier, "error": str(error)})
                 if optional: continue
                 raise GoondanExecutionError(stage, ["hook_error"], str(error), state.retry_count + 1, cause=error) from error
             if outcome is _SCHEDULED: continue
             if outcome is _SKIPPED:
-                await self._emit(state.session, "hook.skipped", state.agent_path, state.conversation_id, state.turn_id, {"value": stage, "hook": identifier})
+                await self._emit(state.session, "hook.skipped", state.agent_name, state.session_id, state.turn_id, {"value": stage, "hook": identifier})
                 continue
             # §실행 중단: a hook result that arrives after the abort is not used.
             self._running(state)
             await self._apply(stage, outcome, result, state, persist)
-            await self._emit(state.session, "hook.applied", state.agent_path, state.conversation_id, state.turn_id, {"value": stage, "hook": identifier})
+            await self._emit(state.session, "hook.applied", state.agent_name, state.session_id, state.turn_id, {"value": stage, "hook": identifier})
             if result.control is not None: break
         return result
 
@@ -676,7 +717,7 @@ class Runtime:
             result.value = outcome
             if stage == "conversation":
                 state.conversation = result.value
-                if persist: await self.conversation_store.replace(state.conversation_id, state.agent_path, state.conversation)
+                if persist and state.stateful: await self.conversation_store.replace(state.session_id, state.agent_name, state.conversation)
             return
         if outcome.kind == "append":
             if stage == "modelInput":
@@ -685,7 +726,7 @@ class Runtime:
                 return
             result.value, added = append_messages(result.value, outcome.value)
             state.conversation = result.value
-            if persist and added: await self.conversation_store.append(state.conversation_id, state.agent_path, added)
+            if persist and state.stateful and added: await self.conversation_store.append(state.session_id, state.agent_name, added)
             return
         if outcome.kind == "approval":
             result.approvals.append(dict(outcome.value)); return
@@ -707,7 +748,7 @@ class Runtime:
 
     async def _async_hook(self, spec: Mapping[str, Any], stage: ValueName, seen: Any, ctx: HookContext, state: _RunState, identifier: str) -> Control | None:
         """§비동기 훅: an always-optional hook whose only result is an `append` or nothing."""
-        session, agent_path, conversation_id, turn_id = state.session, state.agent_path, state.conversation_id, state.turn_id
+        session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         try:
             outcome = await self._hook_body(spec, stage, seen, ctx, state)
             if outcome is _NOTHING or outcome is None: control = None
@@ -720,9 +761,9 @@ class Runtime:
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            await self._emit(session, "hook.failed", agent_path, conversation_id, turn_id, {"value": stage, "hook": identifier, "error": str(error)})
+            await self._emit(session, "hook.failed", agent_name, session_id, turn_id, {"value": stage, "hook": identifier, "error": str(error)})
             return None
-        await self._emit(session, "hook.applied", agent_path, conversation_id, turn_id, {"value": stage, "hook": identifier})
+        await self._emit(session, "hook.applied", agent_name, session_id, turn_id, {"value": stage, "hook": identifier})
         return control
 
     async def _drain_pending(self, state: _RunState) -> None:
@@ -735,7 +776,7 @@ class Runtime:
             control = task.result()
             if control is None: continue
             state.conversation, added = append_messages(state.conversation, control.value)
-            if added: await self.conversation_store.append(state.conversation_id, state.agent_path, added)
+            if state.stateful and added: await self.conversation_store.append(state.session_id, state.agent_name, added)
 
     async def _drain_steering(self, state: _RunState) -> None:
         """§실행 중 입력: take every queued value in order and store one user message for each.
@@ -744,10 +785,15 @@ class Runtime:
         check of §제어 결과.
         """
         host = state.scope.host
-        values = self._root._steering.pop(host, []) if host is not None else []
+        queued = self._root._steering.get(host, []) if host is not None else []
+        values = [value for target, value in queued if target is None or target == state.agent_name]
+        if host is not None:
+            self._root._steering[host] = [(target, value) for target, value in queued if target is not None and target != state.agent_name]
+            if not self._root._steering[host]:
+                self._root._steering.pop(host, None)
         if not values: return
         messages = [_message("user", result_text(value), "user") for value in values]
-        await self.conversation_store.append(state.conversation_id, state.agent_path, messages)
+        if state.stateful: await self.conversation_store.append(state.session_id, state.agent_name, messages)
         state.conversation = [*state.conversation, *messages]
 
     async def _safe_point(self, state: _RunState) -> None:
@@ -771,7 +817,7 @@ class Runtime:
                 changed = copy.deepcopy(message); changed["content"] = parts; repaired.append(changed)
         if repaired != conversation:
             state.conversation = repaired
-            await self.conversation_store.replace(state.conversation_id, state.agent_path, repaired)
+            if state.stateful: await self.conversation_store.replace(state.session_id, state.agent_name, repaired)
 
     # --- model input and tools ----------------------------------------------------------------
 
@@ -794,7 +840,7 @@ class Runtime:
                 definitions.append({"name": name, "description": description, "input": tool.input})
         return definitions
 
-    def _system(self, agent_name: str, session: _AgentSession | None = None) -> list[dict[str, Any]]:
+    def _system(self, agent_name: str, session: _AgentSession | None = None, agent_input: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """§시스템 메시지와 매개변수: the system blocks of one model call, in declaration order."""
         agent = self.config["agents"][agent_name]; blocks = agent.get("systemMessage", []); blocks = [blocks] if isinstance(blocks, Mapping) else blocks
         tools = self._tool_definitions(agent_name, session); result = []
@@ -803,7 +849,8 @@ class Runtime:
                 text = block["text"]
             else:
                 try:
-                    text = self.render(block["template"], {"params": agent.get("params", {}), "tools": tools, "agent": {"name": agent_name}, "model": agent.get("model")})
+                    messages = agent_input or []
+                    text = self.render(block["template"], {"params": agent.get("params", {}), "tools": tools, "agent": {"name": agent_name}, "model": agent.get("model"), "input": messages, "inputText": input_text(messages)})
                 except Exception as broken:
                     # §시스템 메시지와 매개변수: a failed system block render fails the run at modelInput.
                     raise GoondanExecutionError("modelInput", ["runtime_error"], str(broken), cause=broken) from broken
@@ -838,55 +885,79 @@ class Runtime:
         state = ctx.run_state
         step = state.step if isinstance(state, _RunState) else 0
         # §에이전트 실행 기록: the call makes a `model` entry of the requesting agent run.
-        record = _RunRecord(ctx.agent, ctx.turn_id, "model")
+        instance = state.instance if isinstance(state, _RunState) else f"{ctx.session_id}/{ctx.agent}"
+        record = _RunRecord(ctx.agent, instance, ctx.turn_id, "model")
         if not ctx.detached and isinstance(state, _RunState): state.record.children.append(record)
-        result = await self._model_once(ctx.local or ctx.agent, messages, ctx.conversation_id, agent_path=ctx.agent, turn_id=ctx.turn_id, step=step)
+        result = await self._model_once(ctx.agent, messages, ctx.session_id, turn_id=ctx.turn_id, step=step)
         record.usage, record.status, record.finish_reason = _usage_of(result), "done", result["finishReason"]
         return result
 
-    async def _model_once(self, agent_name: str, messages: Any, conversation_id: str, *, agent_path: str | None = None, turn_id: str = "", step: int = 0) -> dict[str, Any]:
+    async def _model_once(self, agent_name: str, messages: Any, session_id: str, *, turn_id: str = "", step: int = 0) -> dict[str, Any]:
         if not is_message_array(messages): raise GoondanError("model.run needs an array of messages")
-        session = await self._session(agent_name, conversation_id)
+        session = await self._session(agent_name, session_id)
         model_input = {"system": self._system(agent_name, session), "messages": copy.deepcopy(messages), "tools": self._tool_definitions(agent_name, session), "options": {}}
         # §텍스트 조각: chunks of a `model.run` call are not reported.
-        ctx = ModelContext(agent_path or self._path(agent_name), conversation_id, turn_id, step, lambda delta: None)
+        ctx = ModelContext(agent_name, session_id, turn_id, step, lambda delta: None)
         result = self._filled(await self._call_model(agent_name, model_input, ctx))
         found = stage_error("modelResult", result)
         if found: raise GoondanError(f"the model result {found}")
         return result
 
-    async def _input_message(self, agent_name: str, value: Json) -> dict[str, Any]:
-        """§입력: the first user message the agent input becomes."""
-        rule = self.config["agents"][agent_name].get("input", "asis")
-        text: Any = value
-        if isinstance(rule, Mapping) and "fn" in rule:
-            try:
-                text = await _await(self.functions[rule["fn"]](copy.deepcopy(value)))
-            except Exception as broken:
-                raise GoondanExecutionError("input", ["runtime_error"], str(broken), cause=broken) from broken
-            if text is not None and not is_json(text):
-                raise GoondanExecutionError("input", ["value_invalid"], f"the function {rule['fn']!r} returned a value that is not JSON")
-        elif isinstance(rule, Mapping) and "template" in rule:
-            variables = dict(value) if isinstance(value, Mapping) else {"text": value}
-            try:
-                text = self.render(rule["template"], variables)
-            except Exception as broken:
-                raise GoondanExecutionError("input", ["runtime_error"], str(broken), cause=broken) from broken
-        return _message("user", result_text(text), agent_name)
+    def _turn_input(self, agent_name: str, value: Json) -> list[dict[str, Any]]:
+        """§입력: 호스트 값을 턴 입력 메시지 배열로 바꾼다."""
+        if is_message_array(value):
+            return copy.deepcopy(value)
+        if isinstance(value, list) and value and all(is_part(item) for item in value):
+            content = copy.deepcopy(value)
+        elif isinstance(value, str):
+            content = [{"type": "text", "text": value}]
+        else:
+            content = [{"type": "json", "value": copy.deepcopy(value)}]
+        return [{"id": uuid.uuid4().hex, "role": "user", "source": agent_name, "content": content}]
 
-    def _tool_context(self, agent_name: str, agent_path: str, conversation_id: str, turn_id: str, turn_input: Json, conversation: list[dict[str, Any]], call: Mapping[str, Any], execution: Any, scope: _Scope, records: list[_RunRecord] | None) -> dict[str, Any]:
+    async def _input_messages(self, agent_name: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """§입력: 각 메시지의 직접 json 부분만 text 부분으로 바꾼다."""
+        rule = self.config["agents"][agent_name].get("input", "asis")
+        result = copy.deepcopy(messages)
+        for message in result:
+            converted: list[dict[str, Any]] = []
+            for part in message["content"]:
+                if part.get("type") != "json":
+                    converted.append(part)
+                    continue
+                value = part.get("value")
+                text: Any = value
+                if isinstance(rule, Mapping) and "fn" in rule:
+                    try:
+                        text = await _await(self.functions[rule["fn"]](copy.deepcopy(value)))
+                    except Exception as broken:
+                        raise GoondanExecutionError("input", ["runtime_error"], str(broken), cause=broken) from broken
+                    if text is not None and not is_json(text):
+                        raise GoondanExecutionError("input", ["value_invalid"], f"the function {rule['fn']!r} returned a value that is not JSON")
+                elif isinstance(rule, Mapping) and "template" in rule:
+                    variables = dict(value) if isinstance(value, Mapping) else {"text": value}
+                    try:
+                        text = self.render(rule["template"], variables)
+                    except Exception as broken:
+                        raise GoondanExecutionError("input", ["runtime_error"], str(broken), cause=broken) from broken
+                converted.append({"type": "text", "text": text if isinstance(text, str) else json_text(text)})
+            message["content"] = converted
+        return result
+
+    def _tool_context(self, agent_name: str, session_id: str, turn_id: str, turn_input: list[dict[str, Any]] | Json, conversation: list[dict[str, Any]], call: Mapping[str, Any], execution: Any, scope: _Scope, records: list[_RunRecord] | None) -> dict[str, Any]:
         """§도구 컨텍스트: the members a host or extension tool receives beside its arguments."""
         async def run_agent(name: str, value: Json) -> dict[str, Any]:
-            return await self._run_agent(name, value, f"{conversation_id}:{turn_id}:{name}", scope=_Scope(scope.host, False), records=records, kind="tool")
+            messages = self._turn_input(name, value)
+            return await self._run_agent(name, messages, f"{session_id}#{turn_id}#{name}", scope=_Scope(scope.host, False), records=records, kind="tool")
 
         return {
-            "input": copy.deepcopy(turn_input), "conversation": copy.deepcopy(conversation), "agent": agent_path,
-            "conversationId": conversation_id, "turnId": turn_id, "toolCall": copy.deepcopy(dict(call)),
+            "input": copy.deepcopy(turn_input), "conversation": copy.deepcopy(conversation), "agent": agent_name,
+            "session_id": session_id, "turn_id": turn_id, "tool_call": copy.deepcopy(dict(call)),
             "execution": copy.deepcopy(execution) if isinstance(execution, Mapping) else {}, "run_agent": run_agent,
         }
 
-    async def _run_hook_agent(self, ctx: HookContext, name: str, value: Json, conversation: list[dict[str, Any]] | None) -> dict[str, Any]:
-        """§하위 대화: the `agents.run` of a hook context, in the hook's own sub-conversation.
+    async def _run_hook_agent(self, ctx: HookContext, name: str, value: Json) -> dict[str, Any]:
+        """§파생 세션: 훅 컨텍스트의 agents.run을 실행한다.
 
         An async hook has its own lifetime, so what it starts is detached from the turn that
         scheduled it and `abort` does not stop it ([§실행 중단](spec)).
@@ -894,73 +965,74 @@ class Runtime:
         parent = None if ctx.detached else self._scopes.get(ctx.turn_id)
         state = ctx.run_state
         records = state.record.children if not ctx.detached and isinstance(state, _RunState) else None
-        return await self._run_agent(name, value, ctx.hook_conversation_id, conversation, scope=_Scope(parent.host if parent is not None else None, False), records=records, kind="hook")
+        messages = self._turn_input(name, value)
+        derived = f"{ctx.session_id}#{ctx.turn_id}#{name}"
+        return await self._run_agent(name, messages, derived, scope=_Scope(parent.host if parent is not None else None, False), records=records, kind="hook")
 
     # --- agent runs ---------------------------------------------------------------------------
 
-    async def _run_agent(self, agent_name: str, value: Json, conversation_id: str, initial_conversation: list[dict[str, Any]] | None = None, *, scope: _Scope | None = None, records: list[_RunRecord] | None = None, kind: str = "flow") -> dict[str, Any]:
+    async def _run_agent(self, agent_name: str, value: list[dict[str, Any]], session_id: str, *, scope: _Scope | None = None, records: list[_RunRecord] | None = None, kind: str = "turn") -> dict[str, Any]:
+        agent = self.config["agents"].get(agent_name)
+        if not isinstance(agent, Mapping):
+            raise GoondanError(f"agent {agent_name} is not declared in this configuration")
+        if agent.get("stateful", True) is not True:
+            return await self._run_agent_unlocked(agent_name, value, session_id, scope=scope, records=records, kind=kind)
+        lock = self._agent_locks.setdefault((session_id, agent_name), asyncio.Lock())
+        async with lock:
+            return await self._run_agent_unlocked(agent_name, value, session_id, scope=scope, records=records, kind=kind)
+
+    async def _run_agent_unlocked(self, agent_name: str, value: list[dict[str, Any]], session_id: str, *, scope: _Scope | None = None, records: list[_RunRecord] | None = None, kind: str = "turn") -> dict[str, Any]:
         """One agent run. `records` collects its [실행 기록](spec §에이전트 실행 기록), or is `None`
         when the run has its own lifetime and no turn waits for it."""
-        scope = scope if scope is not None else _Scope(conversation_id, True)
+        scope = scope if scope is not None else _Scope(session_id, True)
         agent = self.config["agents"].get(agent_name)
         # §에이전트 실행 기록: a run that could not start because the agent does not exist
         # makes no entry.
         if not isinstance(agent, Mapping): raise GoondanError(f"agent {agent_name} is not declared in this configuration")
-        if "config" in agent:
-            # §에이전트 실행 기록: a `config` agent makes no entry of its own; the agents of
-            # its nested configuration make theirs where it ran.
-            inner: list[_RunRecord] = []
-            run = self._register(scope)
-            try: outputs = await self._child(agent_name)._run_flow(value, conversation_id, None, scope, run, inner, "nested")
-            finally:
-                self._release(scope, run)
-                if records is not None: records.extend(inner)
-            message, finish_reason = self._combined(outputs)
-            return {"output": message, "conversation": [], "usage": _total_usage(inner), "finishReason": finish_reason, "status": "done"}
-        agent_path = self._path(agent_name)
         turn_id = uuid.uuid4().hex
-        record = _RunRecord(agent_path, turn_id, kind)
+        stateful = agent.get("stateful", True) is True
+        instance = f"{session_id}/{agent_name}" if stateful else uuid.uuid4().hex
+        record = _RunRecord(agent_name, instance, turn_id, kind)
         if records is not None: records.append(record)
         try:
-            session = await self._session(agent_name, conversation_id)
+            session = await self._session(agent_name, session_id)
         except GoondanConfigError as invalid:
             # §이벤트 순서: a failed extension preparation reports turn.error without
             # turn.start, and only to the host, because this scope has no instances.
             codes = [str(item["code"]) for item in invalid.issues]
-            await self._emit(None, "turn.error", agent_path, conversation_id, turn_id, {"where": "runtime", "codes": codes, "error": str(invalid)})
+            await self._emit(None, "turn.error", agent_name, session_id, turn_id, {"where": "runtime", "codes": codes, "error": str(invalid)})
             raise
         except GoondanAbortError:
             raise
         except Exception as broken:
             # §확장 인스턴스: a failing options validator or `create` is a runtime error.
             failure = GoondanExecutionError("runtime", ["runtime_error"], str(broken), 1, cause=broken)
-            await self._emit(None, "turn.error", agent_path, conversation_id, turn_id, {"where": "runtime", "codes": failure.codes, "error": failure.message})
+            await self._emit(None, "turn.error", agent_name, session_id, turn_id, {"where": "runtime", "codes": failure.codes, "error": failure.message})
             raise failure from broken
         self._scopes[turn_id] = scope
-        run = self._register(scope)
-        if initial_conversation is not None:
-            conversation = copy.deepcopy(initial_conversation)
-            await self.conversation_store.replace(conversation_id, agent_path, conversation)
-        else:
-            conversation = await self.conversation_store.load(conversation_id, agent_path)
-        state = _RunState(agent_name, agent_path, conversation_id, turn_id, session, scope, run, value, conversation, Completion(), record)
+        run = self._register(scope, agent_name)
+        conversation = await self.conversation_store.load(session_id, agent_name) if stateful else []
+        state = _RunState(agent_name, session_id, instance, turn_id, session, scope, run, value, conversation, stateful, Completion(), record)
         try:
             response = await self._run_stages(state)
+            response["instance"] = instance
             record.status, record.finish_reason = "done", response["finishReason"]
-            await self._emit(session, "turn.done", agent_path, conversation_id, turn_id, {"output": response["output"], "steps": state.step, "usage": response["usage"]})
+            await self._emit(session, "turn.done", agent_name, session_id, turn_id, {"output": response["output"], "steps": state.step, "usage": response["usage"]})
             return response
         except asyncio.CancelledError:
             if not run.aborted: raise
             task = asyncio.current_task()
             if task is not None and task.cancelling(): task.uncancel()
-            aborted = GoondanAbortError(f"run of {agent_path} in {conversation_id} was aborted")
+            aborted = GoondanAbortError(f"run of {agent_name} in {session_id} was aborted")
+            record.status = "aborted"
             await self._fail(aborted, state)
             raise aborted from None
         except Exception as error:
             # §실행 중단: after the abort was signalled every failure of this run is the
             # aborted error, whatever its cause.
             if run.aborted and not isinstance(error, GoondanAbortError):
-                error = GoondanAbortError(f"run of {agent_path} in {conversation_id} was aborted")
+                error = GoondanAbortError(f"run of {agent_name} in {session_id} was aborted")
+                record.status = "aborted"
                 await self._fail(error, state)
                 raise error from None
             # §실행 오류: a failed agent run always ends as an execution error, so a failure
@@ -973,15 +1045,23 @@ class Runtime:
         finally:
             self._scopes.pop(turn_id, None)
             self._release(scope, run)
+            if not stateful:
+                tasks = list(session.pending.values())
+                for task in tasks:
+                    task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                await self._dispose(session.extensions)
 
     async def _run_stages(self, state: _RunState) -> dict[str, Any]:
         """§단계 실행 순서: input, conversation, and then the model and tool loop."""
-        session, agent_path, conversation_id, turn_id = state.session, state.agent_path, state.conversation_id, state.turn_id
+        session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         state.agent_input = (await self._pipeline("input", state.agent_input, state)).value
-        await self._emit(session, "turn.start", agent_path, conversation_id, turn_id, {"input": state.agent_input})
-        first = await self._input_message(state.agent_name, state.agent_input)
-        state.conversation = [*state.conversation, first]
-        await self.conversation_store.append(conversation_id, agent_path, [first])
+        state.agent_input = await self._input_messages(state.agent_name, state.agent_input)
+        await self._emit(session, "turn.start", agent_name, session_id, turn_id, {"input": copy.deepcopy(state.agent_input)})
+        state.conversation = [*state.conversation, *copy.deepcopy(state.agent_input)]
+        if state.stateful and state.agent_input:
+            await self.conversation_store.append(session_id, agent_name, state.agent_input)
         await self._repair(state)
         await self._safe_point(state)
         # §단계 실행 순서 2: the conversation stage runs once per agent run.
@@ -996,7 +1076,7 @@ class Runtime:
                 if self.max_steps is not None and state.step >= self.max_steps:
                     raise GoondanExecutionError("runtime", ["runtime_error"], f"the agent run reached the model call limit of {self.max_steps}", state.retry_count + 1)
                 await self._safe_point(state)
-            model_input = {"system": self._system(state.agent_name, session), "messages": copy.deepcopy(state.conversation), "tools": self._tool_definitions(state.agent_name, session), "options": {}}
+            model_input = {"system": self._system(state.agent_name, session, state.agent_input), "messages": copy.deepcopy(state.conversation), "tools": self._tool_definitions(state.agent_name, session), "options": {}}
             model_input = (await self._pipeline("modelInput", model_input, state, persist=False)).value
             result = await self._step(state, model_input)
             if result is None:
@@ -1016,7 +1096,7 @@ class Runtime:
             assistant = copy.deepcopy(result["message"])
             calls = [part for part in assistant.get("content", []) if part.get("type") == "tool.call"]
             state.conversation = [*state.conversation, assistant]
-            await self.conversation_store.append(conversation_id, agent_path, [assistant])
+            if state.stateful: await self.conversation_store.append(session_id, agent_name, [assistant])
             scheduled = False
             if calls:
                 await self._run_calls(state, calls)
@@ -1027,10 +1107,10 @@ class Runtime:
             output = (await self._pipeline("output", assistant, state)).value
             if scheduled:
                 state.conversation = [*state.conversation, copy.deepcopy(output)]
-                await self.conversation_store.append(conversation_id, agent_path, [output])
+                if state.stateful: await self.conversation_store.append(session_id, agent_name, [output])
             else:
                 state.conversation = [*state.conversation[:-1], copy.deepcopy(output)]
-                await self.conversation_store.replace(conversation_id, agent_path, state.conversation)
+                if state.stateful: await self.conversation_store.replace(session_id, agent_name, state.conversation)
             finish_reason = "tool" if scheduled else result.get("finishReason", "stop")
             return {"output": output, "conversation": state.conversation, "usage": dict(usage), "finishReason": finish_reason, "status": "done"}
 
@@ -1040,14 +1120,14 @@ class Runtime:
         §모델 호출: the call number starts at 1 in every agent run and grows with every call,
         including the calls a retry makes.
         """
-        session, agent_path, conversation_id, turn_id = state.session, state.agent_path, state.conversation_id, state.turn_id
+        session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         # §실행 중단: an aborted run starts no model call, so it reports no step event either.
         self._running(state)
         state.step += 1
         state.in_flight = ("step", {"step": state.step})
         deltas = _Deltas(self, state, state.step)
-        ctx = ModelContext(agent_path, conversation_id, turn_id, state.step, deltas.push)
-        await self._emit(session, "step.start", agent_path, conversation_id, turn_id, {"step": state.step})
+        ctx = ModelContext(agent_name, session_id, turn_id, state.step, deltas.push)
+        await self._emit(session, "step.start", agent_name, session_id, turn_id, {"step": state.step})
         try:
             result = await self._call_model(state.agent_name, model_input, ctx)
         except GoondanAbortError:
@@ -1060,25 +1140,25 @@ class Runtime:
             await deltas.close()
             # §이벤트 순서: a call that was in progress when the abort was signalled reports
             # step.error with the code `aborted`, whatever the model did in the meantime.
-            if state.aborted(): raise GoondanAbortError(f"run of {agent_path} in {conversation_id} was aborted") from None
+            if state.aborted(): raise GoondanAbortError(f"run of {agent_name} in {session_id} was aborted") from None
             state.in_flight = None
             failure = GoondanExecutionError("model", _model_codes(broken), str(broken), state.retry_count + 1, cause=broken)
-            await self._emit(session, "step.error", agent_path, conversation_id, turn_id, {"step": state.step, "codes": failure.codes, "error": failure.message})
+            await self._emit(session, "step.error", agent_name, session_id, turn_id, {"step": state.step, "codes": failure.codes, "error": failure.message})
             if await self._recovered(state, failure, "model"): return None
             raise failure from broken
         state.in_flight = None
         await deltas.close()
         if state.aborted():
             # §실행 중단: a model result that arrives after the abort is not used.
-            await self._emit(session, "step.error", agent_path, conversation_id, turn_id, {"step": state.step, "codes": ["aborted"], "error": "the run was aborted"})
-            raise GoondanAbortError(f"run of {agent_path} in {conversation_id} was aborted")
+            await self._emit(session, "step.error", agent_name, session_id, turn_id, {"step": state.step, "codes": ["aborted"], "error": "the run was aborted"})
+            raise GoondanAbortError(f"run of {agent_name} in {session_id} was aborted")
         result = self._filled(result)
         found = stage_error("modelResult", result)
         if found:
             # §단계 값과 대화 저장: an invalid model result never reaches the error stage.
-            await self._emit(session, "step.error", agent_path, conversation_id, turn_id, {"step": state.step, "codes": ["value_invalid"], "error": f"the model result {found}"})
+            await self._emit(session, "step.error", agent_name, session_id, turn_id, {"step": state.step, "codes": ["value_invalid"], "error": f"the model result {found}"})
             raise GoondanExecutionError("modelResult", ["value_invalid"], f"the model result {found}", state.retry_count + 1)
-        await self._emit(session, "step.done", agent_path, conversation_id, turn_id, {"step": state.step, "finishReason": result["finishReason"]})
+        await self._emit(session, "step.done", agent_name, session_id, turn_id, {"step": state.step, "finishReason": result["finishReason"]})
         return result
 
     async def _recovered(self, state: _RunState, failure: GoondanExecutionError, target: str, retryable: bool = True) -> bool:
@@ -1144,7 +1224,7 @@ class Runtime:
             except Exception as broken:
                 # §이벤트 순서: a tool execution that was in progress when the abort was
                 # signalled reports tool.error with the code `aborted`, so `in_flight` stays.
-                if state.aborted(): raise GoondanAbortError(f"run of {state.agent_path} in {state.conversation_id} was aborted") from None
+                if state.aborted(): raise GoondanAbortError(f"run of {state.agent_name} in {state.session_id} was aborted") from None
                 state.in_flight = None
                 if isinstance(broken, GoondanConfigError):
                     # §확장 인스턴스: a configuration error is neither a tool failure nor a hook
@@ -1152,12 +1232,12 @@ class Runtime:
                     # tool.start this attempt reported with one tool.error.
                     if started:
                         value = _execution_error(broken)
-                        await self._emit(state.session, "tool.error", state.agent_path, state.conversation_id, state.turn_id, {**call_data, "codes": value["codes"], "error": value["message"]})
+                        await self._emit(state.session, "tool.error", state.agent_name, state.session_id, state.turn_id, {**call_data, "codes": value["codes"], "error": value["message"]})
                     raise
                 # §도구: a failed tool implementation is `["tool_error"]` and adds no second code.
                 failure = broken if isinstance(broken, GoondanExecutionError) else GoondanExecutionError("tool", ["tool_error"], str(broken), state.retry_count + 1, call, broken)
                 if started:
-                    await self._emit(state.session, "tool.error", state.agent_path, state.conversation_id, state.turn_id, {**call_data, "codes": failure.codes, "error": failure.message})
+                    await self._emit(state.session, "tool.error", state.agent_name, state.session_id, state.turn_id, {**call_data, "codes": failure.codes, "error": failure.message})
                 # §실행 오류: a hook failure or an invalid tool result is not a tool failure,
                 # so it ends the run without reaching the error stage.
                 if failure.where == "tool" and await self._recovered(state, failure, "tool", not stored): continue
@@ -1173,14 +1253,16 @@ class Runtime:
 
     async def _execute_call(self, state: _RunState, call: dict[str, Any], call_data: dict[str, Any], configured: Mapping[str, Any], execution: dict[str, Any] | None) -> dict[str, Any]:
         """Run an agent tool or a host/extension tool and build the tool result."""
-        session, agent_path, conversation_id, turn_id = state.session, state.agent_path, state.conversation_id, state.turn_id
+        session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         # §실행 중단: an aborted run starts no tool execution, so it reports no tool event either.
         self._running(state)
         state.in_flight = ("tool", call_data)
-        await self._emit(session, "tool.start", agent_path, conversation_id, turn_id, dict(call_data))
+        await self._emit(session, "tool.start", agent_name, session_id, turn_id, dict(call_data))
         if "agent" in configured:
             try:
-                child = await self._run_agent(call["name"], call["args"], f"{conversation_id}:{turn_id}:{call['name']}", scope=_Scope(state.scope.host, False), records=state.record.children, kind="tool")
+                target = str(configured["agent"])
+                messages = self._turn_input(target, call["args"])
+                child = await self._run_agent(target, messages, f"{session_id}#{turn_id}#{target}", scope=_Scope(state.scope.host, False), records=state.record.children, kind="tool")
             except (GoondanAbortError, GoondanConfigError):
                 # §확장 인스턴스: a configuration error fails the whole turn whatever started
                 # the run, so it never becomes this call's tool failure.
@@ -1191,13 +1273,13 @@ class Runtime:
             claimed: Mapping[str, Any] = {"content": child["output"]["content"]}
         else:
             tool = self.tools.get(call["name"]) or session.tools[call["name"]]
-            context = self._tool_context(state.agent_name, agent_path, conversation_id, turn_id, state.agent_input, state.conversation, call, execution, state.scope, state.record.children)
+            context = self._tool_context(state.agent_name, session_id, turn_id, state.agent_input, state.conversation, call, execution, state.scope, state.record.children)
             output = await _await(tool.execute(copy.deepcopy(call["args"]), context))
             claimed = _claimed_result(output)
         state.in_flight = None
         if state.aborted():
-            await self._emit(session, "tool.error", agent_path, conversation_id, turn_id, {**call_data, "codes": ["aborted"], "error": "the run was aborted"})
-            raise GoondanAbortError(f"run of {agent_path} in {conversation_id} was aborted")
+            await self._emit(session, "tool.error", agent_name, session_id, turn_id, {**call_data, "codes": ["aborted"], "error": "the run was aborted"})
+            raise GoondanAbortError(f"run of {agent_name} in {session_id} was aborted")
         result = _tool_result(call, claimed)
         found = stage_error("toolResult", result, call["id"])
         if found:
@@ -1211,10 +1293,10 @@ class Runtime:
         result = stage.value
         message = _tool_message(result)
         state.conversation = [*state.conversation, message]
-        await self.conversation_store.append(state.conversation_id, state.agent_path, [message])
+        if state.stateful: await self.conversation_store.append(state.session_id, state.agent_name, [message])
         if started:
             # §이벤트 종류: tool.done follows the stored tool result message.
-            await self._emit(state.session, "tool.done", state.agent_path, state.conversation_id, state.turn_id, {"tool": call["name"], "callId": call["id"], "args": call["args"], "result": result})
+            await self._emit(state.session, "tool.done", state.agent_name, state.session_id, state.turn_id, {"tool": call["name"], "callId": call["id"], "args": call["args"], "result": result})
 
     async def _create_operation(self, state: _RunState, call: dict[str, Any], execution: dict[str, Any] | None, reasons: list[str]) -> dict[str, Any]:
         """§승인 작업 생성 1~5: store the operation and the pending tool result of one call.
@@ -1222,16 +1304,16 @@ class Runtime:
         Returns the approval request, which the caller hands to the host once the call's
         tool result is stored and no retry can undo it ([§재시도](spec)).
         """
-        session, agent_path, conversation_id, turn_id = state.session, state.agent_path, state.conversation_id, state.turn_id
+        session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         operation_id = f"operation_{uuid.uuid4().hex}"
         now = _now()
-        request = {"operationId": operation_id, "conversationId": conversation_id, "turnId": turn_id, "agent": agent_path, "toolCall": copy.deepcopy(call), "reasons": list(reasons)}
+        request = {"operationId": operation_id, "sessionId": session_id, "turnId": turn_id, "agent": agent_name, "toolCall": copy.deepcopy(call), "reasons": list(reasons)}
         context = await self._operation_context(state, call, request)
         operation: dict[str, Any] = {
             "operationId": operation_id,
             "deliveryId": f"operation:{operation_id}:completion",
-            "agent": agent_path,
-            "conversationId": conversation_id,
+            "agent": agent_name,
+            "sessionId": session_id,
             "turnId": turn_id,
             "toolCall": copy.deepcopy(call),
             "reasons": list(reasons),
@@ -1247,8 +1329,8 @@ class Runtime:
         pending = {"status": "pending", "operationId": operation_id}
         message = _tool_message({"callId": call["id"], "content": [{"type": "json", "value": dict(pending)}], "meta": dict(pending)})
         state.conversation = [*state.conversation, message]
-        await self.conversation_store.append(conversation_id, agent_path, [message])
-        await self._emit(session, "humanApproval.created", agent_path, conversation_id, turn_id, {"operationId": operation_id, "tool": call["name"], "callId": call["id"], "reasons": list(reasons)})
+        if state.stateful: await self.conversation_store.append(session_id, agent_name, [message])
+        await self._emit(session, "humanApproval.created", agent_name, session_id, turn_id, {"operationId": operation_id, "tool": call["name"], "callId": call["id"], "reasons": list(reasons)})
         return request
 
     async def _request_approval(self, state: _RunState, call: dict[str, Any], request: Mapping[str, Any]) -> None:
@@ -1290,155 +1372,224 @@ class Runtime:
         if isinstance(error, GoondanAbortError) and state.in_flight is not None:
             kind, payload = state.in_flight
             state.in_flight = None
-            await self._emit(state.session, "step.error" if kind == "step" else "tool.error", state.agent_path, state.conversation_id, state.turn_id, {**payload, "codes": ["aborted"], "error": "the run was aborted"})
-        await self._emit(state.session, "turn.error", state.agent_path, state.conversation_id, state.turn_id, {"where": value["where"], "codes": list(value["codes"]), "error": value["message"]})
+            await self._emit(state.session, "step.error" if kind == "step" else "tool.error", state.agent_name, state.session_id, state.turn_id, {**payload, "codes": ["aborted"], "error": "the run was aborted"})
+        await self._emit(state.session, "turn.error", state.agent_name, state.session_id, state.turn_id, {"where": value["where"], "codes": list(value["codes"]), "error": value["message"]})
 
-    # --- turns and flow -----------------------------------------------------------------------
+    # --- turns and routes ---------------------------------------------------------------------
 
-    async def run_turn(self, value: Json, *, conversation_id: str = "default", start_agent: str | None = None, agent: str | None = None) -> dict[str, Any]:
-        """§시작 에이전트와 단일 에이전트 실행, §턴 결과.
-
-        `agent` is an [에이전트 경로](spec §에이전트 경로): the runtime resolves it through the
-        `config` agents of each step and runs that agent alone, without following routes.
-        `start_agent` names an agent of this configuration and keeps following the routes.
-        """
+    async def run(self, value: Json, *, session_id: str, start_agent: str | None = None, agent: str | None = None) -> dict[str, Any]:
+        """§세션: 같은 session_id의 턴을 도착 순서대로 실행한다."""
+        self._check_host_session_id(session_id)
         self._require_open()
         if agent is not None and start_agent is not None:
-            raise _flow_error("a turn names either the agent to run or the agent to start the flow with, not both")
-        scope = _Scope(conversation_id, True)
-        run = self._register(scope)
-        records: list[_RunRecord] = []
+            raise _route_error("a turn names either agent or start_agent")
+        lock = self._turn_locks.setdefault(session_id, asyncio.Lock())
+        self._turn_counts[session_id] = self._turn_counts.get(session_id, 0) + 1
         try:
-            if agent is not None:
-                outputs = [await self._run_single(agent, value, conversation_id, scope, records)]
-            else:
-                outputs = await self._run_flow(value, conversation_id, start_agent, scope, run, records, "flow")
+            async with lock:
+                self._require_open()
+                scope = _Scope(session_id, True)
+                records: list[_RunRecord] = []
+                if agent is not None:
+                    if agent not in self.config["agents"]:
+                        raise _route_error(f"unknown agent {agent!r}")
+                    result = await self._run_agent(agent, self._turn_input(agent, value), session_id, scope=scope, records=records, kind="turn")
+                    outputs = [(result["output"], result["finishReason"])]
+                else:
+                    outputs = await self._run_routes(value, session_id, start_agent, scope, records)
+                return self._turn_result(outputs, records)
         finally:
-            self._release(scope, run)
-        return self._turn_result(outputs, records)
+            remaining = self._turn_counts.get(session_id, 1) - 1
+            if remaining:
+                self._turn_counts[session_id] = remaining
+            else:
+                self._turn_counts.pop(session_id, None)
 
-    async def _run_single(self, agent: str, value: Json, conversation_id: str, scope: _Scope, records: list[_RunRecord]) -> tuple[dict[str, Any], str]:
-        """§시작 에이전트와 단일 에이전트 실행: run the agent of one path, following no route."""
+    def _effective_routes(self, start_agent: str | None) -> list[Mapping[str, Any]]:
+        declared = self.config.get("routes")
+        if isinstance(declared, list):
+            if start_agent is not None and not any(route.get("from") == start_agent for route in declared if isinstance(route, Mapping)):
+                raise _route_error(f"the start agent {start_agent!r} has no route")
+            return [route for route in declared if isinstance(route, Mapping)]
+        selected = start_agent or next(iter(self.config["agents"]), None)
+        if not isinstance(selected, str):
+            raise _route_error("the configuration declares no start agent")
+        return [{"from": "$input", "to": selected}, {"from": selected, "to": "$output"}]
+
+    def _departure_sets(self, routes: Sequence[Mapping[str, Any]]) -> dict[str, set[str]]:
+        edges: dict[str, list[str]] = {}
+        for route in routes:
+            if route["to"] != "$output":
+                edges.setdefault(str(route["from"]), []).append(str(route["to"]))
+        found: dict[str, set[str]] = {}
+        for target in self.config["agents"]:
+            without = {source: [item for item in values if item != target] for source, values in edges.items() if source != target}
+            sources = {
+                source for source in self.config["agents"] if source != target
+                and self._graph_reaches(edges, source, target)
+                and self._graph_reaches(without, "$input", source)
+            }
+            found[target] = sources
+        return found
+
+    @staticmethod
+    def _graph_reaches(edges: Mapping[str, Sequence[str]], start: str, goal: str) -> bool:
+        seen, stack = {start}, [start]
+        while stack:
+            current = stack.pop()
+            if current == goal:
+                return True
+            for target in edges.get(current, ()):
+                if target not in seen:
+                    seen.add(target)
+                    stack.append(target)
+        return False
+
+    async def _run_routes(self, value: Json, session_id: str, start_agent: str | None, scope: _Scope, records: list[_RunRecord]) -> list[tuple[dict[str, Any], str]]:
+        if start_agent is not None and start_agent not in self.config["agents"]:
+            raise _route_error(f"unknown start agent {start_agent!r}")
+        routes = self._effective_routes(start_agent)
+        departures = self._departure_sets(routes)
+        pending: dict[str, list[tuple[int, int, list[dict[str, Any]], list[dict[str, Any]]]]] = {}
+        active: dict[asyncio.Task[Any], tuple[str, list[dict[str, Any]]]] = {}
+        active_counts: dict[str, int] = {}
+        completed: asyncio.Queue[asyncio.Task[Any]] = asyncio.Queue()
+        routed_outputs: list[tuple[int, int, dict[str, Any], str]] = []
+        sequence = 0
+
+        def launch(name: str, messages: list[dict[str, Any]], initial_input: list[dict[str, Any]]) -> None:
+            task = asyncio.create_task(self._run_agent(name, messages, session_id, scope=scope, records=records, kind="turn"))
+            active[task] = (name, initial_input)
+            active_counts[name] = active_counts.get(name, 0) + 1
+            task.add_done_callback(completed.put_nowait)
+
+        def launch_ready() -> None:
+            progressed = True
+            while progressed:
+                progressed = False
+                ordered = sorted((items[0][0], items[0][1], name) for name, items in pending.items() if items)
+                for _, _, name in ordered:
+                    items = pending.get(name, [])
+                    if not items:
+                        continue
+                    stateful = self.config["agents"][name].get("stateful", True) is True
+                    if not stateful:
+                        route_index, order, messages, initial_input = items.pop(0)
+                        if not items:
+                            pending.pop(name, None)
+                        launch(name, messages, initial_input)
+                        progressed = True
+                        continue
+                    sources = departures.get(name, set())
+                    if active_counts.get(name, 0) or any(active_counts.get(source, 0) or pending.get(source) for source in sources):
+                        continue
+                    pending.pop(name, None)
+                    merged: list[dict[str, Any]] = []
+                    ordered_items = sorted(items)
+                    for _, _, messages, _ in ordered_items:
+                        merged.extend(messages)
+                    launch(name, merged, ordered_items[0][3])
+                    progressed = True
+
+        async def route_from(source: str, result: Mapping[str, Any] | None, initial_input: list[dict[str, Any]] | None) -> None:
+            nonlocal sequence
+            candidates = [(index, route) for index, route in enumerate(routes) if route.get("from") == source]
+            matched: list[tuple[int, Mapping[str, Any], list[dict[str, Any]]]] = []
+            for index, route in candidates:
+                target = str(route["to"])
+                condition_input = initial_input
+                if condition_input is None:
+                    condition_input = self._turn_input(target if target != "$output" else next(iter(self.config["agents"])), value)
+                output = result.get("output") if result is not None else None
+                argument = {"output": copy.deepcopy(output), "text": output_text(output) if output is not None else input_text(condition_input), "input": copy.deepcopy(condition_input)}
+                if await self._route_matches(route, argument):
+                    matched.append((index, route, condition_input))
+            if not matched:
+                raise _route_error(f"no route from {source!r} matched")
+            for index, route, condition_input in matched:
+                sequence += 1
+                target = str(route["to"])
+                if target == "$output":
+                    if result is None:
+                        raise _route_error("$input cannot route directly to $output")
+                    routed_outputs.append((index, sequence, copy.deepcopy(result["output"]), str(result["finishReason"])))
+                    continue
+                if result is None:
+                    messages = copy.deepcopy(condition_input)
+                else:
+                    message = {
+                        "id": uuid.uuid4().hex,
+                        "role": "user",
+                        "source": target,
+                        "content": copy.deepcopy(result["output"]["content"]),
+                        "meta": {"from": source, "instance": result["instance"]},
+                    }
+                    messages = [message]
+                pending.setdefault(target, []).append((index, sequence, messages, copy.deepcopy(condition_input)))
+            launch_ready()
+
         try:
-            runtime, local = self._resolve(agent)
-        except GoondanError as unknown:
-            raise _flow_error(f"the agent path {agent!r} names no agent of this configuration") from unknown
-        result = await runtime._run_agent(local, value, conversation_id, scope=scope, records=records, kind="flow")
-        return result["output"], result["finishReason"]
-
-    def _start_agent(self, start_agent: str | None) -> str:
-        """§시작 에이전트와 단일 에이전트 실행: the agent this turn's flow starts with."""
-        agents = self.config["agents"]
-        flow = self.config.get("flow") or {}
-        if start_agent is None:
-            start = flow.get("in") or next(iter(agents), None)
-            if not isinstance(start, str):
-                raise _flow_error("the configuration declares no agent the flow can start with")
-            return start
-        if start_agent not in agents:
-            raise _flow_error(f"the start agent {start_agent!r} is not an agent of this configuration")
-        routes = flow.get("routes")
-        if isinstance(routes, list) and not any(route["from"] == start_agent for route in routes):
-            raise _flow_error(f"the start agent {start_agent!r} has no route of its own")
-        return start_agent
-
-    async def _run_flow(self, value: Json, conversation_id: str, start_agent: str | None, scope: _Scope, run: _Run, records: list[_RunRecord], kind: str) -> list[tuple[dict[str, Any], str]]:
-        """§route 진행: run the start agent and follow the matched routes depth first."""
-        outputs: list[tuple[dict[str, Any], str]] = []
-        try:
-            start = self._start_agent(start_agent)
-            await self._flow_step(start, value, None, conversation_id, scope, run, records, kind, outputs)
-        except asyncio.CancelledError:
-            if not run.aborted: raise
-            task = asyncio.current_task()
-            if task is not None and task.cancelling(): task.uncancel()
-            raise GoondanAbortError(f"turn in {conversation_id} was aborted") from None
-        return outputs
-
-    async def _flow_step(self, agent_name: str, value: Json, carried: list[dict[str, Any]] | None, conversation_id: str, scope: _Scope, run: _Run, records: list[_RunRecord], kind: str, outputs: list[tuple[dict[str, Any], str]]) -> None:
-        """§route 진행: one flow step, and every branch it reaches, in declaration order."""
-        if run.aborted: raise GoondanAbortError(f"turn in {conversation_id} was aborted")
-        result = await self._run_agent(agent_name, value, conversation_id, carried, scope=scope, records=records, kind=kind)
-        flow = self.config.get("flow") or {}
-        routes = flow.get("routes")
-        if not isinstance(routes, list):
-            # §흐름: a flow without routes runs its first agent and takes its output.
-            outputs.append((result["output"], result["finishReason"]))
-            return
-        # §실행 중단: an aborted turn runs no further flow step and no route function.
-        if run.aborted: raise GoondanAbortError(f"turn in {conversation_id} was aborted")
-        candidates = [route for route in routes if route["from"] == agent_name]
-        if not candidates:
-            raise _flow_error(f"no route of the flow starts from the agent {agent_name!r}")
-        argument = {"output": output_text(result["output"]), "input": copy.deepcopy(value), "conversation": copy.deepcopy(result["conversation"])}
-        matched = [route for route in candidates if await self._route_matches(route, argument)]
-        if not matched:
-            raise _flow_error(f"no route from the agent {agent_name!r} matched this output")
-        for route in matched:
-            if route["to"] == "out":
-                outputs.append((result["output"], result["finishReason"]))
-                continue
-            carry = route.get("carry") or {}
-            next_value = await self._carried_message(carry.get("message", "output"), argument)
-            next_conversation = await self._carried_conversation(carry.get("conversation", "none"), argument["conversation"])
-            await self._flow_step(route["to"], next_value, next_conversation, conversation_id, scope, run, records, kind, outputs)
+            if start_agent is None:
+                await route_from("$input", None, None)
+            else:
+                initial_input = self._turn_input(start_agent, value)
+                pending.setdefault(start_agent, []).append((-1, 0, initial_input, copy.deepcopy(initial_input)))
+                launch_ready()
+            while active:
+                task = await completed.get()
+                name, initial_input = active.pop(task)
+                active_counts[name] -= 1
+                if not active_counts[name]:
+                    active_counts.pop(name)
+                result = task.result()
+                await route_from(name, result, initial_input)
+            if any(pending.values()):
+                raise _route_error("the route graph left inputs waiting")
+        except BaseException:
+            for task in active:
+                for run in self._runs.get(session_id, set()):
+                    if run.task is task:
+                        run.aborted = True
+                task.cancel()
+            if active:
+                await asyncio.gather(*active, return_exceptions=True)
+            pending.clear()
+            raise
+        routed_outputs.sort(key=lambda item: (item[0], item[1]))
+        return [(message, reason) for _, _, message, reason in routed_outputs]
 
     async def _route_matches(self, route: Mapping[str, Any], argument: Mapping[str, Any]) -> bool:
-        """§route 진행 2: a route without `when` matches, and a `when` function returns true or false."""
+        """§route 조건: 함수 조건과 출력 조건을 평가한다."""
         condition = route.get("when")
         if condition is None:
             return True
-        name = condition["fn"]
+        if "fn" in condition:
+            name = condition["fn"]
+            try:
+                decided = await _await(self.functions[name](copy.deepcopy(dict(argument))))
+            except Exception as broken:
+                raise _route_error(f"the route condition {name!r} failed: {broken}") from broken
+            if not isinstance(decided, bool):
+                raise _route_error(f"the route condition {name!r} must return true or false")
+            return decided
+        expected = condition.get("output")
+        text = str(argument["text"])
+        if isinstance(expected, str):
+            return text == expected
         try:
-            decided = await _await(self.functions[name](copy.deepcopy(dict(argument))))
-        except Exception as broken:
-            raise _flow_error(f"the route condition {name!r} failed: {broken}") from broken
-        if not isinstance(decided, bool):
-            raise _flow_error(f"the route condition {name!r} must return true or false")
-        return decided
-
-    async def _carried_message(self, rule: Any, argument: Mapping[str, Any]) -> Json:
-        """§route 함수와 `carry`: the input the next agent receives."""
-        if rule == "output":
-            return argument["output"]
-        if isinstance(rule, Mapping) and "fn" in rule:
-            name = rule["fn"]
-            try:
-                return await _await(self.functions[name](copy.deepcopy(dict(argument))))
-            except Exception as broken:
-                raise _flow_error(f"the carry message function {name!r} failed: {broken}") from broken
-        if isinstance(rule, Mapping) and "template" in rule:
-            try:
-                return self.render(rule["template"], argument)
-            except Exception as broken:
-                raise _flow_error(f"the carry message template failed: {broken}") from broken
-        raise _flow_error("carry.message is output, a function or a template")
-
-    async def _carried_conversation(self, rule: Any, conversation: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-        """§route 함수와 `carry`: the conversation the next agent continues, or `None` for its own."""
-        if rule == "none":
-            return None
-        if rule == "asis":
-            return copy.deepcopy(conversation)
-        if isinstance(rule, Mapping) and "fn" in rule:
-            name = rule["fn"]
-            try:
-                carried = await _await(self.functions[name](copy.deepcopy(conversation)))
-            except Exception as broken:
-                raise _flow_error(f"the carry conversation function {name!r} failed: {broken}") from broken
-            if not is_carried_conversation(carried):
-                raise _flow_error(f"the carry conversation function {name!r} must return an array of messages")
-            return copy.deepcopy(carried)
-        raise _flow_error("carry.conversation is none, asis or a function")
+            parsed = json.loads(text, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(parsed, dict) and isinstance(expected, Mapping) and all(key in parsed and json_equal(parsed[key], value) for key, value in expected.items())
 
     def _combined(self, outputs: Sequence[tuple[dict[str, Any], str]]) -> tuple[dict[str, Any], str]:
-        """§턴 결과, §종료 사유: the representative output of one flow and its finish reason."""
+        """§턴 결과, §종료 사유: the representative route output and its finish reason."""
         if not outputs:
-            raise _flow_error("the flow reached no output")
+            raise _route_error("the turn reached no output")
         if len(outputs) == 1:
             return copy.deepcopy(outputs[0][0]), outputs[0][1]
         reasons = [reason for _, reason in outputs]
-        message = _message("assistant", "\n\n".join(output_text(item) for item, _ in outputs), "flow")
+        message = _message("assistant", "\n\n".join(output_text(item) for item, _ in outputs), "goondan")
         return message, reasons[0] if all(reason == reasons[0] for reason in reasons) else "other"
 
     def _turn_result(self, outputs: Sequence[tuple[dict[str, Any], str]], records: Sequence[_RunRecord]) -> dict[str, Any]:
@@ -1456,7 +1607,7 @@ class Runtime:
     # --- approval operations ------------------------------------------------------------------
 
     def _require_open(self) -> None:
-        """§런타임 종료와 작업: a closed runtime accepts no decision, cancellation or recovery."""
+        """§군단 객체 종료와 작업: 닫힌 객체는 새 요청을 받지 않는다."""
         if self._root._closed:
             raise GoondanExecutionError("runtime", ["runtime_error"], "the runtime is closed")
 
@@ -1492,38 +1643,38 @@ class Runtime:
         """§승인 작업 생성 2: the approval request the host receives."""
         return {
             "operationId": str(operation["operationId"]),
-            "conversationId": str(operation["conversationId"]),
+            "sessionId": str(operation["sessionId"]),
             "turnId": str(operation["turnId"]),
             "agent": str(operation["agent"]),
             "toolCall": copy.deepcopy(operation["toolCall"]),
             "reasons": copy.deepcopy(operation["reasons"]),
         }
 
-    async def list_operations(self, conversation_id: str | None = None) -> list[dict[str, Any]]:
-        """§결정과 취소: the stored operations in creation order, of one conversation or all."""
-        return await self._root.operation_store.list(conversation_id)
+    async def list_operations(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        """§결정과 취소: the stored operations in creation order, of one session or all."""
+        return await self._root.operation_store.list(session_id)
 
-    async def _transition(self, conversation_id: str, operation_id: str, expected: Sequence[str], updates: Mapping[str, Any]) -> dict[str, Any] | None:
+    async def _transition(self, session_id: str, operation_id: str, expected: Sequence[str], updates: Mapping[str, Any]) -> dict[str, Any] | None:
         """§작업 저장소 프로토콜: one conditional transition, which always carries the new `updatedAt`."""
-        return await self.operation_store.transition(conversation_id, operation_id, list(expected), {**dict(updates), "updatedAt": _now()})
+        return await self.operation_store.transition(session_id, operation_id, list(expected), {**dict(updates), "updatedAt": _now()})
 
-    async def decide_operation(self, conversation_id: str, operation_id: str, decision: Any) -> dict[str, Any]:
+    async def decide_operation(self, session_id: str, operation_id: str, decision: Any) -> dict[str, Any]:
         """§결정과 취소: approve or reject a pending operation and return it right away."""
         self._require_open()
         root = self._root
-        operation = await root.operation_store.get(conversation_id, operation_id)
+        operation = await root.operation_store.get(session_id, operation_id)
         if operation is None:
-            raise self._invalid_operation(f"conversation {conversation_id!r} has no operation {operation_id!r}")
+            raise self._invalid_operation(f"session {session_id!r} has no operation {operation_id!r}")
         if not isinstance(decision, Mapping) or decision.get("decision") not in {"approved", "rejected"}:
             raise self._invalid_operation("a decision is an object whose decision is approved or rejected")
         updates: dict[str, Any] = {"status": decision["decision"]}
         if "inputPatch" in decision:
             updates.update(await self._input_patch(operation, decision))
-        updated = await self._transition(conversation_id, operation_id, ["pending"], updates)
+        updated = await self._transition(session_id, operation_id, ["pending"], updates)
         if updated is None:
             # §결정과 취소: an operation that is no longer pending keeps its stored state.
-            return await root.operation_store.get(conversation_id, operation_id) or operation
-        key = (conversation_id, operation_id)
+            return await root.operation_store.get(session_id, operation_id) or operation
+        key = (session_id, operation_id)
         if updated["status"] == "approved":
             root._start(root._execute_operation(updated), key)
         else:
@@ -1547,26 +1698,26 @@ class Runtime:
             raise self._invalid_operation("the host did not allow this inputPatch")
         return {"inputPatch": copy.deepcopy(patch), "resolvedToolCall": {**copy.deepcopy(operation["toolCall"]), "args": _merge(args, patch)}}
 
-    async def cancel_operation(self, conversation_id: str, operation_id: str) -> dict[str, Any]:
+    async def cancel_operation(self, session_id: str, operation_id: str) -> dict[str, Any]:
         """§결정과 취소: cancel an operation that has not started running."""
         self._require_open()
         root = self._root
-        operation = await root.operation_store.get(conversation_id, operation_id)
+        operation = await root.operation_store.get(session_id, operation_id)
         if operation is None:
-            raise self._invalid_operation(f"conversation {conversation_id!r} has no operation {operation_id!r}")
-        updated = await self._transition(conversation_id, operation_id, ["pending", "approved"], {"status": "cancelled"})
+            raise self._invalid_operation(f"session {session_id!r} has no operation {operation_id!r}")
+        updated = await self._transition(session_id, operation_id, ["pending", "approved"], {"status": "cancelled"})
         if updated is None:
-            return await root.operation_store.get(conversation_id, operation_id) or operation
-        root._start(root._deliver_operation(updated), (conversation_id, operation_id))
+            return await root.operation_store.get(session_id, operation_id) or operation
+        root._start(root._deliver_operation(updated), (session_id, operation_id))
         return updated
 
-    async def recover_operations(self, conversation_id: str | None = None) -> None:
+    async def recover_operations(self, session_id: str | None = None) -> None:
         """§복구: carry on with the operations an earlier runtime left in the store."""
         self._require_open()
         root = self._root
         failure: BaseException | None = None
-        for stored in await root.operation_store.list(conversation_id):
-            cid, operation_id = str(stored["conversationId"]), str(stored["operationId"])
+        for stored in await root.operation_store.list(session_id):
+            cid, operation_id = str(stored["sessionId"]), str(stored["operationId"])
             key = (cid, operation_id)
             # §복구: the work this runtime is doing right now is not interrupted work.
             if key in root._in_flight:
@@ -1603,43 +1754,48 @@ class Runtime:
 
     async def _execute_operation(self, operation: Mapping[str, Any]) -> None:
         """§승인된 작업의 실행: check the approved operation, run its tool and record the outcome."""
-        conversation_id, operation_id = str(operation["conversationId"]), str(operation["operationId"])
+        session_id, operation_id = str(operation["sessionId"]), str(operation["operationId"])
         call = copy.deepcopy(operation.get("resolvedToolCall") or operation["toolCall"])
         approved = await self._validated_operation(operation, call)
         if isinstance(approved, str):
             # §승인된 작업의 실행 1: a failed check never reaches running and runs no tool.
-            failed = await self._transition(conversation_id, operation_id, ["approved"], {"status": "failed", "error": approved, "errorCode": "validation_failed"})
+            failed = await self._transition(session_id, operation_id, ["approved"], {"status": "failed", "error": approved, "errorCode": "validation_failed"})
             if failed is not None:
                 await self._deliver_operation(failed)
-            return
-        # §승인된 작업의 실행 2: an operation cancelled in the meantime is not run.
-        if await self._transition(conversation_id, operation_id, ["approved"], {"status": "running"}) is None:
             return
         runtime, agent_name, session = approved.runtime, approved.agent_name, approved.session
-        agent_path, turn_id = runtime._path(agent_name), str(operation["turnId"])
-        data = {"tool": call["name"], "callId": call["id"], "args": call["args"], "operationId": operation_id}
+        stateless = runtime.config["agents"][agent_name].get("stateful", True) is not True
         try:
-            await runtime._emit(session, "tool.start", agent_path, conversation_id, turn_id, dict(data))
-            result = await runtime._operation_result(approved, operation, call)
-        except asyncio.CancelledError:
-            raise
-        except Exception as broken:
-            # §런타임 종료와 작업: an execution that ended after the runtime closed is not recorded.
+            # §승인된 작업의 실행 2: 그사이 취소된 작업은 실행하지 않는다.
+            if await self._transition(session_id, operation_id, ["approved"], {"status": "running"}) is None:
+                return
+            agent_name_for_event, turn_id = agent_name, str(operation["turnId"])
+            data = {"tool": call["name"], "callId": call["id"], "args": call["args"], "operationId": operation_id}
+            try:
+                await runtime._emit(session, "tool.start", agent_name_for_event, session_id, turn_id, dict(data))
+                result = await runtime._operation_result(approved, operation, call)
+            except asyncio.CancelledError:
+                raise
+            except Exception as broken:
+                # §군단 객체 종료와 작업: 닫힌 뒤에 끝난 실행은 결과를 기록하지 않는다.
+                if self._root._closed:
+                    return
+                codes = broken.codes if isinstance(broken, GoondanExecutionError) else ["tool_error"]
+                failed = await self._transition(session_id, operation_id, ["running"], {"status": "failed", "error": str(broken), "errorCode": "execution_failed"})
+                await runtime._emit(session, "tool.error", agent_name_for_event, session_id, turn_id, {**data, "codes": codes, "error": str(broken)})
+                if failed is not None:
+                    await self._deliver_operation(failed)
+                return
+            # §군단 객체 종료와 작업: 닫힌 뒤에 끝난 실행은 결과를 기록하지 않는다.
             if self._root._closed:
                 return
-            codes = broken.codes if isinstance(broken, GoondanExecutionError) else ["tool_error"]
-            failed = await self._transition(conversation_id, operation_id, ["running"], {"status": "failed", "error": str(broken), "errorCode": "execution_failed"})
-            await runtime._emit(session, "tool.error", agent_path, conversation_id, turn_id, {**data, "codes": codes, "error": str(broken)})
-            if failed is not None:
-                await self._deliver_operation(failed)
-            return
-        # §런타임 종료와 작업: what finishes after the runtime closed is not recorded.
-        if self._root._closed:
-            return
-        completed = await self._transition(conversation_id, operation_id, ["running"], {"status": "completed", "result": result})
-        await runtime._emit(session, "tool.done", agent_path, conversation_id, turn_id, {**data, "result": result})
-        if completed is not None:
-            await self._deliver_operation(completed)
+            completed = await self._transition(session_id, operation_id, ["running"], {"status": "completed", "result": result})
+            await runtime._emit(session, "tool.done", agent_name_for_event, session_id, turn_id, {**data, "result": result})
+            if completed is not None:
+                await self._deliver_operation(completed)
+        finally:
+            if stateless:
+                await runtime._dispose(session.extensions)
 
     async def _validated_operation(self, operation: Mapping[str, Any], call: Mapping[str, Any]) -> _Approved | str:
         """§승인된 작업의 실행 1: the checks before `running`, or the message of the first failure."""
@@ -1649,52 +1805,58 @@ class Runtime:
         except GoondanError:
             return failed
         agent = runtime.config["agents"][agent_name]
-        if "config" in agent:
-            return failed
         try:
             configured = runtime._configured_tool(agent_name, str(call["name"]))
         except GoondanError:
             return failed
         try:
-            session = await runtime._session(agent_name, str(operation["conversationId"]))
+            session = await runtime._session(agent_name, str(operation["sessionId"]))
         except Exception:
             return failed
-        if "agent" in configured:
-            if configured["agent"] not in runtime.config["agents"]:
+        stateless = agent.get("stateful", True) is not True
+        accepted = False
+        try:
+            if "agent" in configured:
+                if configured["agent"] not in runtime.config["agents"]:
+                    return failed
+            elif call["name"] not in runtime.tools and call["name"] not in session.tools:
                 return failed
-        elif call["name"] not in runtime.tools and call["name"] not in session.tools:
-            return failed
-        validate = getattr(self._root.host, "validate_operation", None)
-        if validate is not None:
-            try:
+            validate = getattr(self._root.host, "validate_operation", None)
+            if validate is not None:
                 if await _await(validate(copy.deepcopy(dict(operation)))) is not True:
                     return failed
-            except Exception as broken:
-                return str(broken)
-        return _Approved(runtime, agent_name, session, configured)
+            accepted = True
+            return _Approved(runtime, agent_name, session, configured)
+        except Exception as broken:
+            return str(broken)
+        finally:
+            if stateless and not accepted:
+                await runtime._dispose(session.extensions)
 
     async def _operation_result(self, approved: _Approved, operation: Mapping[str, Any], call: Mapping[str, Any]) -> dict[str, Any]:
         """§승인된 작업의 실행 3, 4: run the tool of an approved operation and apply its hooks."""
         agent_name, session, configured = approved.agent_name, approved.session, approved.configured
-        conversation_id, turn_id = str(operation["conversationId"]), str(operation["turnId"])
-        operation_id, agent_path = str(operation["operationId"]), self._path(agent_name)
+        session_id, turn_id = str(operation["sessionId"]), str(operation["turnId"])
+        operation_id, agent_name = str(operation["operationId"]), agent_name
         scope = _Scope(None, False)
         input_value: Json = {"type": "operation_execution", "operationId": operation_id}
-        conversation = await self.conversation_store.load(conversation_id, agent_path)
+        stateful = self.config["agents"][agent_name].get("stateful", True) is True
+        conversation = await self.conversation_store.load(session_id, agent_name) if stateful else []
         if "agent" in configured:
             target = str(configured["agent"])
-            child = await self._run_agent(target, call["args"], f"{conversation_id}:{turn_id}:{target}", scope=scope, kind="tool")
+            child = await self._run_agent(target, self._turn_input(target, call["args"]), f"{session_id}#{turn_id}#{target}", scope=scope, kind="tool")
             claimed: Mapping[str, Any] = {"content": child["output"]["content"]}
         else:
             tool = self.tools.get(str(call["name"])) or session.tools[str(call["name"])]
-            context = self._tool_context(agent_name, agent_path, conversation_id, turn_id, input_value, conversation, call, operation.get("execution"), scope, None)
+            context = self._tool_context(agent_name, session_id, turn_id, input_value, conversation, call, operation.get("execution"), scope, None)
             output = await _await(tool.execute(copy.deepcopy(call["args"]), context))
             claimed = _claimed_result(output)
         result = _tool_result(call, claimed)
         found = stage_error("toolResult", result, str(call["id"]))
         if found:
             raise GoondanExecutionError("toolResult", ["value_invalid"], f"the tool result {found}")
-        state = _RunState(agent_name, agent_path, conversation_id, turn_id, session, scope, None, input_value, conversation, Completion(effective=False), _RunRecord(agent_path, turn_id, "tool"))
+        instance = f"{session_id}/{agent_name}" if stateful else uuid.uuid4().hex
+        state = _RunState(agent_name, session_id, instance, turn_id, session, scope, None, input_value, conversation, stateful, Completion(effective=False), _RunRecord(agent_name, instance, turn_id, "tool"))
         owned = turn_id not in self._scopes
         if owned: self._scopes[turn_id] = scope
         try:
@@ -1708,9 +1870,9 @@ class Runtime:
         root = self._root
         if root._closed or operation.get("status") not in TERMINAL_STATUSES:
             return
-        conversation_id, operation_id = str(operation["conversationId"]), str(operation["operationId"])
+        session_id, operation_id = str(operation["sessionId"]), str(operation["operationId"])
         # §작업 저장소 프로토콜: the runtime claims a delivery only for an operation in a terminal state.
-        claimed = await root.operation_store.claim_delivery(conversation_id, operation_id, _now())
+        claimed = await root.operation_store.claim_delivery(session_id, operation_id, _now())
         if claimed is None or claimed.get("status") not in TERMINAL_STATUSES:
             return
         completion = _completion_input(claimed)
@@ -1719,7 +1881,7 @@ class Runtime:
             if deliver is not None:
                 await _await(deliver(copy.deepcopy(completion)))
             else:
-                await root._deliver_turn(completion, conversation_id, str(claimed["agent"]))
+                await root._deliver_turn(completion, session_id, str(claimed["agent"]))
         except asyncio.CancelledError:
             # §런타임 종료와 작업: an interrupted delivery stays `delivering` for recovery.
             raise
@@ -1728,39 +1890,41 @@ class Runtime:
                 return
             # §완료 전달: only the delivery state goes back, and only for the delivery just claimed;
             # recovery tries again.
-            await root.operation_store.release_delivery(conversation_id, operation_id, _delivery_id(claimed), _now())
+            await root.operation_store.release_delivery(session_id, operation_id, _delivery_id(claimed), _now())
             return
         if root._closed:
             return
         # §작업 저장소 프로토콜: confirming a delivery is a transition out of the operation's own
         # terminal status, so the store needs no request of its own for it.
-        await root._transition(conversation_id, operation_id, [str(claimed["status"])], {"deliveryStatus": "delivered", "deliveredAt": _now()})
+        await root._transition(session_id, operation_id, [str(claimed["status"])], {"deliveryStatus": "delivered", "deliveredAt": _now()})
 
-    async def _deliver_turn(self, completion: Mapping[str, Any], conversation_id: str, agent_path: str) -> None:
+    async def _deliver_turn(self, completion: Mapping[str, Any], session_id: str, agent_name: str) -> None:
         """§완료 전달 3: the turn the runtime runs when the host delivers nothing itself."""
-        async with self._delivery_lock(conversation_id):
-            await self._conversation_idle(conversation_id)
-            await self.run_turn(dict(completion), conversation_id=conversation_id, agent=agent_path)
+        async with self._delivery_lock(session_id):
+            await self._session_idle(session_id)
+            await self.run(dict(completion), session_id=session_id, agent=agent_name)
 
-    def _delivery_lock(self, conversation_id: str) -> asyncio.Lock:
+    def _delivery_lock(self, session_id: str) -> asyncio.Lock:
         locks = self._root._delivery_locks
-        lock = locks.get(conversation_id)
+        lock = locks.get(session_id)
         if lock is None:
-            lock = locks[conversation_id] = asyncio.Lock()
+            lock = locks[session_id] = asyncio.Lock()
         return lock
 
-    async def _conversation_idle(self, conversation_id: str) -> None:
-        """§완료 전달 3: wait until no other turn of this conversation is in progress."""
+    async def _session_idle(self, session_id: str) -> None:
+        """§완료 전달 3: wait until no other turn of this session is in progress."""
         while True:
-            runs = self._root._runs.get(conversation_id)
+            runs = self._root._runs.get(session_id)
             tasks = {run.task for run in runs if run.task is not None and not run.task.done()} if runs else set()
             if not tasks:
                 return
             await asyncio.wait(tasks)
 
     async def close(self) -> None:
-        """§런타임 종료와 작업: abort every turn in progress, drop steered input and dispose instances."""
-        for conversation_id in list(self._runs): self.abort(conversation_id)
+        """§군단 객체 종료와 작업: 실행을 중단하고 보유한 인스턴스를 정리한다."""
+        if self._closed:
+            return
+        for session_id in list(self._runs): self.abort(session_id)
         for run in list(self._detached):
             run.aborted = True
             if run.task is not None: run.task.cancel()
@@ -1768,14 +1932,15 @@ class Runtime:
         self._steering.clear()
         # §실행 중단: an approved operation and its completion delivery are only stopped here.
         for task in list(self._delivery_tasks): task.cancel()
-        for child in self.child_runtimes.values(): await child.close()
-        for session in self.sessions.values():
+        for session in self._agent_sessions.values():
             tasks = list(session.pending.values())
             for task in tasks: task.cancel()
             if tasks: await asyncio.gather(*tasks, return_exceptions=True)
             session.pending.clear()
             await self._dispose(session.extensions)
+        self._agent_sessions.clear()
 
 
-def create_runtime(**kwargs: Any) -> Runtime:
-    return Runtime(**kwargs)
+def create_goondan(config: Mapping[str, Any], **bindings: Any) -> Goondan:
+    """구성과 호스트 바인딩으로 군단 객체를 만든다."""
+    return Goondan(config=config, **bindings)

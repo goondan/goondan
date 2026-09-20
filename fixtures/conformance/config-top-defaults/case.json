@@ -1,5 +1,5 @@
 {
-  "description": "version, name, flow를 생략한 구성의 유효 구성은 version 1, name goondan, flow {in: 처음 선언된 에이전트}이며 생략한 다른 필드는 채우지 않는다.",
+  "description": "version, name과 routes를 생략한 구성의 유효 구성은 version 1과 name goondan을 채우며 routes를 비롯한 다른 생략 필드는 채우지 않는다.",
   "spec": [
     "최상위 구성",
     "합성 결과와 유효 구성"

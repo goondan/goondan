@@ -10,11 +10,13 @@
         "toolCall": {
           "id": "f-1",
           "name": "fail",
-          "args": {}
+          "args": {
+          }
         }
       }
     },
-    {}
+    {
+    }
   ],
   "observations": {
     "functionCalls": [
@@ -54,7 +56,8 @@
                 "type": "tool.call",
                 "callId": "k-1",
                 "name": "keep",
-                "args": {}
+                "args": {
+                }
               }
             ]
           },
@@ -107,7 +110,8 @@
               "type": "tool.call",
               "callId": "k-1",
               "name": "keep",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

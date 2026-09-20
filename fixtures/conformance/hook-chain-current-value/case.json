@@ -1,5 +1,5 @@
 {
-  "description": "단계는 선언 순서대로 훅을 실행하며 첫 훅의 현재 값은 단계의 처음 값이고 앞 훅의 결과를 적용한 값이 다음 훅의 현재 값이 된다.",
+  "description": "단계는 선언 순서대로 훅을 실행하며 앞 훅이 바꾼 메시지 배열을 다음 훅의 현재 값으로 전달한다.",
   "spec": [
     "훅 실행과 결과",
     "인라인 훅"
@@ -20,23 +20,21 @@
     },
     "functions": {
       "first": {
-        "op": "wrap",
-        "key": "text",
-        "with": {
-          "stage": "first"
-        }
+        "op": "set",
+        "path": "/0/content/0/text",
+        "value": "첫째"
       },
       "second": {
         "op": "set",
-        "path": "/stage",
-        "value": "second"
+        "path": "/0/content/0/text",
+        "value": "둘째"
       }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "안녕"
       }
     }

@@ -1,1 +1,1 @@
-B:{{ text }}|{{ input }}|{{ params.tag }}
+B:{{ input[0].content[0].text }}|{{ params.tag }}

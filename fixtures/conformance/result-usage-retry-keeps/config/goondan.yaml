@@ -4,5 +4,4 @@ agents:
     hooks:
       modelResult:
         - fn: retryOnce
-flow:
-  in: main
+routes: [main]

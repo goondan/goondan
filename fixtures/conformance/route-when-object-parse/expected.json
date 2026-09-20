@@ -1,0 +1,6 @@
+{
+  "steps": [
+    {"result": {"output": {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "첫째"}]}}},
+    {"result": {"output": {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "둘째"}]}}}
+  ]
+}

@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: mainModel
+    hooks:
+      conversation:
+        - agent: helper
+  helper:
+    model: helperModel
+    stateful: false

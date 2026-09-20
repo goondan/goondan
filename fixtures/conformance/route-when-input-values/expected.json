@@ -1,0 +1,15 @@
+{
+  "steps": [{}, {}],
+  "observations": {
+    "conversations": {
+      "s1/main": [
+        {"role": "user", "source": "main", "content": [{"type": "text", "text": "go"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "문자열"}]}
+      ],
+      "s2/main": [
+        {"role": "user", "source": "main", "content": [{"type": "text", "text": "{\"kind\":\"special\",\"extra\":1}"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "객체"}]}
+      ]
+    }
+  }
+}

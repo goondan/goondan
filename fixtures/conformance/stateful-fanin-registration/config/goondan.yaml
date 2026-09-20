@@ -1,0 +1,8 @@
+agents:
+  x: {model: xModel}
+  y: {model: yModel}
+routes:
+  - {from: $input, to: x}
+  - {from: $input, to: y}
+  - {from: y, to: x}
+  - {from: x, to: $output}

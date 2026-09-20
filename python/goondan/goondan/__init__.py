@@ -1,5 +1,5 @@
 from .config import load_config, validate_config
-from .runtime import Runtime, create_runtime
+from .runtime import Goondan, create_goondan
 from .store import InMemoryConversationStore, InMemoryOperationStore
 from .types import (
     Append,
@@ -27,6 +27,6 @@ __all__ = [
     "ExtensionDefinition", "HookContext", "ModelContext", "NoLog",
     "InMemoryOperationStore", "InMemoryConversationStore",
     "GoondanAbortError", "GoondanConfig", "GoondanConfigError", "GoondanError",
-    "GoondanExecutionError", "OperationStore", "Runtime", "Tool",
-    "create_runtime", "define_extension", "define_tool", "load_config", "validate_config",
+    "GoondanExecutionError", "Goondan", "OperationStore", "Tool",
+    "create_goondan", "define_extension", "define_tool", "load_config", "validate_config",
 ]

@@ -133,8 +133,6 @@ def _absolute_declared_paths(raw: Mapping[str, Any], directory: str) -> dict[str
     for agent in agents.values() if isinstance(agents, dict) else []:
         if not isinstance(agent, dict):
             continue
-        if "config" in agent:
-            agent["config"] = _declared_path(agent["config"], directory)
         rule = agent.get("input")
         if isinstance(rule, dict) and "template" in rule:
             rule["template"] = _declared_path(rule["template"], directory)
@@ -147,13 +145,6 @@ def _absolute_declared_paths(raw: Mapping[str, Any], directory: str) -> dict[str
             for entry in entries if isinstance(entries, list) else []:
                 if isinstance(entry, dict) and "template" in entry:
                     entry["template"] = _declared_path(entry["template"], directory)
-    flow = result.get("flow")
-    routes = flow.get("routes") if isinstance(flow, dict) else None
-    for route in routes if isinstance(routes, list) else []:
-        carry = route.get("carry") if isinstance(route, dict) else None
-        message = carry.get("message") if isinstance(carry, dict) else None
-        if isinstance(message, dict) and "template" in message:
-            message["template"] = _declared_path(message["template"], directory)
     return result
 
 
@@ -269,8 +260,6 @@ def _inheritance(agents: Mapping[str, Any], directory: str | None) -> tuple[dict
 
 def _effective_agent(agent: Mapping[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(dict(agent))
-    if "config" in result:
-        return {key: result[key] for key in result if key in ("config", "description")}
     extensions = result.get("extensions")
     disabled = {name for name, use in extensions.items() if isinstance(use, Mapping) and use.get("enabled") is False} if isinstance(extensions, Mapping) else set()
     hooks = result.get("hooks")
@@ -281,40 +270,71 @@ def _effective_agent(agent: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _normalized_flow(document: Mapping[str, Any], agents: Mapping[str, Any]) -> Any:
-    flow = document.get("flow")
-    if isinstance(flow, list):
-        routes = [{"from": name, "to": flow[index + 1] if index + 1 < len(flow) else "out"} for index, name in enumerate(flow)]
-        return {"in": flow[0], "routes": routes}
-    if flow is None and "flow" not in document:
-        return {"in": next(iter(agents))} if agents else {}
-    return flow
+def _normalized_routes(routes: Any) -> Any:
+    if not isinstance(routes, list) or not routes or not all(isinstance(name, str) for name in routes):
+        return copy.deepcopy(routes)
+    result = [{"from": "$input", "to": routes[0]}]
+    result.extend(
+        {"from": name, "to": routes[index + 1] if index + 1 < len(routes) else "$output"}
+        for index, name in enumerate(routes)
+    )
+    return result
 
 
 # --- reference phase -----------------------------------------------------------------------
 
 
-def _flow_issues(document: Mapping[str, Any], agents: Mapping[str, Any]) -> list[Issue]:
+def _route_issues(document: Mapping[str, Any], agents: Mapping[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
-    flow = document.get("flow")
-    if isinstance(flow, list):
-        for index, name in enumerate(flow):
-            if name not in agents:
-                issues.append(issue("reference.agent", ["flow", index], f"must name an agent declared in this configuration, not {name!r}"))
+    declared = document.get("routes")
+    if declared is None and "routes" not in document:
         return issues
-    if not isinstance(flow, Mapping):
+    serial = isinstance(declared, list) and all(isinstance(name, str) for name in declared)
+    if serial:
+        for index, name in enumerate(declared):
+            if name in {"$input", "$output"}:
+                issues.append(issue("routes.reserved", ["routes", index], f"the reserved name {name!r} cannot be an agent in serial routes"))
+            elif name not in agents:
+                issues.append(issue("reference.agent", ["routes", index], f"must name an agent declared in this configuration, not {name!r}"))
+        routes = _normalized_routes(declared)
+        known = [
+            (index, route)
+            for index, route in enumerate(routes)
+            if isinstance(route, Mapping)
+            and route.get("from") in {"$input", *agents}
+            and route.get("to") in {"$output", *agents}
+            and not (route.get("from") == "$input" and route.get("to") == "$output")
+        ]
+        return [*issues, *_route_structure_issues(known, agents)]
+    else:
+        routes = declared
+    if not isinstance(routes, list):
         return issues
-    if flow.get("in") not in agents:
-        issues.append(issue("reference.agent", ["flow", "in"], f"must name an agent declared in this configuration, not {flow.get('in')!r}"))
-    for index, route in enumerate(flow.get("routes", [])):
+    known: list[tuple[int, Mapping[str, Any]]] = []
+    for index, route in enumerate(routes):
         if not isinstance(route, Mapping):
             continue
-        if route.get("from") not in agents:
-            issues.append(issue("reference.agent", ["flow", "routes", index, "from"], f"must name an agent declared in this configuration, not {route.get('from')!r}"))
-        target = route.get("to")
-        if target != "out" and target not in agents:
-            issues.append(issue("reference.agent", ["flow", "routes", index, "to"], f"must name an agent or out, not {target!r}"))
-    return [*issues, *_flow_structure_issues(flow, agents)]
+        source, target = route.get("from"), route.get("to")
+        path_index = max(index - 1, 0) if serial else index
+        if source == "$output":
+            issues.append(issue("routes.reserved", ["routes", path_index] if serial else ["routes", index, "from"], "a route cannot start at $output"))
+            continue
+        if target == "$input":
+            issues.append(issue("routes.reserved", ["routes", path_index] if serial else ["routes", index, "to"], "a route cannot end at $input"))
+            continue
+        if source == "$input" and target == "$output":
+            issues.append(issue("routes.reserved", ["routes", path_index], "a route cannot connect $input directly to $output"))
+            continue
+        valid = True
+        if source != "$input" and source not in agents:
+            issues.append(issue("reference.agent", ["routes", path_index] if serial else ["routes", index, "from"], f"must name an agent or $input, not {source!r}"))
+            valid = False
+        if target != "$output" and target not in agents:
+            issues.append(issue("reference.agent", ["routes", path_index] if serial else ["routes", index, "to"], f"must name an agent or $output, not {target!r}"))
+            valid = False
+        if valid:
+            known.append((index, route))
+    return [*issues, *_route_structure_issues(known, agents)]
 
 
 def _reaches(edges: Mapping[str, list[str]], start: str, goal: str) -> bool:
@@ -332,62 +352,54 @@ def _reaches(edges: Mapping[str, list[str]], start: str, goal: str) -> bool:
     return False
 
 
-def _flow_structure_issues(flow: Mapping[str, Any], agents: Mapping[str, Any]) -> list[Issue]:
-    """§route 선언과 검증: the conditions a flow with declared routes must satisfy.
-
-    Routes whose `from` or `to` names an agent the configuration does not declare are left
-    out of these checks, and so is an `in` that names no declared agent.
-    """
-    routes = flow.get("routes")
-    if not isinstance(routes, list) or not routes:
-        return []
+def _route_structure_issues(known: list[tuple[int, Mapping[str, Any]]], agents: Mapping[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
-    known: list[tuple[int, Mapping[str, Any]]] = []
-    outgoing: set[str] = set()
-    for index, route in enumerate(routes):
-        if not isinstance(route, Mapping):
-            continue
-        source, target = route.get("from"), route.get("to")
-        if not isinstance(source, str) or source not in agents:
-            continue
-        outgoing.add(source)
-        if target == "out" or (isinstance(target, str) and target in agents):
-            known.append((index, route))
-
-    start = flow.get("in")
-    if isinstance(start, str) and start in agents and start not in outgoing:
-        issues.append(issue("flow.no_route", ["flow", "in"], f"the flow starts with the agent {start!r}, which has no route of its own"))
+    outgoing = {str(route["from"]) for _, route in known if route["from"] != "$input"}
+    if not any(route["from"] == "$input" for _, route in known):
+        issues.append(issue("routes.no_input", ["routes"], "routes must include an entry from $input"))
+    if not any(route["to"] == "$output" for _, route in known):
+        issues.append(issue("routes.no_output", ["routes"], "routes must include an exit to $output"))
     for index, route in known:
         target = route["to"]
-        if target != "out" and target not in outgoing:
-            issues.append(issue("flow.no_route", ["flow", "routes", index, "to"], f"names the agent {target!r}, which has no route of its own"))
+        if target != "$output" and target not in outgoing:
+            issues.append(issue("routes.no_route", ["routes", index, "to"], f"names the agent {target!r}, which has no route of its own"))
 
     edges: dict[str, list[str]] = {}
-    unconditional = [(index, route) for index, route in known if route["to"] != "out" and "when" not in route]
-    for _, route in unconditional:
-        edges.setdefault(route["from"], []).append(route["to"])
-    for index, route in unconditional:
-        if _reaches(edges, route["to"], route["from"]):
-            issues.append(issue("flow.cycle", ["flow", "routes", index], "belongs to a cycle of routes that have no when"))
-
+    for _, route in known:
+        if route["to"] != "$output":
+            edges.setdefault(str(route["from"]), []).append(str(route["to"]))
     for index, route in known:
-        if route["to"] == "out":
-            continue
-        carry = route.get("carry")
-        carried = carry.get("conversation") if isinstance(carry, Mapping) else None
-        if carried is None or carried == "none":
-            continue
-        endpoints = [name for name in (route["from"], route["to"]) if "config" in agents[name]]
-        if endpoints:
-            issues.append(issue("flow.carry_conversation", ["flow", "routes", index, "carry", "conversation"], f"the agent {endpoints[0]!r} runs a nested configuration, so it has no conversation of its own in a flow"))
+        source = str(route["from"])
+        if source not in {"$input", "$output"} and not _reaches(edges, "$input", source):
+            issues.append(issue("routes.unreachable", ["routes", index, "from"], f"the agent {source!r} is not reachable from $input"))
+
+    unconditional = [(index, route) for index, route in known if route["to"] != "$output" and "when" not in route]
+    unconditional_edges: dict[str, list[str]] = {}
+    for _, route in unconditional:
+        unconditional_edges.setdefault(str(route["from"]), []).append(str(route["to"]))
+    for index, route in unconditional:
+        if _reaches(unconditional_edges, str(route["to"]), str(route["from"])):
+            issues.append(issue("routes.cycle", ["routes", index], "belongs to a cycle of routes that have no when"))
+
+    wait_edges: dict[str, list[str]] = {}
+    stateful = {name for name, agent in agents.items() if agent.get("stateful", True) is True}
+    for target in stateful:
+        without_target = {
+            source: [item for item in targets if item != target]
+            for source, targets in edges.items()
+            if source != target
+        }
+        for source in stateful - {target}:
+            if _reaches(edges, source, target) and _reaches(without_target, "$input", source):
+                wait_edges.setdefault(source, []).append(target)
+    if any(_reaches(wait_edges, target, source) for source, targets in wait_edges.items() for target in targets):
+        issues.append(issue("routes.wait_cycle", ["routes"], "stateful agent wait relationships form a cycle"))
     return issues
 
 
 def _agent_reference_issues(agents: Mapping[str, Any], directory: str | None = None) -> list[Issue]:
     issues: list[Issue] = []
     for name, agent in agents.items():
-        if "config" in agent:
-            continue
         seen: set[str] = set()
         for index, entry in enumerate(agent.get("tools", [])):
             exposed = _exposed_name(entry)
@@ -429,13 +441,11 @@ def _build(document: Mapping[str, Any], directory: str | None) -> tuple[dict[str
     for key, value in document.items():
         if key == "agents":
             result[key] = effective
-        elif key == "flow":
-            result[key] = _normalized_flow(document, effective)
+        elif key == "routes":
+            result[key] = _normalized_routes(value)
         else:
             result[key] = copy.deepcopy(value)
     result["version"] = 1
-    if "flow" not in result:
-        result["flow"] = _normalized_flow(document, effective)
     return result, issues
 
 
@@ -443,7 +453,7 @@ def _reference_issues(document: Mapping[str, Any], effective: Mapping[str, Any],
     issues: list[Issue] = []
     if complete:
         issues.extend(_schema.validate(effective))
-    issues.extend(_flow_issues(document, effective["agents"]))
+    issues.extend(_route_issues(document, effective["agents"]))
     issues.extend(_agent_reference_issues(effective["agents"], directory))
     return issues
 
@@ -456,8 +466,6 @@ def _prepare(
     *,
     directory: str | None,
     read_files: bool,
-    ancestors: tuple[tuple[Any, ...], ...] = (),
-    ancestor_paths: tuple[str, ...] = (),
 ) -> GoondanConfig:
     prepared = _with_defaults(_absolute_declared_paths(document, directory) if directory else document)
     issues = _schema_issues(prepared)
@@ -479,38 +487,12 @@ def _prepare(
     config = GoondanConfig(effective)
     config.directory = directory
     config.templates = templates
-    config.nested = _nested_configs(effective, directory, ancestors, ancestor_paths) if read_files else None
     return config
-
-
-def _nested_configs(
-    effective: Mapping[str, Any],
-    directory: str | None,
-    ancestors: tuple[tuple[Any, ...], ...],
-    ancestor_paths: tuple[str, ...],
-) -> dict[str, GoondanConfig]:
-    nested: dict[str, GoondanConfig] = {}
-    for name, agent in effective["agents"].items():
-        if "config" not in agent:
-            continue
-        at: list[Segment] = ["agents", name, "config"]
-        reference = agent["config"]
-        path = _target_of(_absolute(reference, directory or os.getcwd()), at, directories=True, origin=ancestor_paths[-1] if ancestor_paths else None)
-        if _identity(path) in ancestors:
-            _fail("load.resource_cycle", at, f"nested configurations form a cycle: {' -> '.join((*ancestor_paths, path))}")
-        try:
-            nested[name] = load_config(path, ancestors=ancestors, ancestor_paths=ancestor_paths)
-        except GoondanConfigError as error:
-            raise GoondanConfigError(_schema.prefix(error.raw_issues, at)) from error
-    return nested
 
 
 def load_config(
     directory: str | Path,
     variants: Iterable[str] | None = None,
-    *,
-    ancestors: tuple[tuple[Any, ...], ...] = (),
-    ancestor_paths: tuple[str, ...] = (),
 ) -> GoondanConfig:
     """Read, compose and validate a configuration from disk (read, schema and reference phases)."""
     names = list(variants or [])
@@ -529,8 +511,6 @@ def load_config(
         document,
         directory=entry_directory,
         read_files=True,
-        ancestors=(*ancestors, _identity(entry)),
-        ancestor_paths=(*ancestor_paths, entry),
     )
 
 
@@ -540,14 +520,12 @@ def validate_config(config: Mapping[str, Any]) -> GoondanConfig:
 
 
 def prepare_config(config: Mapping[str, Any], directory: str | Path | None = None) -> GoondanConfig:
-    """Apply the phases `create_runtime` needs, reusing the templates and nested configurations already read."""
-    loaded = config.nested if isinstance(config, GoondanConfig) else None
+    """Apply the phases `create_goondan` needs, reusing templates already read."""
     templates = config.templates if isinstance(config, GoondanConfig) else None
     root = directory if directory is not None else (config.directory if isinstance(config, GoondanConfig) else None)
     root = os.path.realpath(str(root)) if root is not None else os.path.realpath(os.getcwd())
-    if loaded is not None or templates is not None:
+    if templates is not None:
         prepared = _prepare(dict(config), directory=root, read_files=False)
-        prepared.nested = loaded
         prepared.templates = templates
         return prepared
     return _prepare(dict(config), directory=root, read_files=True)
@@ -573,20 +551,17 @@ def _function_references(agent: Mapping[str, Any], name: str) -> list[tuple[list
     return found
 
 
-def _route_function_references(flow: Any) -> list[tuple[list[Segment], Any]]:
+def _route_function_references(routes: Any) -> list[tuple[list[Segment], Any]]:
     found: list[tuple[list[Segment], Any]] = []
-    if not isinstance(flow, Mapping):
+    if not isinstance(routes, list):
         return found
-    for index, route in enumerate(flow.get("routes", [])):
-        at: list[Segment] = ["flow", "routes", index]
+    for index, route in enumerate(routes):
+        if not isinstance(route, Mapping):
+            continue
+        at: list[Segment] = ["routes", index]
         when = route.get("when")
         if isinstance(when, Mapping) and "fn" in when:
             found.append(([*at, "when", "fn"], when["fn"]))
-        carry = route.get("carry")
-        for key in ("message", "conversation"):
-            value = carry.get(key) if isinstance(carry, Mapping) else None
-            if isinstance(value, Mapping) and "fn" in value:
-                found.append(([*at, "carry", key, "fn"], value["fn"]))
     return found
 
 
@@ -602,8 +577,6 @@ def binding_issues(
     """§검증 단계 binding phase: every model, tool, function, extension and port a configuration names."""
     issues: list[Issue] = []
     for name, agent in config["agents"].items():
-        if "config" in agent:
-            continue
         if agent.get("model") not in models:
             issues.append(issue("binding.model", ["agents", name, "model"], f"names the model {agent.get('model')!r}, which the host did not register"))
         enabled: dict[str, Any] = {}
@@ -646,15 +619,7 @@ def binding_issues(
         for at, reference in _function_references(agent, name):
             if reference not in functions:
                 issues.append(issue("binding.function", at, f"names the function {reference!r}, which the host did not register"))
-    for at, reference in _route_function_references(config.get("flow")):
+    for at, reference in _route_function_references(config.get("routes")):
         if reference not in functions:
             issues.append(issue("binding.function", at, f"names the function {reference!r}, which the host did not register"))
-    return issues
-
-
-def nested_binding_issues(config: GoondanConfig, **bindings: Any) -> list[Issue]:
-    """Binding issues of a configuration and every nested configuration it loaded."""
-    issues = list(binding_issues(config, **bindings))
-    for name, child in (config.nested or {}).items():
-        issues.extend(_schema.prefix(nested_binding_issues(child, **bindings), ["agents", name, "config"]))
     return issues

@@ -1,0 +1,17 @@
+{
+  "description": "서로 다른 세션의 턴은 한 세션의 대기가 다른 세션의 시작을 막지 않고 동시에 진행한다.",
+  "spec": ["세션"],
+  "bindings": {
+    "models": {"m": {"responses": [
+      {"await": "one", "then": {"text": "하나"}},
+      {"await": "two", "then": {"text": "둘"}}
+    ]}}
+  },
+  "steps": [
+    {"parallel": [
+      [{"run": {"sessionId": "s1", "input": "첫 입력"}}],
+      [{"run": {"sessionId": "s2", "input": "둘째 입력"}}],
+      [{"reach": "one"}, {"reach": "two"}, {"release": "two"}, {"release": "one"}]
+    ]}
+  ]
+}

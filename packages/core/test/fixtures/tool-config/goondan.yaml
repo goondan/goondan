@@ -10,4 +10,4 @@ agents:
       - {tool: finish, approval: required}
     hooks:
       toolCall: [{extension: guard}]
-flow: {in: main}
+routes: [main]

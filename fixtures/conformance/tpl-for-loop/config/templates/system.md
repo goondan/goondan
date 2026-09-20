@@ -1,1 +1,1 @@
-{% for input in params.list %}{{ loop.index }}{{ loop.index0 }}{{ loop.first }}{{ loop.last }}{{ loop.length }}{{ input }}{% endfor %}|{% for x in params.empty %}X{% endfor %}|{{ input }}|{% for o in params.outer %}{% for i in o %}{{ loop.index }}{{ i }}{% endfor %}{% endfor %}
+{% for item in params.list %}{{ loop.index }}{{ loop.index0 }}{{ loop.first }}{{ loop.last }}{{ loop.length }}{{ item }}{% endfor %}|{% for x in params.empty %}X{% endfor %}|{{ input[0].content[0].text }}|{% for o in params.outer %}{% for i in o %}{{ loop.index }}{{ i }}{% endfor %}{% endfor %}

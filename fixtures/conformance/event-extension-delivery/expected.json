@@ -21,16 +21,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "질문"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "질문"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -39,7 +50,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -49,7 +60,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {
@@ -77,17 +88,21 @@
         "action": "create",
         "instance": 1,
         "extension": "alpha",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {},
-              "gamma": {}
+              "alpha": {
+              },
+              "beta": {
+              },
+              "gamma": {
+              }
             }
           }
         }
@@ -96,17 +111,21 @@
         "action": "create",
         "instance": 2,
         "extension": "beta",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {},
-              "gamma": {}
+              "alpha": {
+              },
+              "beta": {
+              },
+              "gamma": {
+              }
             }
           }
         }
@@ -115,17 +134,21 @@
         "action": "create",
         "instance": 3,
         "extension": "gamma",
-        "options": {},
-        "ports": {},
+        "options": {
+        },
+        "ports": {
+        },
         "agent": {
           "name": "main",
-          "path": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {},
-              "beta": {},
-              "gamma": {}
+              "alpha": {
+              },
+              "beta": {
+              },
+              "gamma": {
+              }
             }
           }
         }

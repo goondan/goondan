@@ -24,7 +24,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 2,
               "output": 1,
@@ -32,7 +32,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           },
           {
             "agent": "helper",
@@ -44,7 +45,8 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "status": "failed"
+            "status": "failed",
+            "instance": "c1#<turn:1>#helper/helper"
           }
         ]
       }
@@ -55,16 +57,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "질문"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "질문"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -73,7 +86,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -83,25 +96,27 @@
       {
         "name": "turn.start",
         "agent": "helper",
-        "conversationId": "c1:main:output:helper",
+        "sessionId": "c1#<turn:1>#helper",
         "turnId": "<turn:2>",
         "data": {
-          "input": {
-            "role": "assistant",
-            "source": "model",
-            "content": [
-              {
-                "type": "text",
-                "text": "본문"
-              }
-            ]
-          }
+          "input": [
+            {
+              "role": "user",
+              "source": "helper",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "본문"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "helper",
-        "conversationId": "c1:main:output:helper",
+        "sessionId": "c1#<turn:1>#helper",
         "turnId": "<turn:2>",
         "data": {
           "step": 1
@@ -110,7 +125,7 @@
       {
         "name": "step.error",
         "agent": "helper",
-        "conversationId": "c1:main:output:helper",
+        "sessionId": "c1#<turn:1>#helper",
         "turnId": "<turn:2>",
         "data": {
           "step": 1,
@@ -122,7 +137,7 @@
       {
         "name": "turn.error",
         "agent": "helper",
-        "conversationId": "c1:main:output:helper",
+        "sessionId": "c1#<turn:1>#helper",
         "turnId": "<turn:2>",
         "data": {
           "where": "model",
@@ -134,7 +149,7 @@
       {
         "name": "hook.failed",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "output",
@@ -144,7 +159,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

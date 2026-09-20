@@ -6,9 +6,15 @@
     "functionCalls": [
       {
         "fn": "pick",
-        "value": {
-          "requestId": "req-1"
-        }
+          "value": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {"type": "json", "value": {"requestId": "req-1"}}
+              ]
+            }
+          ]
       },
       {
         "fn": "shout",
@@ -19,7 +25,7 @@
       "c1/main": [
         {
           "role": "user",
-          "source": "main",
+          "source": "pickId",
           "content": [
             {
               "type": "text",

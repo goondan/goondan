@@ -2,7 +2,7 @@
  * Normalization of an observed case document.
  *
  * The runner builds one document from every step projection and every
- * observation section, then applies the four normalization steps of
+ * observation section, then applies the five normalization steps of
  * fixtures/conformance/README.md ("정규화") before comparing.
  */
 
@@ -164,6 +164,52 @@ export function numberTurnIds(document: ResultDocument, turnIds: ReadonlySet<str
   return labels;
 }
 
+function statelessAgents(document: ResultDocument): Set<string> {
+  const found = new Set<string>();
+  const config = document.observations.get("effectiveConfig");
+  if (!isJsonObject(config) || !isJsonObject(config["agents"])) return found;
+  for (const [name, agent] of Object.entries(config["agents"])) {
+    if (isJsonObject(agent) && agent["stateful"] === false) found.add(name);
+  }
+  return found;
+}
+
+function collectStatelessInstances(value: Json, agents: ReadonlySet<string>, into: Set<string>): void {
+  if (isJsonArray(value)) {
+    for (const item of value) collectStatelessInstances(item, agents, into);
+    return;
+  }
+  if (!isJsonObject(value)) return;
+  const instance = value["instance"];
+  const agent = value["agent"];
+  const from = value["from"];
+  if (isString(instance)) {
+    const suffixAgent = [...agents].find((name) => instance.endsWith(`#${name}`));
+    if ((isString(agent) && agents.has(agent)) || (isString(from) && agents.has(from)) || suffixAgent !== undefined) {
+      into.add(instance);
+    }
+  }
+  for (const item of Object.values(value)) {
+    if (item !== undefined) collectStatelessInstances(item, agents, into);
+  }
+}
+
+/** 문서에 처음 나타난 순서대로 stateless 인스턴스 식별자를 치환합니다. */
+export function numberStatelessInstances(document: ResultDocument): Map<string, string> {
+  const agents = statelessAgents(document);
+  const candidates = new Set<string>();
+  collectStatelessInstances(document.steps, agents, candidates);
+  for (const value of document.observations.values()) collectStatelessInstances(value, agents, candidates);
+  const identifiers = [...candidates].sort((left, right) => right.length - left.length);
+  const labels = new Map<string, string>();
+  traverseStrings(document, (text) => {
+    for (const identifier of scanIdentifiers(text, identifiers)) {
+      if (!labels.has(identifier)) labels.set(identifier, `<instance:${String(labels.size + 1)}>`);
+    }
+  });
+  return labels;
+}
+
 function replaceAll(text: string, replacements: ReadonlyMap<string, string>): string {
   let result = text;
   for (const [from, to] of replacements) {
@@ -182,6 +228,7 @@ export interface NormalizeOptions {
 
 export interface NormalizeResult {
   document: ResultDocument;
+  instanceLabels: Map<string, string>;
   turnLabels: Map<string, string>;
 }
 
@@ -196,12 +243,16 @@ export function normalizeDocument(document: ResultDocument, options: NormalizeOp
   const withAliases = mapDocument(withoutIds, (value) =>
     replaceStrings(value, (text) => replaceAll(text, operationReplacements)),
   );
+  const instanceLabels = numberStatelessInstances(withAliases);
+  const withInstances = mapDocument(withAliases, (value) =>
+    replaceStrings(value, (text) => replaceAll(text, instanceLabels)),
+  );
   const turnIds = new Set<string>();
-  collectTurnIds(withAliases.steps, turnIds);
-  for (const value of withAliases.observations.values()) collectTurnIds(value, turnIds);
-  const turnLabels = numberTurnIds(withAliases, turnIds);
-  const withTurns = mapDocument(withAliases, (value) => replaceStrings(value, (text) => replaceAll(text, turnLabels)));
-  return { document: withTurns, turnLabels };
+  collectTurnIds(withInstances.steps, turnIds);
+  for (const value of withInstances.observations.values()) collectTurnIds(value, turnIds);
+  const turnLabels = numberTurnIds(withInstances, turnIds);
+  const withTurns = mapDocument(withInstances, (value) => replaceStrings(value, (text) => replaceAll(text, turnLabels)));
+  return { document: withTurns, instanceLabels, turnLabels };
 }
 
 function mapDocument(document: ResultDocument, map: (value: Json) => Json): ResultDocument {

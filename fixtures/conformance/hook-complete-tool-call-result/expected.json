@@ -18,7 +18,9 @@
     }
   ],
   "observations": {
-    "toolCalls": [],
+    "toolCalls": [
+
+    ],
     "conversations": {
       "c1/main": [
         {
@@ -39,7 +41,8 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

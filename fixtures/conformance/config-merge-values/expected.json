@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -20,9 +22,6 @@
             "nul": null
           }
         }
-      },
-      "flow": {
-        "in": "main"
       }
     }
   }

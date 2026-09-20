@@ -1,4 +1,0 @@
-agents:
-  main:
-    model: m
-flow: [main, ghost]

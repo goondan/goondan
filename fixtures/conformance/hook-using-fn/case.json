@@ -20,18 +20,25 @@
     "functions": {
       "pick": {
         "op": "get",
-        "path": "/requestId"
+        "path": "/0/content/0/value/requestId"
       },
       "shout": {
-        "op": "textSuffix",
-        "suffix": "!"
+        "op": "constant",
+        "value": [
+          {
+            "id": "picked",
+            "role": "user",
+            "source": "pickId",
+            "content": [{"type": "text", "text": "req-1!"}]
+          }
+        ]
       }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": {
           "requestId": "req-1"
         }

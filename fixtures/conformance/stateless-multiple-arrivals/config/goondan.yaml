@@ -1,0 +1,10 @@
+agents:
+  split: {model: splitModel}
+  worker:
+    model: workerModel
+    stateful: false
+routes:
+  - {from: $input, to: split}
+  - {from: split, to: worker}
+  - {from: split, to: worker}
+  - {from: worker, to: $output}

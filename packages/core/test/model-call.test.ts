@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executionError } from "./execution-error.ts";
 import {
-  createRuntime, defineExtension, loadConfigSync, MemoryConversationStore,
-  type Json, type Message, type Model, type ModelContext, type ModelInput, type ModelResult,
+  createGoondan, defineExtension, loadConfigSync, MemoryConversationStore,
+  type Json, type Message, type Model, type ModelContext, type ModelInput, type ModelResult, type Part,
   type RuntimeEvent, type Tool,
 } from "../src/index.ts";
 
@@ -62,15 +62,15 @@ function act(text = "acted"): Tool {
 }
 
 describe("the model call", () => {
-  it("passes the agent path, the identifiers and a model call number that starts at 1", async () => {
+  it("passes the agent name, the identifiers and a model call number that starts at 1", async () => {
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }, ok]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: act() } });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: act() } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls.map((call) => call.ctx.step)).toEqual([1, 2]);
     expect(model.calls[0]?.ctx.agent).toBe("main");
-    expect(model.calls[0]?.ctx.conversationId).toBe("c");
+    expect(model.calls[0]?.ctx.sessionId).toBe("c");
     expect(model.calls[0]?.ctx.turnId).toBe(model.calls[1]?.ctx.turnId);
     await runtime.close();
   });
@@ -86,9 +86,9 @@ describe("the model call", () => {
       },
     };
     const store = new MemoryConversationStore();
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, conversationStore: store });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, conversationStore: store });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(seen).toHaveLength(1);
     // The stored conversation keeps the user message and the answer, not what the model added.
@@ -104,11 +104,11 @@ describe("the model call", () => {
       retried = true;
       return { retry: true, target: "model" };
     };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", hooks: { modelResult: [{ fn: "again" }] } } },
     }, { directory: ".", models: { m: model }, functions: { again } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls.map((call) => call.ctx.step)).toEqual([1, 2]);
     await runtime.close();
@@ -117,14 +117,14 @@ describe("the model call", () => {
   it("stops a run that used up its model calls without a further modelInput stage", async () => {
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }, ok]);
     let inputs = 0;
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["act"], hooks: { modelInput: [{ fn: "count" }] } } },
     }, {
       directory: ".", models: { m: model }, tools: { act: act() }, maxSteps: 1,
       functions: { count: () => { inputs += 1; return null; } },
     });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.where).toBe("runtime");
     expect(failure(error)?.codes).toEqual(["runtime_error"]);
@@ -136,21 +136,21 @@ describe("the model call", () => {
   it("never sends a model call limit failure to the error stage", async () => {
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]);
     let errors = 0;
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["act"], hooks: { error: [{ fn: "watch" }] } } },
     }, {
       directory: ".", models: { m: model }, tools: { act: act() }, maxSteps: 1,
       functions: { watch: () => { errors += 1; return null; } },
     });
 
-    await runtime.runTurn("hi", { conversationId: "c" }).catch(() => undefined);
+    await runtime.run("hi", { sessionId: "c" }).catch(() => undefined);
 
     expect(errors).toBe(0);
     await runtime.close();
   });
 
   it("refuses a model call limit that is not an integer of 1 or more", () => {
-    const build = (maxSteps: number): void => { createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: scripted([ok]) }, maxSteps }); };
+    const build = (maxSteps: number): void => { createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: scripted([ok]) }, maxSteps }); };
     expect(() => { build(0); }).toThrow(TypeError);
     expect(() => { build(1.5); }).toThrow(TypeError);
     expect(() => { build(1); }).not.toThrow();
@@ -160,9 +160,9 @@ describe("the model call", () => {
     const overloaded = Object.assign(new Error("too busy"), { code: "overloaded" });
     const model: Model = { generate(): Promise<ModelResult> { return Promise.reject(overloaded); } };
     const events: RuntimeEvent[] = [];
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)).toEqual({ where: "model", codes: ["model_error", "overloaded"], message: "too busy" });
     expect(events.find((event) => event.name === "step.error")?.data.codes).toEqual(["model_error", "overloaded"]);
@@ -182,11 +182,11 @@ describe("the model call", () => {
       const codes = typeof value === "object" && value !== null && !Array.isArray(value) ? value.codes : null;
       return Array.isArray(codes) && codes.includes("rate_limited") ? { retry: true, target: "model" } : null;
     };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", hooks: { error: [{ fn: "retryRate" }] } } },
     }, { directory: ".", models: { m: model }, functions: { retryRate } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.output.content).toEqual([{ type: "text", text: "ok" }]);
     await runtime.close();
@@ -194,9 +194,9 @@ describe("the model call", () => {
 
   it("uses a model failure code only when it is a non-empty string", async () => {
     const model: Model = { generate(): Promise<ModelResult> { return Promise.reject(Object.assign(new Error("nope"), { code: "" })); } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.codes).toEqual(["model_error"]);
     await runtime.close();
@@ -205,9 +205,9 @@ describe("the model call", () => {
   it("fills the identifier and the source a model result left out", async () => {
     const raw = untyped<ModelResult>('{"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]},"finishReason":"stop"}');
     const model: Model = { async generate(): Promise<ModelResult> { return raw; } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(result.output.source).toBe("model");
     expect(result.output.id).not.toBe("");
@@ -217,11 +217,11 @@ describe("the model call", () => {
   it("reports a model result that is not an object as an invalid modelResult value", async () => {
     const events: RuntimeEvent[] = [];
     const model: Model = { async generate(): Promise<ModelResult> { return untyped<ModelResult>("null"); } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, {
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, {
       directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } },
     });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     // A result the form check refuses is never a model failure, so it carries no model_error code.
     expect(failure(error)?.where).toBe("modelResult");
@@ -235,9 +235,9 @@ describe("the model call", () => {
       { message: callMessage("c1", "act"), finishReason: "stop" },
       { message: assistant("done"), finishReason: "tool" },
     ]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: act() } });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: act() } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c" });
+    const result = await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls).toHaveLength(2);
     expect(result.output.content).toEqual([{ type: "text", text: "done" }]);
@@ -255,9 +255,9 @@ describe("text chunks", () => {
       },
     };
     const events: RuntimeEvent[] = [];
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     const names = events.map((event) => event.name);
     expect(events.filter((event) => event.name === "step.textDelta").map((event) => event.data)).toEqual([{ step: 1, delta: "he" }, { step: 1, delta: "llo" }]);
@@ -277,9 +277,9 @@ describe("text chunks", () => {
       },
     };
     const events: RuntimeEvent[] = [];
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: model }, host: { emit: (event) => { events.push(event); } } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
     late();
 
     expect(events.filter((event) => event.name === "step.textDelta").map((event) => event.data.delta)).toEqual(["kept"]);
@@ -298,11 +298,11 @@ describe("text chunks", () => {
       name: "probe", hooks: ["input"],
       create: () => ({ hooks: { input: async (value, ctx) => { await ctx.model.run([]); return value; } } }),
     });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { probe: {} }, hooks: { input: [{ extension: "probe" }] } } },
     }, { directory: ".", models: { m: model }, extensions: { probe }, host: { emit: (event) => { events.push(event); } } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     // Only the run's own call announces a chunk, so the hook's call adds none.
     expect(events.filter((event) => event.name === "step.textDelta")).toHaveLength(1);
@@ -321,11 +321,11 @@ describe("text chunks", () => {
         output: async (value, ctx) => { await ctx.model.run([]); return value; },
       } }),
     });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { probe: {} }, hooks: { input: [{ extension: "probe" }], output: [{ extension: "probe" }] } } },
     }, { directory: ".", models: { m: model }, extensions: { probe } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     // The input hook runs before the first call, the run's own call is 1 and the output hook reuses it.
     expect(steps).toEqual([0, 1, 1]);
@@ -344,11 +344,11 @@ describe("text chunks", () => {
       name: "probe", hooks: ["modelInput"],
       create: () => ({ hooks: { modelInput: async (value, ctx) => { await ctx.model.run([]); return value; } } }),
     });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["act"], extensions: { probe: {} }, hooks: { modelInput: [{ extension: "probe" }] } } },
     }, { directory: ".", models: { m: model }, tools: { act: act() }, extensions: { probe }, maxSteps: 2 });
 
-    await runtime.runTurn("hi", { conversationId: "c" }).catch(() => undefined);
+    await runtime.run("hi", { sessionId: "c" }).catch(() => undefined);
 
     // The hook call before the first model call reports 0 and the one before the second reports 1.
     expect(steps.filter((_value, index) => index % 2 === 0)).toEqual([0, 1]);
@@ -359,11 +359,11 @@ describe("text chunks", () => {
 describe("the model input", () => {
   it("builds a system block per declaration and keeps cache only where it was declared true", async () => {
     const model = scripted([ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", systemMessage: [{ text: "one", cache: true }, { text: "two", cache: false }, { text: "three" }] } },
     }, { directory: ".", models: { m: model } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls[0]?.input.system).toEqual([
       { text: "one", source: "system:0", cache: true },
@@ -382,11 +382,11 @@ describe("the model input", () => {
         return { ...value, options: { maxTokens: 16, anthropic: { thinking: { type: "enabled" } } } };
       } } }),
     });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", extensions: { tune: {} }, hooks: { modelInput: [{ extension: "tune" }] } } },
     }, { directory: ".", models: { m: model }, extensions: { tune } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls[0]?.input.options).toEqual({ maxTokens: 16, anthropic: { thinking: { type: "enabled" } } });
     await runtime.close();
@@ -397,11 +397,11 @@ describe("tool definitions", () => {
   it("exposes a host tool under its binding key and appends the hint to the description", async () => {
     const model = scripted([ok]);
     const tool: Tool = { name: "internalName", description: "publishes", input: { type: "object" }, execute: () => ({ callId: "x", name: "publish", args: null, content: [] }) };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "publish", hint: "show a draft first" }] } },
     }, { directory: ".", models: { m: model }, tools: { publish: tool } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls[0]?.input.tools).toEqual([{ name: "publish", description: "publishes\nshow a draft first", input: { type: "object" } }]);
     await runtime.close();
@@ -414,11 +414,11 @@ describe("tool definitions", () => {
       execute: (_input, ctx) => { ran.push(ctx.toolCall.name); return { callId: ctx.toolCall.id, name: ctx.toolCall.name, args: null, content: [] }; },
     };
     const model = scripted([{ message: callMessage("c1", "publish"), finishReason: "tool" }, ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["publish"] } },
     }, { directory: ".", models: { m: model }, tools: { publish: tool } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(ran).toEqual(["publish"]);
     await runtime.close();
@@ -426,16 +426,15 @@ describe("tool definitions", () => {
 
   it("describes an agent tool with the target description or a default one", async () => {
     const model = scripted([ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: {
         main: { model: "m", tools: [{ agent: "billing" }, { agent: "plain" }] },
         billing: { model: "m", description: "handles billing" },
         plain: { model: "m" },
       },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model } });
 
-    await runtime.runTurn("hi", { conversationId: "c", agent: "main" });
+    await runtime.run("hi", { sessionId: "c", agent: "main" });
 
     expect(model.calls[0]?.input.tools).toEqual([
       { name: "billing", description: "handles billing", input: { type: "object" } },
@@ -450,9 +449,9 @@ describe("tool definitions", () => {
       "sys.md": "{{ agent.name }}|{{ model }}|{{ params.locale }}|{{ tools[0].name }}",
     });
     const model = scripted([ok]);
-    const runtime = createRuntime(loadConfigSync(root), { models: { m: model }, tools: { act: act() } });
+    const runtime = createGoondan(loadConfigSync(root), { models: { m: model }, tools: { act: act() } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(model.calls[0]?.input.system[0]).toEqual({ text: "main|m|ko-KR|act", source: "system:0" });
     await runtime.close();
@@ -463,11 +462,11 @@ describe("tool calls", () => {
   it("fails a call the agent's tools list does not expose", async () => {
     const model = scripted([{ message: callMessage("c1", "hidden"), finishReason: "tool" }]);
     const hidden: Tool = { name: "hidden", description: "hidden", input: {}, execute: () => ({ callId: "c1", name: "hidden", args: null, content: [] }) };
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ tool: "act", approval: "required" }] } },
     }, { directory: ".", models: { m: model }, tools: { act: act(), hidden } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.where).toBe("tool");
     expect(failure(error)?.codes).toEqual(["tool_unavailable"]);
@@ -483,10 +482,10 @@ describe("tool calls", () => {
       { message: callMessage("same", "act"), finishReason: "tool" }, ok,
       { message: callMessage("same", "act"), finishReason: "tool" }, ok,
     ]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
 
-    await runtime.runTurn("one", { conversationId: "c" });
-    await runtime.runTurn("two", { conversationId: "c" });
+    await runtime.run("one", { sessionId: "c" });
+    await runtime.run("two", { sessionId: "c" });
 
     expect(seen).toEqual(["same", "same"]);
     await runtime.close();
@@ -500,9 +499,9 @@ describe("tool calls", () => {
       { message: { id: "m2", role: "assistant", source: "model", content: [{ type: "tool.call", callId: "same", name: "act", args: null }] }, finishReason: "tool" },
       ok,
     ]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
 
-    await runtime.runTurn("one", { conversationId: "c" });
+    await runtime.run("one", { sessionId: "c" });
 
     // Only a retry that continues the same batch skips a stored call, so the second response runs.
     expect(seen).toEqual(["same", "same"]);
@@ -516,9 +515,9 @@ describe("tool calls", () => {
       { message: { id: "m1", role: "assistant", source: "model", content: [{ type: "tool.call", callId: "same", name: "act", args: null }, { type: "tool.call", callId: "same", name: "act", args: null }] }, finishReason: "tool" },
       ok,
     ]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, { directory: ".", models: { m: model }, tools: { act: tool } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run("hi", { sessionId: "c" });
 
     expect(seen).toEqual(["same", "same"]);
     await runtime.close();
@@ -528,11 +527,11 @@ describe("tool calls", () => {
     const events: RuntimeEvent[] = [];
     const broken: Tool = { name: "act", description: "act", input: {}, execute: () => untyped<never>('{"callId":"c1","name":"act","args":null,"content":"text"}') };
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]);
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } }, {
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, {
       directory: ".", models: { m: model }, tools: { act: broken }, host: { emit: (event) => { events.push(event); } },
     });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.where).toBe("toolResult");
     expect(events.map((event) => event.name).filter((name) => name.startsWith("tool."))).toEqual(["tool.start", "tool.error"]);
@@ -544,14 +543,14 @@ describe("tool calls", () => {
     const events: RuntimeEvent[] = [];
     const strict = defineExtension({ name: "strict", hooks: ["toolResult"], create: () => ({ hooks: { toolResult: () => { throw new Error("refused"); } } }) });
     const model = scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: ["act"], extensions: { strict: {} }, hooks: { toolResult: [{ extension: "strict" }] } } },
     }, {
       directory: ".", models: { m: model }, tools: { act: act() }, extensions: { strict },
       host: { emit: (event) => { events.push(event); } },
     });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.codes).toEqual(["hook_error"]);
     expect(events.map((event) => event.name).filter((name) => name.startsWith("tool."))).toEqual(["tool.start", "tool.error"]);
@@ -563,7 +562,7 @@ describe("tool calls", () => {
     const conversations: string[] = [];
     const helper: Model = {
       async generate(_input, ctx): Promise<ModelResult> {
-        conversations.push(ctx.conversationId);
+        conversations.push(ctx.sessionId);
         return { message: assistant("helped"), finishReason: "stop", usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0 } };
       },
     };
@@ -571,15 +570,14 @@ describe("tool calls", () => {
       { message: callMessage("c1", "helper"), finishReason: "tool" },
       { message: assistant("done"), finishReason: "stop", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } },
     ]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ agent: "helper" }] }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model, h: helper } });
 
-    const result = await runtime.runTurn("hi", { conversationId: "c", agent: "main" });
+    const result = await runtime.run("hi", { sessionId: "c", agent: "main" });
 
     const turnId = model.calls[0]?.ctx.turnId ?? "";
-    expect(conversations).toEqual([`c:${turnId}:helper`]);
+    expect(conversations).toEqual([`c#${turnId}#helper`]);
     expect(result.usage).toEqual({ input: 4, output: 5, cacheRead: 0, cacheWrite: 0 });
     await runtime.close();
   });
@@ -587,12 +585,11 @@ describe("tool calls", () => {
   it("turns a failing agent tool into a tool failure of the calling run", async () => {
     const broken: Model = { generate(): Promise<ModelResult> { return Promise.reject(new Error("helper broke")); } };
     const model = scripted([{ message: callMessage("c1", "helper"), finishReason: "tool" }]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", tools: [{ agent: "helper" }] }, helper: { model: "h" } },
-      flow: { in: "main" },
     }, { directory: ".", models: { m: model, h: broken } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c", agent: "main" }).catch((thrown: unknown) => thrown);
+    const error: unknown = await runtime.run("hi", { sessionId: "c", agent: "main" }).catch((thrown: unknown) => thrown);
 
     expect(failure(error)?.where).toBe("tool");
     expect(failure(error)?.codes).toEqual(["tool_error"]);
@@ -601,21 +598,50 @@ describe("tool calls", () => {
 });
 
 describe("the input rule", () => {
+  it("converts every supported run input form and changes only json parts", async () => {
+    const model = scripted([ok, ok, ok, ok]);
+    const runtime = createGoondan({ agents: { main: { model: "m", stateful: false, input: { fn: "format" } } } }, {
+      models: { m: model }, functions: { format: () => "converted" },
+    });
+    const parts: Part[] = [
+      { type: "text", text: "kept" },
+      { type: "json", value: { n: 1 } },
+      { type: "image", url: "https://example.test/a.png", mediaType: "image/png" },
+      { type: "media", ref: "asset-1", mediaType: "application/pdf" },
+    ];
+    const message: Message = { id: "given", role: "user", source: "host", content: [{ type: "json", value: true }], meta: { trace: "same" } };
+
+    await runtime.run("plain", { sessionId: "s1" });
+    await runtime.run(parts, { sessionId: "s2" });
+    await runtime.run([message], { sessionId: "s3" });
+    await runtime.run([], { sessionId: "s4" });
+
+    expect(model.calls[0]?.input.messages[0]?.content).toEqual([{ type: "text", text: "plain" }]);
+    expect(model.calls[1]?.input.messages[0]?.content).toEqual([
+      { type: "text", text: "kept" },
+      { type: "text", text: "converted" },
+      { type: "image", url: "https://example.test/a.png", mediaType: "image/png" },
+      { type: "media", ref: "asset-1", mediaType: "application/pdf" },
+    ]);
+    expect(model.calls[2]?.input.messages[0]).toEqual({ ...message, content: [{ type: "text", text: "converted" }] });
+    expect(model.calls[3]?.input.messages).toEqual([]);
+    await runtime.close();
+  });
+
   it("uses the function result as it is when it is a string and as JSON text otherwise", async () => {
     const model = scripted([ok, ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: {
         text: { model: "m", input: { fn: "asText" } },
         value: { model: "m", input: { fn: "asValue" } },
       },
-      flow: { in: "text" },
     }, {
       directory: ".", models: { m: model },
       functions: { asText: () => "plain", asValue: () => ({ a: 1, b: [true, null] }) },
     });
 
-    await runtime.runTurn("hi", { conversationId: "c", agent: "text" });
-    await runtime.runTurn("hi", { conversationId: "c", agent: "value" });
+    await runtime.run({ input: "hi" }, { sessionId: "c", agent: "text" });
+    await runtime.run({ input: "hi" }, { sessionId: "c", agent: "value" });
 
     expect(model.calls[0]?.input.messages[0]?.content).toEqual([{ type: "text", text: "plain" }]);
     expect(model.calls[1]?.input.messages[0]?.content).toEqual([{ type: "text", text: '{"a":1,"b":[true,null]}' }]);
@@ -624,11 +650,11 @@ describe("the input rule", () => {
 
   it("treats a function that answers with nothing as null", async () => {
     const model = scripted([ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: { main: { model: "m", input: { fn: "silent" } } },
     }, { directory: ".", models: { m: model }, functions: { silent: () => undefined } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run(null, { sessionId: "c" });
 
     expect(model.calls[0]?.input.messages[0]?.content).toEqual([{ type: "text", text: "null" }]);
     await runtime.close();
@@ -640,9 +666,9 @@ describe("the input rule", () => {
       "in.md": "from the template",
     });
     const model = scripted([ok]);
-    const runtime = createRuntime(loadConfigSync(root), { models: { m: model }, functions: { asText: () => "from the function" } });
+    const runtime = createGoondan(loadConfigSync(root), { models: { m: model }, functions: { asText: () => "from the function" } });
 
-    await runtime.runTurn("hi", { conversationId: "c" });
+    await runtime.run(null, { sessionId: "c" });
 
     expect(model.calls[0]?.input.messages[0]).toMatchObject({ role: "user", source: "main", content: [{ type: "text", text: "from the function" }] });
     await runtime.close();
@@ -650,19 +676,18 @@ describe("the input rule", () => {
 
   it("reports a failing input function as a runtime error and a result that is not JSON as an invalid value", async () => {
     const model = scripted([ok, ok]);
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       agents: {
         broken: { model: "m", input: { fn: "broken" } },
         odd: { model: "m", input: { fn: "odd" } },
       },
-      flow: { in: "broken" },
     }, {
       directory: ".", models: { m: model },
       functions: { broken: () => { throw new Error("no input"); }, odd: () => untyped<Json>("null") ?? Number.POSITIVE_INFINITY },
     });
 
-    const first: unknown = await runtime.runTurn("hi", { conversationId: "c", agent: "broken" }).catch((error: unknown) => error);
-    const second: unknown = await runtime.runTurn("hi", { conversationId: "c", agent: "odd" }).catch((error: unknown) => error);
+    const first: unknown = await runtime.run(null, { sessionId: "c", agent: "broken" }).catch((error: unknown) => error);
+    const second: unknown = await runtime.run(null, { sessionId: "c", agent: "odd" }).catch((error: unknown) => error);
 
     expect(failure(first)).toMatchObject({ where: "input", codes: ["runtime_error"], message: "no input" });
     expect(failure(second)?.where).toBe("input");
@@ -672,18 +697,18 @@ describe("the input rule", () => {
 
   it("gives an object input its keys and any other value the text variable", async () => {
     const root = workspace({
-      "goondan.yaml": "agents:\n  obj: {model: m, input: {template: ./obj.md}}\n  plain: {model: m, input: {template: ./plain.md}}\nflow:\n  in: obj\n",
+      "goondan.yaml": "agents:\n  obj: {model: m, input: {template: ./obj.md}}\n  plain: {model: m, input: {template: ./plain.md}}\n",
       "obj.md": "{{ topic }}!",
       "plain.md": "[{{ text }}]",
     });
     const model = scripted([ok, ok]);
-    const runtime = createRuntime(loadConfigSync(root), { models: { m: model } });
+    const runtime = createGoondan(loadConfigSync(root), { models: { m: model } });
 
-    await runtime.runTurn({ topic: "billing" }, { conversationId: "c", agent: "obj" });
-    await runtime.runTurn("free text", { conversationId: "c", agent: "plain" });
+    await runtime.run({ topic: "billing" }, { sessionId: "c", agent: "obj" });
+    await runtime.run(42, { sessionId: "c", agent: "plain" });
 
     expect(model.calls[0]?.input.messages[0]?.content).toEqual([{ type: "text", text: "billing!" }]);
-    expect(model.calls[1]?.input.messages[0]?.content).toEqual([{ type: "text", text: "[free text]" }]);
+    expect(model.calls[1]?.input.messages[0]?.content).toEqual([{ type: "text", text: "[42]" }]);
     await runtime.close();
   });
 });

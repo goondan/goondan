@@ -1,0 +1,32 @@
+{
+  "description": "한 출발점의 모든 턴 입력을 먼저 등록하므로 x는 $input 입력을 즉시 실행하지 않고 y의 출력까지 모아 한 번 실행한다.",
+  "spec": [
+    "route 진행"
+  ],
+  "bindings": {
+    "models": {
+      "xModel": {
+        "responses": [
+          {
+            "text": "X"
+          }
+        ]
+      },
+      "yModel": {
+        "responses": [
+          {
+            "text": "Y"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "원본"
+      }
+    }
+  ]
+}

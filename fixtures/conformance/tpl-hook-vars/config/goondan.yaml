@@ -4,7 +4,7 @@ agents:
     params:
       tag: v1
     hooks:
-      input:
+      conversation:
         - name: first
           template: templates/system.md
         - name: second

@@ -1,0 +1,15 @@
+{
+  "description": "한 세션에서 흐름 실행이 둘 이상 진행 중이면 agent 없는 실행 중 입력은 steer_invalid로 거부한다.",
+  "spec": ["실행 중 입력", "실행 중단"],
+  "bindings": {
+    "models": {
+      "splitModel": {"responses": [{"text": "분기"}]},
+      "aModel": {"responses": [{"await": "a-running", "then": {"text": "A"}}]},
+      "bModel": {"responses": [{"await": "b-running", "then": {"text": "B"}}]}
+    }
+  },
+  "steps": [{"parallel": [
+    [{"run": {"sessionId": "s", "input": "시작"}}],
+    [{"reach": "a-running"}, {"reach": "b-running"}, {"steer": {"sessionId": "s", "value": "모호"}}, {"abort": {"sessionId": "s"}}]
+  ]}]
+}

@@ -4,5 +4,4 @@ agents:
     hooks:
       modelResult:
         - fn: mark
-flow:
-  in: main
+routes: [main]

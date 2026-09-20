@@ -1,17 +1,19 @@
 {
   "steps": [
-    {},
+    {
+    },
     {
       "result": {
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         },
         "reasons": [
           "Tool danger requires approval"
@@ -28,7 +30,8 @@
         "value": {
           "callId": "d-1",
           "name": "danger",
-          "args": {},
+          "args": {
+          },
           "content": [
             {
               "type": "text",
@@ -43,12 +46,13 @@
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {}
+          "args": {
+          }
         },
         "reasons": [
           "Tool danger requires approval"
@@ -58,7 +62,8 @@
         "result": {
           "callId": "d-1",
           "name": "danger",
-          "args": {},
+          "args": {
+          },
           "content": [
             {
               "type": "text",
@@ -92,7 +97,8 @@
               "type": "tool.call",
               "callId": "d-1",
               "name": "danger",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

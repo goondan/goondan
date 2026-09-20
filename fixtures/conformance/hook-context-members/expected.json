@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "hookContexts": [
@@ -8,9 +9,20 @@
         "extension": "memo",
         "stage": "modelInput",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
-        "input": "안녕",
+        "input": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ]
+          }
+        ],
         "conversation": [
           {
             "role": "user",

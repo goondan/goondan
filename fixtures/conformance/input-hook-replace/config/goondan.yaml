@@ -1,0 +1,6 @@
+agents:
+  main:
+    model: m
+    hooks:
+      input:
+        - fn: replaceInput

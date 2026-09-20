@@ -1,0 +1,16 @@
+{
+  "description": "군단 객체를 닫으면 같은 세션에서 실행 중인 턴은 중단하고 시작을 기다리던 다음 턴은 runtime_error로 실패시킨다.",
+  "spec": ["세션", "군단 객체 종료와 작업"],
+  "bindings": {
+    "models": {
+      "m": {"responses": [{"await": "active", "then": {"text": "끝"}}]}
+    }
+  },
+  "steps": [{
+    "parallel": [
+      [{"run": {"sessionId": "s", "input": "첫째"}}],
+      [{"reach": "active"}, {"run": {"sessionId": "s", "input": "둘째"}}],
+      [{"reach": "active"}, {"close": {}}]
+    ]
+  }]
+}

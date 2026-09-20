@@ -49,7 +49,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": {
           "q": "첫"
         }
@@ -57,13 +57,15 @@
     },
     {
       "run": {
-        "conversationId": "c2",
-        "input": "둘째"
+        "sessionId": "c2",
+        "input": {
+          "q": "둘째"
+        }
       }
     },
     {
       "run": {
-        "conversationId": "c3",
+        "sessionId": "c3",
         "input": 3
       }
     }

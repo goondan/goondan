@@ -1,5 +1,4 @@
 agents:
   main:
     model: m
-flow:
-  in: main
+routes: [main]

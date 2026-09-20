@@ -1,0 +1,12 @@
+{
+  "steps": [{"parallel": [
+    [{"result": {
+      "output": {"role": "assistant", "source": "goondan", "content": [{"type": "text", "text": "L\n\nR"}]},
+      "outputs": [
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "L"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "R"}]}
+      ]
+    }}],
+    [{}, {}, {}, {}]
+  ]}]
+}

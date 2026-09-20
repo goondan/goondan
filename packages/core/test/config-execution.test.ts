@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRuntime, defineExtension, GoondanConfigError, MemoryConversationStore, TemplateRenderer, validateConfig, type ConfigIssue, type ModelResult } from "../src/index.ts";
+import { createGoondan, defineExtension, GoondanConfigError, MemoryConversationStore, TemplateRenderer, validateConfig, type ConfigIssue, type ModelResult } from "../src/index.ts";
 
 function issuesOf(action: () => unknown): readonly ConfigIssue[] {
   try {
@@ -23,9 +23,9 @@ describe("configuration and execution contracts", () => {
     expect(config.agents.child).toMatchObject({ model: "model", params: { a: 1, b: 3 }, tools: ["read"], extensions: { audit: { enabled: false } }, hooks: { modelInput: [] } });
     expect(config.agents.base?.tools).toEqual(["read", "write"]);
     expect(config.agents.base?.hooks?.modelInput).toHaveLength(3);
-    expect(config.flow).toEqual({ in: "base" });
-    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m" } }, flow: ["a", "a"] })))
-      .toMatchObject([{ code: "schema.uniqueItems", path: "/flow/1" }]);
+    expect(config).not.toHaveProperty("routes");
+    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m" } }, routes: ["a", "a"] })))
+      .toMatchObject([{ code: "schema.uniqueItems", path: "/routes/1" }]);
     expect(validateConfig(config)).toEqual(config);
     expect(issuesOf(() => validateConfig({ agents: { a: { inherit: "b" }, b: { inherit: "a" } } })))
       .toMatchObject([{ code: "reference.inherit_cycle", path: "/agents/a/inherit" }]);
@@ -53,7 +53,7 @@ describe("configuration and execution contracts", () => {
     writeFileSync(join(root, "greeting.md"), "Hi {{ params.who }}");
     const document = { agents: { main: { model: "m", params: { who: "you" }, systemMessage: { template: "./greeting.md" } } } };
     let system = "";
-    const runtime = createRuntime(document, { directory: root, models: {
+    const runtime = createGoondan(document, { directory: root, models: {
       m: { async generate(input): Promise<ModelResult> {
         system = input.system[0]?.text ?? "";
         return { message: { id: "a", role: "assistant", source: "model", content: [{ type: "text", text: "ok" }] }, finishReason: "stop" };
@@ -61,27 +61,27 @@ describe("configuration and execution contracts", () => {
     } });
     expect(runtime.loaded.templates.get(join(root, "greeting.md"))).toBe("Hi {{ params.who }}");
     writeFileSync(join(root, "greeting.md"), "changed");
-    await runtime.runTurn("x", { conversationId: "c" });
+    await runtime.run("x", { sessionId: "c" });
     expect(system).toBe("Hi you");
     await runtime.close();
-    expect(issuesOf(() => createRuntime({ agents: { main: { model: "m", systemMessage: { template: "./nowhere.md" } } } }, { directory: root, models: {} })))
+    expect(issuesOf(() => createGoondan({ agents: { main: { model: "m", systemMessage: { template: "./nowhere.md" } } } }, { directory: root, models: {} })))
       .toMatchObject([{ code: "template.not_found", path: "/agents/main/systemMessage/template" }]);
   });
 
-  it("connects a serial flow with only the last output", async () => {
-    const config = validateConfig({ agents: { analyst: { model: "a" }, editor: { inherit: "analyst", model: "e" } }, flow: ["analyst", "editor"] });
-    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, { models: {
+  it("connects serial routes with only the last output", async () => {
+    const config = validateConfig({ agents: { analyst: { model: "a" }, editor: { inherit: "analyst", model: "e" } }, routes: ["analyst", "editor"] });
+    const runtime = createGoondan({ config, directory: ".", templates: new Map() }, { models: {
       a: { async generate(): Promise<ModelResult> { return { message: { id: "a", role: "assistant", source: "model", content: [{ type: "text", text: "analysis" }] }, finishReason: "stop" }; } },
-      e: { async generate(input): Promise<ModelResult> { expect(input.messages[0]?.content).toEqual([{ type: "text", text: "analysis" }]); return { message: { id: "e", role: "assistant", source: "model", content: [{ type: "text", text: "edited" }] }, finishReason: "stop" }; } },
+      e: { async generate(input): Promise<ModelResult> { expect(input.messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "analysis" }], meta: { from: "analyst", instance: "serial/analyst" } }); return { message: { id: "e", role: "assistant", source: "model", content: [{ type: "text", text: "edited" }] }, finishReason: "stop" }; } },
     } });
-    expect((await runtime.runTurn("input", { conversationId: "serial" })).output.content).toEqual([{ type: "text", text: "edited" }]);
+    expect((await runtime.run("input", { sessionId: "serial" })).output.content).toEqual([{ type: "text", text: "edited" }]);
     await runtime.close();
   });
 
   it("allows more than 32 model steps and completes after saving every result in the current tool batch", async () => {
     const store = new MemoryConversationStore(); let generations = 0; let toolCalls = 0;
     const config = validateConfig({ agents: { main: { model: "model", tools: ["work"], extensions: { policy: {} }, hooks: { toolResult: [{ extension: "policy" }] } } } });
-    const runtime = createRuntime({ config, directory: ".", templates: new Map() }, { conversationStore: store, models: {
+    const runtime = createGoondan({ config, directory: ".", templates: new Map() }, { conversationStore: store, models: {
       model: { async generate(): Promise<ModelResult> {
         generations += 1;
         if (generations > 34) throw new Error("completion policy failed");
@@ -92,7 +92,7 @@ describe("configuration and execution contracts", () => {
       if (toolCalls === 67) ctx.execution.complete({ id: "final", role: "assistant", source: "policy", content: [{ type: "text", text: "complete" }] });
       return value;
     } } }) }) } });
-    const result = await runtime.runTurn("input", { conversationId: "long" });
+    const result = await runtime.run("input", { sessionId: "long" });
     expect(generations).toBe(34); expect(toolCalls).toBe(68);
     expect(result.output.content).toEqual([{ type: "text", text: "complete" }]);
     expect((await store.load("long", "main")).flatMap((m) => m.content).filter((p) => p.type === "tool.result")).toHaveLength(68);

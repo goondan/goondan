@@ -1,8 +1,9 @@
 {
-  "description": "인라인 훅은 받은 값을 fn, agent, template 순서로 변환하며 template에는 직전 값인 text, 에이전트 입력인 input, 에이전트의 유효 params가 제공된다.",
+  "description": "conversation 단계의 agent 인라인 훅은 저장된 대화 메시지 배열을 대상 에이전트의 턴 입력으로 그대로 넘긴다.",
   "spec": [
     "인라인 훅",
-    "훅 식별자"
+    "파생 세션",
+    "단계 값과 대화 저장"
   ],
   "bindings": {
     "models": {
@@ -28,18 +29,12 @@
           }
         ]
       }
-    },
-    "functions": {
-      "toTask": {
-        "op": "wrap",
-        "key": "task"
-      }
     }
   },
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "안녕"
       }
     }

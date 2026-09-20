@@ -5,5 +5,4 @@ agents:
       alpha: {}
       beta: {}
       gamma: {}
-flow:
-  in: main
+routes: [main]

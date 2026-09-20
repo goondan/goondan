@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "effectiveConfig": {
@@ -10,7 +11,7 @@
         "base": {
           "model": "m",
           "hooks": {
-            "input": [
+            "conversation": [
               {
                 "agent": [
                   "x",
@@ -29,12 +30,11 @@
         "child": {
           "model": "m",
           "hooks": {
-            "input": []
+            "conversation": [
+
+            ]
           }
         }
-      },
-      "flow": {
-        "in": "base"
       }
     },
     "conversations": {
@@ -42,6 +42,11 @@
         {
           "role": "user",
           "source": "base",
+          "content": [{"type": "text", "text": "안녕"}]
+        },
+        {
+          "role": "user",
+          "source": "x+y",
           "content": [
             {
               "type": "text",
@@ -60,10 +65,10 @@
           ]
         }
       ],
-      "c1:base:input:x+y/x": [
+      "c1#<turn:1>#x/x": [
         {
           "role": "user",
-          "source": "x",
+          "source": "base",
           "content": [
             {
               "type": "text",
@@ -82,10 +87,10 @@
           ]
         }
       ],
-      "c1:base:input:x+y/y": [
+      "c1#<turn:1>#y/y": [
         {
           "role": "user",
-          "source": "y",
+          "source": "base",
           "content": [
             {
               "type": "text",

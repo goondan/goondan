@@ -22,26 +22,27 @@
 | `runs.ts` | 에이전트 실행 기록 트리와 사용량 집계 |
 | `operation.ts` | 승인 작업의 상태 전이와 완료 입력 |
 | `store.ts` | 메모리 대화 저장소와 메모리 작업 저장소 |
-| `runtime.ts` | 단계 실행 순서, 훅 파이프라인, 비동기 훅, 모델과 도구 반복, 흐름, 작업 실행과 이벤트 |
+| `runtime.ts` | `Goondan`과 `createGoondan`, 단계 실행 순서, 훅 파이프라인, 모델과 도구 반복, 병렬 route, fan-in, 세션과 작업 실행, 이벤트 |
 | `types.ts`, `errors.ts`, `json.ts` | 공개 타입, `GoondanConfigError`와 `GoondanExecutionError`, 구성 오류 정렬과 중복 제거, JSON 값 비교와 직렬화 |
 
-실행 기록의 `kind`는 그 실행을 받는 위치가 정합니다. 턴의 흐름 단계는 `flow`, 중첩 구성의 흐름 단계는 `nested`, 도구와 에이전트 도구는 `tool`, 동기 훅은 `hook`, `model.run`은 `model`입니다. 비동기 훅과 승인된 작업의 실행은 기록을 만들지 않으며, `config` 에이전트 자신도 기록을 만들지 않습니다.
+실행 기록의 `kind`는 그 실행을 시작한 위치가 정합니다. route, `agent`, `startAgent`와 완료 전달이 시작한 에이전트 실행은 `turn`, 도구와 에이전트 도구는 `tool`, 동기 훅은 `hook`, `model.run`은 `model`입니다. 각 항목의 `instance`는 stateful 실행이면 `<sessionId>/<agent>`, stateless 실행이면 실행마다 새로 만든 식별자입니다. 비동기 훅과 승인된 작업의 실행은 턴의 실행 기록을 만들지 않습니다.
 
 ## 구조적 결정
 
-1. 공개 인터페이스는 구성을 불러오는 `loadConfig`와 실행기를 만드는 `createRuntime`에 집중합니다. 모델, 도구, 함수, 확장, 저장소와 호스트 기능은 이름으로 받습니다.
+1. 공개 인터페이스는 구성을 불러오는 `loadConfig`와 군단 객체를 만드는 `createGoondan`에 집중합니다. 모델, 도구, 함수, 확장, 저장소와 호스트 기능은 이름으로 받습니다.
 2. 여덟 값의 훅 순서는 `goondan.yaml`만 소유합니다. 확장 구현은 다른 확장의 이름이나 실행 순서를 알지 못합니다.
 3. 직렬화되는 값은 `spec/goondan.schema.json`과 `fixtures/conformance`를 기준으로 TypeScript와 Python에서 같은 JSON 모양을 사용합니다.
 4. 런타임이 메시지 식별자, 도구 호출과 결과 연결, 중복 제거, 저장 시점과 훅 기록을 소유합니다.
-5. 에이전트는 에이전트 경로로 식별하고 실행 범위는 대화 식별자와 에이전트 경로의 조합입니다. `GoondanRuntime`은 생성자에서 `config` 에이전트마다 중첩 런타임을 하나씩 만들며, 호스트가 만든 런타임이 실행 중단, 실행 중 입력, 작업 라우팅, 완료 전달과 `idle()`의 작업 집합을 소유합니다.
-6. 승인 작업은 대화 턴과 분리된 operation으로 저장하며, 실행 상태와 완료 입력 전달 상태를 각각 원자적으로 전이합니다.
+5. 에이전트는 선언 이름으로 식별합니다. stateful 실행 범위는 세션 식별자와 에이전트 이름의 조합이고, stateless 실행 범위는 실행 하나입니다. 호스트가 만든 `Goondan` 객체가 실행 중단, 실행 중 입력, 세션 삭제, 작업 라우팅, 완료 전달과 `idle()`의 작업 집합을 소유합니다.
+6. 같은 세션에서 요청한 턴은 도착 순서대로 실행합니다. 일치한 route 분기는 동시에 진행하며, stateful fan-in은 출발 집합이 끝난 뒤 route 선언 순서로 입력 메시지를 합쳐 한 번 실행합니다.
+7. 승인 작업은 대화 턴과 분리된 operation으로 저장하며, 실행 상태와 완료 입력 전달 상태를 각각 원자적으로 전이합니다.
 
 ## 불변 규칙
 
 - 구성 디렉터리는 `goondan.yaml`, `templates`, `variants`를 기준으로 구성합니다. 템플릿은 선언했거나 정적으로 include한 파일만 읽습니다.
 - 훅은 받은 값을 반환하며 공유 대화를 직접 수정하지 않습니다.
-- 확장 인스턴스는 에이전트 경로와 대화 식별자의 조합마다 하나씩 생성합니다. 확장이 선언한 훅 단계나 도구가 인스턴스가 실제로 제공한 것과 다르면 인스턴스를 준비할 때 `binding.extension_hook` 같은 구성 오류로 보고하며, 훅 실패로 바꾸지 않습니다.
-- `ConversationStore`는 `load`, `append`, `replace`만 가집니다.
+- stateful 확장 인스턴스는 세션 식별자와 에이전트 이름의 조합마다 하나씩 생성합니다. stateless 확장 인스턴스는 실행마다 만들고 실행이 끝나면 정리합니다. 확장이 선언한 훅 단계나 도구가 인스턴스가 실제로 제공한 것과 다르면 인스턴스를 준비할 때 `binding.extension_hook` 같은 구성 오류로 보고하며, 훅 실패로 바꾸지 않습니다.
+- `ConversationStore`는 `load`, `append`, `replace`, `deleteSession`을 가집니다. `deleteSession`은 지정한 세션과 그 파생 세션의 대화를 함께 지웁니다.
 - 모델 호출 번호는 지금 시작하는 호출의 번호입니다.
 - 도구 실행을 시도할 때마다 `tool.start`와 함께 `tool.done` 또는 `tool.error` 가운데 하나만 알립니다. 도구 결과 형식 검사 실패(`value_invalid`)와 필수 `toolResult` 훅 실패(`hook_error`)도 이 쌍을 지킵니다. 객체가 아닌 모델 결과는 `modelResult`의 `value_invalid`입니다.
 - 이미 저장한 도구 호출을 건너뛰는 것은 같은 모델 응답의 호출 묶음을 이어서 처리하는 재시도뿐입니다.

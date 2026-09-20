@@ -1,0 +1,9 @@
+{
+  "description": "$input에서 $output으로 직접 가는 route는 예약 route이며 유효한 입력 route와 출력 route로 세지 않는다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": [
+
+  ]
+}

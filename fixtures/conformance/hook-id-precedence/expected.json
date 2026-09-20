@@ -34,7 +34,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "[둘]"
+                  "text": "[안녕]\n"
                 }
               ]
             },
@@ -44,7 +44,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "[셋]"
+                  "text": "[안녕]\n"
                 }
               ]
             },
@@ -54,7 +54,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "[안녕]"
+                  "text": "[안녕]\n"
                 }
               ]
             }
@@ -69,7 +69,7 @@
           "messages": [
             {
               "role": "user",
-              "source": "helper",
+              "source": "main",
               "content": [
                 {
                   "type": "text",

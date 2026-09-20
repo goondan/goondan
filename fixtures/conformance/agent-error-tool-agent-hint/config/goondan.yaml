@@ -6,5 +6,4 @@ agents:
         hint: 안내
   helper:
     model: m
-flow:
-  in: main
+routes: [main]

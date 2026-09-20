@@ -62,7 +62,7 @@ export interface ObservationState {
   hookContexts: Json[];
   hostCalls: Json[];
   extensionLog: Json[];
-  conversationScopes: Map<string, { conversationId: string; agent: string }>;
+  conversationScopes: Map<string, { sessionId: string; agent: string }>;
   operationHistory: Map<string, string[]>;
   operationAliases: Map<string, string>;
   operationCallIds: Map<string, string>;
@@ -124,7 +124,7 @@ function projectEvent(event: Json): Json {
   return {
     name: name ?? null,
     agent: event["agent"] ?? null,
-    conversationId: event["conversationId"] ?? null,
+    sessionId: event["sessionId"] ?? null,
     turnId: event["turnId"] ?? null,
     data: projectedData,
   };
@@ -289,7 +289,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
         const contexts = observations.modelContexts.get(name) ?? [];
         contexts.push({
           agent: contextValue(ctx, "agent"),
-          conversationId: contextValue(ctx, "conversationId"),
+          sessionId: contextValue(ctx, "sessionId"),
           turnId: contextValue(ctx, "turnId"),
           step: contextValue(ctx, "step"),
         });
@@ -379,7 +379,7 @@ function buildTool(name: string, site: string, script: ToolScript, scripts: Case
       observations.toolContexts.push({
         tool: name,
         agent: contextValue(ctx, "agent"),
-        conversationId: contextValue(ctx, "conversationId"),
+        sessionId: contextValue(ctx, "sessionId"),
         turnId: contextValue(ctx, "turnId"),
         toolCall: isJsonObject(toolCall)
           ? { id: toolCall["id"] ?? null, name: toolCall["name"] ?? null, args: toolCall["args"] ?? null }
@@ -481,7 +481,7 @@ function buildHookFunction(extension: string, stage: ValueStage, op: Op, scripts
       extension,
       stage,
       agent: contextValue(ctx, "agent"),
-      conversationId: contextValue(ctx, "conversationId"),
+      sessionId: contextValue(ctx, "sessionId"),
       turnId: contextValue(ctx, "turnId"),
       input: contextValue(ctx, "input"),
       conversation: contextValue(ctx, "conversation"),
@@ -526,7 +526,6 @@ function buildExtension(name: string, script: ExtensionScript, scripts: CaseScri
       ports: snapshot(member(input, "ports")),
       agent: {
         name: snapshot(member(agent, "name")),
-        path: snapshot(member(agent, "path")),
         spec: snapshot(member(agent, "spec")),
       },
     });
@@ -624,11 +623,21 @@ export function recordStore(inner: object, onCall: (method: string, args: unknow
 
 export function conversationRecorder(scripts: CaseScripts) {
   return (method: string, args: unknown[]): void => {
+    if (method === "deleteSession") {
+      const sessionId = args[0];
+      if (typeof sessionId !== "string") return;
+      for (const key of scripts.observations.conversationScopes.keys()) {
+        if (key.startsWith(`${sessionId}/`) || key.startsWith(`${sessionId}#`)) {
+          scripts.observations.conversationScopes.delete(key);
+        }
+      }
+      return;
+    }
     if (method !== "append" && method !== "replace" && method !== "finish") return;
-    const conversationId = args[0];
+    const sessionId = args[0];
     const agent = args[1];
-    if (typeof conversationId !== "string" || typeof agent !== "string") return;
-    scripts.observations.conversationScopes.set(`${conversationId}/${agent}`, { conversationId, agent });
+    if (typeof sessionId !== "string" || typeof agent !== "string") return;
+    scripts.observations.conversationScopes.set(`${sessionId}/${agent}`, { sessionId, agent });
   };
 }
 

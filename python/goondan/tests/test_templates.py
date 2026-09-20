@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from goondan import GoondanConfigError, GoondanError, create_runtime, load_config
+from goondan import GoondanConfigError, GoondanError, create_goondan, load_config
 
 
 def write(root: Path, name: str, text: str) -> Path:
@@ -24,7 +24,7 @@ def config_for(template: str = "templates/main.md", params: dict | None = None) 
 
 
 def runtime_for(root: Path, template: str = "templates/main.md"):
-    return create_runtime(config=config_for(template), models={"m": lambda value: None}, directory=str(root))
+    return create_goondan(config=config_for(template), models={"m": lambda value: None}, directory=str(root))
 
 
 def render(root: Path, source: str, variables: dict | None = None, name: str = "templates/main.md") -> str:
@@ -537,7 +537,7 @@ def test_every_declaring_position_reports_the_same_file(tmp_path: Path):
         },
     }
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
+        create_goondan(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
     assert [item["path"] for item in error.value.issues] == [
         "/agents/main/systemMessage/0/template",
         "/agents/main/systemMessage/1/template",
@@ -574,15 +574,8 @@ def test_a_template_declared_next_to_an_input_function_is_checked(tmp_path: Path
     write(tmp_path, "templates/input.md", "{% set x = 1 %}")
     config = {"agents": {"main": {"model": "m", "input": {"fn": "shape", "template": "templates/input.md"}}}}
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(config=config, models={"m": lambda value: None}, functions={"shape": lambda value: value}, directory=str(tmp_path))
+        create_goondan(config=config, models={"m": lambda value: None}, functions={"shape": lambda value: value}, directory=str(tmp_path))
     assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.unsupported", "/agents/main/input/template")]
-
-
-def test_the_remaining_fields_of_a_config_agent_are_not_read(tmp_path: Path):
-    write(tmp_path, "inner/goondan.yaml", "agents: {leaf: {model: m}}\n")
-    config = {"agents": {"wrap": {"config": "inner", "systemMessage": {"template": "templates/missing.md"}}}}
-    runtime = create_runtime(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
-    assert "systemMessage" not in runtime.config["agents"]["wrap"]
 
 
 def test_load_config_carries_the_template_sources_and_the_runtime_does_not_read_again(tmp_path: Path):
@@ -590,43 +583,16 @@ def test_load_config_carries_the_template_sources_and_the_runtime_does_not_read_
     template = write(tmp_path, "templates/main.md", "first")
     config = load_config(tmp_path)
     assert config.templates == {str(template.resolve()): "first"}
-    runtime = create_runtime(config=config, models={"m": lambda value: None})
+    runtime = create_goondan(config=config, models={"m": lambda value: None})
     template.write_text("second", encoding="utf-8")
     assert runtime.render("templates/main.md", {}) == "first"
-
-
-def test_a_nested_configuration_reports_its_templates_under_the_config_field(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "agents:\n  wrap:\n    config: inner\n")
-    write(tmp_path, "inner/goondan.yaml", "agents:\n  leaf:\n    model: m\n    systemMessage: {template: system.md}\n")
-    write(tmp_path, "inner/system.md", "{% set x = 1 %}")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path)
-    assert [(item["code"], item["path"], item["message"]) for item in error.value.issues] == [
-        ("template.unsupported", "/agents/wrap/config/agents/leaf/systemMessage/template", "system.md uses unsupported syntax: tag set"),
-    ]
-
-
-def test_a_nested_configuration_carries_its_own_templates(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "agents:\n  wrap:\n    config: inner\n")
-    write(tmp_path, "inner/goondan.yaml", "agents:\n  leaf:\n    model: m\n    systemMessage: {template: system.md}\n")
-    template = write(tmp_path, "inner/system.md", "inner")
-    config = load_config(tmp_path)
-    assert config.templates == {}
-    assert config.nested["wrap"].templates == {str(template.resolve()): "inner"}
-
-
-def test_a_flow_carry_template_is_read_at_its_own_position(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "agents:\n  a: {model: m}\n  b: {model: m}\nflow:\n  in: a\n  routes:\n    - {from: a, to: b, carry: {message: {template: carry.md}}}\n    - {from: b, to: out}\n")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path)
-    assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.not_found", "/flow/routes/0/carry/message/template")]
 
 
 def test_a_hook_template_is_read_at_its_own_position(tmp_path: Path):
     write(tmp_path, "templates/note.md", "{{ text | reverse }}")
     config = {"agents": {"main": {"model": "m", "hooks": {"output": [{"template": "templates/note.md"}]}}}}
     with pytest.raises(GoondanConfigError) as error:
-        create_runtime(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
+        create_goondan(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
     assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.unsupported", "/agents/main/hooks/output/0/template")]
 
 

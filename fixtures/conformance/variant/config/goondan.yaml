@@ -5,5 +5,4 @@ agents:
     params:
       tone: base
       topic: base
-flow:
-  in: main
+routes: [main]

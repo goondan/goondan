@@ -12,6 +12,6 @@ agents:
     model: rv
   checker:
     model: ck
-  wrap:
-    config: inner/goondan.yaml
-flow: [main, wrap]
+  helper:
+    model: h
+routes: [main, helper]

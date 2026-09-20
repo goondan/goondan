@@ -1,0 +1,9 @@
+agents:
+  first:
+    model: mf
+  second:
+    model: ms
+routes:
+  - {from: $input, to: first}
+  - {from: first, to: second, when: {output: T}}
+  - {from: second, to: $output}

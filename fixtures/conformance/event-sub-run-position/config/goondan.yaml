@@ -5,5 +5,4 @@ agents:
       - agent: worker
   worker:
     model: w
-flow:
-  in: main
+routes: [main]

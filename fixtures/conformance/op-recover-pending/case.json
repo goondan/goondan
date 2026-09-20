@@ -1,5 +1,5 @@
 {
-  "description": "복구는 저장된 pending 작업의 필드로 승인 요청을 다시 만들어 전달하고 작업 문맥은 다시 캡처하지 않으며, 대화 식별자를 지정하면 그 대화의 작업만 조회 순서대로 처리한다.",
+  "description": "복구는 저장된 pending 작업의 필드로 승인 요청을 다시 만들어 전달하고 작업 문맥은 다시 캡처하지 않으며, 세션 식별자를 지정하면 그 대화의 작업만 조회 순서대로 처리한다.",
   "spec": [
     "복구"
   ],
@@ -53,13 +53,13 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "첫 요청"
       }
     },
     {
       "run": {
-        "conversationId": "c2",
+        "sessionId": "c2",
         "input": "둘째 요청"
       }
     },
@@ -68,7 +68,7 @@
     },
     {
       "recover": {
-        "conversationId": "c2"
+        "sessionId": "c2"
       }
     },
     {

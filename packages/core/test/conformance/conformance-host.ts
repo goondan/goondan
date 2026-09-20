@@ -56,8 +56,8 @@ export async function validateConfig(document: JsonObject): Promise<unknown> {
   return isPromiseLike(result) ? await result : result;
 }
 
-export async function createRuntime(config: unknown, bindings: unknown): Promise<unknown> {
-  const create = requireFunction(core, "createRuntime", "createRuntime");
+export async function createGoondan(config: unknown, bindings: unknown): Promise<unknown> {
+  const create = requireFunction(core, "createGoondan", "createGoondan");
   const result = Reflect.apply(create, undefined, [config, bindings]);
   return isPromiseLike(result) ? await result : result;
 }

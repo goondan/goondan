@@ -5,14 +5,21 @@ import {
   type ToolResult, type ValueName,
 } from "./types.ts";
 
-/** A cheap structural guard; `messageIssue` performs the full `message` check of the schema. */
+/** 메시지 스키마 전체를 확인하는 타입 가드입니다. */
 export function isMessage(value: unknown): value is Message {
-  return isRecord(value) && typeof value.id === "string" && typeof value.source === "string"
-    && typeof value.role === "string" && Array.isArray(value.content);
+  return validateDefinition("message", value, []).length === 0;
 }
 
 export function isMessageArray(value: unknown): value is Message[] {
   return Array.isArray(value) && value.every(isMessage);
+}
+
+export function isPart(value: unknown): value is Part {
+  return validateDefinition("part", value, []).length === 0;
+}
+
+export function isPartArray(value: unknown): value is Part[] {
+  return Array.isArray(value) && value.length > 0 && value.every(isPart);
 }
 
 export function isToolCall(value: unknown): value is ToolCall {
@@ -142,7 +149,7 @@ function toolResultIssue(value: unknown, label: string, callId: string | undefin
 export function stageValueIssue(stage: ValueName, value: unknown, callId?: string): string | undefined {
   const label = `the ${stage} value`;
   switch (stage) {
-    case "input":
+    case "input": return messagesIssue(value, label);
     case "error": return undefined;
     case "conversation": return messagesIssue(value, label);
     case "modelInput": return modelInputIssue(value, label);
@@ -287,9 +294,14 @@ export function appendMessages(existing: readonly Message[], added: readonly Mes
   return kept;
 }
 
-/** The `출력 텍스트` of a message: text parts as they are, json parts as JSON text, others left out. */
+/** 메시지에서 선언 순서대로 `text` 부분만 이어 붙인 출력 텍스트입니다. */
 export function textOf(parts: readonly Part[]): string {
-  return parts.map((part) => part.type === "text" ? part.text : part.type === "json" ? jsonText(part.value) : "").join("");
+  return parts.map((part) => part.type === "text" ? part.text : "").join("");
+}
+
+/** `json` 부분을 포함하고 메시지 사이를 줄바꿈으로 연결한 입력 텍스트입니다. */
+export function inputTextOf(messages: readonly Message[]): string {
+  return messages.map((message) => message.content.map((part) => part.type === "text" ? part.text : part.type === "json" ? jsonText(part.value) : "").join("")).join("\n");
 }
 
 /**

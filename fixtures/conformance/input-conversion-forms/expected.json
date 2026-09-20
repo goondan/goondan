@@ -1,0 +1,26 @@
+{
+  "steps": [{}, {}, {}, {}, {}],
+  "observations": {
+    "conversations": {
+      "empty/main": [
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "빈 배열"}]}
+      ],
+      "json/main": [
+        {"role": "user", "source": "main", "content": [{"type": "text", "text": "{\"answer\":42}"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "JSON"}]}
+      ],
+      "message/main": [
+        {"role": "system", "source": "host", "content": [{"type": "text", "text": "지시"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "메시지"}]}
+      ],
+      "parts/main": [
+        {"role": "user", "source": "main", "content": [{"type": "image", "url": "memory:image"}, {"type": "text", "text": "설명"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "부분"}]}
+      ],
+      "string/main": [
+        {"role": "user", "source": "main", "content": [{"type": "text", "text": "문자열 입력"}]},
+        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "문자열"}]}
+      ]
+    }
+  }
+}

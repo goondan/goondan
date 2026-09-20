@@ -6,5 +6,6 @@ agents:
         - agent: helper
   helper:
     model: hm
-flow:
-  in: main
+    input:
+      fn: stableInput
+routes: [main]

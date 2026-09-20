@@ -4,11 +4,11 @@
     "issues": [
       {
         "code": "schema.uniqueItems",
-        "path": "/flow/2"
+        "path": "/routes/2"
       },
       {
         "code": "schema.uniqueItems",
-        "path": "/flow/10"
+        "path": "/routes/10"
       }
     ]
   }

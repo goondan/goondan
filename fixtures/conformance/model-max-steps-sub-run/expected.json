@@ -17,7 +17,9 @@
     "modelInputs": {
       "w": [
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -30,13 +32,18 @@
               ]
             }
           ],
-          "tools": [],
-          "options": {}
+          "tools": [
+
+          ],
+          "options": {
+          }
         }
       ],
       "m": [
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -58,10 +65,13 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         },
         {
-          "system": [],
+          "system": [
+
+          ],
           "messages": [
             {
               "role": "user",
@@ -113,10 +123,13 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         }
       ]
     },
-    "toolCalls": []
+    "toolCalls": [
+
+    ]
   }
 }

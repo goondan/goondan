@@ -139,7 +139,7 @@ class Context:
 
     def __init__(self, on_text_delta: Callable[[str], None] | None = None):
         self.agent = "main"
-        self.conversation_id = "c"
+        self.session_id = "c"
         self.turn_id = "t"
         self.step = 1
         self.deltas: list[str] = []

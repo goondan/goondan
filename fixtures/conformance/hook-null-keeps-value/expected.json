@@ -1,6 +1,7 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
     "conversations": {
@@ -31,16 +32,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "안녕"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "안녕"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "hook.applied",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "conversation",
@@ -50,7 +62,7 @@
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -59,7 +71,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -69,7 +81,7 @@
       {
         "name": "hook.applied",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "modelResult",
@@ -79,7 +91,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

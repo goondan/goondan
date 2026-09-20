@@ -19,11 +19,13 @@
     "toolCalls": [
       {
         "tool": "first",
-        "args": {}
+        "args": {
+        }
       },
       {
         "tool": "second",
-        "args": {}
+        "args": {
+        }
       }
     ],
     "conversations": {
@@ -46,13 +48,15 @@
               "type": "tool.call",
               "callId": "a-1",
               "name": "first",
-              "args": {}
+              "args": {
+              }
             },
             {
               "type": "tool.call",
               "callId": "b-1",
               "name": "second",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

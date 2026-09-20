@@ -1,0 +1,23 @@
+agents:
+  a:
+    model: ma
+  b:
+    model: mb
+  c:
+    model: mc
+routes:
+  - from: $input
+    to: a
+  - from: a
+    to: $output
+    when: {fn: first}
+  - from: a
+    to: b
+    when: {fn: second}
+  - from: a
+    to: c
+    when: {fn: third}
+  - from: b
+    to: $output
+  - from: c
+    to: $output

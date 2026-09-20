@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import type { Json, LoadedConfig, Message, Model, ModelInput, ModelResult, Tool } from '@goondan/core';
 import { createDefaultChatConfig } from '../src/chat/default.js';
@@ -99,6 +99,60 @@ describe('ChatHost', () => {
     await chat.close();
   });
 
+  it('병렬 실행 중에는 steer 대상 에이전트 지정 방법을 안내한다', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
+    const config: LoadedConfig = {
+      directory: root,
+      templates: new Map(),
+      config: {
+        version: 1,
+        name: 'parallel-steer',
+        agents: { left: { model: 'left' }, right: { model: 'right' } },
+        routes: [
+          { from: '$input', to: 'left' },
+          { from: '$input', to: 'right' },
+          { from: 'left', to: '$output' },
+          { from: 'right', to: '$output' },
+        ],
+      },
+    };
+    let enteredCount = 0;
+    let entered: (() => void) | undefined;
+    const bothEntered = new Promise<void>((resolve) => { entered = resolve; });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const model = (text: string): Model => ({
+      async generate(): Promise<ModelResult> {
+        enteredCount += 1;
+        if (enteredCount === 2) entered?.();
+        await gate;
+        return assistant([{ type: 'text', text }]);
+      },
+    });
+    const chat = new ChatHost({
+      config,
+      bindings: { models: { left: model('left'), right: model('right') } },
+      sessionId: 'parallel',
+      stateDirectory: root,
+    });
+    const input = new PassThrough();
+    let stderr = '';
+    const output = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+    const error = new Writable({ write(chunk, _encoding, callback) { stderr += String(chunk); callback(); } });
+    const repl = runChatRepl(chat, { input, output, error, terminal: false });
+
+    input.write('start\n');
+    await bothEntered;
+    input.write('more context\n');
+    input.write('/steer left left-only context\n');
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+    release?.();
+    input.end();
+    await repl;
+
+    expect(stderr).toContain('Use /steer <AGENT> <INPUT> while multiple agents are running.');
+  });
+
   it('현재 모델 호출을 취소한다', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
     let entered: (() => void) | undefined;
@@ -143,13 +197,11 @@ describe('ChatHost', () => {
           analysis: { model: 'analysis', input: 'asis' },
           polish: { model: 'polish', input: 'asis' },
         },
-        flow: {
-          in: 'analysis',
-          routes: [
-            { from: 'analysis', to: 'polish', carry: { message: 'output', conversation: 'asis' } },
-            { from: 'polish', to: 'out' },
-          ],
-        },
+        routes: [
+          { from: '$input', to: 'analysis' },
+          { from: 'analysis', to: 'polish' },
+          { from: 'polish', to: '$output' },
+        ],
       },
     };
     const model = (text: string): Model => ({

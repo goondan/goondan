@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  createRuntime, defineExtension, GoondanConfigError, isGoondanExecutionError, loadConfigSync, sortIssues, validateConfig,
+  createGoondan, defineExtension, GoondanConfigError, isGoondanExecutionError, loadConfigSync, sortIssues, validateConfig,
   type ConfigIssue, type Model, type ModelResult, type RuntimeBindings, type Tool,
 } from "../src/index.ts";
 
@@ -46,13 +46,13 @@ describe("the effective configuration", () => {
     expect(validateConfig({ agents: { a: { model: "m" } } })).toMatchObject({ version: 1, name: "goondan" });
     expect(issuesOf(() => validateConfig({ name: null, agents: { a: { model: "m" } } })))
       .toMatchObject([{ code: "schema.type", path: "/name" }]);
-    expect(issuesOf(() => validateConfig({ flow: null, agents: { a: { model: "m" } } })))
-      .toMatchObject([{ code: "schema.oneOf", path: "/flow" }]);
+    expect(issuesOf(() => validateConfig({ routes: null, agents: { a: { model: "m" } } })))
+      .toMatchObject([{ code: "schema.oneOf", path: "/routes" }]);
   });
 
-  it("expands a serial flow into the object form", () => {
-    const config = validateConfig({ agents: { a: { model: "m" }, b: { model: "m" } }, flow: ["a", "b"] });
-    expect(config.flow).toEqual({ in: "a", routes: [{ from: "a", to: "b" }, { from: "b", to: "out" }] });
+  it("expands serial routes into the object form", () => {
+    const config = validateConfig({ agents: { a: { model: "m" }, b: { model: "m" } }, routes: ["a", "b"] });
+    expect(config.routes).toEqual([{ from: "$input", to: "a" }, { from: "a", to: "b" }, { from: "b", to: "$output" }]);
   });
 
   it("leaves omitted fields omitted", () => {
@@ -122,20 +122,20 @@ describe("the reference phase", () => {
       agents: {
         a: { model: "m", tools: ["x", { tool: "x" }, { agent: "nope" }], extensions: { keep: {} }, hooks: { output: [{ extension: "gone" }, { agent: "missing" }] } },
       },
-      flow: { in: "a", routes: [{ from: "a", to: "ghost" }] },
+      routes: [{ from: "$input", to: "a" }, { from: "a", to: "ghost" }, { from: "a", to: "$output" }],
     }));
     expect(codes(issues)).toEqual([
       "/agents/a/hooks/output/0/extension:reference.extension",
       "/agents/a/hooks/output/1/agent:reference.agent",
       "/agents/a/tools/1:reference.duplicate_tool",
       "/agents/a/tools/2/agent:reference.agent",
-      "/flow/routes/0/to:reference.agent",
+      "/routes/1/to:reference.agent",
     ]);
   });
 
-  it("checks references of a serial flow at the declared position", () => {
-    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m" } }, flow: ["a", "b"] })))
-      .toMatchObject([{ code: "reference.agent", path: "/flow/1" }]);
+  it("checks references of serial routes at the declared position", () => {
+    expect(issuesOf(() => validateConfig({ agents: { a: { model: "m" } }, routes: ["a", "b"] })))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: "reference.agent", path: "/routes/1" })]));
   });
 
   it("reports only the inheritance error for agents that cannot resolve", () => {
@@ -156,11 +156,6 @@ describe("the reference phase", () => {
     }))).toMatchObject([{ code: "reference.duplicate_hook", path: "/agents/a/hooks/conversation/1" }]);
   });
 
-  it("skips reference checks on config agents", () => {
-    const config = validateConfig({ agents: { wrap: { config: "./inner", tools: [{ agent: "nope" }] } } });
-    expect(config.agents.wrap).toEqual({ config: "./inner" });
-  });
-
   it("does not run the reference phase when the schema phase failed", () => {
     expect(codes(issuesOf(() => validateConfig({ agents: { a: { model: "m", extra: 1, tools: [{ agent: "nope" }] } } }))))
       .toEqual(["/agents/a/extra:schema.additionalProperties"]);
@@ -169,23 +164,23 @@ describe("the reference phase", () => {
 
 describe("the binding phase", () => {
   it("reports every missing binding of the configuration at once", () => {
-    const issues = issuesOf(() => createRuntime({
+    const issues = issuesOf(() => createGoondan({
       version: 1, name: "t",
       agents: { a: { model: "gone", tools: ["search"], input: { fn: "make" }, extensions: { memory: {} } } },
-      flow: { in: "a", routes: [{ from: "a", to: "out", when: { fn: "decide" } }] },
+      routes: [{ from: "$input", to: "a" }, { from: "a", to: "$output", when: { fn: "decide" } }],
     }, bindings()));
     expect(codes(issues)).toEqual([
       "/agents/a/extensions/memory:binding.extension",
       "/agents/a/input/fn:binding.function",
       "/agents/a/model:binding.model",
       "/agents/a/tools/0:binding.tool",
-      "/flow/routes/0/when/fn:binding.function",
+      "/routes/1/when/fn:binding.function",
     ]);
   });
 
   it("reports a port the host did not register and a stage the extension does not declare", () => {
     const memory = defineExtension({ name: "memory", requires: ["store"], hooks: ["modelInput"], create: () => ({}) });
-    const issues = issuesOf(() => createRuntime({
+    const issues = issuesOf(() => createGoondan({
       version: 1, name: "t",
       agents: { a: { model: "main", extensions: { memory: {} }, hooks: { output: [{ extension: "memory" }] } } },
     }, bindings({ extensions: { memory } })));
@@ -197,7 +192,7 @@ describe("the binding phase", () => {
 
   it("reports a tool that a host tool and an extension both provide", () => {
     const memory = defineExtension({ name: "memory", tools: ["recall"], create: () => ({}) });
-    const issues = issuesOf(() => createRuntime({
+    const issues = issuesOf(() => createGoondan({
       version: 1, name: "t",
       agents: { a: { model: "main", tools: [{ tool: "recall" }], extensions: { memory: {} } } },
     }, bindings({ extensions: { memory }, tools: { recall: { name: "recall", description: "d", input: {}, execute: () => ({ callId: "c", name: "recall", args: null, content: [] }) } } })));
@@ -206,28 +201,13 @@ describe("the binding phase", () => {
 
   it("defers the tool check when an enabled extension declares no tools", () => {
     const loose = defineExtension({ name: "loose", create: () => ({}) });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       version: 1, name: "t",
       agents: { a: { model: "main", tools: ["later"], extensions: { loose: {} } } },
     }, bindings({ extensions: { loose } }));
     expect(runtime.loaded.config.agents.a?.tools).toEqual(["later"]);
   });
 
-  it("skips config agents and checks nested configurations with the same bindings", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: missing}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner, model: missing, tools: [gone]}\n",
-    });
-    const loaded = loadConfigSync(root);
-    expect(codes(issuesOf(() => createRuntime(loaded, bindings()))))
-      .toEqual(["/agents/wrap/config/agents/main/model:binding.model"]);
-  });
-
-  it("reads a plain document's nested configuration relative to the configuration directory", () => {
-    const root = workspace({ "inner/goondan.yaml": "agents:\n  main: {model: main}\n" });
-    const runtime = createRuntime({ agents: { wrap: { config: "./inner" } } }, bindings({ directory: root }));
-    expect(runtime.loaded.config.agents.wrap).toEqual({ config: join(root, "inner") });
-  });
 });
 
 describe("host language names", () => {
@@ -247,8 +227,8 @@ describe("host language names", () => {
 
   it("rejects a runtime retry budget that is not a whole count", () => {
     const document = { version: 1, name: "t", agents: { a: { model: "main" } } };
-    expect(() => createRuntime(document, bindings({ maxRetries: -1 }))).toThrow(TypeError);
-    expect(() => createRuntime(document, bindings({ maxRetries: 1.5 }))).toThrow(TypeError);
+    expect(() => createGoondan(document, bindings({ maxRetries: -1 }))).toThrow(TypeError);
+    expect(() => createGoondan(document, bindings({ maxRetries: 1.5 }))).toThrow(TypeError);
   });
 });
 
@@ -259,23 +239,16 @@ describe("template references", () => {
       .toMatchObject([{ code: "template.not_found", path: "/agents/a/systemMessage/template" }]);
   });
 
-  it("never reads the templates left on a config agent", () => {
-    const root = workspace({
-      "inner/goondan.yaml": "agents:\n  main: {model: m}\n",
-      "goondan.yaml": "agents:\n  wrap: {config: ./inner, systemMessage: {template: ./missing.md}}\n",
-    });
-    expect(loadConfigSync(root).config.agents.wrap).toEqual({ config: join(root, "inner") });
-  });
 });
 
 describe("extension instance preparation", () => {
   it("fails the turn with a configuration error when an instance lacks a hooked stage", async () => {
     const quiet = defineExtension({ name: "quiet", create: () => ({}) });
-    const runtime = createRuntime({
+    const runtime = createGoondan({
       version: 1, name: "t",
       agents: { a: { model: "main", extensions: { quiet: {} }, hooks: { output: [{ extension: "quiet" }] } } },
     }, bindings({ extensions: { quiet } }));
-    const failure: unknown = await runtime.runTurn("hello", { conversationId: "c" }).catch((error: unknown) => error);
+    const failure: unknown = await runtime.run("hello", { sessionId: "c" }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(GoondanConfigError);
     if (failure instanceof GoondanConfigError) {
       expect(codes(failure.issues)).toEqual(["/agents/a/hooks/output/0/extension:binding.extension_hook"]);
@@ -306,16 +279,16 @@ describe("the configuration error", () => {
 
   it("orders issues by path segments and then by code, and never by message", () => {
     const issues: readonly ConfigIssue[] = [
-      { code: "schema.type", path: "/flow/routes/10", message: "aaa" },
-      { code: "schema.type", path: "/flow/routes/2", message: "zzz" },
-      { code: "schema.const", path: "/flow/routes/2", message: "zzz" },
-      { code: "schema.type", path: "/flow", message: "zzz" },
+      { code: "schema.type", path: "/routes/10", message: "aaa" },
+      { code: "schema.type", path: "/routes/2", message: "zzz" },
+      { code: "schema.const", path: "/routes/2", message: "zzz" },
+      { code: "schema.type", path: "/routes", message: "zzz" },
       { code: "schema.type", path: "", message: "zzz" },
-      { code: "schema.type", path: "/flow/in", message: "aaa" },
+      { code: "schema.type", path: "/routes/0", message: "aaa" },
     ];
     expect(sortIssues(issues).map((issue) => `${issue.path}:${issue.code}`)).toEqual([
-      ":schema.type", "/flow:schema.type", "/flow/in:schema.type",
-      "/flow/routes/2:schema.const", "/flow/routes/2:schema.type", "/flow/routes/10:schema.type",
+      ":schema.type", "/routes:schema.type", "/routes/0:schema.type",
+      "/routes/2:schema.const", "/routes/2:schema.type", "/routes/10:schema.type",
     ]);
   });
 
@@ -337,9 +310,9 @@ describe("the configuration error", () => {
 describe("the execution error", () => {
   it("throws the exported execution error class with the fields of an execution error", async () => {
     const broken: Model = { async generate(): Promise<ModelResult> { throw new Error("model down"); } };
-    const runtime = createRuntime({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: broken } });
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: broken } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((cause: unknown) => cause);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((cause: unknown) => cause);
 
     expect(isGoondanExecutionError(error)).toBe(true);
     if (!isGoondanExecutionError(error)) throw new Error("Expected an execution error");
@@ -362,10 +335,10 @@ describe("the execution error", () => {
       },
     };
     const act: Tool = { name: "act", description: "act", input: {}, execute: () => { throw new Error("tool down"); } };
-    const runtime = createRuntime({ agents: { main: { model: "m", tools: ["act"] } } },
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } },
       { directory: ".", models: { m: model }, tools: { act } });
 
-    const error: unknown = await runtime.runTurn("hi", { conversationId: "c" }).catch((cause: unknown) => cause);
+    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((cause: unknown) => cause);
 
     if (!isGoondanExecutionError(error)) throw new Error("Expected an execution error");
     expect({ where: error.where, codes: error.codes, attempt: error.attempt }).toEqual({ where: "tool", codes: ["tool_error"], attempt: 1 });

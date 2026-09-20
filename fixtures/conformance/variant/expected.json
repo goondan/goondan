@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -13,9 +15,16 @@
           }
         }
       },
-      "flow": {
-        "in": "main"
-      }
+      "routes": [
+        {
+          "from": "$input",
+          "to": "main"
+        },
+        {
+          "from": "main",
+          "to": "$output"
+        }
+      ]
     }
   }
 }

@@ -1,0 +1,10 @@
+agents:
+  split: {model: splitModel}
+  left: {model: leftModel}
+  right: {model: rightModel}
+routes:
+  - {from: $input, to: split}
+  - {from: split, to: left}
+  - {from: split, to: right}
+  - {from: left, to: $output}
+  - {from: right, to: $output}

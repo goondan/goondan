@@ -35,8 +35,8 @@ export interface RunSink { kind: RunKind; nodes: RunNode[] }
  * Registers a run that is starting. The record joins the sibling list right away, so runs that are
  * awaited together keep the order in which they were started, and is completed when the run ends.
  */
-export function startRun(sink: RunSink, agent: string, turnId: string): RunNode {
-  const node: RunNode = { record: { agent, turnId, kind: sink.kind, usage: zeroUsage(), status: "failed" }, children: [] };
+export function startRun(sink: RunSink, agent: string, instance: string, turnId: string): RunNode {
+  const node: RunNode = { record: { agent, instance, turnId, kind: sink.kind, usage: zeroUsage(), status: "failed" }, children: [] };
   sink.nodes.push(node);
   return node;
 }
@@ -58,9 +58,15 @@ export function failRun(node: RunNode, usage: Usage): void {
   node.record.status = "failed";
 }
 
+/** 다른 분기의 실패로 이 실행이 중단되었다고 기록합니다. */
+export function abortRun(node: RunNode, usage: Usage): void {
+  node.record.usage = usage;
+  node.record.status = "aborted";
+}
+
 /** Records one model call a synchronous hook requested through the hook context. */
-export function recordModelCall(sink: RunSink, agent: string, turnId: string, outcome?: { usage: Usage; finishReason: string }): void {
-  const node = startRun({ kind: "model", nodes: sink.nodes }, agent, turnId);
+export function recordModelCall(sink: RunSink, agent: string, instance: string, turnId: string, outcome?: { usage: Usage; finishReason: string }): void {
+  const node = startRun({ kind: "model", nodes: sink.nodes }, agent, instance, turnId);
   if (outcome) finishRun(node, outcome.usage, outcome.finishReason);
 }
 

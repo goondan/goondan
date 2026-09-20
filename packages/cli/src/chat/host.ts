@@ -1,4 +1,4 @@
-import { createRuntime, textOf, type Json, type LoadedConfig, type RuntimeBindings } from '@goondan/core';
+import { createGoondan, textOf, type Json, type LoadedConfig, type RuntimeBindings } from '@goondan/core';
 import { FileConversationStore } from './session.js';
 
 export interface ChatHostOptions {
@@ -18,16 +18,16 @@ export interface ChatTurnResult {
 }
 
 export class ChatHost {
-  readonly #conversationId: string;
-  readonly #runtime;
+  readonly #sessionId: string;
+  readonly #goondan;
   #active: Promise<ChatTurnResult> | undefined;
   #streamed = false;
   #interrupted = false;
 
   constructor(options: ChatHostOptions) {
-    this.#conversationId = options.sessionId;
+    this.#sessionId = options.sessionId;
     const originalHost = options.bindings.host;
-    this.#runtime = createRuntime(options.config, {
+    this.#goondan = createGoondan(options.config, {
       ...options.bindings,
       conversationStore: new FileConversationStore(options.stateDirectory, options.sessionId),
       host: {
@@ -54,11 +54,12 @@ export class ChatHost {
 
   get active(): boolean { return this.#active !== undefined; }
 
-  submit(input: Json): { kind: 'steered' } | { kind: 'started'; completion: Promise<ChatTurnResult> } {
+  submit(input: Json, options: { agent?: string } = {}): { kind: 'steered' } | { kind: 'started'; completion: Promise<ChatTurnResult> } {
     if (this.#active) {
-      this.#runtime.steer(this.#conversationId, input);
+      this.#goondan.steer(this.#sessionId, input, options);
       return { kind: 'steered' };
     }
+    if (options.agent !== undefined) throw new Error('A steer target requires an active turn');
     this.#streamed = false;
     this.#interrupted = false;
     const completion = this.#run(input);
@@ -70,7 +71,7 @@ export class ChatHost {
   }
 
   interrupt(): boolean {
-    const aborted = this.#runtime.abort(this.#conversationId);
+    const aborted = this.#goondan.abort(this.#sessionId);
     if (aborted) this.#interrupted = true;
     return aborted;
   }
@@ -78,13 +79,13 @@ export class ChatHost {
   async close(): Promise<void> {
     const interrupted = this.interrupt();
     await this.#active?.catch(() => undefined);
-    if (!interrupted) await this.#runtime.idle();
-    await this.#runtime.close();
+    if (!interrupted) await this.#goondan.idle();
+    await this.#goondan.close();
   }
 
   async #run(input: Json): Promise<ChatTurnResult> {
     try {
-      const result = await this.#runtime.runTurn(input, { conversationId: this.#conversationId });
+      const result = await this.#goondan.run(input, { sessionId: this.#sessionId });
       return { kind: 'completed', text: textOf(result.output.content), streamed: this.#streamed };
     } catch (error) {
       if (this.#interrupted) throw new DOMException('Chat turn interrupted', 'AbortError');

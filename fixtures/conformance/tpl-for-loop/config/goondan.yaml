@@ -6,6 +6,6 @@ agents:
       empty: []
       outer: [[p, q], [r]]
     hooks:
-      input:
+      conversation:
         - name: t
           template: templates/system.md

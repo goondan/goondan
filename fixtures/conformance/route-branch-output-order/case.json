@@ -1,0 +1,63 @@
+{
+  "description": "여러 route가 일치하면 분기가 동시에 진행되며, outputs는 $output으로 이어지는 route의 선언 순서를 따른다.",
+  "spec": [
+    "route 진행",
+    "턴 결과"
+  ],
+  "bindings": {
+    "models": {
+      "msp": {
+        "responses": [
+          {
+            "text": "S",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "ma": {
+        "responses": [
+          {
+            "text": "A",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mb": {
+        "responses": [
+          {
+            "text": "B",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      },
+      "mc": {
+        "responses": [
+          {
+            "text": "C",
+            "usage": {
+              "input": 1,
+              "output": 1
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "c1",
+        "input": "시작"
+      }
+    }
+  ]
+}

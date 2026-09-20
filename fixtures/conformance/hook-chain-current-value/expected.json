@@ -6,14 +6,23 @@
     "functionCalls": [
       {
         "fn": "first",
-        "value": "안녕"
+          "value": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [{"type": "text", "text": "안녕"}]
+            }
+          ]
       },
       {
         "fn": "second",
-        "value": {
-          "text": "안녕",
-          "stage": "first"
-        }
+          "value": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [{"type": "text", "text": "첫째"}]
+            }
+          ]
       }
     ],
     "conversations": {
@@ -24,7 +33,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\"text\":\"안녕\",\"stage\":\"second\"}"
+              "text": "둘째"
             }
           ]
         },

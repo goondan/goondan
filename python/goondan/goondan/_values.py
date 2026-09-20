@@ -101,16 +101,6 @@ def is_message_array(value: Any) -> bool:
     return isinstance(value, list) and all(is_message(item) for item in value)
 
 
-def is_carried_conversation(value: Any) -> bool:
-    """§route 함수와 `carry`: what the return value of a `carry.conversation` function must be.
-
-    Every item must satisfy the `message` definition of `goondan.schema.json`, which is the
-    same condition a conversation stage value has, so both hosts apply the same check and a
-    message without a string `source` fails the flow.
-    """
-    return is_message_array(value)
-
-
 def is_system_block(value: Any) -> bool:
     if not isinstance(value, dict) or not {"text", "source"} <= set(value) <= {"text", "source", "cache"}:
         return False
@@ -171,7 +161,9 @@ def is_tool_result(value: Any) -> bool:
 
 def stage_error(stage: str, value: Any, call_id: str | None = None) -> str | None:
     """§단계 값과 대화 저장: what is wrong with a value of `stage`, or `None` when it fits."""
-    if stage in ("input", "error"):
+    if stage == "input":
+        return None if is_message_array(value) else "must be an array of messages"
+    if stage == "error":
         return None if is_json(value) else "must be a JSON value"
     if stage == "conversation":
         return None if is_message_array(value) else "must be an array of messages"
@@ -275,7 +267,7 @@ def append_messages(target: list[dict[str, Any]], messages: list[dict[str, Any]]
 
 
 def output_text(message: Any) -> str:
-    """§출력 텍스트: the `text` parts and the JSON text of the `json` parts, in order."""
+    """§출력 텍스트: `text` 부분만 순서대로 이어 붙인다."""
     parts = message.get("content") if isinstance(message, dict) else message
     if not isinstance(parts, list):
         return json_text(parts)
@@ -285,9 +277,26 @@ def output_text(message: Any) -> str:
             continue
         if part.get("type") == "text" and isinstance(part.get("text"), str):
             pieces.append(part["text"])
-        elif part.get("type") == "json":
-            pieces.append(json_text(part.get("value")))
     return "".join(pieces)
+
+
+def input_text(messages: Any) -> str:
+    """§입력: 메시지별 텍스트를 줄바꿈으로 연결한다."""
+    if not isinstance(messages, list):
+        return ""
+    values: list[str] = []
+    for message in messages:
+        parts = message.get("content") if isinstance(message, dict) else None
+        pieces: list[str] = []
+        for part in parts if isinstance(parts, list) else []:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text" and isinstance(part.get("text"), str):
+                pieces.append(part["text"])
+            elif part.get("type") == "json":
+                pieces.append(json_text(part.get("value")))
+        values.append("".join(pieces))
+    return "\n".join(values)
 
 
 def result_text(value: Any) -> str:

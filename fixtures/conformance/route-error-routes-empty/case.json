@@ -1,0 +1,7 @@
+{
+  "description": "routes는 route 객체 배열과 에이전트 이름 배열 가운데 하나이며, 빈 배열은 어느 형식도 만족하지 않으므로 schema.oneOf다.",
+  "spec": [
+    "route 선언과 검증"
+  ],
+  "steps": []
+}

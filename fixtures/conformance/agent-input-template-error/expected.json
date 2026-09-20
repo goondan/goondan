@@ -13,18 +13,9 @@
   "observations": {
     "events": [
       {
-        "name": "turn.start",
-        "agent": "main",
-        "conversationId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": "요청"
-        }
-      },
-      {
         "name": "turn.error",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "where": "input",
@@ -34,6 +25,7 @@
         }
       }
     ],
-    "conversations": {}
+    "conversations": {
+    }
   }
 }

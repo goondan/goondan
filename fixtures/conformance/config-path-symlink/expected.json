@@ -1,5 +1,7 @@
 {
-  "steps": [],
+  "steps": [
+
+  ],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -23,9 +25,6 @@
             "template": "<case>/config/sub/deep/note.md"
           }
         }
-      },
-      "flow": {
-        "in": "main"
       }
     }
   }

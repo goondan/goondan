@@ -30,14 +30,14 @@ export function deliveryIdOf(operationId: string): string {
  * so a stored operation never carries a `null` in place of an absent one.
  */
 export function newOperation(input: {
-  operationId: string; agent: string; conversationId: string; turnId: string; toolCall: ToolCall;
+  operationId: string; agent: string; sessionId: string; turnId: string; toolCall: ToolCall;
   reasons: readonly string[]; execution?: Record<string, Json>; context?: Record<string, Json>; now: number;
 }): PendingOperation {
   const operation: PendingOperation = {
     operationId: input.operationId,
     deliveryId: deliveryIdOf(input.operationId),
     agent: input.agent,
-    conversationId: input.conversationId,
+    sessionId: input.sessionId,
     turnId: input.turnId,
     toolCall: structuredClone(input.toolCall),
     reasons: [...input.reasons],
@@ -65,7 +65,7 @@ export function completionInput(operation: PendingOperation, status: OperationCo
     type: "operation_completion",
     deliveryId: operation.deliveryId,
     operationId: operation.operationId,
-    conversationId: operation.conversationId,
+    sessionId: operation.sessionId,
     agent: operation.agent,
     status,
     toolCall: structuredClone(operation.toolCall),

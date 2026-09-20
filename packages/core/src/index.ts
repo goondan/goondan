@@ -11,7 +11,7 @@ export { configSchema, unsupportedSchemaKeywords, validateSchema } from "./schem
 export { parseConfigDocument } from "./yaml.ts";
 export { mergeValues } from "./compose.ts";
 export { defineExtension, defineTool } from "./extension.ts";
-export { GoondanRuntime, createRuntime } from "./runtime.ts";
+export { Goondan, createGoondan } from "./runtime.ts";
 export { MemoryConversationStore, MemoryOperationStore } from "./store.ts";
 export { TemplateRenderer, TemplateRenderError } from "./template.ts";
 export type * from "./types.ts";

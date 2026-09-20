@@ -6,17 +6,27 @@
     "functionCalls": [
       {
         "fn": "normalize",
-        "value": {
-          "text": "안녕",
-          "requestId": "req-1"
-        }
+          "value": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {"type": "json", "value": {"text": "안녕", "requestId": "req-1"}}
+              ]
+            }
+          ]
       },
       {
         "fn": "showInput",
-        "value": {
-          "text": "안녕",
-          "requestId": "req-2"
-        }
+          "value": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {"type": "text", "text": "{\"text\":\"안녕\",\"requestId\":\"req-2\"}"}
+              ]
+            }
+          ]
       }
     ],
     "modelInputs": {

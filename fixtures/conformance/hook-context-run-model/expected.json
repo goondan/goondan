@@ -14,7 +14,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 2,
               "output": 1,
@@ -22,7 +22,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           },
           {
             "agent": "main",
@@ -35,7 +36,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           }
         ]
       }
@@ -72,7 +74,8 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         },
         {
           "system": [
@@ -102,7 +105,8 @@
               }
             }
           ],
-          "options": {}
+          "options": {
+          }
         }
       ]
     },
@@ -110,13 +114,13 @@
       "m": [
         {
           "agent": "main",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "step": 0
         },
         {
           "agent": "main",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "turnId": "<turn:1>",
           "step": 1
         }

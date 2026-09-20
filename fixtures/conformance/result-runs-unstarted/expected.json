@@ -23,7 +23,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 2,
               "output": 1,
@@ -31,7 +31,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           }
         ]
       }
@@ -42,16 +43,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "질문"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "질문"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -60,7 +72,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -70,7 +82,7 @@
       {
         "name": "hook.failed",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "value": "output",
@@ -80,7 +92,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

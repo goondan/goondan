@@ -4,5 +4,4 @@ agents:
     hooks:
       input:
         - fn: boom
-flow:
-  in: main
+routes: [main]

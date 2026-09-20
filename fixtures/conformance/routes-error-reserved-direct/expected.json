@@ -1,0 +1,10 @@
+{
+  "error": {
+    "phase": "load",
+    "issues": [
+      {"code": "routes.no_input", "path": "/routes"},
+      {"code": "routes.no_output", "path": "/routes"},
+      {"code": "routes.reserved", "path": "/routes/0"}
+    ]
+  }
+}

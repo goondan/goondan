@@ -1,0 +1,14 @@
+agents:
+  main:
+    model: mainModel
+    hooks:
+      conversation:
+        - name: one
+          agent: worker
+          mode: async
+        - name: two
+          agent: worker
+          mode: async
+  worker:
+    model: workerModel
+    stateful: false

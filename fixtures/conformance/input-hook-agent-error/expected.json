@@ -1,0 +1,26 @@
+{
+  "steps": [{}],
+  "observations": {
+    "conversations": {
+      "s/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [{"type": "text", "text": "원본"}]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [{"type": "text", "text": "완료"}]
+        }
+      ],
+      "s#<turn:1>#helper/helper": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [{"type": "text", "text": "원본"}]
+        }
+      ]
+    }
+  }
+}

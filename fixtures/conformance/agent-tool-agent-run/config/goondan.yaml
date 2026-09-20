@@ -6,5 +6,4 @@ agents:
   worker:
     description: 정리를 담당한다.
     model: w
-flow:
-  in: main
+routes: [main]

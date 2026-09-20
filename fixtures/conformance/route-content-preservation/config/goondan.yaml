@@ -1,0 +1,4 @@
+agents:
+  first: {model: firstModel}
+  second: {model: secondModel}
+routes: [first, second]

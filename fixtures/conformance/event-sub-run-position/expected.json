@@ -6,7 +6,7 @@
           {
             "agent": "main",
             "turnId": "<turn:1>",
-            "kind": "flow",
+            "kind": "turn",
             "usage": {
               "input": 2,
               "output": 2,
@@ -14,7 +14,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1/main"
           },
           {
             "agent": "worker",
@@ -27,7 +28,8 @@
               "cacheWrite": 0
             },
             "finishReason": "stop",
-            "status": "done"
+            "status": "done",
+            "instance": "c1#<turn:1>#worker/worker"
           }
         ]
       }
@@ -38,16 +40,27 @@
       {
         "name": "turn.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
-          "input": "부탁해"
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "부탁해"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1
@@ -56,7 +69,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 1,
@@ -66,7 +79,7 @@
       {
         "name": "tool.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "worker",
@@ -79,18 +92,27 @@
       {
         "name": "turn.start",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
-          "input": {
-            "task": "정리"
-          }
+          "input": [
+            {
+              "role": "user",
+              "source": "worker",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"task\":\"정리\"}"
+                }
+              ]
+            }
+          ]
         }
       },
       {
         "name": "step.start",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "step": 1
@@ -99,7 +121,7 @@
       {
         "name": "step.done",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "step": 1,
@@ -109,7 +131,7 @@
       {
         "name": "turn.done",
         "agent": "worker",
-        "conversationId": "c1:<turn:1>:worker",
+        "sessionId": "c1#<turn:1>#worker",
         "turnId": "<turn:2>",
         "data": {
           "output": {
@@ -134,7 +156,7 @@
       {
         "name": "tool.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "tool": "worker",
@@ -160,7 +182,7 @@
       {
         "name": "step.start",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 2
@@ -169,7 +191,7 @@
       {
         "name": "step.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "step": 2,
@@ -179,7 +201,7 @@
       {
         "name": "turn.done",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "data": {
           "output": {

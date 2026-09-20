@@ -24,7 +24,7 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": {
           "title": "보고서",
           "count": 2,
@@ -40,13 +40,13 @@
     },
     {
       "run": {
-        "conversationId": "c2",
+        "sessionId": "c2",
         "input": 1.0
       }
     },
     {
       "run": {
-        "conversationId": "c3",
+        "sessionId": "c3",
         "input": null
       }
     }

@@ -69,7 +69,7 @@ def has_member(holder: Any, name: str, camel: str) -> bool:
 
 
 MEMBER_NAMES = {
-    "agent": "agent", "conversation_id": "conversationId", "turn_id": "turnId", "step": "step",
+    "agent": "agent", "session_id": "sessionId", "turn_id": "turnId", "step": "step",
     "tool_call": "toolCall", "input": "input", "conversation": "conversation", "execution": "execution",
     "retry_count": "retryCount",
 }
@@ -102,7 +102,7 @@ def project_event(event: Mapping[str, Any]) -> dict[str, Any]:
                 kept[key] = snapshot(data[key])
         if "operationId" in data and "operationId" not in kept:
             kept["operationId"] = snapshot(data["operationId"])
-    return {"name": event.get("name"), "agent": event.get("agent"), "conversationId": event.get("conversationId"),
+    return {"name": event.get("name"), "agent": event.get("agent"), "sessionId": event.get("sessionId"),
             "turnId": event.get("turnId"), "data": kept}
 
 
@@ -129,8 +129,8 @@ class RecordingConversationStore(InMemoryConversationStore):
     """
 
     def observation(self) -> dict[str, Any]:
-        return {f"{conversation_id}/{agent}": snapshot(messages)
-                for (conversation_id, agent), messages in self.conversations.items()}
+        return {f"{session_id}/{agent}": snapshot(messages)
+                for (session_id, agent), messages in self.conversations.items()}
 
 
 class RecordingOperationStore(InMemoryOperationStore):
@@ -148,7 +148,7 @@ class RecordingOperationStore(InMemoryOperationStore):
     def _note(self, operation: Any) -> None:
         if not isinstance(operation, Mapping):
             return
-        key = (str(operation.get("conversationId")), str(operation.get("operationId")))
+        key = (str(operation.get("sessionId")), str(operation.get("operationId")))
         entries = self.history.setdefault(key, [])
         entry = f"{operation.get('status')}/{operation.get('deliveryStatus')}"
         if not entries or entries[-1] != entry:
@@ -311,7 +311,7 @@ class RuntimeBindings:
             async def generate(self, model_input: Any, context: Any = None) -> Any:
                 state.observations.model_inputs.setdefault(name, []).append(snapshot(model_input))
                 state.observations.model_contexts.setdefault(name, []).append(
-                    project_members(context, ("agent", "conversation_id", "turn_id", "step")) if context is not None else None
+                    project_members(context, ("agent", "session_id", "turn_id", "step")) if context is not None else None
                 )
                 response = state.next_model_response(name)
                 return await self._respond(response, context)
@@ -361,7 +361,7 @@ class RuntimeBindings:
         async def execute(args: Any, context: Any) -> Any:
             state.observations.tool_calls.append({"tool": name, "args": snapshot(args)})
             projected = {"tool": name}
-            projected.update(project_members(context, ("agent", "conversation_id", "turn_id")))
+            projected.update(project_members(context, ("agent", "session_id", "turn_id")))
             call = read_member(context, "tool_call", "toolCall")
             if call is not None:
                 projected["toolCall"] = {"id": read_member(call, "id", "id"), "name": read_member(call, "name", "name"),
@@ -461,7 +461,7 @@ class RuntimeBindings:
         async def hook(value: Any, context: Any) -> Any:
             state.observations.hook_calls.append({"extension": extension, "stage": stage, "value": snapshot(value)})
             projected = {"extension": extension, "stage": stage}
-            projected.update(project_members(context, ("agent", "conversation_id", "turn_id", "input", "conversation", "retry_count")))
+            projected.update(project_members(context, ("agent", "session_id", "turn_id", "input", "conversation", "retry_count")))
             state.observations.hook_contexts.append(projected)
             return await state.ops.run(op, value, site=f"extensions/{extension}/instance/hooks/{stage}",
                                        owner=owner, hook=HookBridge(context, state.note_unsupported))

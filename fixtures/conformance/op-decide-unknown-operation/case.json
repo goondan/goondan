@@ -1,5 +1,5 @@
 {
-  "description": "지정한 대화 식별자와 작업 식별자에 해당하는 작업이 없으면 결정을 operation_invalid 실행 오류로 거부한다.",
+  "description": "지정한 세션 식별자와 작업 식별자에 해당하는 작업이 없으면 결정을 operation_invalid 실행 오류로 거부한다.",
   "spec": [
     "결정과 취소"
   ],
@@ -32,14 +32,14 @@
   "steps": [
     {
       "run": {
-        "conversationId": "c1",
+        "sessionId": "c1",
         "input": "실행해 줘"
       }
     },
     {
       "decide": {
         "operation": "missing-operation",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "value": {
           "decision": "approved"
         }

@@ -1,0 +1,11 @@
+{
+  "description": "파생 세션의 stateless 훅 에이전트는 새 인스턴스로 실행하며 대화를 저장하지 않고 출력 텍스트만 부모 대화에 추가한다.",
+  "spec": ["인스턴스", "파생 세션", "인라인 훅"],
+  "bindings": {
+    "models": {
+      "mainModel": {"responses": [{"text": "완료"}]},
+      "helperModel": {"responses": [{"text": "요약"}]}
+    }
+  },
+  "steps": [{"run": {"sessionId": "s", "input": "원본"}}]
+}

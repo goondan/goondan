@@ -1,16 +1,20 @@
 {
   "steps": [
-    {}
+    {
+    }
   ],
   "observations": {
-    "toolCalls": [],
+    "toolCalls": [
+
+    ],
     "functionCalls": [
       {
         "fn": "giveResult",
         "value": {
           "id": "g-1",
           "name": "ghost",
-          "args": {}
+          "args": {
+          }
         }
       }
     ],
@@ -34,7 +38,8 @@
               "type": "tool.call",
               "callId": "g-1",
               "name": "ghost",
-              "args": {}
+              "args": {
+              }
             }
           ]
         },

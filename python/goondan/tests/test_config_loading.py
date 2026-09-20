@@ -146,7 +146,7 @@ def test_extends_then_resources_then_own_values_and_key_order(tmp_path: Path):
     assert list(config["agents"]) == ["a", "b"]
     assert config["agents"]["a"] == {"model": "second", "tools": ["write"]}
     assert config["name"] == "base"
-    assert config["flow"] == {"in": "a"}
+    assert "routes" not in config
 
 
 def test_an_empty_resource_list_composes_nothing(tmp_path: Path):
@@ -240,9 +240,13 @@ def test_validate_config_rejects_composition_fields():
 
 
 def test_validating_an_effective_config_again_returns_the_same_document():
-    once = validate_config({"agents": {"a": {"model": "m"}, "b": {"inherit": "a"}}, "flow": ["a", "b"]})
+    once = validate_config({"agents": {"a": {"model": "m"}, "b": {"inherit": "a"}}, "routes": ["a", "b"]})
     assert dict(validate_config(once)) == dict(once)
-    assert once["flow"] == {"in": "a", "routes": [{"from": "a", "to": "b"}, {"from": "b", "to": "out"}]}
+    assert once["routes"] == [
+        {"from": "$input", "to": "a"},
+        {"from": "a", "to": "b"},
+        {"from": "b", "to": "$output"},
+    ]
 
 
 def test_the_exception_message_lists_every_issue():

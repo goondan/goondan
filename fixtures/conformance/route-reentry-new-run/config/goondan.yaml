@@ -1,0 +1,16 @@
+agents:
+  writer:
+    model: mw
+  reviewer:
+    model: mr
+routes:
+  - from: $input
+    to: writer
+  - from: writer
+    to: reviewer
+  - from: reviewer
+    to: writer
+    when: {fn: needsRevision}
+  - from: reviewer
+    to: $output
+    when: {fn: approved}

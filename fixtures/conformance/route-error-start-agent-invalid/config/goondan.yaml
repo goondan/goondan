@@ -1,0 +1,4 @@
+agents:
+  a:
+    model: ma
+routes: [a]

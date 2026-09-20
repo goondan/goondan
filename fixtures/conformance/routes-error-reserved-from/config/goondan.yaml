@@ -1,0 +1,6 @@
+agents:
+  main: {model: m}
+routes:
+  - {from: $input, to: main}
+  - {from: main, to: $output}
+  - {from: $output, to: main}

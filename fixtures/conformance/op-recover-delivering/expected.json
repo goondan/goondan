@@ -6,7 +6,7 @@
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",
@@ -32,7 +32,7 @@
           "type": "operation_completion",
           "deliveryId": "operation:<op:d-1>:completion",
           "operationId": "<op:d-1>",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "agent": "main",
           "status": "rejected",
           "toolCall": {
@@ -48,7 +48,7 @@
           "type": "operation_completion",
           "deliveryId": "operation:<op:d-1>:completion",
           "operationId": "<op:d-1>",
-          "conversationId": "c1",
+          "sessionId": "c1",
           "agent": "main",
           "status": "rejected",
           "toolCall": {
@@ -64,7 +64,7 @@
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",

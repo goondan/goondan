@@ -42,7 +42,6 @@ function functionIssues(name: string | undefined, bindings: RuntimeBindings, seg
 
 function agentBindingIssues(name: string, spec: AgentSpec, bindings: RuntimeBindings, base: readonly PointerSegment[]): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
-  if (typeof spec.config === "string") return issues;
   const at: PointerSegment[] = [...base, "agents", name];
   if (typeof spec.model === "string" && !hasBinding(bindings.models, spec.model)) {
     issues.push(issue("binding.model", [...at, "model"], "does not name a model the host registered"));
@@ -104,19 +103,9 @@ export function bindingIssues(config: GoondanConfig, bindings: RuntimeBindings, 
   for (const [name, spec] of Object.entries(config.agents)) {
     if (spec) issues.push(...agentBindingIssues(name, spec, bindings, base));
   }
-  for (const [index, route] of (config.flow.routes ?? []).entries()) {
-    const at: PointerSegment[] = [...base, "flow", "routes", index];
-    if (route.when) issues.push(...functionIssues(route.when.fn, bindings, [...at, "when", "fn"]));
-    const carry = route.carry;
-    if (!carry) continue;
-    const message = carry.message;
-    if (message !== undefined && typeof message !== "string" && "fn" in message) {
-      issues.push(...functionIssues(message.fn, bindings, [...at, "carry", "message", "fn"]));
-    }
-    const conversation = carry.conversation;
-    if (conversation !== undefined && typeof conversation !== "string") {
-      issues.push(...functionIssues(conversation.fn, bindings, [...at, "carry", "conversation", "fn"]));
-    }
+  for (const [index, route] of (config.routes ?? []).entries()) {
+    const at: PointerSegment[] = [...base, "routes", index];
+    if (route.when && "fn" in route.when) issues.push(...functionIssues(route.when.fn, bindings, [...at, "when", "fn"]));
   }
   return issues;
 }

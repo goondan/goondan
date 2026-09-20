@@ -1,7 +1,7 @@
 import { isRecord, type PointerSegment } from "./json.ts";
 import { type Json } from "./types.ts";
 
-export type DeclaredPathKind = "config" | "template";
+export type DeclaredPathKind = "template";
 
 /** One YAML location that declares a file path, with the pointer the specification reports it at. */
 export interface DeclaredPath {
@@ -39,7 +39,6 @@ export function declaredPaths(document: unknown): DeclaredPath[] {
     for (const [name, raw] of Object.entries(agents)) {
       if (!isJsonRecord(raw)) continue;
       const at: PointerSegment[] = ["agents", name];
-      add(holder(raw, "config", "config", at));
       if (isJsonRecord(raw.input)) add(templateHolder(raw.input, [...at, "input"]));
       const system = raw.systemMessage;
       if (Array.isArray(system)) system.forEach((block, index) => add(templateHolder(block, [...at, "systemMessage", index])));
@@ -51,13 +50,6 @@ export function declaredPaths(document: unknown): DeclaredPath[] {
         }
       }
     }
-  }
-  const flow = document.flow;
-  if (isJsonRecord(flow) && Array.isArray(flow.routes)) {
-    flow.routes.forEach((route, index) => {
-      if (!isJsonRecord(route) || !isJsonRecord(route.carry)) return;
-      add(templateHolder(route.carry.message, ["flow", "routes", index, "carry", "message"]));
-    });
   }
   return found;
 }

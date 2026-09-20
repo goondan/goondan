@@ -8,5 +8,4 @@ agents:
         - name: probe
           extension: probe
           optional: true
-flow:
-  in: main
+routes: [main]

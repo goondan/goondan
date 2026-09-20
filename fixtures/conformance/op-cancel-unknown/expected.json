@@ -17,7 +17,7 @@
         "operationId": "<op:d-1>",
         "deliveryId": "operation:<op:d-1>:completion",
         "agent": "main",
-        "conversationId": "c1",
+        "sessionId": "c1",
         "turnId": "<turn:1>",
         "toolCall": {
           "id": "d-1",

@@ -33,17 +33,31 @@ describe("parseCase", () => {
     const parsed = parseCase({
       ...minimal,
       steps: [
-        { run: { conversationId: "c1", input: "hi" } },
+        { run: { sessionId: "c1", input: "hi" } },
         { decide: { operation: "<op:a>", value: { decision: "approved" } }, settle: false },
         { release: "gate" },
         { reach: "gate" },
-        { parallel: [[{ run: { conversationId: "c1", input: "a" } }]] },
+        { parallel: [[{ run: { sessionId: "c1", input: "a" } }]] },
       ],
     });
-    expect(parsed.steps[0]).toEqual({ action: "run", settle: true, conversationId: "c1", input: "hi" });
+    expect(parsed.steps[0]).toEqual({ action: "run", settle: true, sessionId: "c1", input: "hi" });
     expect(parsed.steps[1]).toMatchObject({ action: "decide", settle: false, operation: "<op:a>" });
     expect(parsed.steps[3]).toEqual({ action: "reach", settle: false, gate: "gate" });
     expect(parsed.steps[4]).toMatchObject({ action: "parallel" });
+  });
+
+  it("parses steer targets and session deletion", () => {
+    const parsed = parseCase({
+      ...minimal,
+      steps: [
+        { steer: { sessionId: "c1", value: "추가", agent: "main" } },
+        { deleteSession: { sessionId: "c1" } },
+      ],
+    });
+    expect(parsed.steps).toEqual([
+      { action: "steer", settle: true, sessionId: "c1", value: "추가", agent: "main" },
+      { action: "deleteSession", settle: true, sessionId: "c1" },
+    ]);
   });
 
   it("rejects two action keys, an unknown action and the reserved gate", () => {
@@ -52,8 +66,10 @@ describe("parseCase", () => {
     expect(() => parseCase({ ...minimal, steps: [{ release: "never" }] })).toThrow("never");
   });
 
-  it("rejects restart, close, parallel and settle inside a branch", () => {
-    expect(() => parseCase({ ...minimal, steps: [{ parallel: [[{ close: {} }]] }] })).toThrow("inside a parallel branch");
+  it("accepts close and rejects restart, parallel and settle inside a branch", () => {
+    expect(parseCase({ ...minimal, steps: [{ parallel: [[{ close: {} }]] }] }).steps).toEqual([
+      { action: "parallel", settle: true, branches: [[{ action: "close", settle: true }]] },
+    ]);
     expect(() =>
       parseCase({ ...minimal, steps: [{ parallel: [[{ release: "g", settle: false }]] }] }),
     ).toThrow("inside a parallel branch");
@@ -132,7 +148,7 @@ describe("parseOp", () => {
 });
 
 describe("parseExpected", () => {
-  const caseFile = parseCase({ ...minimal, steps: [{ run: { conversationId: "c1", input: "a" } }] });
+  const caseFile = parseCase({ ...minimal, steps: [{ run: { sessionId: "c1", input: "a" } }] });
 
   it("requires as many step expectations as steps", () => {
     expect(() => parseExpected({ steps: [] }, caseFile)).toThrow("must have 1 entries");

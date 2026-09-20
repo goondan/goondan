@@ -23,7 +23,7 @@
         [
           {
             "run": {
-              "conversationId": "c1",
+              "sessionId": "c1",
               "input": "시작"
             }
           }
@@ -34,7 +34,7 @@
           },
           {
             "abort": {
-              "conversationId": "c1"
+              "sessionId": "c1"
             }
           }
         ]

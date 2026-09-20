@@ -17,7 +17,11 @@
           "Tool danger requires approval"
         ],
         "status": "rejected",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     },
     {},
@@ -39,7 +43,12 @@
             "id": "d-1",
             "name": "danger",
             "args": {}
-          }
+          },
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       },
       {
@@ -55,7 +64,12 @@
             "id": "d-1",
             "name": "danger",
             "args": {}
-          }
+          },
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],
@@ -75,7 +89,11 @@
           "Tool danger requires approval"
         ],
         "status": "rejected",
-        "deliveryStatus": "delivered"
+        "deliveryStatus": "delivered",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "operationHistory": {

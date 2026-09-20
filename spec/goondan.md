@@ -1132,7 +1132,7 @@ YAML이 이름으로 참조하는 호스트 함수는 이 문서가 정한 JSON 
 승인 작업은 다음 순서로 만든다.
 
 1. 새 `operationId`를 만든다. `operationId`는 작업마다 고유한 불투명 문자열이며, 호출 식별자나 턴 식별자에서 파생하지 않고 작업이 남아 있는 동안 바뀌지 않는다. 모델이 같은 턴에서 같은 `callId`를 다시 사용해도 호출마다 별도의 작업을 만든다. `deliveryId`는 `operation:<operationId>:completion`이다.
-2. 승인 요청을 만든다. 승인 요청은 `operationId`, `sessionId`, `turnId`, `agent`, `toolCall`, `reasons`를 가진 객체다. `sessionId`와 `turnId`는 작업을 만든 에이전트 실행의 값이고, `agent`는 그 에이전트의 이름이며, `toolCall`은 `toolCall` 훅 처리를 마친 호출이다.
+2. 승인 요청을 만든다. 승인 요청은 `operationId`, `sessionId`, `turnId`, `agent`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`, `toolCall`, `reasons`를 가진 객체다. `sessionId`, `turnId`, `agent`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`는 작업을 만든 에이전트 실행의 값이며, `toolCall`은 `toolCall` 훅 처리를 마친 호출이다([실행 이벤트](#실행-이벤트)).
 3. 호스트가 작업 문맥 캡처(`captureOperationContext`, Python `capture_operation_context`)를 제공하면 승인 요청으로 호출한다. 반환한 JSON 객체는 작업의 `context`가 된다. 값을 반환하지 않으면 `context`를 저장하지 않으며, JSON 객체가 아닌 값을 반환하면 호출이 실패한 것으로 본다.
 4. 작업을 `status: pending`, `deliveryStatus: pending`으로 저장한다.
 5. 대기 중인 도구 결과를 도구 결과 메시지로 대화에 저장한다. 이 도구 결과의 `content`는 JSON 부분 `{status: "pending", operationId: <operationId>}` 하나이고, `meta`는 `{status: "pending", operationId: <operationId>}`다. 대기 중인 도구 결과는 런타임이 만든 값이므로 `toolResult` 훅을 거치지 않는다. 그 호출의 `toolResult` 훅은 승인된 작업을 실행할 때 실제 도구 결과에 한 번 적용된다.
@@ -1154,6 +1154,10 @@ YAML이 이름으로 참조하는 호스트 함수는 이 문서가 정한 JSON 
 | `agent` | 작업을 만든 에이전트의 이름이다. |
 | `sessionId` | 작업을 만든 에이전트 실행의 세션 식별자다. 파생 세션에서 만든 작업이면 파생 세션의 식별자다. |
 | `turnId` | 작업을 만든 에이전트 실행의 턴 식별자다. |
+| `instance` | 작업을 만든 에이전트 실행의 인스턴스 id다. |
+| `parentInstance` | 작업을 만든 에이전트 실행의 직계 부모 인스턴스 id다. 직계 부모가 없으면 `null`이다. |
+| `parentTurnId` | 작업을 만든 에이전트 실행의 직계 부모 턴 식별자다. 직계 부모가 없으면 `null`이다. |
+| `rootTurnId` | 작업을 만든 에이전트 실행이 속한 최상위 턴 식별자다. |
 | `toolCall` | `toolCall` 훅 처리를 마친 호출이다. 결정한 뒤에도 바뀌지 않는다. |
 | `reasons` | 승인 사유 배열이다. |
 | `status` | 작업 상태다. |
@@ -1262,7 +1266,7 @@ YAML이 이름으로 참조하는 호스트 함수는 이 문서가 정한 JSON 
 
 3단계나 4단계에서 도구 구현이 실패하거나, 필수 `toolResult` 훅이 실패하거나, 훅을 적용한 값이 도구 결과가 아니면 작업을 `failed`로 전이하고 `errorCode`를 `execution_failed`로, `error`를 그 실패의 메시지로 기록한다. 검증이나 실행으로 종료 상태가 된 작업은 [완료 전달](#완료-전달)을 시작한다.
 
-작업을 실행할 때 런타임은 3단계를 시작하기 전에 `tool.start` 이벤트를 알리고, 4단계를 마치면 `tool.done`, 3단계나 4단계가 실패하면 `tool.error` 이벤트를 알린다. 이 이벤트의 `agent`, `sessionId`, `turnId`는 작업의 값이다. `data`의 `tool`, `callId`, `args`는 입력 수정을 반영한 실제 호출의 값이며, `data`는 `operationId`도 가진다. 실행 전 검증에서 실패한 작업에는 이 이벤트를 알리지 않는다. 작업 실행은 턴이 아니므로 `turn.start`, `turn.done`, `turn.error`도 알리지 않는다.
+작업을 실행할 때 런타임은 3단계를 시작하기 전에 `tool.start` 이벤트를 알리고, 4단계를 마치면 `tool.done`, 3단계나 4단계가 실패하면 `tool.error` 이벤트를 알린다. 이 이벤트의 `agent`, `sessionId`, `turnId`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`는 작업의 값이다. `data`의 `tool`, `callId`, `args`는 입력 수정을 반영한 실제 호출의 값이며, `data`는 `operationId`도 가진다. 실행 전 검증에서 실패한 작업에는 이 이벤트를 알리지 않는다. 작업 실행은 턴이 아니므로 `turn.start`, `turn.done`, `turn.error`도 알리지 않는다.
 
 ### 완료 전달
 
@@ -1275,6 +1279,11 @@ YAML이 이름으로 참조하는 호스트 함수는 이 문서가 정한 JSON 
 | `operationId` | 작업의 `operationId` |
 | `sessionId` | 작업의 `sessionId` |
 | `agent` | 작업의 `agent` |
+| `turnId` | 작업의 `turnId` |
+| `instance` | 작업의 `instance` |
+| `parentInstance` | 작업의 `parentInstance` |
+| `parentTurnId` | 작업의 `parentTurnId` |
+| `rootTurnId` | 작업의 `rootTurnId` |
 | `status` | 작업의 종료 상태 |
 | `toolCall` | 작업의 `toolCall` |
 | `result` | `completed` 작업의 `result` |
@@ -1285,7 +1294,7 @@ YAML이 이름으로 참조하는 호스트 함수는 이 문서가 정한 JSON 
 
 1. 작업의 `deliveryStatus`를 `pending`에서 `delivering`으로 선점한다. 선점하지 못하면 다른 전달이 진행 중이거나 전달이 이미 끝난 것이므로 아무것도 하지 않는다.
 2. 호스트가 완료 전달(`deliverOperationCompletion`, Python `deliver_operation_completion`)을 제공하면 완료 입력으로 호출한다. 호출이 반환하면 호스트가 완료 입력을 지속 가능한 상태로 인수한 것으로 본다.
-3. 호스트가 완료 전달을 제공하지 않으면 런타임이 작업의 `sessionId`에서 새 턴을 실행한다. 이 턴은 작업의 `agent`를 `agent`로 지정한 [단일 에이전트 실행](#시작-에이전트와-단일-에이전트-실행)이며, 완료 입력을 담은 `json` 부분 하나를 가진 `user` 메시지 하나를 턴 입력으로 받고 route를 따르지 않는다([입력](#입력)). 이 턴은 그 세션에 먼저 요청된 턴이 모두 끝난 뒤에 시작하며([세션](#세션)), 턴이 성공하면 전달이 끝난 것으로 본다.
+3. 호스트가 완료 전달을 제공하지 않으면 런타임이 작업의 `sessionId`에서 새 턴을 실행한다. 이 턴은 작업의 `agent`를 `agent`로 지정한 [단일 에이전트 실행](#시작-에이전트와-단일-에이전트-실행)이며, 완료 입력을 담은 `json` 부분 하나를 가진 `user` 메시지 하나를 턴 입력으로 받고 route를 따르지 않는다([입력](#입력)). 이 실행의 직계 부모는 작업을 만든 에이전트 실행이고, `rootTurnId`는 작업의 값을 유지한다. 이 턴은 그 세션에 먼저 요청된 턴이 모두 끝난 뒤에 시작하며([세션](#세션)), 턴이 성공하면 전달이 끝난 것으로 본다.
 4. 전달이 끝나면 `deliveryStatus`를 `delivered`로 바꾸고 `deliveredAt`을 기록한다.
 
 런타임이 전달을 위해 실행한 턴은 작업을 만든 턴과 별개의 턴이며 자신의 결과와 사용량을 가진다([실행 결과](#실행-결과)). 이 턴의 에이전트는 완료 입력의 `json` 부분에 자신의 `input` 규칙을 적용한다. `input`을 생략하거나 `asis`로 지정했으면 입력 메시지의 텍스트는 완료 입력을 위 키 순서대로 직렬화한 [JSON 텍스트](#json-텍스트)다.
@@ -1466,6 +1475,9 @@ route 조건의 `text`, 여러 최종 출력을 연결한 대표 출력, 훅 에
 | `agent` | 실행한 에이전트의 이름이다. |
 | `instance` | 그 실행의 [인스턴스 id](#인스턴스)다. |
 | `turnId` | 그 실행의 턴 식별자다. 그 실행이 발생한 이벤트와 컨텍스트의 `turnId`와 같다. |
+| `parentInstance` | 그 실행을 직접 시작한 에이전트 실행의 인스턴스 id다. 직계 부모가 없으면 `null`이다. |
+| `parentTurnId` | 그 실행을 직접 시작한 에이전트 실행의 턴 식별자다. 직계 부모가 없으면 `null`이다. |
+| `rootTurnId` | 그 실행이 속한 최상위 턴 식별자다. |
 | `kind` | 실행이 시작된 방식이다. |
 | `usage` | 그 실행이 직접 받은 모델 응답의 사용량이다. 하위 실행의 사용량은 포함하지 않는다. |
 | `finishReason` | 그 실행의 종료 사유다. `status`가 `done`인 항목에만 있다. |
@@ -1478,7 +1490,7 @@ route 조건의 `text`, 여러 최종 출력을 연결한 대표 출력, 훅 에
 | `hook` | 동기 훅의 `agent`, 그리고 동기 훅 컨텍스트의 `agents.run`으로 실행한 에이전트 |
 | `model` | 동기 훅 컨텍스트의 `model.run`으로 요청한 모델 호출 |
 
-`model` 항목의 `agent`, `instance`와 `turnId`는 모델 호출을 요청한 에이전트 실행의 값이다. 모델 호출이 실패하면 그 항목의 `usage` 값은 모두 0이고 `status`는 `failed`다. 존재하지 않는 에이전트를 요청해 시작하지 못한 실행은 항목을 만들지 않는다. `failed` 항목은 선택 훅의 에이전트가 실패했거나 `error` 훅의 재시도로 실패한 도구 호출을 복구한 경우처럼, 실행이 실패했는데도 턴이 계속 진행될 때 나타난다.
+`model` 항목의 `agent`, `instance`, `turnId`, `parentInstance`, `parentTurnId`, `rootTurnId`는 모델 호출을 요청한 에이전트 실행의 값이다. 모델 호출이 실패하면 그 항목의 `usage` 값은 모두 0이고 `status`는 `failed`다. 존재하지 않는 에이전트를 요청해 시작하지 못한 실행은 항목을 만들지 않는다. `failed` 항목은 선택 훅의 에이전트가 실패했거나 `error` 훅의 재시도로 실패한 도구 호출을 복구한 경우처럼, 실행이 실패했는데도 턴이 계속 진행될 때 나타난다.
 
 비동기 훅 안에서 시작한 실행, 승인된 작업의 실행과 완료 전달을 위해 런타임이 시작한 턴은 턴과 별도의 수명을 가지므로 턴의 `runs`와 `usage`에 포함하지 않는다.
 
@@ -1536,10 +1548,27 @@ routes: [main, editor]
 | `agent` | 이벤트를 발생시킨 에이전트 실행의 에이전트 이름이다. |
 | `sessionId` | 그 에이전트 실행의 세션 식별자다. 파생 세션의 실행이면 파생 세션의 식별자다. |
 | `turnId` | 그 에이전트 실행의 턴 식별자다. |
+| `instance` | 그 에이전트 실행의 [인스턴스 id](#인스턴스)다. |
+| `parentInstance` | 그 실행을 직접 시작한 에이전트 실행의 인스턴스 id다. 직계 부모가 없으면 `null`이다. |
+| `parentTurnId` | 그 실행을 직접 시작한 에이전트 실행의 턴 식별자다. 직계 부모가 없으면 `null`이다. |
+| `rootTurnId` | 호스트가 `run`으로 요청한 최상위 턴의 식별자다. 한 최상위 턴에서 route, 도구와 훅으로 파생된 모든 실행이 같은 값을 가진다. |
 | `at` | 이벤트를 만든 시각이며 1970-01-01T00:00:00Z부터 지난 밀리초 수다. |
 | `data` | 이벤트별 값을 담은 JSON 객체다. |
 
-비동기 훅의 이벤트는 그 훅을 예약한 턴의 값을 사용하고([비동기 훅](#비동기-훅)), 승인된 작업을 실행할 때의 이벤트는 작업의 값을 사용한다([승인된 작업의 실행](#승인된-작업의-실행)).
+`rootTurnId`는 최상위 `run` 요청마다 런타임이 새로 만드는 불투명 문자열이다. route가 시작한 흐름 실행과 호스트가 `agent`나 `startAgent`로 시작한 실행은 최상위 턴에 직접 속하므로 `parentInstance`와 `parentTurnId`가 `null`이다. route가 앞 실행의 출력을 다음 실행에 전달하더라도 route의 선후 관계는 직계 부모 관계가 아니다. route 관계는 구성의 route와 입력 메시지의 `meta.from`, `meta.instance`로 관측한다.
+
+직계 부모와 최상위 턴 값은 다음과 같이 정한다.
+
+| 이벤트를 낸 실행이나 작업 | `instance`, `turnId` | `parentInstance`, `parentTurnId` | `rootTurnId` |
+|---|---|---|---|
+| 최상위 턴의 흐름 실행 | 그 실행의 값 | `null`, `null` | 최상위 턴을 요청할 때 만든 값 |
+| 동기 훅이나 도구가 시작하고 기다리는 하위 에이전트 실행 | 하위 실행의 값 | 하위 실행을 시작한 에이전트 실행의 값 | 부모 실행의 값 |
+| 비동기 훅 자체의 `hook.*` 이벤트 | 훅을 예약한 에이전트 실행의 값 | 훅을 예약한 실행의 부모 값 | 훅을 예약한 실행의 값 |
+| 비동기 훅이 시작한 하위 에이전트 실행 | 하위 실행의 값 | 훅을 예약한 에이전트 실행의 값 | 훅을 예약한 실행의 값 |
+| 승인된 작업의 `tool.*` 이벤트 | 작업을 만든 에이전트 실행의 값 | 작업에 저장한 부모 값 | 작업에 저장한 값 |
+| 런타임이 완료 전달을 위해 시작한 턴의 실행 | 새 실행의 값 | 작업을 만든 에이전트 실행의 값 | 작업에 저장한 값 |
+
+비동기 훅의 이벤트는 훅을 예약한 실행의 계보를 사용하고([비동기 훅](#비동기-훅)), 승인된 작업을 실행할 때의 이벤트는 작업에 저장한 계보를 사용한다([승인된 작업의 실행](#승인된-작업의-실행)). 작업 저장소에서 복구한 뒤에도 저장된 값을 그대로 사용한다. 완료 전달 입력은 작업의 `turnId`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`를 포함하므로, 호스트가 완료 입력을 직접 인수해도 작업을 만든 실행까지 문자열 해석 없이 연결할 수 있다.
 
 런타임은 이벤트 하나를 먼저 호스트의 이벤트 수신 기능(`emit`)에 전달하고, 이어서 그 에이전트 실행 범위의 확장 인스턴스 가운데 그 이름의 이벤트 처리기를 제공한 인스턴스에 인스턴스를 만든 순서대로 같은 값을 전달한다. 파생 세션의 실행이 발생시킨 이벤트도 호스트가 만든 군단 객체의 같은 이벤트 수신 기능으로 전달한다. 각 수신자는 이벤트를 발생 순서대로 받는다. 런타임은 전달이 끝난 뒤 실행을 이어 가며, `step.textDelta`만은 전달이 끝나기를 기다리지 않을 수 있다. 수신자가 실패하면 런타임은 그 실패를 무시하고 나머지 수신자에게 전달한 뒤 실행을 계속한다.
 

@@ -79,12 +79,12 @@ export type OperationStatus = "pending" | "approved" | "running" | "completed" |
 export type OperationDeliveryStatus = "pending" | "delivering" | "delivered";
 export type OperationErrorCode = "validation_failed" | "execution_failed" | "execution_interrupted";
 /** 저장된 승인 작업입니다. `agent`는 실행하고 완료를 전달할 에이전트의 선언 이름입니다. */
-export interface PendingOperation { operationId: string; deliveryId: string; agent: string; sessionId: string; turnId: string; toolCall: ToolCall; resolvedToolCall?: ToolCall; inputPatch?: Record<string, Json>; execution?: Record<string, Json>; context?: Record<string, Json>; reasons: string[]; status: OperationStatus; deliveryStatus: OperationDeliveryStatus; createdAt: number; updatedAt: number; result?: ToolResult; error?: string; errorCode?: OperationErrorCode; deliveredAt?: number }
+export interface PendingOperation { operationId: string; deliveryId: string; agent: string; sessionId: string; turnId: string; instance: string; parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; toolCall: ToolCall; resolvedToolCall?: ToolCall; inputPatch?: Record<string, Json>; execution?: Record<string, Json>; context?: Record<string, Json>; reasons: string[]; status: OperationStatus; deliveryStatus: OperationDeliveryStatus; createdAt: number; updatedAt: number; result?: ToolResult; error?: string; errorCode?: OperationErrorCode; deliveredAt?: number }
 export type OperationUpdate = Partial<Pick<PendingOperation, "status" | "deliveryStatus" | "resolvedToolCall" | "inputPatch" | "result" | "error" | "errorCode" | "updatedAt" | "deliveredAt">>;
 export interface OperationStore { list(sessionId?: string): Promise<PendingOperation[]>; get(sessionId: string, operationId: string): Promise<PendingOperation | undefined>; save(operation: PendingOperation): Promise<void>; transition(sessionId: string, operationId: string, from: OperationStatus[], update: OperationUpdate): Promise<PendingOperation | undefined>; claimDelivery(sessionId: string, operationId: string, updatedAt: number): Promise<PendingOperation | undefined>; releaseDelivery(sessionId: string, operationId: string, deliveryId: string, updatedAt: number): Promise<PendingOperation | undefined> }
-export interface ApprovalRequest { operationId: string; sessionId: string; turnId: string; agent: string; toolCall: ToolCall; reasons: string[] }
+export interface ApprovalRequest { operationId: string; sessionId: string; turnId: string; agent: string; instance: string; parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; toolCall: ToolCall; reasons: string[] }
 export interface OperationDecision { decision: "approved" | "rejected"; inputPatch?: Record<string, Json> }
-export interface OperationCompletion { type: "operation_completion"; deliveryId: string; operationId: string; sessionId: string; agent: string; status: "completed" | "rejected" | "cancelled" | "failed"; toolCall: ToolCall; result?: ToolResult; error?: string; errorCode?: OperationErrorCode }
+export interface OperationCompletion { type: "operation_completion"; deliveryId: string; operationId: string; sessionId: string; agent: string; turnId: string; instance: string; parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; status: "completed" | "rejected" | "cancelled" | "failed"; toolCall: ToolCall; result?: ToolResult; error?: string; errorCode?: OperationErrorCode }
 export interface RuntimeHost { captureOperationContext?(request: ApprovalRequest): Promise<Record<string, Json>> | Record<string, Json>; requestApproval?(request: ApprovalRequest): Promise<void> | void; validateOperationInputPatch?(operation: PendingOperation, patch: Record<string, Json>): Promise<boolean> | boolean; validateOperation?(operation: PendingOperation): Promise<boolean> | boolean; deliverOperationCompletion?(completion: OperationCompletion): Promise<void> | void; emit?(event: RuntimeEvent): Promise<void> | void }
 export interface Logger { info(message: string, fields?: Record<string, Json>): void; warn(message: string, fields?: Record<string, Json>): void; error(message: string, fields?: Record<string, Json>): void }
 export interface ExecutionControl { complete(output: Message): void }
@@ -127,7 +127,7 @@ export type RunKind = "turn" | "tool" | "hook" | "model";
  * One entry of a turn result's `runs`. `usage` counts only the model responses that run received
  * itself, and `finishReason` is present only on an entry whose `status` is `done`.
  */
-export interface AgentRunRecord { agent: string; instance: string; turnId: string; kind: RunKind; usage: Usage; finishReason?: string; status: "done" | "failed" | "aborted" }
+export interface AgentRunRecord { agent: string; instance: string; turnId: string; parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; kind: RunKind; usage: Usage; finishReason?: string; status: "done" | "failed" | "aborted" }
 /** The result of a successful turn. `usage` is the sum of every entry of `runs`. */
 export interface TurnResult { output: Message; outputs: Message[]; usage: Usage; finishReason: string; status: "done"; runs: AgentRunRecord[] }
 /** `agent`는 지정한 에이전트만 실행하고 `startAgent`는 지정한 에이전트부터 route를 진행합니다. */
@@ -135,5 +135,5 @@ export type RunInput = Json | Part[] | Message[];
 export interface RunOptions { sessionId: string; agent?: string; startAgent?: string; signal?: AbortSignal }
 /** The closed set of event names the runtime announces. */
 export type RuntimeEventName = "turn.start" | "turn.done" | "turn.error" | "step.start" | "step.done" | "step.error" | "step.textDelta" | "tool.start" | "tool.done" | "tool.error" | "humanApproval.created" | "hook.applied" | "hook.skipped" | "hook.failed";
-/** 실행 이벤트입니다. `agent`는 알린 실행의 선언 이름이고 `at`은 epoch 밀리초입니다. */
-export interface RuntimeEvent { name: RuntimeEventName; agent: string; sessionId: string; turnId: string; at: number; data: Record<string, Json> }
+/** 실행 이벤트입니다. 부모가 없는 최상위 실행은 두 부모 식별자가 `null`입니다. */
+export interface RuntimeEvent { name: RuntimeEventName; agent: string; sessionId: string; turnId: string; instance: string; parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; at: number; data: Record<string, Json> }

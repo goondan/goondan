@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    },
+    {},
     {
       "result": {
         "operationId": "<op:p-1>",
@@ -20,7 +19,11 @@
           "Tool publish requires approval"
         ],
         "status": "approved",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -56,7 +59,11 @@
               "text": "게시됨"
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "hostCalls": [
@@ -88,7 +95,12 @@
                 "text": "게시됨"
               }
             ]
-          }
+          },
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],

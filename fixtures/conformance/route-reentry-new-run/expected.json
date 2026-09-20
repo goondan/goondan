@@ -45,7 +45,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/writer"
+            "instance": "c1/writer",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "reviewer",
@@ -59,7 +62,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/reviewer"
+            "instance": "c1/reviewer",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "writer",
@@ -73,7 +79,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/writer"
+            "instance": "c1/writer",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "reviewer",
@@ -87,7 +96,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/reviewer"
+            "instance": "c1/reviewer",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }

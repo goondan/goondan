@@ -17,7 +17,11 @@
           "Tool danger requires approval"
         ],
         "status": "approved",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -41,7 +45,11 @@
         "status": "failed",
         "deliveryStatus": "delivered",
         "error": "정책 서버 중단",
-        "errorCode": "validation_failed"
+        "errorCode": "validation_failed",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "operationHistory": {

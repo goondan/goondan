@@ -22,10 +22,13 @@
           "codes": [
             "runtime_error"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
-    "conversations": {
-    }
+    "conversations": {}
   }
 }

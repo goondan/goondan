@@ -17,17 +17,14 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "memo": {
-              }
+              "memo": {}
             },
             "hooks": {
               "modelInput": [
@@ -45,10 +42,8 @@
         "instance": 1
       }
     ],
-    "modelInputs": {
-    },
-    "conversations": {
-    },
+    "modelInputs": {},
+    "conversations": {},
     "events": [
       {
         "name": "turn.error",
@@ -60,7 +55,11 @@
           "codes": [
             "binding.extension_hook"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

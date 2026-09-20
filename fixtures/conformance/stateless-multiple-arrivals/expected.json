@@ -1,36 +1,151 @@
 {
   "steps": [
-    {"result": {"runs": [
-      {"agent": "split", "instance": "s/split", "turnId": "<turn:1>", "kind": "turn", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": "stop", "status": "done"},
-      {"agent": "worker", "instance": "<instance:1>", "turnId": "<turn:2>", "kind": "turn", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": "stop", "status": "done"},
-      {"agent": "worker", "instance": "<instance:2>", "turnId": "<turn:3>", "kind": "turn", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": "stop", "status": "done"}
-    ]}}
+    {
+      "result": {
+        "runs": [
+          {
+            "agent": "split",
+            "instance": "s/split",
+            "turnId": "<turn:1>",
+            "kind": "turn",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
+          },
+          {
+            "agent": "worker",
+            "instance": "<instance:1>",
+            "turnId": "<turn:2>",
+            "kind": "turn",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
+          },
+          {
+            "agent": "worker",
+            "instance": "<instance:2>",
+            "turnId": "<turn:3>",
+            "kind": "turn",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
+          }
+        ]
+      }
+    }
   ],
   "observations": {
-      "modelInputs": {
-        "splitModel": [
-          {
-            "system": [],
-            "messages": [
-              {
-                "role": "user",
-                "source": "split",
-                "content": [{"type": "text", "text": "시작"}]
+    "modelInputs": {
+      "splitModel": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "split",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ],
+      "workerModel": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "worker",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "분기"
+                }
+              ],
+              "meta": {
+                "from": "split",
+                "instance": "s/split"
               }
-            ],
-            "tools": [],
-            "options": {}
-          }
-        ],
-        "workerModel": [
-        {"system": [], "messages": [{"role": "user", "source": "worker", "content": [{"type": "text", "text": "분기"}], "meta": {"from": "split", "instance": "s/split"}}], "tools": [], "options": {}},
-        {"system": [], "messages": [{"role": "user", "source": "worker", "content": [{"type": "text", "text": "분기"}], "meta": {"from": "split", "instance": "s/split"}}], "tools": [], "options": {}}
+            }
+          ],
+          "tools": [],
+          "options": {}
+        },
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "worker",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "분기"
+                }
+              ],
+              "meta": {
+                "from": "split",
+                "instance": "s/split"
+              }
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
       ]
     },
     "conversations": {
       "s/split": [
-        {"role": "user", "source": "split", "content": [{"type": "text", "text": "시작"}]},
-        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "분기"}]}
+        {
+          "role": "user",
+          "source": "split",
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ]
+        }
       ]
     }
   }

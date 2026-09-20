@@ -35,7 +35,24 @@
           }
         }
       },
-      {"action": "dispose", "instance": 2}
+      {"action": "dispose", "instance": 2},
+      {
+        "action": "create",
+        "instance": 3,
+        "extension": "trace",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "worker",
+          "spec": {
+            "model": "workerModel",
+            "stateful": false,
+            "tools": [{"tool": "danger", "approval": "required"}],
+            "extensions": {"trace": {}}
+          }
+        }
+      },
+      {"action": "dispose", "instance": 3}
     ]
   }
 }

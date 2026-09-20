@@ -452,8 +452,11 @@ def test_releasing_the_reserved_gate_is_an_error():
 
 def test_project_event_keeps_the_required_data_keys_without_the_error_text():
     event = {"name": "turn.error", "agent": "main", "sessionId": "c1", "turnId": "t1", "at": 1,
+             "instance": "c1/main", "parentInstance": None, "parentTurnId": None, "rootTurnId": "root-1",
              "data": {"where": "model", "codes": ["model_error"], "error": "boom", "extra": 1}}
     assert project_event(event) == {"name": "turn.error", "agent": "main", "sessionId": "c1", "turnId": "t1",
+                                    "instance": "c1/main", "parentInstance": None,
+                                    "parentTurnId": None, "rootTurnId": "root-1",
                                     "data": {"where": "model", "codes": ["model_error"]}}
 
 
@@ -711,9 +714,11 @@ async def test_the_event_sink_projects_the_event_and_checks_its_time():
     state = make_bindings({})
     receive = RuntimeBindings(state, "runtime-1").emit()
     await receive({"name": "turn.start", "agent": "main", "sessionId": "c1", "turnId": "t1", "at": "now",
+                   "instance": "c1/main", "parentInstance": None, "parentTurnId": None, "rootTurnId": "root-1",
                    "data": {"input": "hi"}})
     assert state.observations.events == [{"name": "turn.start", "agent": "main", "sessionId": "c1",
-                                          "turnId": "t1", "data": {"input": "hi"}}]
+                                          "turnId": "t1", "instance": "c1/main", "parentInstance": None,
+                                          "parentTurnId": None, "rootTurnId": "root-1", "data": {"input": "hi"}}]
     assert state.problems == ["the event 'turn.start' must have a number 'at'"]
 
 

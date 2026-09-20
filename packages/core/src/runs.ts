@@ -30,13 +30,14 @@ export interface RunNode { record: AgentRunRecord; children: RunNode[] }
 
 /** Where a run that is starting puts its record: the sibling list it joins and how it was started. */
 export interface RunSink { kind: RunKind; nodes: RunNode[] }
+export interface RunLineage { parentInstance: string | null; parentTurnId: string | null; rootTurnId: string }
 
 /**
  * Registers a run that is starting. The record joins the sibling list right away, so runs that are
  * awaited together keep the order in which they were started, and is completed when the run ends.
  */
-export function startRun(sink: RunSink, agent: string, instance: string, turnId: string): RunNode {
-  const node: RunNode = { record: { agent, instance, turnId, kind: sink.kind, usage: zeroUsage(), status: "failed" }, children: [] };
+export function startRun(sink: RunSink, agent: string, instance: string, turnId: string, lineage: RunLineage): RunNode {
+  const node: RunNode = { record: { agent, instance, turnId, ...lineage, kind: sink.kind, usage: zeroUsage(), status: "failed" }, children: [] };
   sink.nodes.push(node);
   return node;
 }
@@ -65,8 +66,8 @@ export function abortRun(node: RunNode, usage: Usage): void {
 }
 
 /** Records one model call a synchronous hook requested through the hook context. */
-export function recordModelCall(sink: RunSink, agent: string, instance: string, turnId: string, outcome?: { usage: Usage; finishReason: string }): void {
-  const node = startRun({ kind: "model", nodes: sink.nodes }, agent, instance, turnId);
+export function recordModelCall(sink: RunSink, agent: string, instance: string, turnId: string, lineage: RunLineage, outcome?: { usage: Usage; finishReason: string }): void {
+  const node = startRun({ kind: "model", nodes: sink.nodes }, agent, instance, turnId, lineage);
   if (outcome) finishRun(node, outcome.usage, outcome.finishReason);
 }
 

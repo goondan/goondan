@@ -10,8 +10,7 @@
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {
-          }
+          "args": {}
         }
       }
     }
@@ -36,7 +35,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -45,7 +48,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -55,7 +62,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "humanApproval.created",
@@ -69,7 +80,11 @@
           "reasons": [
             "Tool danger requires approval"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.error",
@@ -81,7 +96,11 @@
           "codes": [
             "runtime_error"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "hostCalls": [
@@ -95,12 +114,15 @@
           "toolCall": {
             "id": "d-1",
             "name": "danger",
-            "args": {
-            }
+            "args": {}
           },
           "reasons": [
             "Tool danger requires approval"
-          ]
+          ],
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],
@@ -114,14 +136,17 @@
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {
-          }
+          "args": {}
         },
         "reasons": [
           "Tool danger requires approval"
         ],
         "status": "pending",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "conversations": {
@@ -144,8 +169,7 @@
               "type": "tool.call",
               "callId": "d-1",
               "name": "danger",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

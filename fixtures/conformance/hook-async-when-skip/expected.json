@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "functionCalls": [
@@ -40,7 +39,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "hook.skipped",
@@ -50,7 +53,11 @@
         "data": {
           "value": "conversation",
           "hook": "note"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -59,7 +66,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -69,7 +80,11 @@
         "data": {
           "step": 1,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -94,7 +109,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

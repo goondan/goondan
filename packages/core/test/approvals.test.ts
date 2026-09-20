@@ -78,7 +78,8 @@ describe("creating an approval operation", () => {
     const operation = await only(runtime);
 
     expect(Object.keys(operation)).toEqual([
-      "operationId", "deliveryId", "agent", "sessionId", "turnId", "toolCall",
+      "operationId", "deliveryId", "agent", "sessionId", "turnId", "instance",
+      "parentInstance", "parentTurnId", "rootTurnId", "toolCall",
       "reasons", "status", "deliveryStatus", "createdAt", "updatedAt",
     ]);
     expect(operation.deliveryId).toBe(`operation:${operation.operationId}:completion`);
@@ -137,7 +138,9 @@ describe("creating an approval operation", () => {
 
     expect(requests).toEqual([{
       operationId: operation.operationId, sessionId: "c", turnId: operation.turnId,
-      agent: "main", toolCall: operation.toolCall, reasons: ["Tool act requires approval"],
+      agent: "main", instance: operation.instance, parentInstance: operation.parentInstance,
+      parentTurnId: operation.parentTurnId, rootTurnId: operation.rootTurnId,
+      toolCall: operation.toolCall, reasons: ["Tool act requires approval"],
     }]);
     const created = events.find((event) => event.name === "humanApproval.created");
     expect(created?.data).toEqual({ operationId: operation.operationId, tool: "act", callId: "c1", reasons: ["Tool act requires approval"] });
@@ -302,7 +305,10 @@ describe("cancelling an operation", () => {
     await runtime.idle();
 
     expect(cancelled.status).toBe("cancelled");
-    expect(Object.keys(completions[0] ?? {})).toEqual(["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall"]);
+    expect(Object.keys(completions[0] ?? {})).toEqual([
+      "type", "deliveryId", "operationId", "sessionId", "agent", "turnId", "instance",
+      "parentInstance", "parentTurnId", "rootTurnId", "status", "toolCall",
+    ]);
     expect((await only(runtime)).deliveryStatus).toBe("delivered");
     await runtime.close();
   });
@@ -489,7 +495,10 @@ describe("delivering a completion", () => {
     await runtime.idle();
 
     const [completion] = completions;
-    expect(Object.keys(completion ?? {})).toEqual(["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall", "result"]);
+    expect(Object.keys(completion ?? {})).toEqual([
+      "type", "deliveryId", "operationId", "sessionId", "agent", "turnId", "instance",
+      "parentInstance", "parentTurnId", "rootTurnId", "status", "toolCall", "result",
+    ]);
     expect(completion?.deliveryId).toBe(operation.deliveryId);
     expect(completion?.status).toBe("completed");
     expect((await only(runtime)).deliveryStatus).toBe("delivered");
@@ -641,6 +650,7 @@ describe("recovering operations", () => {
     const now = Date.now();
     const base: PendingOperation = {
       operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", sessionId: "c", turnId: "t",
+      instance: "c/main", parentInstance: null, parentTurnId: null, rootTurnId: "root",
       toolCall: { id: "c1", name: "act", args: null }, reasons: ["Tool act requires approval"],
       status: "completed", deliveryStatus: "delivering", createdAt: now, updatedAt: now,
     };
@@ -665,6 +675,7 @@ describe("recovering operations", () => {
     const now = Date.now();
     const pending: PendingOperation = {
       operationId: "op-1", deliveryId: "operation:op-1:completion", agent: "main", sessionId: "c", turnId: "t",
+      instance: "c/main", parentInstance: null, parentTurnId: null, rootTurnId: "root",
       toolCall: { id: "c1", name: "act", args: null }, reasons: ["Tool act requires approval"],
       status: "pending", deliveryStatus: "pending", createdAt: now, updatedAt: now,
     };

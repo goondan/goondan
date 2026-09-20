@@ -449,7 +449,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 각 영역의 세부 규칙은 다음과 같다.
 
 - 모든 투영의 키는 camelCase다. Python 러너는 `session_id`, `turn_id`, `retry_count`, `tool_call` 같은 이름을 camelCase 키로 바꿔 기록한다.
-- `events`: 각 이벤트를 `{name, agent, sessionId, turnId, data}`로 투영하며 `at`은 넣지 않는다. `data`에는 규격의 [이벤트 종류](../../spec/goondan.md#이벤트-종류) 표가 그 이벤트에 요구하는 키 가운데 오류 문구인 `error`를 뺀 키만 넣고, 호스트가 추가한 키는 넣지 않는다. 다만 승인된 작업을 실행할 때 알린 `tool.*` 이벤트처럼 `data`에 `operationId`가 있으면 그 키를 넣는다.
+- `events`: 각 이벤트를 `{name, agent, sessionId, turnId, instance, parentInstance, parentTurnId, rootTurnId, data}`로 투영하며 `at`은 넣지 않는다. `data`에는 규격의 [이벤트 종류](../../spec/goondan.md#이벤트-종류) 표가 그 이벤트에 요구하는 키 가운데 오류 문구인 `error`를 뺀 키만 넣고, 호스트가 추가한 키는 넣지 않는다. 다만 승인된 작업을 실행할 때 알린 `tool.*` 이벤트처럼 `data`에 `operationId`가 있으면 그 키를 넣는다.
 - `toolContexts`: `toolCall`은 도구 컨텍스트의 `{id, name, args}`이고, `execution`은 실행 정보가 없을 때 `{}`다.
 - `hookCalls`, `hookContexts`: `stage`는 훅이 실행된 값 처리 단계의 이름이다.
 - `hostCalls`: 승인 요청과 완료 입력은 받은 값 그대로, 저장된 작업은 작업 투영으로 기록한다. `validateOperationInputPatch`의 값은 `{"operation": 작업 투영, "inputPatch": 입력 수정}`이다.
@@ -472,6 +472,7 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 3. 모든 문자열에서 실제 `operationId`를 [작업 별칭](#작업-별칭)으로 바꾼다.
 4. 유효 구성에서 `stateful: false`인 에이전트의 인스턴스 식별자를 문서에 처음 나타난 순서대로 `<instance:N>`으로 바꾼다.
 5. 모든 문자열에서 턴 식별자를 [턴 번호](#턴-번호) 표기 `<turn:N>`으로 바꾼다.
+6. 모든 문자열에서 최상위 턴 식별자를 [최상위 턴 번호](#최상위-턴-번호) 표기 `<root:N>`으로 바꾼다.
 
 문자열 치환은 객체의 키와 문자열 값에 모두 적용하며 문자열의 일부도 바꾼다. 따라서 메시지 텍스트에 들어 있는 JSON 텍스트와 파생 세션 식별자 안의 값도 바뀐다. 시각 값(`at`, `createdAt`, `updatedAt`, `deliveredAt`)은 투영에 넣지 않는다. 이 밖의 값은 바꾸지 않으므로 `null`과 키가 없는 경우는 계속 구별된다.
 
@@ -490,6 +491,10 @@ Python에서는 JSON `null`과 값이 없는 반환이 모두 `None`이다. 따�
 - 한 문자열에 턴 식별자가 여럿 있으면 앞에 있는 것부터 센다.
 
 성공한 턴의 턴 식별자는 보통 그 턴 결과의 `runs` 순서대로 번호를 받는다. 실패한 턴처럼 `steps`에 나타나지 않는 턴 식별자는 대개 `events`에서 처음 나타나는 순서로 번호를 받는다.
+
+### 최상위 턴 번호
+
+최상위 턴 식별자는 문서에서 `rootTurnId` 키의 문자열 값으로 나타나는 모든 값이다. 러너는 턴 식별자 치환까지 마친 문서를 턴 번호와 같은 순서로 훑고, 처음 나타나는 순서대로 `<root:1>`, `<root:2>`처럼 번호를 매긴다. 같은 최상위 요청에서 파생된 이벤트, 실행 기록과 승인 작업은 같은 표기를 가져야 한다.
 
 ## 비교
 

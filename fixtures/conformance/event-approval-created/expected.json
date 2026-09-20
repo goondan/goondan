@@ -36,7 +36,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -45,7 +49,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -55,7 +63,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "humanApproval.created",
@@ -69,7 +81,11 @@
           "reasons": [
             "Tool danger requires approval"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -78,7 +94,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 2
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -88,7 +108,11 @@
         "data": {
           "step": 2,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -113,7 +137,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "conversations": {

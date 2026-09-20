@@ -45,7 +45,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/b"
+            "instance": "c1/b",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }

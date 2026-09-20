@@ -15,7 +15,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "worker",
@@ -29,7 +32,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#worker/worker"
+            "instance": "c1#<turn:1>#worker/worker",
+            "parentInstance": "c1/main",
+            "parentTurnId": "<turn:1>",
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -55,7 +61,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -64,7 +74,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -74,7 +88,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.start",
@@ -87,7 +105,11 @@
           "args": {
             "task": "정리"
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.start",
@@ -107,7 +129,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1#<turn:1>#worker/worker",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -116,7 +142,11 @@
         "turnId": "<turn:2>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1#<turn:1>#worker/worker",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -126,7 +156,11 @@
         "data": {
           "step": 1,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1#<turn:1>#worker/worker",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -151,7 +185,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1#<turn:1>#worker/worker",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.done",
@@ -177,7 +215,11 @@
               }
             ]
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -186,7 +228,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 2
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -196,7 +242,11 @@
         "data": {
           "step": 2,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -221,7 +271,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

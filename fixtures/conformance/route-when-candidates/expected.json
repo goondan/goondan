@@ -55,7 +55,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/a"
+            "instance": "c1/a",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "c",
@@ -69,7 +72,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/c"
+            "instance": "c1/c",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }

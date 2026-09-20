@@ -32,7 +32,11 @@
           },
           "reasons": [
             "Tool danger requires approval"
-          ]
+          ],
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ]

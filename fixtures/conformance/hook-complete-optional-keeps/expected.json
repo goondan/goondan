@@ -38,8 +38,7 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },
@@ -90,7 +89,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -99,7 +102,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -109,7 +116,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.start",
@@ -119,9 +130,12 @@
         "data": {
           "tool": "lookup",
           "callId": "c-1",
-          "args": {
-          }
-        }
+          "args": {}
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "hook.failed",
@@ -131,7 +145,11 @@
         "data": {
           "value": "toolResult",
           "hook": "done"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.done",
@@ -141,13 +159,11 @@
         "data": {
           "tool": "lookup",
           "callId": "c-1",
-          "args": {
-          },
+          "args": {},
           "result": {
             "callId": "c-1",
             "name": "lookup",
-            "args": {
-            },
+            "args": {},
             "content": [
               {
                 "type": "text",
@@ -155,7 +171,11 @@
               }
             ]
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -180,7 +200,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

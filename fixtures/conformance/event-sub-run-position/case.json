@@ -1,5 +1,5 @@
 {
-  "description": "하위 실행의 이벤트는 그 실행을 시작한 위치에서 발생하며 하위 실행 자신의 agent, sessionId, turnId를 가진다.",
+  "description": "하위 실행의 이벤트는 자신의 agent, sessionId, turnId, instance와 직계 부모 식별자를 가지며 최상위 실행과 같은 rootTurnId로 이어진다.",
   "spec": [
     "이벤트 순서",
     "이벤트 형식과 전달"

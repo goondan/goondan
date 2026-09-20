@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "operations": [
@@ -22,7 +21,11 @@
           "Tool danger requires approval"
         ],
         "status": "pending",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "operationId": "<op:c-1#2>",
@@ -41,7 +44,11 @@
           "Tool danger requires approval"
         ],
         "status": "pending",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "conversations": {

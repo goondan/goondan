@@ -48,7 +48,11 @@
             ],
             "note": "x"
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -96,7 +100,11 @@
               "Tool danger requires approval"
             ],
             "status": "pending",
-            "deliveryStatus": "pending"
+            "deliveryStatus": "pending",
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           "inputPatch": {
             "target": {
@@ -150,7 +158,12 @@
                 "text": "실행 완료"
               }
             ]
-          }
+          },
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],
@@ -221,7 +234,11 @@
               "text": "실행 완료"
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

@@ -18,7 +18,11 @@ from goondan import (
     define_tool,
 )
 
-RECORD_KEYS = {"operationId", "deliveryId", "agent", "sessionId", "turnId", "toolCall", "reasons", "status", "deliveryStatus", "createdAt", "updatedAt"}
+RECORD_KEYS = {
+    "operationId", "deliveryId", "agent", "sessionId", "turnId", "instance",
+    "parentInstance", "parentTurnId", "rootTurnId", "toolCall", "reasons", "status",
+    "deliveryStatus", "createdAt", "updatedAt",
+}
 
 
 def answer(text: str = "done") -> dict[str, Any]:
@@ -106,7 +110,14 @@ async def test_a_created_operation_has_only_the_declared_fields_and_a_pending_to
             "id": stored[2]["id"], "role": "tool", "source": "tool", "content": [{"type": "tool.result", "callId": "call-1", "content": [{"type": "json", "value": pending}]}], "meta": pending,
         }]
         assert host.names("humanApproval.created")[0]["data"] == {"operationId": operation["operationId"], "tool": "write", "callId": "call-1", "reasons": ["Tool write requires approval"]}
-        assert host.requests[0] == {"operationId": operation["operationId"], "sessionId": "c1", "turnId": host.requests[0]["turnId"], "agent": "main", "toolCall": {"id": "call-1", "name": "write", "args": {"text": "x"}}, "reasons": ["Tool write requires approval"]}
+        assert host.requests[0] == {
+            "operationId": operation["operationId"], "sessionId": "c1", "turnId": operation["turnId"],
+            "agent": "main", "instance": operation["instance"],
+            "parentInstance": operation["parentInstance"], "parentTurnId": operation["parentTurnId"],
+            "rootTurnId": operation["rootTurnId"],
+            "toolCall": {"id": "call-1", "name": "write", "args": {"text": "x"}},
+            "reasons": ["Tool write requires approval"],
+        }
     finally:
         await runtime.close()
 
@@ -539,7 +550,10 @@ async def test_the_host_deliverer_receives_the_completion_input_with_its_keys_in
         await runtime.decide_operation("c1", operation["operationId"], {"decision": "approved"})
         await runtime.idle()
         completion = host.completions[0]
-        assert list(completion) == ["type", "deliveryId", "operationId", "sessionId", "agent", "status", "toolCall", "result"]
+        assert list(completion) == [
+            "type", "deliveryId", "operationId", "sessionId", "agent", "turnId", "instance",
+            "parentInstance", "parentTurnId", "rootTurnId", "status", "toolCall", "result",
+        ]
         assert completion["deliveryId"] == operation["deliveryId"] and completion["status"] == "completed"
         delivered = (await runtime.list_operations("c1"))[0]
         assert delivered["deliveryStatus"] == "delivered" and isinstance(delivered["deliveredAt"], int)
@@ -616,7 +630,9 @@ async def test_the_fallback_delivery_message_is_the_json_text_of_the_completion_
             '{"type":"operation_completion"'
             f',"deliveryId":"{operation["deliveryId"]}"'
             f',"operationId":"{operation["operationId"]}"'
-            ',"sessionId":"c1","agent":"main","status":"rejected"'
+            f',"sessionId":"c1","agent":"main","turnId":"{operation["turnId"]}"'
+            f',"instance":"{operation["instance"]}","parentInstance":null,"parentTurnId":null'
+            f',"rootTurnId":"{operation["rootTurnId"]}","status":"rejected"'
             ',"toolCall":{"id":"call-1","name":"write","args":{}}}'
         )
     finally:
@@ -791,7 +807,9 @@ async def test_closing_leaves_a_running_operation_for_the_next_runtime():
 def stored(status: str = "pending", delivery: str = "pending") -> dict[str, Any]:
     return {
         "operationId": "op-1", "deliveryId": "operation:op-1:completion", "agent": "main",
-        "sessionId": "c1", "turnId": "t1", "toolCall": {"id": "call-1", "name": "write", "args": {}},
+        "sessionId": "c1", "turnId": "t1", "instance": "c1/main", "parentInstance": None,
+        "parentTurnId": None, "rootTurnId": "root-1",
+        "toolCall": {"id": "call-1", "name": "write", "args": {}},
         "reasons": ["danger"], "status": status, "deliveryStatus": delivery, "createdAt": 1, "updatedAt": 1,
     }
 

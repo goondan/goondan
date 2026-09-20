@@ -81,7 +81,11 @@ describe("the agent run records of a turn", () => {
 
     const result = await runtime.run("hi", { sessionId: "c" });
 
-    expect(result.runs[1]).toEqual({ agent: "main", instance: "c/main", turnId: result.runs[1]?.turnId ?? "", kind: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, status: "failed" });
+    expect(result.runs[1]).toEqual({
+      agent: "main", instance: "c/main", turnId: result.runs[1]?.turnId ?? "",
+      parentInstance: null, parentTurnId: null, rootTurnId: result.runs[1]?.rootTurnId ?? "",
+      kind: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, status: "failed",
+    });
     await runtime.close();
   });
 

@@ -33,7 +33,10 @@
             },
             "finishReason": "tool",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -60,8 +63,7 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

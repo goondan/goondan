@@ -15,7 +15,7 @@ import {
 } from "./stage.ts";
 import {
   abortRun, addUsage, detachedSink, failRun, finishRun, flattenRuns, recordModelCall, startRun, totalUsage, zeroUsage,
-  type RunNode, type RunSink,
+  type RunLineage, type RunNode, type RunSink,
 } from "./runs.ts";
 import {
   type AgentRunResult, type AgentSpec, type ApprovalRequest, type Block,
@@ -142,14 +142,15 @@ interface RouteRunResult { outputs: Message[]; finishReasons: string[] }
  */
 interface RunScope { host: string | null; foreground: boolean }
 /** The options an agent run takes; the public {@link RunOptions} never carries a conversation. */
-interface AgentRunOptions { sessionId: string; signal?: AbortSignal; foreground: boolean }
+interface AgentRunOptions { sessionId: string; signal?: AbortSignal; foreground: boolean; lineage: RunLineage }
 interface RunRegistration { signal: AbortSignal; release(): void }
 interface QueuedSteer { value: Json; agent?: string }
 interface PendingRouteInput { routeIndex: number; order: number; messages: Message[] }
 interface RouteCompletion { token: string; agent: string; input: PendingRouteInput[]; result?: AgentRunResult; error?: unknown }
 interface TurnState {
   completion?: Message; retryTool?: RetryToolStage; agent: string; instance: string; scope: RunScope;
-  agentSpec: AgentSpec; sessionId: string; turnId: string; input: Message[]; conversation: Message[];
+  agentSpec: AgentSpec; sessionId: string; turnId: string; parentInstance: string | null;
+  parentTurnId: string | null; rootTurnId: string; input: Message[]; conversation: Message[];
   step: number; retryCount: number; signal: AbortSignal; messageNumber: number;
   /** The usage of the model responses this run received itself; a sub-run keeps its own. */
   usage: Usage;
@@ -217,13 +218,17 @@ export class Goondan {
 
   run(input: RunInput, options: RunOptions): Promise<TurnResult> {
     try { this.#hostSession(options.sessionId); } catch (error) { return Promise.reject(error); }
+    return this.#enqueueRun(input, options, { parentInstance: null, parentTurnId: null, rootTurnId: this.#id() });
+  }
+
+  #enqueueRun(input: RunInput, options: RunOptions, lineage: RunLineage): Promise<TurnResult> {
     if (this.#closed) return Promise.reject(closedFailure());
     const sessionId = options.sessionId;
     const previous = this.#turnTails.get(sessionId) ?? Promise.resolve();
     this.#turnCounts.set(sessionId, (this.#turnCounts.get(sessionId) ?? 0) + 1);
     const running = previous.catch(() => undefined).then(async () => {
       if (this.#closed) throw closedFailure();
-      const turn = this.#executeTurn(input, options, { host: sessionId, foreground: true }, { kind: "turn", nodes: [] });
+      const turn = this.#executeTurn(input, options, { host: sessionId, foreground: true }, { kind: "turn", nodes: [] }, lineage);
       this.#activeTurns.set(sessionId, turn);
       try { return await turn; }
       finally { if (this.#activeTurns.get(sessionId) === turn) this.#activeTurns.delete(sessionId); }
@@ -238,7 +243,7 @@ export class Goondan {
     return running;
   }
 
-  async #executeTurn(input: RunInput, options: RunOptions, scope: RunScope, sink: RunSink): Promise<TurnResult> {
+  async #executeTurn(input: RunInput, options: RunOptions, scope: RunScope, sink: RunSink, lineage: RunLineage): Promise<TurnResult> {
     if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a turn declares either agent or startAgent, not both");
     if (options.startAgent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.startAgent)) throw routeFailure(`Unknown agent: ${options.startAgent}`);
     if (options.agent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.agent)) throw routeFailure(`Unknown agent: ${options.agent}`);
@@ -253,15 +258,15 @@ export class Goondan {
       let routed: RouteRunResult;
       if (options.agent !== undefined) {
         const messages = this.#toMessages(input, options.agent);
-        const result = await this.#runAgent(options.agent, messages, { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+        const result = await this.#runAgent(options.agent, messages, { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
         routed = { outputs: [result.output], finishReasons: [result.finishReason] };
       } else if (routes === undefined) {
         const agent = options.startAgent ?? Object.keys(this.loaded.config.agents)[0];
         if (agent === undefined) throw routeFailure("the goondan declares no agent");
-        const result = await this.#runAgent(agent, this.#toMessages(input, agent), { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+        const result = await this.#runAgent(agent, this.#toMessages(input, agent), { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
         routed = { outputs: [result.output], finishReasons: [result.finishReason] };
       } else {
-        routed = await this.#runRoutes(input, options.startAgent, { sessionId: options.sessionId, signal: registration.signal, foreground: true }, scope, sink);
+        routed = await this.#runRoutes(input, options.startAgent, { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
       }
       const [first] = routed.outputs;
       if (first === undefined) throw routeFailure("the routes reached no output");
@@ -410,7 +415,9 @@ export class Goondan {
     if (!host?.requestApproval) return;
     await host.requestApproval({
       operationId: operation.operationId, sessionId: operation.sessionId, turnId: operation.turnId,
-      agent: operation.agent, toolCall: structuredClone(operation.toolCall), reasons: [...operation.reasons],
+      agent: operation.agent, instance: operation.instance, parentInstance: operation.parentInstance,
+      parentTurnId: operation.parentTurnId, rootTurnId: operation.rootTurnId,
+      toolCall: structuredClone(operation.toolCall), reasons: [...operation.reasons],
     });
   }
   steer(sessionId: string, input: Json, options: { agent?: string } = {}): void {
@@ -614,15 +621,15 @@ export class Goondan {
     const turnId = this.#id();
     const stateful = spec.stateful !== false;
     const instance = stateful ? `${options.sessionId}/${agent}` : this.#id();
-    const node = startRun(sink, agent, instance, turnId);
+    const node = startRun(sink, agent, instance, turnId, options.lineage);
     let state: TurnState;
     try {
       const extensions = await this.#extensions(agent, spec, options.sessionId, instance, stateful);
       const loaded = stateful ? await this.#store.load(options.sessionId, agent) : [];
-      state = this.#state(agent, instance, spec, rawInput, options.sessionId, turnId, loaded, registration.signal, scope, extensions, node.children);
+      state = this.#state(agent, instance, spec, rawInput, options.sessionId, turnId, options.lineage, loaded, registration.signal, scope, extensions, node.children);
     } catch (error) {
       // A run that could not prepare its extension instances reports turn.error without turn.start.
-      await this.#preparationError(error, agent, options.sessionId, turnId);
+      await this.#preparationError(error, agent, options.sessionId, turnId, instance, options.lineage);
       registration.release();
       throw isGoondanConfigError(error) ? error : preparationFailure(error);
     }
@@ -692,9 +699,9 @@ export class Goondan {
     await this.#drainPending(state);
   }
 
-  async #preparationError(error: unknown, agent: string, sessionId: string, turnId: string): Promise<void> {
+  async #preparationError(error: unknown, agent: string, sessionId: string, turnId: string, instance: string, lineage: RunLineage): Promise<void> {
     // No extension instance exists in this scope, so the event only reaches the host.
-    await this.#deliver({ name: "turn.error", agent, sessionId, turnId, at: Date.now(), data: failureData(error) }, new Map());
+    await this.#deliver({ name: "turn.error", agent, sessionId, turnId, instance, ...lineage, at: Date.now(), data: failureData(error) }, new Map());
   }
 
   /** Steps 3 to 6 of the stage order: model input, model call, tool calls and the output stage. */
@@ -885,13 +892,17 @@ export class Goondan {
     return { output, usage: state.usage, finishReason, status: "done", instance: state.instance };
   }
 
-  #state(agent: string, instance: string, agentSpec: AgentSpec, input: Message[], sessionId: string, turnId: string, conversation: Message[], signal: AbortSignal, scope: RunScope, extensions: Map<string, ExtensionInstance>, runs: RunNode[]): TurnState {
+  #state(agent: string, instance: string, agentSpec: AgentSpec, input: Message[], sessionId: string, turnId: string, lineage: RunLineage, conversation: Message[], signal: AbortSignal, scope: RunScope, extensions: Map<string, ExtensionInstance>, runs: RunNode[]): TurnState {
     const key = scopeKey(sessionId, agent); const stateful = agentSpec.stateful !== false;
     let pending = stateful ? this.#pendingHooks.get(key) : undefined;
     if (!pending) { pending = new Map(); if (agentSpec.stateful !== false) this.#pendingHooks.set(key, pending); }
     let asyncController = stateful ? this.#asyncControllers.get(key) : undefined;
     if (!asyncController) { asyncController = new AbortController(); if (stateful) this.#asyncControllers.set(key, asyncController); }
-    return { agent, instance, scope, agentSpec, sessionId, turnId, input, conversation, step: 0, retryCount: 0, signal, messageNumber: 0, usage: zeroUsage(), runs, extensions, pending, asyncController, storedCalls: new Set<string>(), operation: false, handlingError: false, emitting: Promise.resolve() };
+    return { agent, instance, scope, agentSpec, sessionId, turnId, ...lineage, input, conversation, step: 0, retryCount: 0, signal, messageNumber: 0, usage: zeroUsage(), runs, extensions, pending, asyncController, storedCalls: new Set<string>(), operation: false, handlingError: false, emitting: Promise.resolve() };
+  }
+
+  #childLineage(state: TurnState): RunLineage {
+    return { parentInstance: state.instance, parentTurnId: state.turnId, rootTurnId: state.rootTurnId };
   }
 
   /** Where the sub-runs of one agent run record themselves; an asynchronous hook records nothing. */
@@ -1052,7 +1063,7 @@ export class Goondan {
       definition: { name: target, description: spec.description ?? `Run ${target}`, input: { type: "object" } },
       execute: async (input, ctx) => {
         // 대상은 부모 실행에서 파생한 세션에서 route를 따르지 않고 실행합니다.
-        const result = await this.#runAgent(target, this.#toMessages(input, target), { sessionId: `${ctx.sessionId}#${ctx.turnId}#${target}`, signal: ctx.signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool"));
+        const result = await this.#runAgent(target, this.#toMessages(input, target), { sessionId: `${ctx.sessionId}#${ctx.turnId}#${target}`, signal: ctx.signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool"));
         return { callId: ctx.toolCall.id, name: target, args: input, content: result.output.content };
       },
     };
@@ -1110,11 +1121,17 @@ export class Goondan {
     const operationId = this.#id();
     const request: ApprovalRequest = {
       operationId, sessionId: state.sessionId, turnId: state.turnId, agent: state.agent,
+      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
+      rootTurnId: state.rootTurnId,
       toolCall: structuredClone(call), reasons: [...reasons],
     };
     // A failed capture stores neither the operation nor the pending tool result.
     const context = await this.#captureContext(request, call);
-    const operation = newOperation({ operationId, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, toolCall: call, reasons, execution, context, now: this.#now() });
+    const operation = newOperation({
+      operationId, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
+      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
+      rootTurnId: state.rootTurnId, toolCall: call, reasons, execution, context, now: this.#now(),
+    });
     await this.#operationStore.save(operation);
     // The pending tool result is the runtime's own value, so the toolResult hooks never see it. The
     // JSON part and the `meta` carry equal but separate values, so neither can change the other.
@@ -1191,10 +1208,14 @@ export class Goondan {
       const call = effectiveCall(operation);
       let entry: ToolEntry | undefined;
       try {
-        const instance = stateful ? `${operation.sessionId}/${agent}` : this.#id();
+        const instance = operation.instance;
         const conversation = stateful ? await this.#store.load(operation.sessionId, agent) : [];
         const extensions = await this.#extensions(agent, spec, operation.sessionId, instance, stateful);
-        state = this.#state(agent, instance, spec, [], operation.sessionId, operation.turnId, conversation, registration.signal, scope, extensions, []);
+        state = this.#state(agent, instance, spec, [], operation.sessionId, operation.turnId, {
+          parentInstance: operation.parentInstance,
+          parentTurnId: operation.parentTurnId,
+          rootTurnId: operation.rootTurnId,
+        }, conversation, registration.signal, scope, extensions, []);
         state.operationInput = { type: "operation_execution", operationId: operation.operationId };
         // An operation execution is not an agent run, so `execution.complete` cannot end one.
         state.operation = true;
@@ -1232,7 +1253,7 @@ export class Goondan {
         sessionId: operation.sessionId, turnId: operation.turnId, toolCall: call,
         execution: operation.execution ?? {}, signal: state.signal,
         // An approved operation's execution has its own lifetime, so its sub-runs record nothing.
-        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${operation.sessionId}#${operation.turnId}#${name}`, signal: state.signal, foreground: false }, state.scope, detachedSink("tool")) },
+        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${operation.sessionId}#${operation.turnId}#${name}`, signal: state.signal, foreground: false, lineage: this.#childLineage(state) }, state.scope, detachedSink("tool")) },
       });
       const result = this.#toolResult(await this.#pipeline("toolResult", this.#checkToolResult(raw, call.id), state, call.id));
       await this.#emit("tool.done", state, { ...data, result: this.#json(result, "toolResult") });
@@ -1281,7 +1302,11 @@ export class Goondan {
 
   /** Delivers a completion by running the operation's agent once the conversation has no other turn. */
   async #deliverByTurn(operation: PendingOperation, completion: OperationCompletion): Promise<void> {
-    await this.run(this.#json(completion, "the operation completion"), { sessionId: operation.sessionId, agent: operation.agent });
+    await this.#enqueueRun(this.#json(completion, "the operation completion"), { sessionId: operation.sessionId, agent: operation.agent }, {
+      parentInstance: operation.instance,
+      parentTurnId: operation.turnId,
+      rootTurnId: operation.rootTurnId,
+    });
   }
 
   /**
@@ -1300,7 +1325,7 @@ export class Goondan {
         input: state.input, conversation: structuredClone(state.conversation), agent: state.agent,
         sessionId: state.sessionId, turnId: state.turnId, toolCall: call,
         execution: execution ?? {}, signal: state.signal,
-        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${state.sessionId}#${state.turnId}#${name}`, signal: state.signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool")) },
+        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${state.sessionId}#${state.turnId}#${name}`, signal: state.signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool")) },
       });
       // A result that arrives after the abort was signalled is not used.
       if (state.signal.aborted) throw abortFailure();
@@ -1530,7 +1555,7 @@ export class Goondan {
         const names = Array.isArray(spec.agent) ? spec.agent : [spec.agent];
         // Every agent starts in declaration order and the hook waits for all of them, failing when one did.
         const sink = this.#sink(state, "hook", asynchronous);
-        const settled = await Promise.allSettled(names.map((target) => this.#runAgent(target, this.#toMessages(value, target), { sessionId: this.#derivedSession(state, target), signal, foreground: false }, { host: state.scope.host, foreground: false }, sink)));
+        const settled = await Promise.allSettled(names.map((target) => this.#runAgent(target, this.#toMessages(value, target), { sessionId: this.#derivedSession(state, target), signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, sink)));
         const outputs: string[] = [];
         for (const outcome of settled) {
           if (outcome.status === "rejected") continue;
@@ -1564,7 +1589,7 @@ export class Goondan {
       agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
       step: state.step || undefined, retryCount: state.retryCount,
       input: structuredClone(state.input), conversation, signal,
-      agents: { run: async (name, value) => await this.#runAgent(name, this.#toMessages(value, name), { sessionId: this.#derivedSession(state, name), signal, foreground: false }, { host: state.scope.host, foreground: false }, this.#sink(state, "hook", asynchronous)) },
+      agents: { run: async (name, value) => await this.#runAgent(name, this.#toMessages(value, name), { sessionId: this.#derivedSession(state, name), signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "hook", asynchronous)) },
       model: { run: async (messages) => await this.#runModel(state, messages, signal, asynchronous) },
       render: async (template, variables) => this.#renderer.render(template, variables),
       message: { user: (text, extra) => make("user", text, extra), system: (text, extra) => make("system", text, extra) },
@@ -1598,12 +1623,20 @@ export class Goondan {
       // The call carries the number of the last model call the run started, and announces no text chunk.
       result = this.#modelResult(await this.#model(state.agentSpec).generate(structuredClone(input), { agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, step: state.step, signal, onTextDelta() { /* 훅의 모델 호출은 텍스트 델타를 알리지 않습니다. */ } }));
     } catch (error) {
-      recordModelCall(sink, state.agent, state.instance, state.turnId);
+      recordModelCall(sink, state.agent, state.instance, state.turnId, {
+        parentInstance: state.parentInstance,
+        parentTurnId: state.parentTurnId,
+        rootTurnId: state.rootTurnId,
+      });
       throw error;
     }
     const usage = zeroUsage();
     addUsage(usage, result.usage);
-    recordModelCall(sink, state.agent, state.instance, state.turnId, { usage, finishReason: result.finishReason });
+    recordModelCall(sink, state.agent, state.instance, state.turnId, {
+      parentInstance: state.parentInstance,
+      parentTurnId: state.parentTurnId,
+      rootTurnId: state.rootTurnId,
+    }, { usage, finishReason: result.finishReason });
     return result;
   }
   /** Appends messages unless the run was aborted; an aborted run stores nothing more. */
@@ -1653,7 +1686,11 @@ export class Goondan {
    * events in the order they happened even when a `step.textDelta` delivery is not awaited.
    */
   async #emit(name: RuntimeEventName, state: TurnState, data: Record<string, Json>): Promise<void> {
-    const event: RuntimeEvent = { name, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, at: Date.now(), data };
+    const event: RuntimeEvent = {
+      name, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
+      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
+      rootTurnId: state.rootTurnId, at: Date.now(), data,
+    };
     const delivery = state.emitting.then(() => this.#deliver(event, state.extensions));
     state.emitting = delivery;
     await delivery;

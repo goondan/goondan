@@ -30,7 +30,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "hook.failed",
@@ -40,7 +44,11 @@
         "data": {
           "value": "conversation",
           "hook": "note"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.error",
@@ -52,11 +60,14 @@
           "codes": [
             "hook_error"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
-    "modelInputs": {
-    },
+    "modelInputs": {},
     "conversations": {
       "c1/main": [
         {

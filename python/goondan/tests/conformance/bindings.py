@@ -103,7 +103,9 @@ def project_event(event: Mapping[str, Any]) -> dict[str, Any]:
         if "operationId" in data and "operationId" not in kept:
             kept["operationId"] = snapshot(data["operationId"])
     return {"name": event.get("name"), "agent": event.get("agent"), "sessionId": event.get("sessionId"),
-            "turnId": event.get("turnId"), "data": kept}
+            "turnId": event.get("turnId"), "instance": event.get("instance"),
+            "parentInstance": event.get("parentInstance"), "parentTurnId": event.get("parentTurnId"),
+            "rootTurnId": event.get("rootTurnId"), "data": kept}
 
 
 class Observations:

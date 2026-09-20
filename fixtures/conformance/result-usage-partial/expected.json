@@ -21,7 +21,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -47,7 +50,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c2/main"
+            "instance": "c2/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:2>"
           }
         ]
       }

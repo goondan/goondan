@@ -23,7 +23,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "main",
@@ -37,7 +40,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -74,8 +80,7 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         },
         {
           "system": [
@@ -105,8 +110,7 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         }
       ]
     },

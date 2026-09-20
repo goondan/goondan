@@ -49,7 +49,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/split"
+            "instance": "c1/split",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "left",
@@ -63,7 +66,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/left"
+            "instance": "c1/left",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "right",
@@ -77,7 +83,10 @@
             },
             "finishReason": "length",
             "status": "done",
-            "instance": "c1/right"
+            "instance": "c1/right",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }

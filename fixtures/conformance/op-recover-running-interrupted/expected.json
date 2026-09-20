@@ -17,7 +17,11 @@
           "Tool danger requires approval"
         ],
         "status": "approved",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     },
     {},
@@ -47,7 +51,12 @@
             "args": {}
           },
           "error": "Operation execution outcome is unknown because the runtime stopped",
-          "errorCode": "execution_interrupted"
+          "errorCode": "execution_interrupted",
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],
@@ -69,7 +78,11 @@
         "status": "failed",
         "deliveryStatus": "delivered",
         "error": "Operation execution outcome is unknown because the runtime stopped",
-        "errorCode": "execution_interrupted"
+        "errorCode": "execution_interrupted",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "operationHistory": {

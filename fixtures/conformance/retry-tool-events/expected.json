@@ -43,7 +43,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -52,7 +56,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -62,7 +70,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.start",
@@ -72,9 +84,12 @@
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {
-          }
-        }
+          "args": {}
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.error",
@@ -84,12 +99,15 @@
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {
-          },
+          "args": {},
           "codes": [
             "tool_error"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "hook.applied",
@@ -99,7 +117,11 @@
         "data": {
           "value": "error",
           "hook": "policy"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.start",
@@ -109,9 +131,12 @@
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {
-          }
-        }
+          "args": {}
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.done",
@@ -121,13 +146,11 @@
         "data": {
           "tool": "flaky",
           "callId": "c-1",
-          "args": {
-          },
+          "args": {},
           "result": {
             "callId": "c-1",
             "name": "flaky",
-            "args": {
-            },
+            "args": {},
             "content": [
               {
                 "type": "text",
@@ -135,7 +158,11 @@
               }
             ]
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -144,7 +171,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 2
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -154,7 +185,11 @@
         "data": {
           "step": 2,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -179,7 +214,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

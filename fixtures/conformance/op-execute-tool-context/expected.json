@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    },
+    {},
     {
       "result": {
         "operationId": "<op:d-1>",
@@ -23,7 +22,11 @@
         "deliveryStatus": "pending",
         "execution": {
           "ticket": "T-1"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -143,7 +146,11 @@
               "text": "실행 완료"
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ]
   }

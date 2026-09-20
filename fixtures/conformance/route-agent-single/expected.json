@@ -45,16 +45,17 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/a"
+            "instance": "c1/a",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
     }
   ],
   "observations": {
-    "functionCalls": [
-
-    ],
+    "functionCalls": [],
     "conversations": {
       "c1/a": [
         {

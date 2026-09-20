@@ -33,7 +33,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "helper",
@@ -47,7 +50,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#helper/helper"
+            "instance": "c1#<turn:1>#helper/helper",
+            "parentInstance": "c1/main",
+            "parentTurnId": "<turn:1>",
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "main",
@@ -61,7 +67,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -87,7 +96,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.start",
@@ -107,7 +120,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1#<turn:1>#helper/helper",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -116,7 +133,11 @@
         "turnId": "<turn:2>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1#<turn:1>#helper/helper",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -126,7 +147,11 @@
         "data": {
           "step": 1,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1#<turn:1>#helper/helper",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -151,7 +176,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1#<turn:1>#helper/helper",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "hook.applied",
@@ -161,7 +190,11 @@
         "data": {
           "value": "modelInput",
           "hook": "probe"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -170,7 +203,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -180,7 +217,11 @@
         "data": {
           "step": 1,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -205,7 +246,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "conversations": {

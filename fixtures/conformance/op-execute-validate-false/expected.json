@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    },
+    {},
     {
       "result": {
         "operationId": "<op:d-1>",
@@ -12,14 +11,17 @@
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {
-          }
+          "args": {}
         },
         "reasons": [
           "Tool danger requires approval"
         ],
         "status": "approved",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -43,7 +45,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -52,7 +58,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -62,7 +72,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "humanApproval.created",
@@ -76,7 +90,11 @@
           "reasons": [
             "Tool danger requires approval"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -85,7 +103,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 2
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -95,7 +117,11 @@
         "data": {
           "step": 2,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -120,12 +146,14 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
-    "toolCalls": [
-
-    ],
+    "toolCalls": [],
     "hostCalls": [
       {
         "callback": "validateOperation",
@@ -138,14 +166,17 @@
           "toolCall": {
             "id": "d-1",
             "name": "danger",
-            "args": {
-            }
+            "args": {}
           },
           "reasons": [
             "Tool danger requires approval"
           ],
           "status": "approved",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       },
       {
@@ -160,11 +191,15 @@
           "toolCall": {
             "id": "d-1",
             "name": "danger",
-            "args": {
-            }
+            "args": {}
           },
           "error": "Operation validation failed",
-          "errorCode": "validation_failed"
+          "errorCode": "validation_failed",
+          "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         }
       }
     ],
@@ -178,8 +213,7 @@
         "toolCall": {
           "id": "d-1",
           "name": "danger",
-          "args": {
-          }
+          "args": {}
         },
         "reasons": [
           "Tool danger requires approval"
@@ -187,7 +221,11 @@
         "status": "failed",
         "deliveryStatus": "delivered",
         "error": "Operation validation failed",
-        "errorCode": "validation_failed"
+        "errorCode": "validation_failed",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "operationHistory": {

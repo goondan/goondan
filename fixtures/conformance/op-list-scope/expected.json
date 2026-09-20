@@ -20,7 +20,11 @@
             "Tool danger requires approval"
           ],
           "status": "pending",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         },
         {
           "operationId": "<op:b-1>",
@@ -37,7 +41,11 @@
             "Tool danger requires approval"
           ],
           "status": "pending",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c2/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:2>"
         },
         {
           "operationId": "<op:a-2>",
@@ -54,7 +62,11 @@
             "Tool danger requires approval"
           ],
           "status": "pending",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:3>"
         }
       ]
     },
@@ -75,7 +87,11 @@
             "Tool danger requires approval"
           ],
           "status": "pending",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:1>"
         },
         {
           "operationId": "<op:a-2>",
@@ -92,7 +108,11 @@
             "Tool danger requires approval"
           ],
           "status": "pending",
-          "deliveryStatus": "pending"
+          "deliveryStatus": "pending",
+          "instance": "c1/main",
+          "parentInstance": null,
+          "parentTurnId": null,
+          "rootTurnId": "<root:3>"
         }
       ]
     }

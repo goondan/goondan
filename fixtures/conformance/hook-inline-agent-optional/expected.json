@@ -23,7 +23,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           },
           {
             "agent": "helper",
@@ -36,7 +39,10 @@
               "cacheWrite": 0
             },
             "status": "failed",
-            "instance": "c1#<turn:1>#helper/helper"
+            "instance": "c1#<turn:1>#helper/helper",
+            "parentInstance": "c1/main",
+            "parentTurnId": "<turn:1>",
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -46,9 +52,7 @@
     "modelInputs": {
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -61,18 +65,13 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ],
       "h": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -85,11 +84,8 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ]
     }

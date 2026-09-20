@@ -23,7 +23,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -46,7 +49,11 @@
           "Tool danger requires approval"
         ],
         "status": "approved",
-        "deliveryStatus": "pending"
+        "deliveryStatus": "pending",
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     }
   ],
@@ -70,7 +77,11 @@
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -79,7 +90,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -89,7 +104,11 @@
         "data": {
           "step": 1,
           "finishReason": "tool"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "humanApproval.created",
@@ -103,7 +122,11 @@
           "reasons": [
             "Tool danger requires approval"
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -112,7 +135,11 @@
         "turnId": "<turn:1>",
         "data": {
           "step": 2
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -122,7 +149,11 @@
         "data": {
           "step": 2,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -147,7 +178,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.start",
@@ -161,7 +196,11 @@
             "value": 7
           },
           "operationId": "<op:danger-1>"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "tool.done",
@@ -188,7 +227,11 @@
             ]
           },
           "operationId": "<op:danger-1>"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.start",
@@ -203,12 +246,16 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "{\"type\":\"operation_completion\",\"deliveryId\":\"operation:<op:danger-1>:completion\",\"operationId\":\"<op:danger-1>\",\"sessionId\":\"c1\",\"agent\":\"main\",\"status\":\"completed\",\"toolCall\":{\"id\":\"danger-1\",\"name\":\"danger\",\"args\":{\"value\":7}},\"result\":{\"callId\":\"danger-1\",\"name\":\"danger\",\"args\":{\"value\":7},\"content\":[{\"type\":\"text\",\"text\":\"실행 완료\"}]}}"
+                  "text": "{\"type\":\"operation_completion\",\"deliveryId\":\"operation:<op:danger-1>:completion\",\"operationId\":\"<op:danger-1>\",\"sessionId\":\"c1\",\"agent\":\"main\",\"turnId\":\"<turn:1>\",\"instance\":\"c1/main\",\"parentInstance\":null,\"parentTurnId\":null,\"rootTurnId\":\"<root:1>\",\"status\":\"completed\",\"toolCall\":{\"id\":\"danger-1\",\"name\":\"danger\",\"args\":{\"value\":7}},\"result\":{\"callId\":\"danger-1\",\"name\":\"danger\",\"args\":{\"value\":7},\"content\":[{\"type\":\"text\",\"text\":\"실행 완료\"}]}}"
                 }
               ]
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.start",
@@ -217,7 +264,11 @@
         "turnId": "<turn:2>",
         "data": {
           "step": 1
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "step.done",
@@ -227,7 +278,11 @@
         "data": {
           "step": 1,
           "finishReason": "stop"
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       },
       {
         "name": "turn.done",
@@ -252,7 +307,11 @@
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": "c1/main",
+        "parentTurnId": "<turn:1>",
+        "rootTurnId": "<root:1>"
       }
     ],
     "toolCalls": [
@@ -294,7 +353,11 @@
               "text": "실행 완료"
             }
           ]
-        }
+        },
+        "instance": "c1/main",
+        "parentInstance": null,
+        "parentTurnId": null,
+        "rootTurnId": "<root:1>"
       }
     ],
     "operationHistory": {

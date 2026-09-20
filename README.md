@@ -444,6 +444,9 @@ await goondan.sessions.delete(session_id)
 | `agent` | 실행한 에이전트의 선언 이름입니다. |
 | `instance` | stateful 실행은 `<sessionId>/<agent>`, stateless 실행은 실행마다 새로 만든 식별자입니다. |
 | `turnId` | 실행 식별자이며 이벤트와 컨텍스트의 `turnId`와 같습니다. |
+| `parentInstance` | 직계 부모 실행의 인스턴스 식별자입니다. 최상위 실행에서는 `null`입니다. |
+| `parentTurnId` | 직계 부모 실행의 턴 식별자입니다. 최상위 실행에서는 `null`입니다. |
+| `rootTurnId` | 최초 `run` 요청에서 만든 최상위 턴 식별자입니다. 한 요청에서 파생된 실행은 같은 값을 공유합니다. |
 | `kind` | 실행 시작 방식인 `turn`, `tool`, `hook`, `model`입니다. |
 | `usage` | 해당 실행이 직접 받은 모델 응답의 사용량입니다. |
 | `finishReason` | 성공한 실행의 종료 사유입니다. |
@@ -470,7 +473,7 @@ await goondan.sessions.delete(session_id)
 
 TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 모든 실행 이벤트를 받습니다. 파생 세션의 이벤트도 같은 수신 기능으로 전달됩니다. 이벤트 수신자가 실패해도 군단 객체는 나머지 수신자와 실행을 계속합니다.
 
-이벤트는 `name`, `agent`, `sessionId`, `turnId`, `at`, `data`를 가집니다. `at`은 Unix epoch부터 지난 밀리초 수입니다. 이벤트 이름은 `turn.start`, `turn.done`, `turn.error`, `step.start`, `step.textDelta`, `step.done`, `step.error`, `tool.start`, `tool.done`, `tool.error`, `humanApproval.created`, `hook.applied`, `hook.skipped`, `hook.failed`입니다. 각 이벤트의 `data`는 [실행 이벤트 규격](spec/goondan.md#실행-이벤트)에 정의되어 있습니다.
+이벤트는 `name`, `agent`, `sessionId`, `turnId`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`, `at`, `data`를 가집니다. `instance`와 `turnId`는 이벤트를 낸 실행을 식별합니다. 부모가 없는 최상위 실행은 두 부모 필드가 `null`이고, 같은 `run` 요청에서 route, 하위 에이전트, 비동기 훅과 승인 작업으로 이어진 실행은 같은 `rootTurnId`를 공유합니다. `at`은 Unix epoch부터 지난 밀리초 수입니다. 이벤트 이름은 `turn.start`, `turn.done`, `turn.error`, `step.start`, `step.textDelta`, `step.done`, `step.error`, `tool.start`, `tool.done`, `tool.error`, `humanApproval.created`, `hook.applied`, `hook.skipped`, `hook.failed`입니다. 각 이벤트의 `data`와 식별자 전파 규칙은 [실행 이벤트 규격](spec/goondan.md#실행-이벤트)에 정의되어 있습니다.
 
 ### 승인 작업
 
@@ -483,7 +486,7 @@ TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 모든 실�
 | 취소 | `cancelOperation(sessionId, operationId)` | `cancel_operation(session_id, operation_id)` | 아직 실행하지 않은 작업을 취소합니다. |
 | 복구 | `recoverOperations(sessionId?)` | `recover_operations(session_id=None)` | 저장소에 남은 작업을 이어서 처리합니다. |
 
-승인 요청은 `operationId`, `sessionId`, `turnId`, `agent`, `toolCall`, `reasons`를 가집니다. 결정과 취소는 기록 직후의 작업을 반환하며 실행이나 완료 전달을 기다리지 않습니다.
+승인 요청은 `operationId`, `sessionId`, `turnId`, `agent`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`, `toolCall`, `reasons`를 가집니다. 결정과 취소는 기록 직후의 작업을 반환하며 실행이나 완료 전달을 기다리지 않습니다. 작업 기록에도 같은 실행 식별자를 보존하므로 재시작 뒤의 실행과 전달을 원래 요청에 연결할 수 있습니다.
 
 호스트 객체는 다음 선택 콜백을 제공할 수 있습니다.
 
@@ -495,7 +498,7 @@ TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 모든 실�
 | 작업 검증 | `validateOperation` | `validate_operation` | 승인된 작업을 실행하기 전에 판정합니다. |
 | 완료 전달 | `deliverOperationCompletion` | `deliver_operation_completion` | 종결된 작업의 완료 입력을 인수합니다. |
 
-완료 전달 콜백이 없으면 군단 객체가 작업의 `sessionId`에서 해당 에이전트를 단독 실행하여 완료 입력을 전달합니다. 완료 입력은 `type`, `deliveryId`, `operationId`, `sessionId`, `agent`, `status`, `toolCall`을 가지며 상태에 따라 `result` 또는 `error`, `errorCode`를 추가합니다. 호스트는 안정적인 `deliveryId`로 중복 전달을 판별해야 합니다.
+완료 전달 콜백이 없으면 군단 객체가 작업의 `sessionId`에서 해당 에이전트를 단독 실행하여 완료 입력을 전달합니다. 완료 입력은 `type`, `deliveryId`, `operationId`, `sessionId`, `agent`, `turnId`, `instance`, `parentInstance`, `parentTurnId`, `rootTurnId`, `status`, `toolCall`을 가지며 상태에 따라 `result` 또는 `error`, `errorCode`를 추가합니다. 호스트는 안정적인 `deliveryId`로 중복 전달을 판별해야 합니다.
 
 ### 저장소
 

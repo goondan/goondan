@@ -126,6 +126,10 @@ function projectEvent(event: Json): Json {
     agent: event["agent"] ?? null,
     sessionId: event["sessionId"] ?? null,
     turnId: event["turnId"] ?? null,
+    instance: event["instance"] ?? null,
+    parentInstance: event["parentInstance"] ?? null,
+    parentTurnId: event["parentTurnId"] ?? null,
+    rootTurnId: event["rootTurnId"] ?? null,
     data: projectedData,
   };
 }

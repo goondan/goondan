@@ -299,7 +299,11 @@ async def test_async_approval_continues_then_delivers_completion_after_restart_o
     assert [item["status"] for item in pending] == ["pending"]
     operation_id = pending[0]["operationId"]
     assert pending[0]["deliveryId"] == f"operation:{operation_id}:completion"
-    assert set(pending[0]) == {"operationId", "deliveryId", "agent", "sessionId", "turnId", "toolCall", "reasons", "status", "deliveryStatus", "createdAt", "updatedAt"}
+    assert set(pending[0]) == {
+        "operationId", "deliveryId", "agent", "sessionId", "turnId", "instance",
+        "parentInstance", "parentTurnId", "rootTurnId", "toolCall", "reasons", "status",
+        "deliveryStatus", "createdAt", "updatedAt",
+    }
     stored = await conversations.load("restart", "worker")
     write_results = [part for message in stored for part in message["content"] if part.get("type") == "tool.result" and part["callId"] == "write-1"]
     assert write_results == [{"type": "tool.result", "callId": "write-1", "content": [{"type": "json", "value": {"status": "pending", "operationId": operation_id}}]}]
@@ -317,7 +321,15 @@ async def test_async_approval_continues_then_delivers_completion_after_restart_o
     assert executions == [{"text": "once"}]
     assert [item["status"] for item in await restarted_runtime.list_operations("restart")] == ["completed"]
     completion = __import__("json").loads(model.inputs[-1]["messages"][-1]["content"][0]["text"])
-    assert completion == {"type": "operation_completion", "deliveryId": f"operation:{operation_id}:completion", "operationId": operation_id, "sessionId": "restart", "agent": "worker", "status": "completed", "toolCall": {"id": "write-1", "name": "write", "args": {"text": "once"}}, "result": {"callId": "write-1", "name": "write", "args": {"text": "once"}, "content": [{"type": "json", "value": {"text": "once"}}]}}
+    assert completion == {
+        "type": "operation_completion", "deliveryId": f"operation:{operation_id}:completion",
+        "operationId": operation_id, "sessionId": "restart", "agent": "worker",
+        "turnId": pending[0]["turnId"], "instance": pending[0]["instance"],
+        "parentInstance": pending[0]["parentInstance"], "parentTurnId": pending[0]["parentTurnId"],
+        "rootTurnId": pending[0]["rootTurnId"], "status": "completed",
+        "toolCall": {"id": "write-1", "name": "write", "args": {"text": "once"}},
+        "result": {"callId": "write-1", "name": "write", "args": {"text": "once"}, "content": [{"type": "json", "value": {"text": "once"}}]},
+    }
     stored = await conversations.load("restart", "worker")
     assert sum(operation_id in part.get("text", "") for message in stored for part in message["content"] if part.get("type") == "text") == 1
     assert sum(part.get("type") == "tool.result" and part.get("callId") == "write-1" for message in stored for part in message["content"]) == 1

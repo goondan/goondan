@@ -33,7 +33,10 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1/main"
+            "instance": "c1/main",
+            "parentInstance": null,
+            "parentTurnId": null,
+            "rootTurnId": "<root:1>"
           }
         ]
       }
@@ -60,9 +63,7 @@
     "modelInputs": {
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -75,16 +76,11 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         },
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -97,11 +93,8 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ]
     },

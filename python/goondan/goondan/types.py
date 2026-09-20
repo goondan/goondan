@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import uuid
 from dataclasses import dataclass, field
@@ -180,11 +181,11 @@ class _Messages:
     same names as keyword arguments. A field the caller did not name is left out.
     """
 
-    def __init__(self, source: str): self.source = source
+    def __init__(self, source: str): self._source = source
 
     def _made(self, role: str, text: str, extra: Mapping[str, Any] | None, named: Mapping[str, Any]) -> dict[str, Any]:
         fields = {**(extra or {}), **named}
-        message = _message(role, text, self.source)
+        message = _message(role, text, self._source)
         for key in ("key", "keep", "meta"):
             if key in fields:
                 message[key] = copy.deepcopy(fields[key])
@@ -215,20 +216,20 @@ class ExecutionHandle:
     rather than to the turn.
     """
 
-    completion: Completion
-    allowed: bool = False
-    active: bool = True
+    _completion: Completion
+    _allowed: bool = False
+    _active: bool = True
 
     def complete(self, message: Mapping[str, Any]) -> None:
-        if not self.allowed or not self.active:
+        if not self._allowed or not self._active:
             raise GoondanError("execution.complete is available while a synchronous toolResult extension hook runs")
         if not isinstance(message, Mapping) or message.get("role") != "assistant":
             raise GoondanError("execution.complete needs an assistant message")
         if not isinstance(message.get("id"), str) or not isinstance(message.get("source"), str) or not isinstance(message.get("content"), list):
             raise GoondanError("execution.complete needs a message with a string id, a string source and an array content")
-        if self.completion.message is not None:
+        if self._completion.message is not None:
             raise GoondanError("this agent run already scheduled a message")
-        self.completion.message = copy.deepcopy(dict(message))
+        self._completion.message = copy.deepcopy(dict(message))
 
 
 class NoLog:
@@ -255,42 +256,73 @@ class ModelContext:
     on_text_delta: Callable[[str], None]
 
 
-@dataclass
 class HookContext:
     """§훅 컨텍스트와 호스트 함수.
 
-    `agent`는 선언된 에이전트 이름이고 `source`는 이 훅이 만드는 메시지에 기록되는
-    [훅 식별자](spec §훅 식별자)다.
+    공개 멤버는 두 호스트가 공유하는 규격을 따릅니다. 런타임 참조와 훅 식별자처럼
+    Python 구현에만 필요한 상태는 밑줄로 시작하는 비공개 멤버에 둡니다.
     """
 
-    runtime: "Goondan"
     agent: str
     session_id: str
     turn_id: str
-    input: list[dict[str, Any]] | Json
+    step: int | None
+    retry_count: int
+    input: list[dict[str, Any]]
     conversation: list[dict[str, Any]]
-    source: str
     execution: ExecutionHandle
-    retry_count: int = 0
-    phase: str = ""
-    hook: str = ""
-    detached: bool = False
-    # The runtime's state for the agent run this hook belongs to. It is how `model.run`
-    # reads the run's last model call number ([§모델 호출](spec)); hosts do not use it.
-    run_state: Any = None
+    log: Any
+
+    def __init__(
+        self,
+        *,
+        runtime: "Goondan",
+        agent: str,
+        session_id: str,
+        turn_id: str,
+        step: int | None,
+        retry_count: int,
+        input: list[dict[str, Any]],
+        conversation: list[dict[str, Any]],
+        execution: ExecutionHandle,
+        log: Any,
+        source: str,
+        cancelled: Callable[[], bool],
+        run_state: Any,
+    ) -> None:
+        self.agent = agent
+        self.session_id = session_id
+        self.turn_id = turn_id
+        self.step = step
+        self.retry_count = retry_count
+        self.input = input
+        self.conversation = conversation
+        self.execution = execution
+        self.log = log
+        self._runtime = runtime
+        self._source = source
+        self._cancelled = cancelled
+        self._run_state = run_state
+        self._detached = False
 
     @property
-    def message(self) -> _Messages: return _Messages(self.source)
+    def cancelled(self) -> bool:
+        """런타임이나 현재 asyncio 작업이 이 훅에 취소를 알렸는지 반환합니다."""
+        task = asyncio.current_task()
+        return self._cancelled() or (task is not None and task.cancelling() > 0)
+
+    @property
+    def message(self) -> _Messages: return _Messages(self._source)
 
     def append(self, *items: Mapping[str, Any]) -> dict[str, Any]:
         """§제어 결과: the `append` control result carrying these messages."""
         return {"append": [copy.deepcopy(dict(item)) for item in items]}
 
     async def run_agent(self, name: str, value: Json) -> dict[str, Any]:
-        return await self.runtime._run_hook_agent(self, name, value)
+        return await self._runtime._run_hook_agent(self, name, value)
 
     async def run_model(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return await self.runtime._run_hook_model(self, messages)
+        return await self._runtime._run_hook_model(self, messages)
 
     async def render(self, template: str, variables: Mapping[str, Any]) -> str:
-        return self.runtime.render(template, variables)
+        return self._runtime.render(template, variables)

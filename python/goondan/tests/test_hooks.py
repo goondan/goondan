@@ -1040,6 +1040,84 @@ async def test_an_asynchronous_hook_keeps_what_it_started_out_of_the_runs_and_th
 
 
 @pytest.mark.asyncio
+async def test_the_hook_context_exposes_the_shared_public_surface_step_cancellation_and_logger():
+    surfaces: list[list[str]] = []
+    steps: list[int | None] = []
+    cancelled: list[bool] = []
+    logs: list[str] = []
+    execution_surfaces: list[list[str]] = []
+    message_surfaces: list[list[str]] = []
+
+    class Logger:
+        def info(self, message: str, fields: Any = None) -> None:
+            logs.append(message)
+
+        def warn(self, message: str, fields: Any = None) -> None:
+            pass
+
+        def error(self, message: str, fields: Any = None) -> None:
+            pass
+
+    def inspect(value: Any, ctx: Any) -> None:
+        surfaces.append(sorted(name for name in dir(ctx) if not name.startswith("_")))
+        execution_surfaces.append(sorted(name for name in dir(ctx.execution) if not name.startswith("_")))
+        message_surfaces.append(sorted(name for name in dir(ctx.message) if not name.startswith("_")))
+        steps.append(ctx.step)
+        cancelled.append(ctx.cancelled)
+        ctx.log.info("hook", {"step": ctx.step})
+
+    probe = define_extension(
+        name="probe",
+        hooks=("conversation", "modelResult"),
+        create=lambda **_: Extension(hooks={"conversation": inspect, "modelResult": inspect}),
+    )
+    config = {"agents": {"main": {"model": "m", "extensions": {"probe": {}}, "hooks": {
+        "conversation": [{"extension": "probe"}], "modelResult": [{"extension": "probe"}],
+    }}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"probe": probe}, logger=Logger())
+    try:
+        await runtime.run("hi", session_id="c")
+        expected = [
+            "agent", "append", "cancelled", "conversation", "execution", "input", "log", "message",
+            "render", "retry_count", "run_agent", "run_model", "session_id", "step", "turn_id",
+        ]
+        assert surfaces == [expected, expected]
+        assert execution_surfaces == [["complete"], ["complete"]]
+        assert message_surfaces == [["system", "user"], ["system", "user"]]
+        assert steps == [None, 1]
+        assert cancelled == [False, False]
+        assert logs == ["hook", "hook"]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_the_hook_context_cancelled_member_updates_when_the_current_turn_is_aborted():
+    cancelled = False
+    runtime: Any = None
+
+    def inspect(value: Any, ctx: Any) -> None:
+        nonlocal cancelled
+        runtime.abort("c")
+        cancelled = ctx.cancelled
+
+    config = {"agents": {"main": {"model": "m", "extensions": {"probe": {}}, "hooks": {
+        "conversation": [{"extension": "probe"}],
+    }}}}
+    runtime = create_goondan(
+        config=config,
+        models={"m": replies(answer())},
+        extensions={"probe": extension("conversation", inspect)},
+    )
+    try:
+        with pytest.raises(GoondanAbortError):
+            await runtime.run("hi", session_id="c")
+        assert cancelled is True
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_the_hook_context_carries_the_run_identity_and_builds_messages(tmp_path):
     template = tmp_path / "note.md"
     template.write_text("{{ value }}", encoding="utf-8")
@@ -1069,6 +1147,37 @@ async def test_the_hook_context_carries_the_run_identity_and_builds_messages(tmp
         assert seen["model"]["message"]["content"] == [{"type": "text", "text": "aside"}]
         assert model.seen[0]["system"] == [{"text": "S", "source": "system:0"}] and model.seen[0]["options"] == {}
         assert len(model.seen[0]["messages"]) == 1
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_the_tool_context_exposes_the_shared_public_surface_and_updates_its_cancellation_state():
+    surface: list[str] = []
+    cancelled = False
+    runtime: Any = None
+
+    def execute(value: Any, ctx: Any) -> str:
+        nonlocal surface, cancelled
+        surface = sorted(ctx)
+        runtime.abort("c")
+        cancelled = ctx["cancelled"]
+        return "done"
+
+    config = {"agents": {"main": {"model": "m", "tools": ["act"]}}}
+    runtime = create_goondan(
+        config=config,
+        models={"m": replies(tool_call("act"))},
+        tools={"act": define_tool(name="act", description="act", input={}, execute=execute)},
+    )
+    try:
+        with pytest.raises(GoondanAbortError):
+            await runtime.run("hi", session_id="c")
+        assert surface == [
+            "agent", "cancelled", "conversation", "execution", "input", "run_agent", "session_id",
+            "tool_call", "turn_id",
+        ]
+        assert cancelled is True
     finally:
         await runtime.close()
 

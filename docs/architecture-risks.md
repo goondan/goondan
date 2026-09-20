@@ -1,6 +1,6 @@
 # 런타임 구조 위험
 
-이 문서는 Goondan 런타임에서 메시지나 작업의 손실·중복, 실행 정체와 자원 누적을 만들 수 있는 구조를 기록한다. 각 항목은 현재 코드의 근거, 실패 시나리오, 보완 시점과 방향을 담는다. 코드나 규격을 바꿀 때 근거 줄과 상태를 함께 확인한다.
+이 문서는 Goondan 런타임에서 메시지나 작업의 손실·중복, 실행 정체와 자원 누적을 만들 수 있는 구조를 기록한다. 열린 위험은 현재 코드의 근거, 실패 시나리오와 보완 방향을 담고, 수용한 위험은 설계가 감수하는 내용과 호스트가 지켜야 할 조건을 담는다. 코드나 규격을 바꿀 때 근거 줄과 상태를 함께 확인한다.
 
 ## 읽는 법
 
@@ -8,13 +8,15 @@
 |---|---|
 | 상태 `남음` | 현재 설계에서 실패 시나리오가 성립한다. |
 | 상태 `부분 해결` | 보호 장치가 있으나 남은 경로에서 실패 시나리오가 성립한다. |
+| 상태 `수용` | 위험을 현재 설계의 제약으로 감수한다. 호스트가 지켜야 할 조건을 함께 기록한다. |
+| 상태 `수용(설계 의도)` | 해당 동작이 제품의 설계 의도다. 호스트가 운영 정책으로 통제할 범위를 함께 기록한다. |
 | 상태 `해결됨` | 현재 설계에서는 실패 시나리오가 성립하지 않는다. 회귀 조건을 함께 기록한다. |
 | 시점 `단기` | 단일 프로세스나 보통의 사용량에서도 드러날 수 있다. |
 | 시점 `규모 확대 시` | 워커 수, 트래픽, 실행 시간이나 저장 데이터가 늘 때 드러난다. |
 
 아래 목록은 심각도 순이다. 해결된 위험은 현재 설계를 보존할 수 있도록 마지막 표에 모아 둔다.
 
-## 남은 위험
+## 열린 위험과 수용한 위험
 
 ### 1. 여러 프로세스가 같은 저장소를 사용할 때 세션 잠금이 공유되지 않는다
 
@@ -22,10 +24,10 @@
 
 근거
 
-- 같은 군단 객체 안에서는 TypeScript의 `#turnTails`와 Python의 `asyncio.Lock`이 같은 세션의 턴을 도착 순서대로 실행한다(`packages/core/src/runtime.ts:218-238`, `python/goondan/goondan/runtime.py:1390-1416`). 이 잠금은 각 프로세스의 메모리에만 있다.
+- 같은 군단 객체 안에서는 TypeScript의 `#turnTails`와 Python의 `asyncio.Lock`이 같은 세션의 턴을 도착 순서대로 실행한다(`packages/core/src/runtime.ts:218-238`, `python/goondan/goondan/runtime.py:1411-1437`). 이 잠금은 각 프로세스의 메모리에만 있다.
 - 대화 저장소 계약은 `load`, `append`, `replace`, `deleteSession`만 제공하며 버전, 기대 개정이나 잠금 토큰을 받지 않는다(`packages/core/src/types.ts:74-77`, `python/goondan/goondan/types.py:148-152`).
 - 기본 대화 저장소는 메시지 배열을 그대로 읽고 쓰며 프로세스 사이의 조건부 갱신을 제공하지 않는다(`packages/core/src/store.ts:8-17`, `python/goondan/goondan/store.py:72-97`).
-- 세션 삭제가 진행 중인 턴을 검사할 때에도 해당 군단 객체의 `#turnCounts` 또는 `_turn_counts`만 확인한다(`packages/core/src/runtime.ts:1704-1708`, `python/goondan/goondan/runtime.py:467-471`).
+- 세션 삭제가 진행 중인 턴을 검사할 때에도 해당 군단 객체의 `#turnCounts` 또는 `_turn_counts`만 확인한다(`packages/core/src/runtime.ts:1704-1708`, `python/goondan/goondan/runtime.py:488-492`).
 
 실패 시나리오
 
@@ -42,7 +44,7 @@
 근거
 
 - 전달 선점은 `deliveryStatus`를 `pending`에서 `delivering`으로 바꾸지만 소유자나 만료 시각을 기록하지 않는다(`packages/core/src/types.ts:82-84`, `packages/core/src/store.ts:28-29`, `python/goondan/goondan/store.py:51-65`).
-- 복구는 다른 프로세스가 진행 중인지 판별할 수 없고, 종료 상태의 `delivering` 작업을 `pending`으로 반환해 다시 전달한다(`packages/core/src/runtime.ts:382-405`, `python/goondan/goondan/runtime.py:1724-1749`).
+- 복구는 다른 프로세스가 진행 중인지 판별할 수 없고, 종료 상태의 `delivering` 작업을 `pending`으로 반환해 다시 전달한다(`packages/core/src/runtime.ts:382-405`, `python/goondan/goondan/runtime.py:1745-1770`).
 - `running` 작업도 복구한 프로세스가 `execution_interrupted`로 끝낼 수 있다. 같은 군단 객체가 진행 중인 작업만 프로세스 내부 맵으로 제외한다.
 
 실패 시나리오
@@ -55,57 +57,39 @@
 
 ### 3. 병렬 분기가 실패해도 다른 분기가 이미 만든 부수 효과는 남는다
 
-상태 `남음` · 시점 `단기` · 범위 TypeScript, Python
+상태 `수용` · 시점 `단기` · 범위 TypeScript, Python
 
-근거
+현재 설계에서 감수하는 내용
 
-- 일치한 route는 독립 태스크로 시작된다(`packages/core/src/runtime.ts:504-513`, `python/goondan/goondan/runtime.py:1470-1474`). 한 분기가 실패하면 TypeScript는 같은 호스트 세션의 컨트롤러를 중단하고, Python은 활성 태스크를 취소한 뒤 모두 끝나기를 기다린다(`packages/core/src/runtime.ts:531-546`, `python/goondan/goondan/runtime.py:1558-1567`).
-- 에이전트 입력, 모델 응답과 도구 결과는 각 단계가 끝날 때 대화 저장소에 추가된다(`packages/core/src/runtime.ts:655-668`, `packages/core/src/runtime.ts:751-760`, `python/goondan/goondan/runtime.py:1066-1075`, `python/goondan/goondan/runtime.py:1106-1124`).
-- 턴 실패는 앞서 끝난 분기가 저장한 대화를 되돌리지 않는다(`spec/goondan.md:1421`). 실행한 외부 도구의 부수 효과도 런타임이 되돌릴 수 없다.
+일치한 route는 독립 태스크로 실행되며, 한 분기가 실패하면 다른 분기를 중단하더라도 이미 저장한 대화와 외부 도구의 부수 효과는 되돌리지 않는다(`packages/core/src/runtime.ts:464-546`, `python/goondan/goondan/runtime.py:1479-1587`, `spec/goondan.md:1423`). 메시지 발송 분기가 끝난 뒤 다른 분기가 실패하여 호스트가 턴을 다시 실행하면 같은 메시지를 다시 보낼 수 있다.
 
-실패 시나리오
+호스트가 알아야 할 점
 
-메시지 발송 분기가 성공한 뒤 보고서 생성 분기가 실패하면 턴 전체는 실패한다. 이때 메시지는 이미 전송되었고 성공한 분기의 대화도 남는다. 호스트가 턴 전체를 재시도하면 메시지가 다시 전송될 수 있다.
-
-보완 방향
-
-비가역적인 도구에는 턴 식별자, 작업 식별자나 도메인 키를 이용한 멱등성 처리를 적용한다. 여러 분기의 성공이 모두 확인된 뒤 실행해야 하는 부수 효과는 승인 작업이나 별도 커밋 단계에 둔다. 향후 원자적인 분기 묶음이 필요하면 규격에 준비·확정·보상 단계를 명시하고, 대화 저장과 외부 도구가 그 프로토콜에 참여하도록 해야 한다.
+비가역적인 도구는 턴 식별자, 작업 식별자나 도메인 키로 중복 실행을 제거해야 한다. 모든 분기의 성공을 확인한 뒤 실행해야 하는 부수 효과는 승인 작업이나 호스트가 관리하는 별도 확정 단계에 둔다.
 
 ### 4. stateful fan-in은 가장 느린 출발 실행이 끝날 때까지 입력을 보관한다
 
-상태 `남음` · 시점 `단기` · 범위 TypeScript, Python
+상태 `수용` · 시점 `단기` · 범위 TypeScript, Python
 
-근거
+현재 설계에서 감수하는 내용
 
-- TypeScript는 출발 집합에 활성 실행이나 대기 입력이 남아 있으면 대상 에이전트를 시작하지 않고 `pending`에 입력을 유지한다(`packages/core/src/runtime.ts:514-539`). Python도 같은 조건으로 `pending`의 메시지를 보관한 뒤 모두 합친다(`python/goondan/goondan/runtime.py:1476-1502`).
-- fan-in 입력은 route 선언 순서로 메시지 배열을 이어 붙여 한 번의 에이전트 입력으로 만든다(`packages/core/src/runtime.ts:504-508`, `python/goondan/goondan/runtime.py:1496-1501`). 입력 수나 전체 크기에 별도 상한이 없다.
-- 모델 호출 상한 `maxSteps`는 호출 횟수만 제한하고 한 번의 호출 시간과 fan-in 대기 시간을 제한하지 않는다(`packages/core/src/types.ts:112-121`, `python/goondan/goondan/runtime.py:345-354`).
+stateful fan-in은 출발 집합의 실행과 대기 입력이 모두 끝날 때까지 도착한 입력을 보관한 뒤 route 선언 순서로 합친다(`packages/core/src/runtime.ts:464-539`, `python/goondan/goondan/runtime.py:1479-1534`). 런타임은 fan-in 대기 시간, 메시지 수와 입력 크기에 별도 상한을 두지 않는다. 가장 느린 출발 실행이 끝나지 않으면 대상 에이전트도 시작하지 않는다.
 
-실패 시나리오
+호스트가 알아야 할 점
 
-여러 검색 분기를 편집 에이전트 하나로 모으는 군단에서 한 검색 제공자가 응답하지 않는다. 끝난 분기의 큰 결과는 `pending`에 계속 남고 편집 에이전트는 시작하지 못한다. 조건부 순환이 입력을 반복해서 만들거나 분기 수가 큰 구성에서는, 느린 출발 실행을 기다리는 동안 메모리와 최종 모델 입력 크기가 계속 증가할 수 있다.
-
-보완 방향
-
-호스트는 모델과 도구에 취소 가능한 시간 제한을 두고, 에이전트 입력의 메시지 수·바이트 수·토큰 추정치에 상한을 적용한다. 규격 수준에서는 fan-in 대기 시간과 입력 예산, 일부 출발 실행이 실패하거나 시간 제한을 넘겼을 때의 정책을 정해야 한다. 운영 관측에는 에이전트별 대기 입력 수와 가장 오래된 대기 시간을 포함한다.
+호스트는 모델 어댑터와 도구에 취소 가능한 시간 제한을 두고, 런타임에 전달하기 전후의 메시지 수·바이트 수·토큰 추정치를 제한해야 한다. 운영 관측에는 에이전트별 대기 입력 수와 가장 오래된 대기 시간을 포함해야 한다.
 
 ### 5. 모델 호출과 하위 에이전트 호출의 전체 예산이 없다
 
-상태 `부분 해결` · 시점 `단기` · 범위 TypeScript, Python
+상태 `수용(설계 의도)` · 시점 `단기` · 범위 TypeScript, Python
 
-근거
+설계 의도
 
-- `maxSteps`는 에이전트 실행 하나의 모델 호출만 제한하며 생략하면 상한이 없다(`packages/core/src/types.ts:112-121`, `python/goondan/goondan/runtime.py:345-354`).
-- `maxRetries`는 기본값 3이고 한 에이전트 실행의 재시도를 제한한다. 하위 에이전트 실행은 자체 호출·재시도 예산을 새로 받는다.
-- 에이전트 도구와 훅 컨텍스트의 하위 실행은 파생 세션을 만들지만 부모 턴 전체의 호출 수나 깊이를 세는 값은 없다(`packages/core/src/runtime.ts:1552-1567`, `python/goondan/goondan/runtime.py:956-979`).
+런타임은 에이전트의 반복 횟수를 제한하지 않는다. 에이전트가 모델 응답과 도구 결과에 따라 실행을 이어 가는 동작은 에이전트의 자율성이다. `maxSteps`는 에이전트 실행 하나의 모델 호출만 제한하고, 하위 에이전트 실행은 자신의 호출과 재시도 범위를 새로 시작한다(`packages/core/src/types.ts:112-118`, `packages/core/src/runtime.ts:1552-1568`, `python/goondan/goondan/runtime.py:361-375`, `python/goondan/goondan/runtime.py:990-1013`).
 
-실패 시나리오
+호스트가 알아야 할 점
 
-에이전트 A가 에이전트 도구를 통해 다시 A를 호출한다. 각 실행은 자신의 `maxSteps` 예산을 새로 받으므로 `maxSteps: 2`를 설정해도 호출 깊이는 제한되지 않는다. 모델이 계속 도구 호출을 반환하면 프로세스가 메모리나 외부 API 예산을 소진할 때까지 실행이 늘어날 수 있다.
-
-보완 방향
-
-부모 턴 전체에 적용되는 모델 호출 수, 하위 실행 수와 깊이 예산을 규격에 추가하고 남은 예산을 파생 실행에 전달한다. 현재 호스트는 `maxSteps`를 명시하고, 도구와 훅에서 자체 깊이 또는 호출 횟수를 검사해야 한다.
+비용 통제는 호스트가 모델 어댑터의 요청 한도, 도구의 정책과 실행 제한, 취소 요청으로 수행한다. `maxSteps`를 사용하는 호스트는 이 값이 각 에이전트 실행에 적용되며 재귀적인 하위 실행의 깊이를 제한하지 않는다는 점을 고려해야 한다.
 
 ### 6. 세션 삭제 정책을 적용하지 않으면 파생 세션 상태가 누적된다
 
@@ -113,8 +97,8 @@
 
 근거
 
-- `sessions.delete`는 지정한 세션과 `<세션>#` 접두사의 파생 세션에 속한 확장 인스턴스, 비동기 훅 상태와 대화를 정리한다(`packages/core/src/runtime.ts:1704-1723`, `python/goondan/goondan/runtime.py:467-487`).
-- 파생 세션 식별자는 부모 턴마다 새로 생기며 stateful 대상의 확장 인스턴스는 실행 뒤에도 캐시에 남는다(`packages/core/src/runtime.ts:1552-1567`, `python/goondan/goondan/runtime.py:974-979`).
+- `sessions.delete`는 지정한 세션과 `<세션>#` 접두사의 파생 세션에 속한 확장 인스턴스, 비동기 훅 상태와 대화를 정리한다(`packages/core/src/runtime.ts:1704-1723`, `python/goondan/goondan/runtime.py:488-508`).
+- 파생 세션 식별자는 부모 턴마다 새로 생기며 stateful 대상의 확장 인스턴스는 실행 뒤에도 캐시에 남는다(`packages/core/src/runtime.ts:1552-1567`, `python/goondan/goondan/runtime.py:995-1000`).
 - 자동 만료나 LRU 정책은 군단 객체와 저장소 계약에 없다. 세션 만료 시점은 호스트가 정한다.
 
 실패 시나리오
@@ -149,8 +133,8 @@
 
 근거
 
-- 이벤트는 `{name, agent, sessionId, turnId, at, data}`를 가지며 부모 실행 식별자와 추적 식별자는 없다(`packages/core/src/types.ts:137-139`, `python/goondan/goondan/runtime.py:553-558`).
-- 파생 세션 식별자에 부모 세션과 턴 식별자가 들어가지만, 하위의 하위 실행에서는 문자열을 단계별로 해석해야 한다(`packages/core/src/runtime.ts:1552`, `python/goondan/goondan/runtime.py:978`).
+- 이벤트는 `{name, agent, sessionId, turnId, at, data}`를 가지며 부모 실행 식별자와 추적 식별자는 없다(`packages/core/src/types.ts:137-139`, `python/goondan/goondan/runtime.py:574-579`).
+- 파생 세션 식별자에 부모 세션과 턴 식별자가 들어가지만, 하위의 하위 실행에서는 문자열을 단계별로 해석해야 한다(`packages/core/src/runtime.ts:1552`, `python/goondan/goondan/runtime.py:999`).
 - 승인 작업 실행과 완료 전달은 현재 턴의 이벤트 기록과 별도 수명을 가진다.
 
 실패 시나리오
@@ -161,38 +145,17 @@
 
 이벤트에 실행 식별자, 부모 실행 식별자와 최상위 추적 식별자를 추가하고 하위 실행과 승인 작업에 명시적으로 전파한다. W3C Trace Context와 연결할 수 있는 호스트 필드를 함께 정의하고 두 호스트의 공통 사례로 고정한다.
 
-### 9. 훅 컨텍스트의 공개 멤버가 두 호스트에서 다르다
-
-상태 `남음` · 시점 `단기` · 범위 TypeScript, Python
-
-근거
-
-TypeScript 훅 컨텍스트는 `step`, `signal`, `log`를 공개한다(`packages/core/src/types.ts:96`). Python 훅 컨텍스트에는 이 이름들이 없고 실행 구현에 필요한 `source`, `phase`, `hook`, `detached`, `run_state`가 데이터클래스 필드로 보인다(`python/goondan/goondan/types.py:259-284`). 규격은 두 호스트가 공유하는 멤버만 정의한다.
-
-실패 시나리오
-
-TypeScript 확장을 Python으로 옮긴 호스트가 훅 안에서 `ctx.log.info(...)`를 호출한다. 구성 검증은 통과하지만 실행 중 속성 오류가 발생하고 훅 실패로 보고된다. Python의 내부 필드에 의존한 확장은 구현을 정리하는 변경만으로 깨질 수 있다.
-
-보완 방향
-
-호스트가 사용할 멤버를 규격에 명시해 두 언어에 구현하고, 구현 전용 상태는 공개 컨텍스트에서 분리한다. 두 호스트의 컨텍스트 표면을 비교하는 검사를 CI에 둔다.
-
 ### 10. YAML 템플릿 경로는 구성 작성자를 신뢰한다
 
-상태 `부분 해결` · 시점 `단기` · 범위 TypeScript, Python
+상태 `수용` · 시점 `단기` · 범위 TypeScript, Python
 
-근거
+현재 설계에서 감수하는 내용
 
-- 렌더러는 미리 읽은 템플릿만 사용하고 공통 허용 문법으로 식을 제한한다. 정적 `include`는 절대 경로와 `..`를 거부한다.
-- YAML에 선언하는 템플릿 경로는 절대 경로와 `..`를 사용할 수 있다(`spec/goondan.md:310-328`).
+렌더러는 구성 로딩 시 읽은 템플릿만 사용하고 정적 `include`의 절대 경로와 `..`를 거부한다. YAML에 직접 선언한 템플릿 경로는 절대 경로와 `..`를 사용할 수 있다(`spec/goondan.md:310-328`). 따라서 구성 작성자는 호스트 프로세스가 읽을 수 있는 파일을 템플릿으로 지정할 수 있다.
 
-실패 시나리오
+호스트가 알아야 할 점
 
-사용자가 올린 `goondan.yaml`을 호스트 프로세스에서 직접 실행하는 서비스에서, 사용자가 `systemMessage.template`에 호스트가 읽을 수 있는 비밀 파일의 경로를 적는다. 파일 내용이 시스템 프롬프트에 들어가 모델이나 로그를 통해 노출될 수 있다.
-
-보완 방향
-
-구성 작성자를 신뢰할 수 없는 호스트는 구성 로딩을 제한된 파일 시스템과 별도 프로세스에서 수행하거나, 로딩 전에 선언 경로가 허용 루트 안에 있는지 검사한다. 런타임에 경로 정책을 추가할 때에는 호스트가 명시하는 허용 루트와 심볼릭 링크 처리 규칙을 함께 정의해야 한다.
+구성 작성자를 신뢰할 수 없는 호스트는 구성을 제한된 파일 시스템과 별도 프로세스에서 읽거나, 구성 로딩 전에 선언 경로의 실제 경로가 허용 루트 안에 있는지 검사해야 한다. 허용 경로 검사에는 심볼릭 링크 해석 규칙도 포함해야 한다.
 
 ## 해결된 위험
 
@@ -200,11 +163,12 @@ TypeScript 확장을 Python으로 옮긴 호스트가 훅 안에서 `ctx.log.inf
 
 | 위험 | 현재 설계와 근거 | 회귀 조건 |
 |---|---|---|
-| 같은 군단 객체에서 같은 세션의 턴이 대화 저장을 덮어썼다. | 두 호스트가 세션별 FIFO로 턴과 완료 전달 턴을 실행한다(`packages/core/src/runtime.ts:218-238`, `python/goondan/goondan/runtime.py:1390-1416`). | 세션별 대기열을 제거하거나 완료 전달이 대기열을 거치지 않는다. |
-| 계층형 실행 범위의 식별자와 캐시가 서로 다른 범위를 같은 상태로 취급했다. | 군단 하나의 에이전트는 선언 이름으로 식별하고, 하위 실행은 형식이 정해진 파생 세션에서 실행된다(`packages/core/src/runtime.ts:1552-1567`, `python/goondan/goondan/runtime.py:956-979`). | 한 실행 안에서 에이전트 이름의 의미가 달라지거나 파생 실행이 부모 세션을 그대로 사용한다. |
-| stateful 확장 인스턴스를 동시에 둘 만들어 하나를 잃었다. | stateful 에이전트 실행은 `(sessionId, agent)`별로 직렬화된 뒤 인스턴스를 확인하고 만든다(`packages/core/src/runtime.ts:596-606`, `python/goondan/goondan/runtime.py:983-991`). | 인스턴스 준비를 에이전트별 직렬화 밖으로 옮긴다. |
+| 같은 군단 객체에서 같은 세션의 턴이 대화 저장을 덮어썼다. | 두 호스트가 세션별 FIFO로 턴과 완료 전달 턴을 실행한다(`packages/core/src/runtime.ts:218-238`, `python/goondan/goondan/runtime.py:1411-1437`). | 세션별 대기열을 제거하거나 완료 전달이 대기열을 거치지 않는다. |
+| 계층형 실행 범위의 식별자와 캐시가 서로 다른 범위를 같은 상태로 취급했다. | 군단 하나의 에이전트는 선언 이름으로 식별하고, 하위 실행은 형식이 정해진 파생 세션에서 실행된다(`packages/core/src/runtime.ts:1552-1567`, `python/goondan/goondan/runtime.py:977-1000`). | 한 실행 안에서 에이전트 이름의 의미가 달라지거나 파생 실행이 부모 세션을 그대로 사용한다. |
+| stateful 확장 인스턴스를 동시에 둘 만들어 하나를 잃었다. | stateful 에이전트 실행은 `(sessionId, agent)`별로 직렬화된 뒤 인스턴스를 확인하고 만든다(`packages/core/src/runtime.ts:596-606`, `python/goondan/goondan/runtime.py:1004-1012`). | 인스턴스 준비를 에이전트별 직렬화 밖으로 옮긴다. |
 | 두 호스트의 작업 저장소 요청이 달라 저장소 구현을 공유할 수 없었다. | 두 호스트가 `list`, `get`, `save`, `transition`, 전달 선점과 반환을 같은 인수와 조건으로 사용한다(`packages/core/src/types.ts:84`, `python/goondan/goondan/types.py:155-173`). | 한 호스트에만 별도 상태 전이나 전달 확정 요청을 추가한다. |
-| 세션 상태를 정리하는 공개 요청이 없어 군단 객체를 닫을 때까지 모든 상태가 남았다. | `sessions.delete`가 세션과 파생 세션의 대화·확장·비동기 훅 상태를 정리한다(`packages/core/src/runtime.ts:1704-1723`, `python/goondan/goondan/runtime.py:467-487`). | 삭제가 파생 세션을 제외하거나 확장 인스턴스와 비동기 작업을 정리하지 않는다. |
-| 실행 중 입력이 여러 병렬 실행 가운데 임의의 에이전트에 전달되었다. | 실행이 하나이면 자동 지정하고 여러 개이면 `agent`를 요구하며 모호한 요청은 `steer_invalid`로 거부한다(`packages/core/src/runtime.ts:416-431`, `python/goondan/goondan/runtime.py:435-452`). | 병렬 실행에서 대상 없는 값을 임의의 실행이 가져가게 한다. |
-| 중단 제어기가 한 실행만 기억해 같은 세션의 다른 분기를 놓쳤다. | TypeScript는 세션별 컨트롤러 집합을, Python은 세션별 실행 집합을 유지하고 분기 실패와 `abort`가 모두에게 중단을 알린다(`packages/core/src/runtime.ts:185-186`, `packages/core/src/runtime.ts:289-307`, `python/goondan/goondan/runtime.py:414-433`). | 세션마다 단일 실행만 저장하거나 실행 종료 시 세션의 집합 전체를 제거한다. |
+| 세션 상태를 정리하는 공개 요청이 없어 군단 객체를 닫을 때까지 모든 상태가 남았다. | `sessions.delete`가 세션과 파생 세션의 대화·확장·비동기 훅 상태를 정리한다(`packages/core/src/runtime.ts:1704-1723`, `python/goondan/goondan/runtime.py:488-508`). | 삭제가 파생 세션을 제외하거나 확장 인스턴스와 비동기 작업을 정리하지 않는다. |
+| 실행 중 입력이 여러 병렬 실행 가운데 임의의 에이전트에 전달되었다. | 실행이 하나이면 자동 지정하고 여러 개이면 `agent`를 요구하며 모호한 요청은 `steer_invalid`로 거부한다(`packages/core/src/runtime.ts:416-431`, `python/goondan/goondan/runtime.py:456-473`). | 병렬 실행에서 대상 없는 값을 임의의 실행이 가져가게 한다. |
+| 중단 제어기가 한 실행만 기억해 같은 세션의 다른 분기를 놓쳤다. | TypeScript는 세션별 컨트롤러 집합을, Python은 세션별 실행 집합을 유지하고 분기 실패와 `abort`가 모두에게 중단을 알린다(`packages/core/src/runtime.ts:185-186`, `packages/core/src/runtime.ts:289-307`, `python/goondan/goondan/runtime.py:435-454`). | 세션마다 단일 실행만 저장하거나 실행 종료 시 세션의 집합 전체를 제거한다. |
 | 승인 결정이나 복구가 겹쳐 같은 작업 실행을 두 번 시작했다. | 작업 상태 전이는 기대 상태를 조건으로 원자 처리하며 `approved`에서 `running`으로 한 번만 전이된다(`packages/core/src/store.ts:27`, `python/goondan/goondan/store.py:43-49`). | 영속 저장소가 조건부 전이를 읽기와 쓰기로 나눈다. |
+| 훅 컨텍스트의 공개 멤버가 두 호스트에서 달라 확장을 옮겨 쓸 수 없었다. | 규격이 공개 멤버 전체와 언어별 이름을 정의하며(`spec/goondan.md:970-989`), 두 호스트가 `step`, 취소 상태와 `log`를 포함한 같은 의미의 표면을 제공한다(`packages/core/src/types.ts:96`, `python/goondan/goondan/types.py:259-328`). Python 구현 전용 상태는 밑줄로 시작하는 멤버에 둔다. 두 호스트의 단위 검사가 공개 표면과 모델 호출 전후의 `step` 값을 비교한다(`packages/core/test/hooks.test.ts:929-990`, `python/goondan/tests/test_hooks.py:1043-1117`). | 한 호스트만 공개 멤버를 추가하거나 제거하고 규격과 양쪽 표면 검사를 함께 갱신하지 않는다. |

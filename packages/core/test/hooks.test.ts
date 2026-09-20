@@ -926,6 +926,69 @@ describe("asynchronous hooks", () => {
 });
 
 describe("the hook context", () => {
+  it("exposes the shared public surface, model step, cancellation signal and logger", async () => {
+    const surfaces: string[][] = [];
+    const steps: Array<number | undefined> = [];
+    const cancelled: boolean[] = [];
+    const logs: string[] = [];
+    const executionSurfaces: string[][] = [];
+    const messageSurfaces: string[][] = [];
+    const inspect = (_value: unknown, ctx: HookContext): null => {
+      surfaces.push(Object.keys(ctx).sort());
+      executionSurfaces.push(Object.keys(ctx.execution).sort());
+      messageSurfaces.push(Object.keys(ctx.message).sort());
+      steps.push(ctx.step);
+      cancelled.push(ctx.signal.aborted);
+      ctx.log.info("hook", { step: ctx.step ?? null });
+      return null;
+    };
+    const probe = defineExtension({ name: "probe", hooks: ["conversation", "modelResult"], create: () => ({ hooks: {
+      conversation: inspect,
+      modelResult: inspect,
+    } }) });
+    const runtime = createGoondan({ agents: { main: { model: "m", extensions: { probe: {} }, hooks: {
+      conversation: [{ extension: "probe" }], modelResult: [{ extension: "probe" }],
+    } } } }, {
+      models: { m: scripted([{ message: assistant("done"), finishReason: "stop" }]) },
+      extensions: { probe },
+      logger: { info: (message) => { logs.push(message); }, warn() {}, error() {} },
+    });
+
+    await runtime.run("hi", { sessionId: "c" });
+
+    const expected = [
+      "agent", "agents", "append", "conversation", "execution", "input", "log", "message",
+      "model", "render", "retryCount", "sessionId", "signal", "step", "turnId",
+    ];
+    expect(surfaces).toEqual([expected, expected]);
+    expect(executionSurfaces).toEqual([["complete"], ["complete"]]);
+    expect(messageSurfaces).toEqual([["system", "user"], ["system", "user"]]);
+    expect(steps).toEqual([undefined, 1]);
+    expect(cancelled).toEqual([false, false]);
+    expect(logs).toEqual(["hook", "hook"]);
+    await runtime.close();
+  });
+
+  it("updates the hook cancellation signal when the current turn is aborted", async () => {
+    let cancelled = false;
+    let runtime: ReturnType<typeof createGoondan>;
+    const probe = defineExtension({ name: "probe", hooks: ["conversation"], create: () => ({ hooks: {
+      conversation: (_value, ctx: HookContext) => {
+        runtime.abort("c");
+        cancelled = ctx.signal.aborted;
+        return null;
+      },
+    } }) });
+    runtime = createGoondan({ agents: { main: { model: "m", extensions: { probe: {} }, hooks: {
+      conversation: [{ extension: "probe" }],
+    } } } }, { models: { m: ok }, extensions: { probe } });
+
+    await expect(runtime.run("hi", { sessionId: "c" })).rejects.toMatchObject({ codes: ["aborted"] });
+
+    expect(cancelled).toBe(true);
+    await runtime.close();
+  });
+
   it("carries the agent path, the conversation, a copy of the input and the hook's message source", async () => {
     let captured: { agent: string; conversation: number; input: Message[]; turnId: string } | undefined;
     const model = scripted([{ message: assistant("done"), finishReason: "stop" }]);
@@ -1105,6 +1168,32 @@ describe("the hook context", () => {
 
     expect(message).toContain("execution.complete");
     expect(texts([result.output])).toEqual(["done"]);
+    await runtime.close();
+  });
+});
+
+describe("the tool context", () => {
+  it("exposes the shared public surface and updates its cancellation state", async () => {
+    let surface: string[] = [];
+    let cancelled = false;
+    let runtime: ReturnType<typeof createGoondan>;
+    const act: Tool = {
+      name: "act", description: "act", input: {},
+      execute: (input, ctx) => {
+        surface = Object.keys(ctx).sort();
+        runtime.abort("c");
+        cancelled = ctx.signal.aborted;
+        return { callId: ctx.toolCall.id, name: "act", args: input, content: [] };
+      },
+    };
+    runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } }, {
+      models: { m: scripted([{ message: callMessage("c1", "act"), finishReason: "tool" }]) }, tools: { act },
+    });
+
+    await expect(runtime.run("hi", { sessionId: "c" })).rejects.toMatchObject({ codes: ["aborted"] });
+
+    expect(surface).toEqual(["agent", "agents", "conversation", "execution", "input", "sessionId", "signal", "toolCall", "turnId"]);
+    expect(cancelled).toBe(true);
     await runtime.close();
   });
 });

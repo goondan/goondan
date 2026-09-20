@@ -9,7 +9,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 from ._schema import issue as _issue
 from ._json import json_text
@@ -336,6 +336,27 @@ class _Sessions:
         await self._goondan._delete_session(session_id)
 
 
+class _ToolContext(Mapping[str, Any]):
+    """도구에 전달하는 공개 키와 동적으로 바뀌는 취소 상태를 함께 제공한다."""
+
+    def __init__(self, members: Mapping[str, Any], cancelled: Callable[[], bool]) -> None:
+        self._members = dict(members)
+        self._cancelled = cancelled
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "cancelled":
+            task = asyncio.current_task()
+            return self._cancelled() or (task is not None and task.cancelling() > 0)
+        return self._members[key]
+
+    def __iter__(self) -> Iterator[str]:
+        yield from self._members
+        yield "cancelled"
+
+    def __len__(self) -> int:
+        return len(self._members) + 1
+
+
 class Goondan:
     def __init__(self, *, config: Mapping[str, Any], models: Mapping[str, Any], tools: Mapping[str, Tool] | None = None, functions: Mapping[str, Callable[..., Any]] | None = None, extensions: Mapping[str, ExtensionDefinition] | None = None, conversation_store: ConversationStore | None = None, operation_store: OperationStore | None = None, ports: Mapping[str, Any] | None = None, host: Any = None, emit: Callable[..., Any] | None = None, logger: Any = None, max_retries: int = 3, max_steps: int | None = None, directory: str | Path | None = None):
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
@@ -595,9 +616,9 @@ class Goondan:
         if "template" in spec:
             transformed = self.render(spec["template"], {"text": transformed, "input": state.agent_input, "inputText": input_text(state.agent_input), "params": agent.get("params", {})})
         if stage in ("conversation", "modelInput"):
-            return {"append": [_message(spec.get("role", "user"), result_text(transformed), ctx.source)]}
+            return {"append": [_message(spec.get("role", "user"), result_text(transformed), ctx._source)]}
         if stage == "output":
-            return _message("assistant", result_text(transformed), ctx.source)
+            return _message("assistant", result_text(transformed), ctx._source)
         return transformed
 
     async def _hook_agents(self, names: Sequence[str], value: Json, ctx: HookContext) -> str:
@@ -622,7 +643,7 @@ class Goondan:
         """§훅 실패: run the hook body under its `timeout`, which cancels the task on expiry."""
         timeout = spec.get("timeout")
         handle = ctx.execution
-        handle.allowed = stage == "toolResult" and "extension" in spec
+        handle._allowed = stage == "toolResult" and "extension" in spec
         try:
             if not timeout:
                 return await self._hook_body(spec, stage, seen, ctx, state)
@@ -631,8 +652,8 @@ class Goondan:
             except asyncio.TimeoutError as expired:
                 raise GoondanError(f"the hook did not finish within {timeout}ms") from expired
         finally:
-            handle.allowed = False
-            handle.active = False
+            handle._allowed = False
+            handle._active = False
 
     def _running(self, state: _RunState) -> None:
         """§실행 중단: an aborted run starts no further work and stores no further message."""
@@ -651,9 +672,19 @@ class Goondan:
             # §비동기 훅: an asynchronous hook is optional whatever `optional` says.
             optional = True if spec.get("mode") == "async" else spec.get("optional", "agent" in spec)
             ctx = HookContext(
-                self, state.agent_name, state.session_id, state.turn_id, copy.deepcopy(state.agent_input),
-                copy.deepcopy(result.value if stage == "conversation" else state.conversation), identifier,
-                ExecutionHandle(state.completion), state.retry_count, phase=stage, hook=identifier, run_state=state,
+                runtime=self,
+                agent=state.agent_name,
+                session_id=state.session_id,
+                turn_id=state.turn_id,
+                step=state.step or None,
+                retry_count=state.retry_count,
+                input=copy.deepcopy(state.agent_input),
+                conversation=copy.deepcopy(result.value if stage == "conversation" else state.conversation),
+                execution=ExecutionHandle(state.completion),
+                log=self.logger,
+                source=identifier,
+                cancelled=state.aborted,
+                run_state=state,
             )
             try:
                 outcome = await self._hook(spec, stage, result, ctx, state, identifier, call_id)
@@ -742,7 +773,7 @@ class Goondan:
         """§비동기 훅: schedule the work unless this scope already has it running or waiting."""
         session = state.session
         if identifier in session.pending: return
-        ctx.detached = True
+        ctx._detached = True
         task = asyncio.create_task(self._async_hook(spec, stage, copy.deepcopy(seen), ctx, state, identifier))
         session.pending[identifier] = task
 
@@ -882,12 +913,12 @@ class Goondan:
         The call keeps the requesting agent run's identity and its last model call number,
         which it does not increase ([§모델 호출](spec)).
         """
-        state = ctx.run_state
+        state = ctx._run_state
         step = state.step if isinstance(state, _RunState) else 0
         # §에이전트 실행 기록: the call makes a `model` entry of the requesting agent run.
         instance = state.instance if isinstance(state, _RunState) else f"{ctx.session_id}/{ctx.agent}"
         record = _RunRecord(ctx.agent, instance, ctx.turn_id, "model")
-        if not ctx.detached and isinstance(state, _RunState): state.record.children.append(record)
+        if not ctx._detached and isinstance(state, _RunState): state.record.children.append(record)
         result = await self._model_once(ctx.agent, messages, ctx.session_id, turn_id=ctx.turn_id, step=step)
         record.usage, record.status, record.finish_reason = _usage_of(result), "done", result["finishReason"]
         return result
@@ -944,17 +975,17 @@ class Goondan:
             message["content"] = converted
         return result
 
-    def _tool_context(self, agent_name: str, session_id: str, turn_id: str, turn_input: list[dict[str, Any]] | Json, conversation: list[dict[str, Any]], call: Mapping[str, Any], execution: Any, scope: _Scope, records: list[_RunRecord] | None) -> dict[str, Any]:
+    def _tool_context(self, agent_name: str, session_id: str, turn_id: str, turn_input: list[dict[str, Any]] | Json, conversation: list[dict[str, Any]], call: Mapping[str, Any], execution: Any, scope: _Scope, records: list[_RunRecord] | None, cancelled: Callable[[], bool] = lambda: False) -> Mapping[str, Any]:
         """§도구 컨텍스트: the members a host or extension tool receives beside its arguments."""
         async def run_agent(name: str, value: Json) -> dict[str, Any]:
             messages = self._turn_input(name, value)
             return await self._run_agent(name, messages, f"{session_id}#{turn_id}#{name}", scope=_Scope(scope.host, False), records=records, kind="tool")
 
-        return {
+        return _ToolContext({
             "input": copy.deepcopy(turn_input), "conversation": copy.deepcopy(conversation), "agent": agent_name,
             "session_id": session_id, "turn_id": turn_id, "tool_call": copy.deepcopy(dict(call)),
             "execution": copy.deepcopy(execution) if isinstance(execution, Mapping) else {}, "run_agent": run_agent,
-        }
+        }, cancelled)
 
     async def _run_hook_agent(self, ctx: HookContext, name: str, value: Json) -> dict[str, Any]:
         """§파생 세션: 훅 컨텍스트의 agents.run을 실행한다.
@@ -962,9 +993,9 @@ class Goondan:
         An async hook has its own lifetime, so what it starts is detached from the turn that
         scheduled it and `abort` does not stop it ([§실행 중단](spec)).
         """
-        parent = None if ctx.detached else self._scopes.get(ctx.turn_id)
-        state = ctx.run_state
-        records = state.record.children if not ctx.detached and isinstance(state, _RunState) else None
+        parent = None if ctx._detached else self._scopes.get(ctx.turn_id)
+        state = ctx._run_state
+        records = state.record.children if not ctx._detached and isinstance(state, _RunState) else None
         messages = self._turn_input(name, value)
         derived = f"{ctx.session_id}#{ctx.turn_id}#{name}"
         return await self._run_agent(name, messages, derived, scope=_Scope(parent.host if parent is not None else None, False), records=records, kind="hook")
@@ -1273,7 +1304,7 @@ class Goondan:
             claimed: Mapping[str, Any] = {"content": child["output"]["content"]}
         else:
             tool = self.tools.get(call["name"]) or session.tools[call["name"]]
-            context = self._tool_context(state.agent_name, session_id, turn_id, state.agent_input, state.conversation, call, execution, state.scope, state.record.children)
+            context = self._tool_context(state.agent_name, session_id, turn_id, state.agent_input, state.conversation, call, execution, state.scope, state.record.children, state.aborted)
             output = await _await(tool.execute(copy.deepcopy(call["args"]), context))
             claimed = _claimed_result(output)
         state.in_flight = None

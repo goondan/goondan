@@ -512,13 +512,30 @@ TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 모든 실�
 
 **모델.** TypeScript 모델은 `generate(input, ctx)`를 가진 객체입니다. Python 모델은 `generate(model_input, ctx)`를 가진 객체이거나 모델 입력 하나만 받는 호출 가능 객체입니다. 모델 컨텍스트는 `agent`, `sessionId`(`session_id`), `turnId`(`turn_id`), `step`, `onTextDelta`(`on_text_delta`)를 가지며 TypeScript에는 `signal`도 있습니다.
 
-**도구.** TypeScript 도구는 `name`, `description`, `input`, `execute(args, ctx)`를 가지며 `ToolResult`를 반환합니다. Python 도구는 `define_tool`로 만들며, 실행 함수는 내용 부분 배열, `content`를 가진 매핑 또는 JSON 값을 반환할 수 있습니다. 도구 컨텍스트는 `input`, `conversation`, `agent`, `sessionId`, `turnId`, `toolCall`, `execution`, `agents.run(name, value)`을 제공합니다. Python은 snake_case 키와 `run_agent`를 사용합니다.
+**도구.** TypeScript 도구는 `name`, `description`, `input`, `execute(args, ctx)`를 가지며 `ToolResult`를 반환합니다. Python 도구는 `define_tool`로 만들며, 실행 함수는 내용 부분 배열, `content`를 가진 매핑 또는 JSON 값을 반환할 수 있습니다. 도구 컨텍스트는 `input`, `conversation`, `agent`, `sessionId`, `turnId`, `toolCall`, `execution`, `agents.run(name, value)`과 취소 상태를 제공합니다. Python은 snake_case 키와 `run_agent`, 취소 상태를 나타내는 `cancelled`를 사용하며 TypeScript는 `signal`을 사용합니다.
 
 **함수.** YAML이 이름으로 참조하는 함수는 JSON 값 하나를 받아 JSON 값을 반환합니다. route의 `when.fn`은 `{output, text, input}`을 받고 불리언을 반환해야 합니다.
 
 **확장.** TypeScript는 `defineExtension`, Python은 `define_extension`으로 정의합니다. 생성 함수는 `options`, `ports`, `agent`, `log`를 받으며, `agent`는 `name`과 유효 에이전트 구성인 `spec`을 가집니다. 인스턴스는 `hooks`, `tools`, `on`, `dispose`를 제공할 수 있습니다. stateful 확장 인스턴스는 세션과 에이전트 이름의 조합마다 재사용하고, stateless 인스턴스는 실행이 끝나면 정리합니다.
 
-**훅 컨텍스트.** 훅 컨텍스트는 `agent`, `sessionId`(`session_id`), `turnId`(`turn_id`), 메시지 배열인 `input`, `conversation`, `retryCount`(`retry_count`), 메시지 생성과 추가 기능, 하위 에이전트와 모델 호출, 템플릿 렌더링, `execution.complete`를 제공합니다. TypeScript는 `signal`, `log`와 선택적인 `step`도 제공합니다.
+**훅 컨텍스트.** 훅 컨텍스트는 다음 공개 멤버를 제공합니다.
+
+| TypeScript | Python | 값 |
+|---|---|---|
+| `agent` | `agent` | 현재 에이전트의 선언 이름입니다. |
+| `sessionId`, `turnId` | `session_id`, `turn_id` | 현재 에이전트 실행의 세션 식별자와 턴 식별자입니다. |
+| `step` | `step` | 마지막으로 시작한 모델 호출 번호입니다. 아직 모델을 호출하지 않았으면 각각 `undefined`, `None`입니다. |
+| `input`, `conversation` | `input`, `conversation` | 에이전트 입력과 현재 대화의 메시지 배열입니다. |
+| `retryCount` | `retry_count` | 현재 실행에서 이미 따른 재시도 횟수입니다. |
+| `message.user`, `message.system`, `append` | `message.user`, `message.system`, `append` | 메시지와 메시지 추가 결과를 만듭니다. |
+| `agents.run` | `run_agent` | 같은 군단의 에이전트 하나를 파생 세션에서 실행합니다. |
+| `model.run` | `run_model` | 현재 에이전트의 모델을 한 번 호출합니다. |
+| `render` | `render` | 구성 로딩 시 읽은 템플릿을 렌더링합니다. |
+| `execution.complete` | `execution.complete` | 동기 `toolResult` 확장 훅에서 현재 실행의 최종 메시지를 예약합니다. |
+| `signal` | `cancelled` | 훅 취소 상태입니다. TypeScript는 `AbortSignal`, Python은 불리언을 사용합니다. |
+| `log` | `log` | 호스트 로거이며, 로거를 제공하지 않았으면 아무 동작도 하지 않습니다. |
+
+YAML이 참조하는 호스트 함수는 JSON 값 하나만 받고 별도의 실행 컨텍스트는 받지 않습니다.
 
 ### 오류
 

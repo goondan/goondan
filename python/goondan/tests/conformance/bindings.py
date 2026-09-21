@@ -83,7 +83,17 @@ def project_event(event: Mapping[str, Any]) -> dict[str, Any]:
         "seq", "version", "type", "sessionId", "agent", "instance", "turnId", "executionId",
         "inputId", "parentExecutionId", "operationId", "data", "skippable", "observational",
     )
-    return {key: snapshot(event[key]) for key in keys if key in event}
+    projected = {key: snapshot(event[key]) for key in keys if key in event}
+    data = projected.get("data")
+    if isinstance(projected.get("type"), str) and projected["type"].startswith("operation.") and isinstance(data, dict):
+        data.pop("updatedAt", None)
+        data.pop("deliveredAt", None)
+        operation = data.get("operation")
+        if isinstance(operation, dict):
+            operation.pop("createdAt", None)
+            operation.pop("updatedAt", None)
+            operation.pop("deliveredAt", None)
+    return projected
 
 
 class Observations:
@@ -232,6 +242,8 @@ class RuntimeBindings:
         owner = self.owner
 
         class ScriptedModel:
+            provider = state.bindings["models"][name].get("provider")
+
             async def generate(self, model_input: Any, context: Any = None) -> Any:
                 state.observations.model_inputs.setdefault(name, []).append(snapshot(model_input))
                 state.observations.model_contexts.setdefault(name, []).append(

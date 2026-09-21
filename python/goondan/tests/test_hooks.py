@@ -329,7 +329,10 @@ async def test_a_when_function_selects_the_hook(decided: bool, ran: bool):
     try:
         await (await runtime.run("hello", session_id="c1")).result
         assert bool(applied) is ran
-        assert host.hooks() == [("hook.applied" if ran else "hook.skipped", "onInput", "h")]
+        assert host.hooks() == [
+            ("hook.start", "onInput", "h"),
+            ("hook.applied" if ran else "hook.skipped", "onInput", "h"),
+        ]
     finally:
         await runtime.close()
 
@@ -346,7 +349,7 @@ async def test_a_when_function_that_does_not_return_a_boolean_fails_the_hook():
         with pytest.raises(GoondanError) as failure:
             await (await runtime.run("hello", session_id="c1")).result
         assert (failure.value.where, failure.value.codes) == ("onInput", ["hook_error"])
-        assert [name for name, _, _ in host.hooks()] == ["hook.failed"]
+        assert [name for name, _, _ in host.hooks()] == ["hook.start", "hook.failed"]
     finally:
         await runtime.close()
 
@@ -405,7 +408,7 @@ async def test_a_result_that_changes_nothing_still_reports_hook_applied():
     )
     try:
         await (await runtime.run("hello", session_id="c1")).result
-        assert host.hooks() == [("hook.applied", "onStep", "ext")]
+        assert host.hooks() == [("hook.start", "onStep", "ext"), ("hook.applied", "onStep", "ext")]
     finally:
         await runtime.close()
 
@@ -968,7 +971,7 @@ async def test_an_asynchronous_string_result_becomes_a_message_without_failing_t
         result = await (await runtime.run("hello", session_id="c1")).result
         await runtime.idle()
         assert result["status"] == "done"
-        assert [(name, hook) for name, _, hook in host.hooks()] == [("hook.applied", "late")]
+        assert [(name, hook) for name, _, hook in host.hooks()] == [("hook.start", "late"), ("hook.applied", "late")]
         assert host.names("hook.applied")[0]["turnId"] == host.names("turn.start")[0]["turnId"]
     finally:
         await runtime.close()
@@ -995,7 +998,7 @@ async def test_an_asynchronous_hook_is_not_scheduled_again_while_it_is_running()
         await (await runtime.run("first", session_id="c1")).result
         await (await runtime.run("second", session_id="c1")).result
         assert starts == [1]
-        assert host.hooks() == []
+        assert host.hooks() == [("hook.start", "onStep", "late")]
         release.set()
         await runtime.idle()
     finally:

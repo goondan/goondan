@@ -579,7 +579,7 @@ YAML에서 에이전트를 가리키는 값과 컨텍스트의 `agents.run`에 �
 | `operation.cancelled` | `updatedAt` | `pending` 작업을 `cancelled`로 바꾼다. |
 | `operation.execution.started` | `updatedAt` | `approved` 작업을 `running`으로 바꾼다. |
 | `operation.completed` | `updatedAt`, `result` | `running` 작업을 `completed`로 바꾸고 도구 결과를 기록한다. |
-| `operation.failed` | `updatedAt`, `error`, `errorCode` | `approved` 또는 `running` 작업을 `failed`로 바꾸고 실패 정보를 기록한다. |
+| `operation.failed` | `updatedAt`, `error`, `errorCode`, 선택적인 `cause` | `approved` 또는 `running` 작업을 `failed`로 바꾸고 실패 정보를 기록한다. `cause`는 실패를 만든 구조화된 실행 오류다. |
 | `operation.delivery.claimed` | `updatedAt` | 종료 상태이며 `deliveryStatus`가 `pending`인 작업을 `delivering`으로 바꾼다. |
 | `operation.delivery.finished` | `updatedAt`, `outcome`, 그리고 `outcome`이 `delivered`일 때의 `deliveredAt` | `delivering` 작업의 전달 시도를 끝낸다. `outcome`이 `delivered`이면 `deliveryStatus`를 `delivered`로 바꾸고 `deliveredAt`을 기록한다. `failed` 또는 `interrupted`이면 `deliveryStatus`를 `pending`으로 되돌린다. |
 
@@ -591,10 +591,10 @@ YAML에서 에이전트를 가리키는 값과 컨텍스트의 `agents.run`에 �
 | `input.received` | JSON 값 `input`, 선택적인 `agent`, `startAgent`, `meta` | 봉투의 `inputId`로 열린 턴에 합류한 `run` 호출이나 승인 완료 입력을 입력 목록 끝에 추가한다. `meta`는 `run`이 받은 호출 메타다. 완료 입력은 봉투에 `operationId`가 있고 `agent`, `startAgent`, `meta`가 없다. 같은 스트림의 중복 `inputId`는 fold 오류다. |
 | `turn.done` | `result` | 열린 턴을 성공 상태로 바꾸고 턴 결과를 기록한다. |
 | `turn.error` | `status`, `error` | 열린 턴을 `failed` 또는 `aborted` 상태로 바꾼다. |
-| `agent.start` | `kind`, `input` | 봉투의 `executionId`로 에이전트 실행을 진행 중으로 만든다. 같은 인스턴스에 열린 실행이 있으면 fold 오류다. stateless 인스턴스 id도 실행마다 고유하므로 fold는 에이전트 구성을 읽지 않는다. |
-| `agent.done` | `usage`, `output`, `finishReason` | 같은 `executionId`의 열린 실행을 성공 상태로 바꾼다. |
-| `agent.error` | `status`, `error`, `usage` | 같은 `executionId`의 열린 실행을 `failed` 또는 `aborted`로 바꾼다. |
-| `route.function` | `route`, `fn`, `status`, `input`과 성공 시 선택적인 `output`, 실패 시 `error` | 함수 노드 호출 한 번의 결과를 기록한다. fold는 형식을 검증하고 `head`를 진행시키며 나머지 상태 뷰는 바꾸지 않는다. |
+| `agent.start` | `kind`, `input`, `inputKind` | 봉투의 `executionId`로 에이전트 실행을 진행 중으로 만든다. `inputKind`는 실행을 연 입력의 `start`다. 같은 인스턴스에 열린 실행이 있으면 fold 오류다. stateless 인스턴스 id도 실행마다 고유하므로 fold는 에이전트 구성을 읽지 않는다. |
+| `agent.done` | `usage`, `output`, `finishReason`, `retryCount` | 같은 `executionId`의 열린 실행을 성공 상태로 바꾼다. `retryCount`는 실행에서 실제로 따른 재시도 횟수다. |
+| `agent.error` | `status`, `error`, `usage`, `retryCount` | 같은 `executionId`의 열린 실행을 `failed` 또는 `aborted`로 바꾼다. `retryCount`는 실행이 끝날 때까지 실제로 따른 재시도 횟수다. |
+| `route.function` | `routeCall`, `route`, `fn`, `status`, `input`과 성공 시 선택적인 `output`, 실패 시 `error` | 함수 노드 호출 한 번의 결과를 기록한다. `routeCall`은 턴 안에서 함수 호출을 시작한 순서대로 부여하는 양의 정수다. fold는 형식을 검증하고 `head`를 진행시키며 나머지 상태 뷰는 바꾸지 않는다. |
 
 스냅샷은 같은 스트림의 앞선 fold 결과를 한 이벤트에 담는 선택적인 최적화다.
 
@@ -1169,6 +1169,8 @@ YAML이 이름으로 참조하는 호스트 함수는 문서가 정한 JSON 값�
 
 모델 구현은 모델 입력과 모델 컨텍스트를 받아 작성용 응답을 반환한다. 모델 컨텍스트는 [실행 컨텍스트와 호스트 함수](#실행-컨텍스트와-호스트-함수)의 실행 컨텍스트에 다음 멤버를 더한다.
 
+모델 구현은 관측용 제공자 식별자인 선택 필드 `provider`를 제공할 수 있다. 값은 비어 있지 않은 문자열이며 런타임은 값을 바꾸지 않고 `step.start.data.provider`에 넣는다. 모델 구현이 값을 제공하지 않으면 이벤트에서도 `provider`를 생략한다.
+
 | 멤버 | 의미 |
 |---|---|
 | `step` | 모델 호출 번호다. |
@@ -1520,7 +1522,7 @@ route에는 위 세 필드만 선언할 수 있고, 문자열 `from`과 `to`, �
 
 - `to`가 `$output`이면 에이전트 출력 메시지는 한 항목으로 기록하고, 함수 노드의 출력 배열은 각 메시지를 배열 순서대로 `outputs`에 기록한다([턴 결과](#턴-결과)).
 - `to`가 에이전트이면 에이전트 출발점의 출력 메시지로 만든 메시지 하나의 배열을 그 에이전트에 턴 입력으로 전달한다([입력](#입력)). 함수 노드 출발점의 출력 배열은 역할과 내용을 유지한 하나의 입력 요청으로 전달하며, 각 메시지의 `meta`는 `{from: <함수 이름>, kind: <입력 종류>}`로 기록한다. 함수 노드에는 인스턴스가 없으므로 `meta.instance`를 붙이지 않는다. 턴을 시작할 때 `$input`에서 전달하는 턴 입력은 호스트가 전달한 값을 변환 규칙으로 바꾼 메시지 배열이다.
-- `to`가 함수 노드이면 입력 메시지 배열과 함수 컨텍스트로 함수를 호출한다. 메시지 배열을 반환하면 그 함수 노드를 `from`으로 하는 route를 같은 규칙으로 진행하고, `null` 또는 값을 반환하지 않으면 그 갈래를 끝낸다. 다른 값과 함수 실패는 `route.function`에 `status: error`로 기록한 뒤 턴을 `route_error`로 실패시킨다. 함수 노드는 인스턴스와 입력 대기열을 갖지 않고 도달할 때마다 실행된다. 완료 결과나 실패는 `route.function` 저널 이벤트 하나에 기록하며 append 직후 같은 실행 이벤트로도 전달한다.
+- `to`가 함수 노드이면 입력 메시지 배열과 함수 컨텍스트로 함수를 호출한다. 호출 직전에 `route.function.start` 관측 전용 이벤트를 알린다. 메시지 배열을 반환하면 그 함수 노드를 `from`으로 하는 route를 같은 규칙으로 진행하고, `null` 또는 값을 반환하지 않으면 그 갈래를 끝낸다. 다른 값과 함수 실패는 `route.function`에 `status: error`로 기록한 뒤 턴을 `route_error`로 실패시킨다. 함수 노드는 인스턴스와 입력 대기열을 갖지 않고 도달할 때마다 실행된다. 완료 결과나 실패는 `route.function` 저널 이벤트 하나에 기록하며 append 직후 같은 실행 이벤트로도 전달한다. 시작 이벤트와 종료 이벤트는 같은 `routeCall`, `route`, `fn`을 가진다.
 
 런타임은 한 출발점에서 일치한 route가 전달하는 입력을 대상 인스턴스에 모두 전달한 뒤, 입력을 받은 에이전트마다 route 선언 순서로 아래의 시작 조건을 검사한다. 에이전트의 실행은 `stateful`에 따라 시작한다.
 
@@ -1673,18 +1675,23 @@ routes: [main, editor]
 
 | 이벤트 | 발생 시점 | `data`의 필수 키 |
 |---|---|---|
-| `step.start` | `onModelInput`을 마치고 모델을 호출하기 직전 | `step`: 모델 호출 번호 |
-| `step.textDelta` | 모델 구현이 텍스트 조각을 전달할 때([텍스트 조각](#텍스트-조각)) | `step`, `delta` |
-| `step.done` | 모델 결과가 형식 검사를 통과한 뒤, `onModelResult`를 실행하기 전 | `step`, `finishReason`: 모델이 반환한 결과의 값 |
-| `step.error` | 모델 호출이 실패하거나 모델 결과가 형식 검사를 통과하지 못할 때 | `step`, `codes`, `error`: 그 실패의 실행 오류 코드 목록과 메시지 |
-| `tool.start` | 도구 구현이나 에이전트 도구의 대상을 실행하기 직전 | `tool`, `callId`, `args`: `onToolCall`을 마친 호출의 `name`, `id`, `args` |
-| `tool.done` | 도구 결과 메시지를 저장한 뒤 | `tool`, `callId`, `args`, `result`: `onToolResult`를 마친 도구 결과 |
-| `tool.error` | 도구 실행이나 그 결과의 처리가 실패할 때 | `tool`, `callId`, `args`, `codes`, `error`: 그 실패의 실행 오류 코드 목록과 메시지 |
-| `hook.applied`, `hook.skipped` | [훅 실행과 결과](#훅-실행과-결과), [비동기 훅](#비동기-훅) | `value`, `hook` |
-| `hook.failed` | [훅 실패](#훅-실패), [비동기 훅](#비동기-훅) | `value`, `hook`, `error` |
+| `step.start` | 모델을 호출하기 직전. 에이전트 루프에서는 `onModelInput`을 마친 뒤이며 훅의 `model.run`에도 발생한다. | `modelCall`, `source`, `step`, `model`, `retryCount`, `attempt`, 선택적인 `provider` |
+| `step.textDelta` | 모델 구현이 텍스트 조각을 전달할 때([텍스트 조각](#텍스트-조각)) | `modelCall`, `source`, `step`, `delta`, `retryCount`, `attempt` |
+| `step.done` | 모델 결과가 형식 검사를 통과한 뒤. 에이전트 루프에서는 `onModelResult`를 실행하기 전이다. | `modelCall`, `source`, `step`, `finishReason`, `retryCount`, `attempt`, 선택적인 `usage` |
+| `step.error` | 모델 호출이 실패하거나 모델 결과가 형식 검사를 통과하지 못할 때 | `modelCall`, `source`, `step`, `retryCount`, `attempt`, `where`, `codes`, `error` |
+| `tool.start` | 도구 구현이나 에이전트 도구의 대상을 실행하기 직전 | `tool`, `callId`, `args`, `retryCount`, `attempt` |
+| `tool.done` | 도구 결과 메시지를 저장한 뒤 | `tool`, `callId`, `args`, `result`, `retryCount`, `attempt` |
+| `tool.error` | 도구 실행이나 그 결과의 처리가 실패할 때 | `tool`, `callId`, `args`, `retryCount`, `attempt`, `where`, `codes`, `error` |
+| `hook.start` | 훅의 `when`을 평가하기 직전 | `hookCall`, `value`, `hook`, `mode`, `retryCount`, `attempt`, 그리고 `onInput`·`onPrompt`의 선택적인 `inputKind` |
+| `hook.applied`, `hook.skipped` | [훅 실행과 결과](#훅-실행과-결과), [비동기 훅](#비동기-훅) | `hookCall`, `value`, `hook`, `mode`, `retryCount`, `attempt`, 그리고 `onInput`·`onPrompt`의 선택적인 `inputKind` |
+| `hook.failed` | [훅 실패](#훅-실패), [비동기 훅](#비동기-훅) | `hookCall`, `value`, `hook`, `mode`, `retryCount`, `attempt`, `where`, `codes`, `error`, 그리고 `onInput`·`onPrompt`의 선택적인 `inputKind` |
+| `hook.cancelled` | 시작한 훅이 실행 중단이나 런타임 종료로 취소될 때 | `hookCall`, `value`, `hook`, `mode`, `retryCount`, `attempt`, `where`, `codes: ["aborted"]`, `error`, 그리고 `onInput`·`onPrompt`의 선택적인 `inputKind` |
+| `route.function.start` | route 함수 호출 직전 | `routeCall`, `route`, `fn` |
 | `operation.completion.orphaned` | 삭제된 세션의 작업 완료가 도착했을 때 | `operationId`, `deliveryId` |
 
-`step.error`와 `tool.error`의 `codes`는 같은 실패로 `onError`에 전달되거나 에이전트 실행을 끝내는 실행 오류의 `codes`와 같다. 실패한 필수 `onToolResult` 훅은 `hook_error`, 중단된 호출은 `aborted`다.
+`modelCall`과 `hookCall`은 `executionId` 안에서, `routeCall`은 `turnId` 안에서 호출을 시작한 순서대로 1부터 부여한다. `source`는 에이전트 루프의 호출이면 `agent`, 훅 컨텍스트의 `model.run`이면 `hook`이다. `step`은 기존 에이전트 루프 번호이며 훅 호출에서는 마지막 모델 호출 번호 또는 0이다. `retryCount`는 이벤트 시점까지 실행에서 실제로 따른 재시도 횟수이고 `attempt`는 그 값에 1을 더한 호출 시도 번호다. `step.done.data.usage`는 해당 모델 결과가 사용량을 제공했을 때만 있으며 보고된 필드만 가진다.
+
+`step.error`, `tool.error`, `hook.failed`, `hook.cancelled`의 `where`와 `codes`는 같은 실패의 실행 오류와 같다. 실패한 필수 `onToolResult` 훅은 `hook_error`, 중단된 호출과 훅은 `aborted`다. OpenTelemetry 매핑에서는 `tool.done.data.result.isError`가 생략되면 `false`로 해석하고, `step.done.data.usage`가 생략되면 사용량이 보고되지 않은 것으로 해석한다.
 
 ### 이벤트 순서
 
@@ -1704,13 +1711,13 @@ routes: [main, editor]
 
 이벤트 쌍은 다음 규칙을 따른다.
 
-- `step.start` 뒤에는 그 호출의 `step.done`과 `step.error` 가운데 하나가 한 번 발생한다. `tool.start` 뒤에는 그 시도의 `tool.done`과 `tool.error` 가운데 하나가 한 번 발생한다.
+- `step.start` 뒤에는 같은 `modelCall`을 가진 `step.done`과 `step.error` 가운데 하나가 한 번 발생한다. `tool.start` 뒤에는 같은 `callId`와 `attempt`를 가진 `tool.done`과 `tool.error` 가운데 하나가 한 번 발생한다. `hook.start` 뒤에는 같은 `hookCall`을 가진 `hook.applied`, `hook.skipped`, `hook.failed`, `hook.cancelled` 가운데 하나가 한 번 발생한다. `route.function.start` 뒤에는 같은 `routeCall`을 가진 `route.function`이 한 번 기록된다.
 - `agent.start` 뒤에는 같은 `executionId`의 `agent.done`과 `agent.error` 가운데 하나가 한 번 기록된다. 실행 준비가 구성 오류로 실패하여 `agent.start`를 기록하지 않은 경우에는 `agent.error`도 기록하지 않는다.
 - 에이전트 실행 밖의 실패도 상태를 바꾸면 해당 저널 이벤트로 알린다. 함수 노드 실패는 `route.function`, 실패한 턴은 `turn.error`를 기록하고 append 직후 실행 이벤트로 전달한다.
 
-실행이 중단되면 진행 중인 모델 호출은 `step.error`, 도구 실행은 `tool.error`, 에이전트 실행은 `agent.error`를 `codes: ["aborted"]`로 알린다. 중단으로 끝난 훅은 `hook.failed`를 알리지 않는다.
+실행이 중단되면 진행 중인 모델 호출은 `step.error`, 도구 실행은 `tool.error`, 훅은 `hook.cancelled`, 에이전트 실행은 `agent.error`를 `codes: ["aborted"]`로 알린다.
 
-하위 실행의 이벤트는 자기 식별자와 부모 실행 식별자를 가진다. 동시에 진행하는 실행 사이의 전역 순서는 정하지 않는다. 훅 컨텍스트의 `model.run` 호출은 `step.*`를 알리지 않는다. 승인 작업 실행은 군단 턴이 아니므로 `turn.*` 저널 이벤트를 만들지 않는다.
+하위 실행의 이벤트는 자기 식별자와 부모 실행 식별자를 가진다. 동시에 진행하는 실행 사이의 전역 순서는 정하지 않는다. 훅 컨텍스트의 `model.run`은 같은 실행 범위에서 `source: hook`인 `step.*` 쌍을 알린다. 승인 작업 실행은 군단 턴이 아니므로 `turn.*` 저널 이벤트를 만들지 않는다.
 
 ## 템플릿 지원 범위
 

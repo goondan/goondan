@@ -199,6 +199,7 @@ export type ModelResponse =
   | { kind: "await"; gate: string; then: ModelResponse };
 
 export interface ModelScript {
+  provider?: string;
   responses: ModelResponse[];
 }
 
@@ -576,11 +577,13 @@ export function parseModelResponse(raw: Json | undefined, pointer: string): Mode
 
 export function parseModelScript(raw: Json | undefined, pointer: string): ModelScript {
   const object = readObject(raw, pointer);
-  requireKeys(object, pointer, ["responses"]);
+  requireKeys(object, pointer, ["responses", "provider"]);
   const responses = readArray(object["responses"], at(pointer, "responses"));
-  return {
+  const script: ModelScript = {
     responses: responses.map((item, index) => parseModelResponse(item, at(at(pointer, "responses"), index))),
   };
+  if (Object.hasOwn(object, "provider")) script.provider = readNonEmptyString(object["provider"], at(pointer, "provider"));
+  return script;
 }
 
 function parseToolExtras(object: JsonObject, pointer: string): ToolResultExtras {

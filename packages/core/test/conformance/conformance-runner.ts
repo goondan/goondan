@@ -37,6 +37,7 @@ import {
   callMethod,
   createGoondan,
   effectiveConfigOf,
+  executionEventIssues,
   foldJournal,
   loadConfig,
   member,
@@ -851,6 +852,8 @@ function checkEvents(
   }
   for (const event of events) {
     if (!isJsonObject(event)) continue;
+    const issues = executionEventIssues(event);
+    if (issues.length > 0) failures.push(`event ${JSON.stringify(event["type"])} does not satisfy executionEvent: ${JSON.stringify(issues)}`);
     if (!isNumber(event["at"])) failures.push(`event ${JSON.stringify(event["type"])} has no numeric at`);
     if (event["observational"] === true) {
       if (Object.hasOwn(event, "seq")) failures.push(`observational event ${JSON.stringify(event["type"])} has seq`);

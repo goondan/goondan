@@ -168,6 +168,7 @@ interface ActiveTurn {
   runs: RunNode[];
   outputs: OutputEntry[];
   outputOrder: number;
+  routeCall: number;
   activity: number;
   failed?: unknown;
   closing: boolean;
@@ -188,6 +189,8 @@ interface ExecutionState {
   conversation: Message[];
   inputKind: "start" | "steer";
   step: number;
+  modelCall: number;
+  hookCall: number;
   retryCount: number;
   usage: Usage;
   finishReason?: FinishReason;
@@ -509,7 +512,7 @@ export class Goondan {
     const events: NewJournalEvent[] = [];
     const failure = detail(abortFailure(), 1);
     for (const execution of session.state.executions.filter((item) => item.status === "running")) {
-      events.push(this.#event(session.sessionId, "agent.error", { status: "aborted", error: failure, usage: zeroUsage() }, execution));
+      events.push(this.#event(session.sessionId, "agent.error", { status: "aborted", error: failure, usage: zeroUsage(), retryCount: 0 }, execution));
     }
     for (const turn of session.state.turns.filter((item) => item.status === "running")) {
       events.push(this.#event(session.sessionId, "turn.error", { status: "aborted", error: failure }, { turnId: turn.turnId }));
@@ -517,7 +520,7 @@ export class Goondan {
     const now = Date.now();
     for (const operation of session.state.operations) {
       if (operation.status === "running") {
-        events.push(this.#operationEvent(operation, "operation.failed", { updatedAt: now, error: interruptedMessage, errorCode: "execution_interrupted" }));
+        events.push(this.#operationEvent(operation, "operation.failed", { updatedAt: now, error: interruptedMessage, errorCode: "execution_interrupted", cause: failure }));
       } else if (isTerminalStatus(operation.status) && operation.deliveryStatus === "delivering") {
         events.push(this.#operationEvent(operation, "operation.delivery.finished", { updatedAt: now, outcome: "interrupted" }));
       }
@@ -544,6 +547,7 @@ export class Goondan {
       runs: [],
       outputs: [],
       outputOrder: 0,
+      routeCall: 0,
       activity: 0,
       closing: false,
     };
@@ -857,6 +861,8 @@ export class Goondan {
       conversation,
       inputKind: "start",
       step: 0,
+      modelCall: 0,
+      hookCall: 0,
       retryCount: 0,
       usage: zeroUsage(),
       extensions,
@@ -869,6 +875,7 @@ export class Goondan {
     await this.#append(turn.session, [this.#event(turn.session.sessionId, "agent.start", {
       kind: sink.kind,
       input: initial.flatMap((request) => cloneMessages(request.messages)),
+      inputKind: "start",
     }, this.#scope(state))]);
     try {
       await this.#processInputs(state, initial, "start");
@@ -880,6 +887,7 @@ export class Goondan {
         output: result.output,
         finishReason: result.finishReason,
         usage: state.usage,
+        retryCount: state.retryCount,
       }, this.#scope(state))]);
       return result;
     } catch (caught) {
@@ -889,6 +897,7 @@ export class Goondan {
         status: error.codes.includes("aborted") ? "aborted" : "failed",
         error: detail(error, state.retryCount + 1),
         usage: state.usage,
+        retryCount: state.retryCount,
       }, this.#scope(state))]);
       throw error;
     } finally {
@@ -1066,8 +1075,16 @@ export class Goondan {
     const model = modelName === undefined ? undefined : this.#bindings.models[modelName];
     if (!model) throw runtimeFailure(`No model is bound for ${state.agent}`);
     state.step += 1;
+    state.modelCall += 1;
     const step = state.step;
-    await this.#observed("step.start", state, { step });
+    const modelCall = state.modelCall;
+    const attempt = state.retryCount + 1;
+    const call = { modelCall, source: "agent", step, retryCount: state.retryCount, attempt };
+    await this.#observed("step.start", state, {
+      ...call,
+      model: modelName,
+      ...(typeof model.provider === "string" && model.provider !== "" ? { provider: model.provider } : {}),
+    });
     let active = true;
     try {
       const response = await model.generate(structuredClone(input), {
@@ -1075,17 +1092,21 @@ export class Goondan {
         step,
         onTextDelta: (delta) => {
           if (!active || typeof delta !== "string") return;
-          void this.#observed("step.textDelta", state, { step, delta });
+          void this.#observed("step.textDelta", state, { ...call, delta });
         },
       });
       active = false;
       const normalized = normalizeModelResponse(response, id());
       if (!normalized.value) {
         const failure = executionFailure("onModelResult", "value_invalid", normalized.issue ?? "invalid model response", state.retryCount + 1);
-        await this.#observed("step.error", state, { step, codes: failure.codes, error: failure.message });
+        await this.#observed("step.error", state, { ...call, where: failure.where, codes: failure.codes, error: failure.message });
         throw failure;
       }
-      await this.#observed("step.done", state, { step, finishReason: normalized.value.finishReason });
+      await this.#observed("step.done", state, {
+        ...call,
+        finishReason: normalized.value.finishReason,
+        ...(normalized.value.usage === undefined ? {} : { usage: normalized.value.usage }),
+      });
       return normalized.value;
     } catch (error) {
       active = false;
@@ -1100,7 +1121,7 @@ export class Goondan {
           message: reason(error),
           attempt: state.retryCount + 1,
         }, { cause: error });
-      await this.#observed("step.error", state, { step, codes: failure.codes, error: failure.message });
+      await this.#observed("step.error", state, { ...call, where: failure.where, codes: failure.codes, error: failure.message });
       throw failure;
     }
   }
@@ -1152,9 +1173,10 @@ export class Goondan {
   async #executeTool(call: ToolCall, state: ExecutionState, entry: ToolEntry | undefined, execution?: Record<string, Json>): Promise<{ complete?: Message }> {
     while (true) {
       let started = false;
+      const attemptData = { retryCount: state.retryCount, attempt: state.retryCount + 1 };
       try {
         if (!entry) throw executionFailure("tool", "tool_unavailable", `Tool ${call.name} is not available`, state.retryCount + 1, call);
-        await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args });
+        await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData });
         started = true;
         const returned = entry.agent
           ? { content: (await this.#callAgent(state, entry.agent, call.args, "tool", this.#executionContext(state).signal)).content }
@@ -1162,13 +1184,13 @@ export class Goondan {
         const normalized = normalizeToolReturn(returned, call);
         if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", state.retryCount + 1);
         const accepted = await this.#acceptToolResult(normalized.value, state, call);
-        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: accepted.result });
+        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: accepted.result, ...attemptData });
         return accepted.complete === undefined ? {} : { complete: accepted.complete };
       } catch (error) {
         const failure = state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted ? abortFailure(error)
           : error instanceof GoondanExecutionError && (error.where === "onToolResult" || error.where === "tool" || error.codes.includes("aborted"))
           ? error : executionFailure("tool", "tool_error", reason(error), state.retryCount + 1, call, error);
-        if (started) await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, codes: failure.codes, error: failure.message });
+        if (started) await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData, where: failure.where, codes: failure.codes, error: failure.message });
         if (failure.where === "onToolResult" || failure.codes.includes("aborted")) throw failure;
         const handled = await this.#handleError(failure, state);
         if (!handled || state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw failure;
@@ -1217,8 +1239,20 @@ export class Goondan {
     const result: HookStageResult = { value: current, approvals: [] };
     for (const spec of state.spec.hooks?.[name] ?? []) {
       const identifier = inlineHookIdentifier(spec, this.loaded.directory) ?? name;
+      if (spec.mode === "async" && state.pendingHooks.has(identifier)) continue;
+      state.hookCall += 1;
+      const hookData = {
+        hookCall: state.hookCall,
+        value: name,
+        hook: identifier,
+        mode: spec.mode ?? "sync",
+        retryCount: state.retryCount,
+        attempt: state.retryCount + 1,
+        ...((name === "onInput" || name === "onPrompt") ? { inputKind: state.inputKind } : {}),
+      };
+      await this.#observed("hook.start", state, hookData);
       if (spec.mode === "async") {
-        this.#scheduleHook(name, spec, identifier, current, state);
+        this.#scheduleHook(name, spec, identifier, current, state, hookData);
         continue;
       }
       const before = current;
@@ -1232,7 +1266,7 @@ export class Goondan {
           const invoked = await this.#invokeHook(name, spec, identifier, current, state, signal);
           return { skipped: false, value: invoked };
         });
-        if (applied.skipped) { await this.#observed("hook.skipped", state, { value: name, hook: identifier }); continue; }
+        if (applied.skipped) { await this.#observed("hook.skipped", state, hookData); continue; }
         const control = controlResult(name, applied.value, callId);
         if (control && isControlIssue(control)) throw new Error(control.issue);
         if (control) {
@@ -1243,26 +1277,31 @@ export class Goondan {
           }
           else if (control.kind === "call") { current = control.call; result.execution = control.execution; }
           else if (control.kind === "approval") result.approvals.push(control.reason);
-          else if (control.kind === "result") { result.result = control.result; await this.#observed("hook.applied", state, { value: name, hook: identifier }); break; }
+          else if (control.kind === "result") { result.result = control.result; await this.#observed("hook.applied", state, hookData); break; }
           else if (control.kind === "retry") {
             if (name === "onModelResult" && state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw new Error("retry limit reached");
             result.retry = control;
-            await this.#observed("hook.applied", state, { value: name, hook: identifier });
+            await this.#observed("hook.applied", state, hookData);
             break;
           }
-          else { result.complete = control.output; await this.#observed("hook.applied", state, { value: name, hook: identifier }); break; }
+          else { result.complete = control.output; await this.#observed("hook.applied", state, hookData); break; }
         } else if (applied.value !== null && applied.value !== undefined) {
           current = this.#applyHookValue(name, spec, identifier, current, applied.value);
         }
         const issue = stageValueIssue(name, current, callId);
         if (issue) throw new Error(issue);
         result.value = current;
-        await this.#observed("hook.applied", state, { value: name, hook: identifier });
+        await this.#observed("hook.applied", state, hookData);
       } catch (error) {
-        if (state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted) throw abortFailure(error);
-        await this.#observed("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
+        if (state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted) {
+          const failure = abortFailure(error);
+          await this.#observed("hook.cancelled", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
+          throw failure;
+        }
+        const failure = executionFailure(name, "hook_error", reason(error), state.retryCount + 1, undefined, error);
+        await this.#observed("hook.failed", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
         if (spec.optional === true) { current = before; result.value = before; continue; }
-        throw executionFailure(name, "hook_error", reason(error), state.retryCount + 1, undefined, error);
+        throw failure;
       }
     }
     result.value = current;
@@ -1337,15 +1376,14 @@ export class Goondan {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(new Error("hook timeout")); }, spec.timeout);
+      timer = setTimeout(() => { controller.abort(); reject(new Error(`the hook did not finish within ${String(spec.timeout)}ms`)); }, spec.timeout);
       executionSignal.addEventListener("abort", () => { if (timer) clearTimeout(timer); controller.abort(); reject(abortFailure()); }, { once: true });
     });
     try { return await Promise.race([body(controller.signal), timeout]); }
     finally { if (timer) clearTimeout(timer); }
   }
 
-  #scheduleHook(name: ValueName, spec: InlineHookSpec, identifier: string, value: unknown, state: ExecutionState): void {
-    if (state.pendingHooks.has(identifier)) return;
+  #scheduleHook(name: ValueName, spec: InlineHookSpec, identifier: string, value: unknown, state: ExecutionState, hookData: Record<string, unknown>): void {
     const controller = new AbortController();
     const detachedState = this.#asyncState(state, controller);
     this.#detachedControllers.add(controller);
@@ -1360,14 +1398,20 @@ export class Goondan {
       try {
         if (spec.when) {
           const condition = await this.#function(spec.when.fn, value, detachedState, `${name}.when`, controller.signal, { stage: name, source: identifier });
-          if (condition === false) { await this.#observed("hook.skipped", state, { value: name, hook: identifier }); return; }
+          if (condition === false) { await this.#observed("hook.skipped", state, hookData); return; }
           if (condition !== true) throw new Error("hook when did not return a boolean");
         }
         const output = await this.#invokeHook(name, spec, identifier, value, detachedState, controller.signal);
         if (output !== undefined && output !== null) task.message = this.#asyncHookMessage(output, spec.role ?? "user", identifier);
-        await this.#observed("hook.applied", state, { value: name, hook: identifier });
+        await this.#observed("hook.applied", state, hookData);
       } catch (error) {
-        await this.#observed("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
+        if (controller.signal.aborted) {
+          const failure = abortFailure(error);
+          await this.#observed("hook.cancelled", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
+        } else {
+          const failure = executionFailure(name, "hook_error", reason(error), state.retryCount + 1, undefined, error);
+          await this.#observed("hook.failed", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
+        }
       } finally {
         task.settled = true;
         this.#detachedControllers.delete(controller);
@@ -1392,6 +1436,7 @@ export class Goondan {
       runs: [],
       outputs: [],
       outputOrder: 0,
+      routeCall: 0,
       activity: 0,
       closing: false,
     };
@@ -1497,15 +1542,52 @@ export class Goondan {
   async #runHookModel(state: ExecutionState, messages: Message[], signal: AbortSignal): Promise<ModelResult> {
     const modelName = state.spec.model;
     const model = modelName === undefined ? undefined : this.#bindings.models[modelName];
-    if (!model) throw runtimeFailure(`No model is bound for ${state.agent}`);
+    if (!model || modelName === undefined) throw runtimeFailure(`No model is bound for ${state.agent}`);
     const base = await this.#modelInput(state);
-    const response = await model.generate({ ...base, messages: cloneMessages(messages), options: {} }, {
-      ...this.#executionContext(state, signal), step: state.step, onTextDelta() {},
+    state.modelCall += 1;
+    const modelCall = state.modelCall;
+    const attempt = state.retryCount + 1;
+    const call = { modelCall, source: "hook", step: state.step, retryCount: state.retryCount, attempt };
+    await this.#observed("step.start", state, {
+      ...call,
+      model: modelName,
+      ...(typeof model.provider === "string" && model.provider !== "" ? { provider: model.provider } : {}),
     });
-    const normalized = normalizeModelResponse(response, id());
-    if (!normalized.value) throw new Error(normalized.issue ?? "invalid model response");
-    addUsage(state.usage, normalized.value.usage);
-    return normalized.value;
+    let active = true;
+    try {
+      const response = await model.generate({ ...base, messages: cloneMessages(messages), options: {} }, {
+        ...this.#executionContext(state, signal),
+        step: state.step,
+        onTextDelta: (delta) => {
+          if (!active || typeof delta !== "string") return;
+          void this.#observed("step.textDelta", state, { ...call, delta });
+        },
+      });
+      active = false;
+      const normalized = normalizeModelResponse(response, id());
+      if (!normalized.value) {
+        const failure = executionFailure("onModelResult", "value_invalid", normalized.issue ?? "invalid model response", attempt);
+        await this.#observed("step.error", state, { ...call, where: failure.where, codes: failure.codes, error: failure.message });
+        throw failure;
+      }
+      await this.#observed("step.done", state, {
+        ...call,
+        finishReason: normalized.value.finishReason,
+        ...(normalized.value.usage === undefined ? {} : { usage: normalized.value.usage }),
+      });
+      addUsage(state.usage, normalized.value.usage);
+      return normalized.value;
+    } catch (error) {
+      active = false;
+      if (error instanceof GoondanExecutionError && error.where === "onModelResult") throw error;
+      const failure = signal.aborted
+        ? abortFailure(error)
+        : error instanceof GoondanExecutionError
+        ? error
+        : new GoondanExecutionError({ where: "model", codes: modelCodes(error), message: reason(error), attempt }, { cause: error });
+      await this.#observed("step.error", state, { ...call, where: failure.where, codes: failure.codes, error: failure.message });
+      throw failure;
+    }
   }
 
   async #function(
@@ -1791,6 +1873,16 @@ export class Goondan {
   async #runRouteFunction(turn: ActiveTurn, fnName: string, input: Message[], routeIndex: number, _sourceInstance?: string): Promise<void> {
     const fn = this.#bindings.functions?.[fnName];
     if (!fn) throw routeFailure(`Function ${fnName} is not bound`);
+    turn.routeCall += 1;
+    const routeCall = turn.routeCall;
+    await this.#emit({
+      type: "route.function.start",
+      sessionId: turn.session.sessionId,
+      turnId: turn.turnId,
+      at: Date.now(),
+      data: { routeCall, route: routeIndex, fn: fnName },
+      observational: true,
+    });
     turn.activity += 1;
     const functionKey = `@fn:${fnName}`;
     turn.functions.set(functionKey, (turn.functions.get(functionKey) ?? 0) + 1);
@@ -1802,10 +1894,10 @@ export class Goondan {
           if (!isMessageArray(returned)) throw new Error("route function did not return messages");
           output = returned;
         }
-        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { route: routeIndex, fn: fnName, status: "done", input, ...(output === undefined ? {} : { output }) }, { turnId: turn.turnId })]);
+        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { routeCall, route: routeIndex, fn: fnName, status: "done", input, ...(output === undefined ? {} : { output }) }, { turnId: turn.turnId })]);
       } catch (error) {
         const failure = routeFailure(reason(error), error);
-        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { route: routeIndex, fn: fnName, status: "error", input, error: detail(failure, 1) }, { turnId: turn.turnId })]);
+        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { routeCall, route: routeIndex, fn: fnName, status: "error", input, error: detail(failure, 1) }, { turnId: turn.turnId })]);
         this.#failTurn(turn, failure);
         throw failure;
       }
@@ -2085,7 +2177,7 @@ export class Goondan {
   async #operationState(operation: PendingOperation, spec: AgentSpec, controller = new AbortController()): Promise<ExecutionState> {
     const turn: ActiveTurn = {
       session: this.#session(operation.sessionId), turnId: operation.turnId, controller,
-      deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+      deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, routeCall: 0, activity: 0, closing: false,
     };
     const actor: Actor = { agent: operation.agent, instance: spec.stateful === false ? id() : operation.instance, stateful: spec.stateful !== false, queue: [] };
     const group: ExecutionGroup = { turn, actor, executionId: operation.executionId, requests: [], routeRequested: false, singleOutputRequested: false, controller, deferred: new Deferred<AgentRunResult>() };
@@ -2095,7 +2187,7 @@ export class Goondan {
     const state: ExecutionState = {
       group, agent: operation.agent, spec, instance: actor.instance, executionId: operation.executionId,
       turnId: operation.turnId, operationId: operation.operationId, input: [], startInput: [], conversation, inputKind: "start",
-      step: 0, retryCount: 0, usage: zeroUsage(), extensions, pendingHooks: this.#pending(actor.instance),
+      step: 0, modelCall: 0, hookCall: 0, retryCount: 0, usage: zeroUsage(), extensions, pendingHooks: this.#pending(actor.instance),
       runNode: { record: { agent: operation.agent, instance: actor.instance, executionId: operation.executionId, turnId: operation.turnId, operationId: operation.operationId, kind: "tool", usage: zeroUsage(), status: "failed" }, children: [] },
     };
     return state;
@@ -2122,7 +2214,8 @@ export class Goondan {
       const spec = this.loaded.config.agents[current.agent];
       if (!spec || !await this.#validOperationCall(current, call)) {
         if (controller.signal.aborted || this.#closed) return;
-        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: validationFailedMessage, errorCode: "validation_failed" })]);
+        const cause = detail(executionFailure("tool", "value_invalid", validationFailedMessage, 1, call), 1);
+        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: validationFailedMessage, errorCode: "validation_failed", cause })]);
         const failed = session.state.operations.find((item) => item.operationId === current.operationId);
         if (failed && !controller.signal.aborted && !this.#closed) this.#track(this.#deliverOperation(structuredClone(failed)));
         return;
@@ -2134,7 +2227,8 @@ export class Goondan {
       state.input = [];
       const entry = (await this.#tools(state)).find((item) => item.name === call.name);
       if (!entry) throw new Error(validationFailedMessage);
-      await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args });
+      const attemptData = { retryCount: state.retryCount, attempt: state.retryCount + 1 };
+      await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData });
       try {
         const returned = entry.agent
           ? { content: (await this.#callOperationAgent(current, entry.agent, call.args, controller.signal)).content }
@@ -2146,11 +2240,12 @@ export class Goondan {
         if (!isToolResult(stage.value)) throw new Error("onToolResult did not return a tool result");
         if (controller.signal.aborted || this.#closed) return;
         await this.#append(session, [this.#operationEvent(current, "operation.completed", { updatedAt: Date.now(), result: stage.value })]);
-        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: stage.value });
+        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: stage.value, ...attemptData });
       } catch (error) {
         if (controller.signal.aborted || this.#closed) return;
-        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: reason(error), errorCode: "execution_failed" })]);
-        await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, codes: ["tool_error"], error: reason(error) });
+        const failure = this.#asExecutionError(error, "tool", ["tool_error"], call);
+        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: failure.message, errorCode: "execution_failed", cause: detail(failure, failure.attempt) })]);
+        await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData, where: failure.where, codes: failure.codes, error: failure.message });
       } finally { if (spec.stateful === false) await this.#dispose(state.extensions); }
       const ended = session.state.operations.find((item) => item.operationId === current.operationId);
       if (ended && !controller.signal.aborted && !this.#closed) this.#track(this.#deliverOperation(structuredClone(ended)));
@@ -2168,7 +2263,7 @@ export class Goondan {
     if (!turn) {
       turn = {
         session, turnId: operation.turnId, controller: new AbortController(), deferred: new Deferred<TurnResult>(),
-        actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+        actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, routeCall: 0, activity: 0, closing: false,
       };
       signal.addEventListener("abort", () => turn?.controller.abort(abortFailure(signal.reason)), { once: true });
     }
@@ -2231,7 +2326,7 @@ export class Goondan {
         let turn = session.turn;
         if (!turn) {
           turn = {
-            session, turnId: id(), controller: new AbortController(), deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+            session, turnId: id(), controller: new AbortController(), deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, routeCall: 0, activity: 0, closing: false,
           };
           session.turn = turn;
           controller.signal.addEventListener("abort", () => turn?.controller.abort(abortFailure(controller.signal.reason)), { once: true });

@@ -18,6 +18,19 @@
     }
   ],
   "observations": {
+    "events": [
+      {"seq": 1, "version": 1, "type": "turn.start", "sessionId": "c1", "turnId": "<turn:1>", "data": {}},
+      {"seq": 2, "version": 1, "type": "input.received", "sessionId": "c1", "turnId": "<turn:1>", "inputId": "<input:1>", "data": {"input": "요청"}},
+      {"seq": 3, "version": 1, "type": "agent.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"kind": "turn", "input": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "요청"}], "meta": {"kind": "start"}}], "inputKind": "start"}},
+      {"seq": 4, "version": 1, "type": "conversation.message.appended", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"message": {"role": "user", "source": "main", "content": [{"type": "text", "text": "요청"}], "meta": {"kind": "start"}}}},
+      {"type": "step.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "model": "m"}, "observational": true},
+      {"type": "step.done", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "finishReason": "tool"}, "observational": true},
+      {"seq": 5, "version": 1, "type": "conversation.message.appended", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"message": {"role": "assistant", "content": [{"type": "tool.call", "callId": "c-1", "name": "danger", "args": {"q": "x"}}], "source": "model"}}},
+      {"type": "tool.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"tool": "danger", "callId": "c-1", "args": {"q": "x"}, "retryCount": 0, "attempt": 1}, "observational": true},
+      {"type": "tool.error", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"tool": "danger", "callId": "c-1", "args": {"q": "x"}, "retryCount": 0, "attempt": 1, "where": "tool", "codes": ["tool_error"], "error": "도구 실패"}, "observational": true},
+      {"seq": 6, "version": 1, "type": "agent.error", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"status": "failed", "error": {"where": "tool", "codes": ["tool_error"], "message": "도구 실패", "attempt": 1, "toolCall": {"id": "c-1", "name": "danger", "args": {"q": "x"}}}, "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "retryCount": 0}},
+      {"seq": 7, "version": 1, "type": "turn.error", "sessionId": "c1", "turnId": "<turn:1>", "data": {"status": "failed", "error": {"where": "tool", "codes": ["tool_error"], "message": "도구 실패", "attempt": 1, "toolCall": {"id": "c-1", "name": "danger", "args": {"q": "x"}}}}}
+    ],
     "conversations": {
       "c1/main": [
         {

@@ -126,6 +126,8 @@ HTTP 구현이 던진 그 밖의 예외는 원래 예외를 원인으로 가진 
 
 런타임은 이 오류의 `code`를 `onError`에 전달하는 `codes`의 두 번째 값으로 사용한다.
 
+공식 어댑터의 모델 구현은 관측용 `provider` 식별자를 제공한다. Anthropic 어댑터는 `anthropic`, OpenAI Chat Completions 어댑터는 호환 엔드포인트를 포함하여 `openai`를 제공한다. 런타임은 이 값을 모델 호출의 `step.start.data.provider`에 기록한다.
+
 | 코드 | 의미 | 재시도 |
 |---|---|---|
 | `invalid_request` | 제공자가 요청을 거부했거나 어댑터가 요청을 만들 수 없다. | 아니오 |

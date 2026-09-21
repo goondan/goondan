@@ -34,6 +34,7 @@
         "executionId": "<execution:1>",
         "data": {
           "kind": "turn",
+          "inputKind": "start",
           "input": [
             {
               "role": "user",
@@ -84,7 +85,13 @@
         "turnId": "<turn:1>",
         "executionId": "<execution:1>",
         "data": {
-          "step": 1
+          "modelCall": 1,
+          "source": "agent",
+          "step": 1,
+          "model": "m",
+          "provider": "fixture-provider",
+          "retryCount": 0,
+          "attempt": 1
         },
         "observational": true
       },
@@ -96,8 +103,12 @@
         "turnId": "<turn:1>",
         "executionId": "<execution:1>",
         "data": {
+          "modelCall": 1,
+          "source": "agent",
           "step": 1,
-          "delta": "he"
+          "delta": "he",
+          "retryCount": 0,
+          "attempt": 1
         },
         "observational": true
       },
@@ -109,8 +120,12 @@
         "turnId": "<turn:1>",
         "executionId": "<execution:1>",
         "data": {
+          "modelCall": 1,
+          "source": "agent",
           "step": 1,
-          "delta": "llo"
+          "delta": "llo",
+          "retryCount": 0,
+          "attempt": 1
         },
         "observational": true
       },
@@ -122,8 +137,16 @@
         "turnId": "<turn:1>",
         "executionId": "<execution:1>",
         "data": {
+          "modelCall": 1,
+          "source": "agent",
           "step": 1,
-          "finishReason": "stop"
+          "finishReason": "stop",
+          "retryCount": 0,
+          "attempt": 1,
+          "usage": {
+            "input": 2,
+            "output": 1
+          }
         },
         "observational": true
       },
@@ -175,7 +198,8 @@
             "output": 1,
             "cacheRead": 0,
             "cacheWrite": 0
-          }
+          },
+          "retryCount": 0
         }
       },
       {

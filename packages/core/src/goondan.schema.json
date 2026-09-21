@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://goondan.dev/schema/config-v1.json",
   "title": "Goondan Config v1",
-  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 최상위 문서 하나는 군단(goondan) 하나를 정의한다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. resources로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 resources를 $defs/resources로 검사한다. $defs/message, $defs/part, $defs/journalEvent와 $defs/journalState는 구성 밖에서 쓰는 실행 값의 형식이다.",
+  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 최상위 문서 하나는 군단(goondan) 하나를 정의한다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. resources로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 resources를 $defs/resources로 검사한다. $defs/message, $defs/part, $defs/journalEvent, $defs/executionEvent와 $defs/journalState는 구성 밖에서 쓰는 실행 값의 형식이다.",
   "$comment": "두 호스트의 검사기가 같은 결과를 내도록 draft 2020-12 키워드 가운데 $schema, $id, $comment, title, description, default, $defs, 로컬 $ref, type, const, enum, properties, required, additionalProperties, propertyNames, minProperties, items, minItems, uniqueItems, minLength, pattern, exclusiveMinimum, oneOf, anyOf, allOf, not, dependentSchemas만 사용한다. pattern에는 ECMA-262와 Python re에서 같게 동작하는 식만 쓴다. Python의 $는 문자열 끝의 줄바꿈 앞에서도 일치하므로 문자열 끝은 (?![\\s\\S])로 나타낸다.",
   "type": "object",
   "required": [
@@ -902,6 +902,17 @@
       },
       "additionalProperties": false
     },
+    "reportedUsage": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "input": {"$ref": "#/$defs/nonNegativeInteger"},
+        "cacheRead": {"$ref": "#/$defs/nonNegativeInteger"},
+        "cacheWrite": {"$ref": "#/$defs/nonNegativeInteger"},
+        "output": {"$ref": "#/$defs/nonNegativeInteger"}
+      },
+      "additionalProperties": false
+    },
     "agentRun": {
       "type": "object",
       "required": [
@@ -1298,6 +1309,9 @@
         },
         "errorCode": {
           "$ref": "#/$defs/operationErrorCode"
+        },
+        "cause": {
+          "$ref": "#/$defs/executionError"
         }
       },
       "additionalProperties": false
@@ -1419,7 +1433,8 @@
       "type": "object",
       "required": [
         "kind",
-        "input"
+        "input",
+        "inputKind"
       ],
       "properties": {
         "kind": {
@@ -1434,6 +1449,9 @@
           "items": {
             "$ref": "#/$defs/message"
           }
+        },
+        "inputKind": {
+          "const": "start"
         }
       },
       "additionalProperties": false
@@ -1443,7 +1461,8 @@
       "required": [
         "output",
         "finishReason",
-        "usage"
+        "usage",
+        "retryCount"
       ],
       "properties": {
         "output": {
@@ -1459,6 +1478,9 @@
         },
         "usage": {
           "$ref": "#/$defs/usage"
+        },
+        "retryCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
         }
       },
       "additionalProperties": false
@@ -1468,7 +1490,8 @@
       "required": [
         "status",
         "error",
-        "usage"
+        "usage",
+        "retryCount"
       ],
       "properties": {
         "status": {
@@ -1482,6 +1505,9 @@
         },
         "usage": {
           "$ref": "#/$defs/usage"
+        },
+        "retryCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
         }
       },
       "additionalProperties": false
@@ -1489,12 +1515,14 @@
     "routeFunctionData": {
       "type": "object",
       "required": [
+        "routeCall",
         "route",
         "fn",
         "status",
         "input"
       ],
       "properties": {
+        "routeCall": {"$ref": "#/$defs/positiveInteger"},
         "route": {"$ref": "#/$defs/nonNegativeInteger"},
         "fn": {"$ref": "#/$defs/nonEmptyString"},
         "status": {"enum": ["done", "error"]},
@@ -1750,6 +1778,245 @@
         "state": {
           "$ref": "#/$defs/journalState"
         }
+      },
+      "additionalProperties": false
+    },
+    "observationalEvent": {
+      "description": "저널에 저장하지 않고 실행 이벤트 채널로만 내보내는 진행 이벤트 봉투다.",
+      "type": "object",
+      "required": ["type", "sessionId", "at", "data", "observational"],
+      "properties": {
+        "type": {"$ref": "#/$defs/nonEmptyString"},
+        "sessionId": {"type": "string"},
+        "agent": {"$ref": "#/$defs/nonEmptyString"},
+        "instance": {"$ref": "#/$defs/nonEmptyString"},
+        "turnId": {"$ref": "#/$defs/nonEmptyString"},
+        "executionId": {"$ref": "#/$defs/nonEmptyString"},
+        "inputId": {"$ref": "#/$defs/nonEmptyString"},
+        "parentExecutionId": {"$ref": "#/$defs/nonEmptyString"},
+        "operationId": {"$ref": "#/$defs/nonEmptyString"},
+        "at": {"$ref": "#/$defs/nonNegativeInteger"},
+        "data": {"type": "object"},
+        "observational": {"const": true}
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "step.start"},
+            "data": {
+              "type": "object",
+              "required": ["modelCall", "source", "step", "model", "retryCount", "attempt"],
+              "properties": {
+                "modelCall": {"$ref": "#/$defs/positiveInteger"},
+                "source": {"enum": ["agent", "hook"]},
+                "step": {"$ref": "#/$defs/nonNegativeInteger"},
+                "model": {"$ref": "#/$defs/nonEmptyString"},
+                "provider": {"$ref": "#/$defs/nonEmptyString"},
+                "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+                "attempt": {"$ref": "#/$defs/positiveInteger"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "step.textDelta"},
+            "data": {
+              "type": "object",
+              "required": ["modelCall", "source", "step", "delta", "retryCount", "attempt"],
+              "properties": {
+                "modelCall": {"$ref": "#/$defs/positiveInteger"},
+                "source": {"enum": ["agent", "hook"]},
+                "step": {"$ref": "#/$defs/nonNegativeInteger"},
+                "delta": {"type": "string"},
+                "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+                "attempt": {"$ref": "#/$defs/positiveInteger"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "step.done"},
+            "data": {
+              "type": "object",
+              "required": ["modelCall", "source", "step", "finishReason", "retryCount", "attempt"],
+              "properties": {
+                "modelCall": {"$ref": "#/$defs/positiveInteger"},
+                "source": {"enum": ["agent", "hook"]},
+                "step": {"$ref": "#/$defs/nonNegativeInteger"},
+                "finishReason": {"enum": ["stop", "tool", "length", "other"]},
+                "usage": {"$ref": "#/$defs/reportedUsage"},
+                "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+                "attempt": {"$ref": "#/$defs/positiveInteger"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "step.error"},
+            "data": {
+              "type": "object",
+              "required": ["modelCall", "source", "step", "retryCount", "attempt", "where", "codes", "error"],
+              "properties": {
+                "modelCall": {"$ref": "#/$defs/positiveInteger"},
+                "source": {"enum": ["agent", "hook"]},
+                "step": {"$ref": "#/$defs/nonNegativeInteger"},
+                "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+                "attempt": {"$ref": "#/$defs/positiveInteger"},
+                "where": {"$ref": "#/$defs/executionError/properties/where"},
+                "codes": {"$ref": "#/$defs/executionError/properties/codes"},
+                "error": {"$ref": "#/$defs/nonEmptyString"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "tool.start"},
+            "data": {"$ref": "#/$defs/toolCallEventData"}
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "tool.done"},
+            "data": {"$ref": "#/$defs/toolDoneEventData"}
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"const": "tool.error"},
+            "data": {"$ref": "#/$defs/toolErrorEventData"}
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"enum": ["hook.start", "hook.applied", "hook.skipped"]},
+            "data": {"$ref": "#/$defs/hookEventData"}
+          }
+        },
+        {
+          "required": ["agent", "instance", "turnId", "executionId"],
+          "properties": {
+            "type": {"enum": ["hook.failed", "hook.cancelled"]},
+            "data": {"$ref": "#/$defs/hookErrorEventData"}
+          }
+        },
+        {
+          "required": ["turnId"],
+          "properties": {
+            "type": {"const": "route.function.start"},
+            "data": {
+              "type": "object",
+              "required": ["routeCall", "route", "fn"],
+              "properties": {
+                "routeCall": {"$ref": "#/$defs/positiveInteger"},
+                "route": {"$ref": "#/$defs/nonNegativeInteger"},
+                "fn": {"$ref": "#/$defs/nonEmptyString"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {"const": "operation.completion.orphaned"},
+            "data": {
+              "type": "object",
+              "required": ["operationId", "deliveryId"],
+              "properties": {
+                "operationId": {"$ref": "#/$defs/nonEmptyString"},
+                "deliveryId": {"$ref": "#/$defs/nonEmptyString"}
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "not": {"required": ["parentExecutionId", "operationId"]}
+    },
+    "toolCallEventData": {
+      "type": "object",
+      "required": ["tool", "callId", "args", "retryCount", "attempt"],
+      "properties": {
+        "tool": {"$ref": "#/$defs/nonEmptyString"},
+        "callId": {"$ref": "#/$defs/nonEmptyString"},
+        "args": true,
+        "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+        "attempt": {"$ref": "#/$defs/positiveInteger"}
+      },
+      "additionalProperties": false
+    },
+    "toolDoneEventData": {
+      "type": "object",
+      "required": ["tool", "callId", "args", "result", "retryCount", "attempt"],
+      "properties": {
+        "tool": {"$ref": "#/$defs/nonEmptyString"},
+        "callId": {"$ref": "#/$defs/nonEmptyString"},
+        "args": true,
+        "result": {"$ref": "#/$defs/toolResult"},
+        "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+        "attempt": {"$ref": "#/$defs/positiveInteger"}
+      },
+      "additionalProperties": false
+    },
+    "toolErrorEventData": {
+      "type": "object",
+      "required": ["tool", "callId", "args", "retryCount", "attempt", "where", "codes", "error"],
+      "properties": {
+        "tool": {"$ref": "#/$defs/nonEmptyString"},
+        "callId": {"$ref": "#/$defs/nonEmptyString"},
+        "args": true,
+        "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+        "attempt": {"$ref": "#/$defs/positiveInteger"},
+        "where": {"$ref": "#/$defs/executionError/properties/where"},
+        "codes": {"$ref": "#/$defs/executionError/properties/codes"},
+        "error": {"$ref": "#/$defs/nonEmptyString"}
+      },
+      "additionalProperties": false
+    },
+    "hookEventData": {
+      "type": "object",
+      "required": ["hookCall", "value", "hook", "mode", "retryCount", "attempt"],
+      "properties": {
+        "hookCall": {"$ref": "#/$defs/positiveInteger"},
+        "value": {"$ref": "#/$defs/phase"},
+        "hook": {"$ref": "#/$defs/nonEmptyString"},
+        "mode": {"enum": ["sync", "async"]},
+        "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+        "attempt": {"$ref": "#/$defs/positiveInteger"},
+        "inputKind": {"enum": ["start", "steer"]}
+      },
+      "additionalProperties": false
+    },
+    "hookErrorEventData": {
+      "type": "object",
+      "required": ["hookCall", "value", "hook", "mode", "retryCount", "attempt", "where", "codes", "error"],
+      "properties": {
+        "hookCall": {"$ref": "#/$defs/positiveInteger"},
+        "value": {"$ref": "#/$defs/phase"},
+        "hook": {"$ref": "#/$defs/nonEmptyString"},
+        "mode": {"enum": ["sync", "async"]},
+        "retryCount": {"$ref": "#/$defs/nonNegativeInteger"},
+        "attempt": {"$ref": "#/$defs/positiveInteger"},
+        "inputKind": {"enum": ["start", "steer"]},
+        "where": {"$ref": "#/$defs/executionError/properties/where"},
+        "codes": {"$ref": "#/$defs/executionError/properties/codes"},
+        "error": {"$ref": "#/$defs/nonEmptyString"}
       },
       "additionalProperties": false
     },
@@ -2205,6 +2472,13 @@
           "operationId"
         ]
       }
+    },
+    "executionEvent": {
+      "description": "저널 이벤트와 관측 전용 이벤트를 함께 검증하는 실행 이벤트 판별 합집합이다.",
+      "oneOf": [
+        {"$ref": "#/$defs/journalEvent"},
+        {"$ref": "#/$defs/observationalEvent"}
+      ]
     }
   }
 }

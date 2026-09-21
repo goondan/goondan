@@ -8,6 +8,7 @@
  */
 
 import * as coreExports from "../../src/index.ts";
+import { validateDefinition } from "../../src/schema.ts";
 import { type Json, type JsonObject, isFunction, isJsonArray, isPromiseLike, snapshot } from "./conformance-json.ts";
 
 export class UnsupportedError extends Error {
@@ -74,6 +75,10 @@ export async function foldJournal(sessionId: string, events: Json[]): Promise<Js
   const fold = requireFunction(core, "fold", "fold");
   const result = Reflect.apply(fold, undefined, [sessionId, events]);
   return snapshot(isPromiseLike(result) ? await result : result);
+}
+
+export function executionEventIssues(event: Json): Json[] {
+  return snapshot(validateDefinition("executionEvent", event, []));
 }
 
 /** The effective config carried by a `loadConfig` result. */

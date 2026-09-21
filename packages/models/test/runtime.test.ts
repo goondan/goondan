@@ -69,8 +69,8 @@ describe("@goondan/models with the core runtime", () => {
     });
     expect(toolTurn).toEqual({ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [{ type: "text", text: "forty-two" }] }] });
     expect(events.filter((event) => event.type === "step.textDelta").map((event) => event.data)).toEqual([
-      { step: 1, delta: "Checking." },
-      { step: 2, delta: "Done." },
+      { modelCall: 1, source: "agent", step: 1, retryCount: 0, attempt: 1, delta: "Checking." },
+      { modelCall: 2, source: "agent", step: 2, retryCount: 0, attempt: 1, delta: "Done." },
     ]);
     expect(result.outputs[0]?.content).toEqual([{ type: "text", text: "Done." }]);
     expect(result.usage).toEqual({ input: 30, output: 8, cacheRead: 2, cacheWrite: 0 });

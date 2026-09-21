@@ -1,4 +1,4 @@
-import { compareText, isRecord, jsonEqual, toJson } from "./json.ts";
+import { compareText, isRecord, jsonEqual, toJson, toJsonRecord } from "./json.ts";
 import { validateDefinition } from "./schema.ts";
 import { isMessage, isMessageArray, isToolCall, isToolResult } from "./stage.ts";
 import {
@@ -204,6 +204,7 @@ function applyTurn(state: JournalState, event: JournalEvent): void {
     const input: JournalInput = { inputId: event.inputId, input: json };
     if (typeof data.agent === "string") input.agent = data.agent;
     if (typeof data.startAgent === "string") input.startAgent = data.startAgent;
+    if (isRecord(data.meta)) input.meta = toJsonRecord(data.meta);
     if (event.operationId !== undefined) input.operationId = event.operationId;
     turn.inputs.push(input);
   } else if (event.type === "turn.done") {

@@ -155,9 +155,10 @@ const bindings: RuntimeBindings = {
 
 const goondan = createGoondan(await loadConfig("."), bindings);
 try {
-  const result = await goondan.run("Goondan을 설명해 주세요.", {
+  const run = await goondan.run("Goondan을 설명해 주세요.", {
     sessionId: "example",
   });
+  const result = await run.result;
   console.log(result.output);
 } finally {
   await goondan.close();
@@ -253,10 +254,11 @@ async def main():
         },
     )
     try:
-        result = await goondan.run(
+        run = await goondan.run(
             "Goondan을 설명해 주세요.",
             session_id="example",
         )
+        result = await run.result
         print(result["output"])
     finally:
         await goondan.close()
@@ -350,7 +352,9 @@ agents:
 | 문자열 | `text` 부분 하나를 가진 `user` 메시지 하나를 만듭니다. |
 | 그 밖의 JSON 값 | `json` 부분 하나를 가진 `user` 메시지 하나를 만듭니다. |
 
-같은 `sessionId`의 턴이 진행 중일 때 다시 `run`을 호출하면 런타임은 입력을 대상 stateful 인스턴스의 대기열에 넣습니다. 실행은 다음 안전한 대화 처리 지점에서 그때까지 받은 입력을 처리합니다. 진행 중인 실행이 끝난 뒤 대기열에 입력이 남아 있으면 다음 실행을 시작합니다. 각 `run` 호출은 자신이 합류한 턴의 결과를 기다립니다.
+같은 `sessionId`의 턴이 진행 중일 때 다시 `run`을 호출하면 런타임은 입력을 대상 stateful 인스턴스의 대기열에 넣습니다. 실행은 다음 안전한 대화 처리 지점에서 그때까지 받은 입력을 처리합니다. 진행 중인 실행이 끝난 뒤 대기열에 입력이 남아 있으면 다음 실행을 시작합니다. 각 `run` 호출은 입력이 저널에 수락되면 실행 핸들을 반환하며, 핸들의 `result`가 자신이 합류한 턴의 결과를 전달합니다. 같은 턴에 합류한 핸들은 같은 턴 결과를 공유합니다.
+
+`meta`에는 채널이나 요청 종류처럼 호스트가 입력에 붙이는 JSON 객체를 전달할 수 있습니다. 런타임은 이 값을 입력 메시지의 `meta`에 병합하며, 완성된 메시지에 같은 키가 있으면 메시지 값을 사용합니다. `kind`, `from`, `instance`, `operationId`는 런타임 예약 키입니다.
 
 TypeScript의 `signal`이나 Python 호출 태스크 취소는 입력이 수락된 뒤에는 해당 호출자의 결과 대기만 끝냅니다. 수락된 입력과 턴은 계속 실행됩니다. 세션의 턴 전체를 중단하려면 `abort`를 사용합니다.
 
@@ -467,35 +471,41 @@ TypeScript는 `@goondan/core`, Python은 `goondan` 패키지에서 공개 API를
 ### run, 세션과 수명
 
 ```ts
-const result = await goondan.run(input, {
-  sessionId,
+const run = await goondan.run(input, {
+  sessionId, // 생략하면 런타임이 생성합니다.
+  meta: { channel: "web" },
   agent,
   startAgent,
   signal,
 });
+const result = await run.result;
 ```
 
 ```python
-result = await goondan.run(
+run = await goondan.run(
     value,
-    session_id=session_id,
+    session_id=session_id,  # 생략하면 런타임이 생성합니다.
+    meta={"channel": "web"},
     agent=agent,
     start_agent=start_agent,
 )
+result = await run.result
 ```
 
-`sessionId`와 `session_id`는 필수 문자열입니다. `agent`는 지정한 에이전트 하나만 실행하고 route를 평가하지 않습니다. `startAgent`와 `start_agent`는 지정한 에이전트에서 시작해 이후 route를 진행합니다. 두 옵션은 함께 사용할 수 없습니다.
+TypeScript 실행 핸들은 `sessionId`, `turnId`, `inputId`, `result: Promise<TurnResult>`를 가집니다. Python 실행 핸들은 `session_id`, `turn_id`, `input_id`, 여러 번 기다릴 수 있는 `result`를 가집니다. 핸들 자체는 thenable이나 awaitable이 아닙니다. `sessionId`와 `session_id`를 생략하면 런타임이 세션 식별자를 만들어 핸들로 반환합니다. `agent`는 지정한 에이전트 하나만 실행하고 route를 평가하지 않습니다. `startAgent`와 `start_agent`는 지정한 에이전트에서 시작해 이후 route를 진행합니다. 두 옵션은 함께 사용할 수 없습니다.
+
+입력 수락 전의 오류는 `run` 호출에서 발생하고, 수락 뒤 턴 실행 오류는 `result`에서 발생합니다. `result`를 즉시 기다리지 않아도 런타임이 내부에서 실패를 처리하며, 나중에 기다리면 같은 결과나 오류를 받습니다.
 
 군단 객체의 수명 API는 다음과 같습니다.
 
 | 기능 | TypeScript | Python |
 |---|---|---|
 | 턴 전체 중단 | `abort(sessionId)` | `abort(session_id)` |
-| 호스트 요청 밖의 남은 작업 대기 | `await idle()` | `await idle()` |
+| 남은 작업 대기 | `await idle()` | `await idle()` |
 | 세션 스트림과 인스턴스 상태 삭제 | `await sessions.delete(sessionId)` | `await sessions.delete(session_id)` |
 | 군단 객체 종료 | `await close()` | `await close()` |
 
-`abort`는 현재 세션에서 진행 중인 턴과 그 턴이 시작한 실행을 중단하고, 대상이 있으면 `true`를 반환합니다. 비동기 훅과 승인된 작업 실행은 해당 턴과 수명이 다릅니다. `idle()`은 비동기 훅, 승인된 작업 실행과 완료 전달이 끝날 때까지 기다립니다. `close()`는 진행 중인 턴과 백그라운드 작업을 중단하고 확장 인스턴스와 임대를 정리합니다.
+`abort`는 현재 세션에서 진행 중인 턴과 그 턴이 시작한 실행을 중단하고, 대상이 있으면 `true`를 반환합니다. 비동기 훅과 승인된 작업 실행은 해당 턴과 수명이 다릅니다. `idle()`은 호스트가 `result`를 기다리지 않는 진행 중인 턴, 비동기 훅, 승인된 작업 실행과 완료 전달이 끝날 때까지 기다립니다. 턴 안의 훅·도구·함수에서 같은 런타임의 `idle()`을 기다리면 해당 턴이 자기 완료를 기다리므로 교착합니다. `close()`는 진행 중인 턴과 백그라운드 작업을 중단하고 확장 인스턴스와 임대를 정리합니다.
 
 `sessions.delete`는 세션의 저널 스트림 전체를 삭제합니다. 모든 인스턴스 대화, 승인 작업, 입력, 턴 경계와 실행 기록이 함께 삭제됩니다. 열린 턴, 남은 입력, 작업 실행이나 완료 전달이 있으면 삭제를 거부합니다.
 

@@ -283,7 +283,7 @@ export function appendMessages(existing: readonly Message[], added: readonly Mes
 }
 
 export function textOf(parts: readonly Part[]): string { return parts.map((part) => part.type === "text" ? part.text : "").join(""); }
-export function inputTextOf(messages: readonly Message[]): string {
+export function inputTextOf(messages: ReadonlyArray<Pick<Message, "content">>): string {
   return messages.map((message) => message.content.map((part) => part.type === "text" ? part.text : part.type === "json" ? jsonText(part.value) : "").join("")).join("\n");
 }
 

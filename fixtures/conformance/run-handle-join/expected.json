@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {"result": {"sessionId": "joined", "turnId": "<turn:1>", "inputId": "<input:1>"}},
+    {},
+    {"result": {"sessionId": "joined", "turnId": "<turn:1>", "inputId": "<input:2>"}},
+    {},
+    {"result": {"turnId": "<turn:1>", "output": "합류 완료", "status": "done"}},
+    {"result": {"turnId": "<turn:1>", "output": "합류 완료", "status": "done"}}
+  ]
+}

@@ -3,7 +3,7 @@ import { prepareRuntimeConfig } from "./config.ts";
 import { GoondanConfigError, GoondanExecutionError, raiseIssues } from "./errors.ts";
 import { fold, JOURNAL_VERSION } from "./fold.ts";
 import { inlineHookIdentifier } from "./effective.ts";
-import { compareText, isRecord, jsonEqual, jsonText, toJson } from "./json.ts";
+import { compareText, isRecord, jsonEqual, jsonText, jsonType, ownKeys, toJson } from "./json.ts";
 import {
   approvalReason, decisionIssue, effectiveCall, interruptedMessage, isTerminalStatus,
   newOperation, patchIssue, patchedCall, pendingToolContent, validationFailedMessage,
@@ -23,7 +23,7 @@ import {
   type JournalEvent, type JournalState, type Json, type LoadedConfig, type Message,
   type ModelInput, type ModelResult, type NewJournalEvent, type ObservationalEvent,
   type OperationDecision, type Part, type PendingOperation, type RouteEndpoint, type RouteSpec,
-  type RunInput, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent,
+  type RunHandle, type RunInput, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent,
   type StoreLease, type Tool, type ToolCall, type ToolContext, type ToolDefinition,
   type ToolResult, type ToolReturn, type TurnError, type TurnResult, type Usage, type ValueName,
 } from "./types.ts";
@@ -43,6 +43,23 @@ function routeFailure(message: string, cause?: unknown): GoondanExecutionError {
 }
 function operationFailure(message: string): GoondanExecutionError {
   return new GoondanExecutionError({ where: "runtime", codes: ["operation_invalid"], message });
+}
+function inputFailure(message: string): GoondanExecutionError {
+  return new GoondanExecutionError({ where: "runtime", codes: ["input_invalid"], message });
+}
+function isJsonValue(value: unknown): value is Json {
+  const kind = jsonType(value);
+  if (kind === "invalid") return false;
+  if (kind === "array" && Array.isArray(value)) return value.every(isJsonValue);
+  if (kind === "object" && isRecord(value)) {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) =>
+      typeof key === "string"
+      && Object.prototype.propertyIsEnumerable.call(value, key)
+      && isJsonValue(value[key]));
+  }
+  return true;
 }
 function detail(error: GoondanExecutionError, attempt: number): TurnError {
   const value: TurnError = { where: error.where, codes: [...error.codes], message: error.message, attempt };
@@ -197,6 +214,16 @@ interface ToolEntry {
   agent?: string;
 }
 
+interface EntryMessage {
+  id: string;
+  role: Message["role"];
+  content: Part[];
+  source?: string;
+  key?: string;
+  keep?: boolean;
+  meta?: Record<string, Json>;
+}
+
 function endpointKey(endpoint: RouteEndpoint): string { return typeof endpoint === "string" ? endpoint : `@fn:${endpoint.fn}`; }
 function sameEndpoint(left: RouteEndpoint, right: string): boolean { return endpointKey(left) === right; }
 function scopeKey(sessionId: string, agent: string): string { return JSON.stringify([sessionId, agent]); }
@@ -235,9 +262,10 @@ export class Goondan {
     };
   }
 
-  async run(input: RunInput, options: RunOptions): Promise<TurnResult> {
+  async run(input: RunInput, options: RunOptions = {}): Promise<RunHandle> {
     if (this.#closed) throw runtimeFailure("The runtime is closed");
     if (options.signal?.aborted) throw abortFailure(options.signal.reason);
+    this.#validateInput(input, options.meta);
     if (options.agent !== undefined && options.startAgent !== undefined) {
       throw routeFailure("a run declares either agent or startAgent, not both");
     }
@@ -245,12 +273,10 @@ export class Goondan {
     if (requested !== undefined && !Object.hasOwn(this.loaded.config.agents, requested)) {
       throw routeFailure(`Unknown agent: ${requested}`);
     }
-    const session = this.#session(options.sessionId);
-    const turn = await session.mutex.run(async () => {
-      if (this.#closed) {
-        if (session.turn?.controller.signal.aborted) return session.turn;
-        throw runtimeFailure("The runtime is closed");
-      }
+    const sessionId = options.sessionId ?? id();
+    const session = this.#session(sessionId);
+    const accepted = await session.mutex.run(async () => {
+      if (this.#closed) throw runtimeFailure("The runtime is closed");
       if (options.signal?.aborted) throw abortFailure(options.signal.reason);
       await this.#load(session);
       if (!session.turn) {
@@ -260,7 +286,9 @@ export class Goondan {
           await this.#refresh(session);
           await this.#recover(session);
           if (options.signal?.aborted) throw abortFailure(options.signal.reason);
-          session.turn = await this.#startTurn(session, input, options);
+          const started = await this.#startTurn(session, input, options);
+          session.turn = started.turn;
+          return started;
         } catch (error) {
           if (acquired && !session.turn && (this.#sessionWork.get(session.sessionId) ?? 0) === 0) {
             await this.#releaseLease(session);
@@ -269,17 +297,13 @@ export class Goondan {
         }
       } else {
         if (options.signal?.aborted) throw abortFailure(options.signal.reason);
-        await this.#acceptHostInput(session.turn, input, options);
+        const inputId = await this.#acceptHostInput(session.turn, input, options);
+        return { turn: session.turn, inputId };
       }
-      return session.turn;
     });
-    if (!turn) throw runtimeFailure("the turn was not created");
-    if (!options.signal) return turn.deferred.promise;
-    if (options.signal.aborted) throw abortFailure(options.signal.reason);
-    const cancelled = new Promise<TurnResult>((_resolve, reject) => {
-      options.signal?.addEventListener("abort", () => reject(abortFailure(options.signal?.reason)), { once: true });
-    });
-    return Promise.race([turn.deferred.promise, cancelled]);
+    const result = this.#resultFor(accepted.turn.deferred.promise, options.signal);
+    void result.catch(() => undefined);
+    return { sessionId, turnId: accepted.turn.turnId, inputId: accepted.inputId, result };
   }
 
   abort(sessionId: string): boolean {
@@ -291,7 +315,33 @@ export class Goondan {
   }
 
   async idle(): Promise<void> {
-    while (this.#tasks.size > 0) await Promise.allSettled([...this.#tasks]);
+    while (true) {
+      const turns = [...this.#sessions.values()].flatMap((session) => session.turn ? [session.turn.deferred.promise] : []);
+      const pending = [...this.#tasks, ...turns];
+      if (pending.length === 0) return;
+      await Promise.allSettled(pending);
+    }
+  }
+
+  #validateInput(input: unknown, meta: unknown): void {
+    if (!isJsonValue(input)) throw inputFailure("run input must be a JSON value");
+    if (meta === undefined) return;
+    if (!isRecord(meta) || !isJsonValue(meta)) throw inputFailure("run meta must be a JSON object");
+    const reserved = ownKeys(meta).find((key) => ["kind", "from", "instance", "operationId"].includes(key));
+    if (reserved !== undefined) throw inputFailure(`run meta uses the reserved key ${reserved}`);
+  }
+
+  #resultFor(result: Promise<TurnResult>, signal?: AbortSignal): Promise<TurnResult> {
+    if (!signal) return result;
+    return new Promise<TurnResult>((resolve, reject) => {
+      const aborted = (): void => reject(abortFailure(signal.reason));
+      signal.addEventListener("abort", aborted, { once: true });
+      void result.then(
+        (value) => { signal.removeEventListener("abort", aborted); resolve(value); },
+        (error: unknown) => { signal.removeEventListener("abort", aborted); reject(error); },
+      );
+      if (signal.aborted) aborted();
+    });
   }
 
   async close(): Promise<void> {
@@ -481,7 +531,7 @@ export class Goondan {
     }
   }
 
-  async #startTurn(session: SessionRuntime, input: RunInput, options: RunOptions): Promise<ActiveTurn> {
+  async #startTurn(session: SessionRuntime, input: RunInput, options: RunOptions): Promise<{ turn: ActiveTurn; inputId: string }> {
     const turn: ActiveTurn = {
       session,
       turnId: id(),
@@ -498,28 +548,39 @@ export class Goondan {
       closing: false,
     };
     const inputId = id();
-    await this.#append(session, [
+    const stored = await this.#append(session, [
       this.#event(session.sessionId, "turn.start", {}, { turnId: turn.turnId }),
       this.#event(session.sessionId, "input.received", this.#inputData(input, options), { turnId: turn.turnId, inputId }),
     ]);
-    try { await this.#dispatchHost(turn, input, options); }
-    catch (error) { this.#failTurn(turn, error); }
-    queueMicrotask(() => { void this.#maybeClose(turn); });
-    return turn;
+    const acceptedInputId = stored.find((event) => event.type === "input.received")?.inputId;
+    if (acceptedInputId === undefined) throw runtimeFailure("the accepted input has no inputId");
+    turn.activity += 1;
+    const dispatch = this.#dispatchHost(turn, input, options)
+      .catch((error: unknown) => this.#failTurn(turn, error))
+      .finally(() => this.#activityDone(turn));
+    this.#track(dispatch);
+    return { turn, inputId: acceptedInputId };
   }
 
-  async #acceptHostInput(turn: ActiveTurn, input: RunInput, options: RunOptions): Promise<void> {
+  async #acceptHostInput(turn: ActiveTurn, input: RunInput, options: RunOptions): Promise<string> {
     if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a run declares either agent or startAgent, not both");
     const inputId = id();
-    await this.#append(turn.session, [this.#event(turn.session.sessionId, "input.received", this.#inputData(input, options), { turnId: turn.turnId, inputId })]);
-    try { await this.#dispatchHost(turn, input, options); }
-    catch (error) { this.#failTurn(turn, error); }
+    const stored = await this.#append(turn.session, [this.#event(turn.session.sessionId, "input.received", this.#inputData(input, options), { turnId: turn.turnId, inputId })]);
+    const acceptedInputId = stored[0]?.inputId;
+    if (acceptedInputId === undefined) throw runtimeFailure("the accepted input has no inputId");
+    turn.activity += 1;
+    const dispatch = this.#dispatchHost(turn, input, options)
+      .catch((error: unknown) => this.#failTurn(turn, error))
+      .finally(() => this.#activityDone(turn));
+    this.#track(dispatch);
+    return acceptedInputId;
   }
 
   #inputData(input: RunInput, options: RunOptions): Record<string, unknown> {
     const data: Record<string, unknown> = { input: structuredClone(input) };
     if (options.agent !== undefined) data.agent = options.agent;
     if (options.startAgent !== undefined) data.startAgent = options.startAgent;
+    if (options.meta !== undefined) data.meta = structuredClone(options.meta);
     return data;
   }
 
@@ -528,51 +589,75 @@ export class Goondan {
     const agents = this.loaded.config.agents;
     if (options.agent !== undefined) {
       if (!Object.hasOwn(agents, options.agent)) throw routeFailure(`Unknown agent: ${options.agent}`);
-      const request = this.#hostRequest(options.agent, input, false);
+      const request = this.#hostRequest(options.agent, input, false, options.meta);
       const group = this.#enqueue(turn, request);
       if (!group) throw routeFailure("the requested agent did not start");
       return;
     }
     if (options.startAgent !== undefined) {
       if (!Object.hasOwn(agents, options.startAgent)) throw routeFailure(`Unknown agent: ${options.startAgent}`);
-      this.#enqueue(turn, this.#hostRequest(options.startAgent, input, this.loaded.config.routes !== undefined));
+      this.#enqueue(turn, this.#hostRequest(options.startAgent, input, this.loaded.config.routes !== undefined, options.meta));
       return;
     }
     const routes = this.loaded.config.routes;
     if (routes === undefined) {
       const first = Object.keys(agents)[0];
       if (first === undefined) throw routeFailure("the configuration has no start agent");
-      const group = this.#enqueue(turn, this.#hostRequest(first, input, false));
+      const group = this.#enqueue(turn, this.#hostRequest(first, input, false, options.meta));
       if (!group) throw routeFailure("the requested agent did not start");
       return;
     }
     const preserveMessages = isMessageArray(input);
-    const matching: Array<{ route: RouteSpec; index: number; messages: Message[] }> = [];
+    const conditionMessages = this.#entryMessages(input, options.meta);
+    const matching: Array<{ route: RouteSpec; index: number }> = [];
     for (const [index, route] of routes.entries()) {
       if (!sameEndpoint(route.from, "$input")) continue;
-      const messages = this.#rawMessages(input, "input");
-      if (await this.#routeMatches(route, null, messages, turn)) matching.push({ route, index, messages });
+      if (await this.#routeMatches(route, null, conditionMessages, turn)) matching.push({ route, index });
     }
     if (matching.length === 0) throw routeFailure("no route matched $input");
     await Promise.all(matching.map((item) => {
       const target = item.route.to;
-      const routed = typeof target === "string" && target !== "$output" && !preserveMessages
-        ? item.messages.map((message): Message => ({ ...structuredClone(message), source: target }))
-        : item.messages;
+      const source = typeof target === "string" && target !== "$output" ? target : "input";
+      const routed = this.#hostMessages(input, source, options.meta);
       return this.#routeTarget(turn, item.route.to, routed, item.index, "$input", undefined, "stop", true, preserveMessages);
     }));
     this.#scheduleReady(turn);
   }
 
-  #hostRequest(agent: string, input: RunInput, followsRoutes: boolean): InputRequest {
+  #hostRequest(agent: string, input: RunInput, followsRoutes: boolean, meta?: Record<string, Json>): InputRequest {
     return {
       target: agent,
-      messages: this.#rawMessages(input, agent),
+      messages: this.#hostMessages(input, agent, meta),
       origin: "host",
       kind: "turn",
       followsRoutes,
       preserveMessages: isMessageArray(input),
     };
+  }
+
+  #entryMessages(input: RunInput, meta?: Record<string, Json>): EntryMessage[] {
+    const merged = (current?: Record<string, Json>): Record<string, Json> | undefined => {
+      if (meta === undefined && current === undefined) return undefined;
+      return { ...(meta ?? {}), ...(current ?? {}) };
+    };
+    if (isMessageArray(input)) return input.map((message) => {
+      const copy = structuredClone(message);
+      const nextMeta = merged(copy.meta);
+      if (nextMeta === undefined) return copy;
+      return { ...copy, meta: nextMeta };
+    });
+    let content: Part[];
+    if (isPartArray(input) && input.length > 0) content = structuredClone(input);
+    else if (typeof input === "string") content = [{ type: "text", text: input }];
+    else content = [{ type: "json", value: structuredClone(input) }];
+    const message: EntryMessage = { id: id(), role: "user", content };
+    const nextMeta = merged();
+    if (nextMeta !== undefined) message.meta = nextMeta;
+    return [message];
+  }
+
+  #hostMessages(input: RunInput, source: string, meta?: Record<string, Json>): Message[] {
+    return this.#entryMessages(input, meta).map((message): Message => ({ ...message, source: message.source ?? source }));
   }
 
   #rawMessages(input: RunInput, source: string): Message[] {
@@ -1743,7 +1828,7 @@ export class Goondan {
     }
   }
 
-  async #routeMatches(route: RouteSpec, output: Message | Message[] | null, input: Message[], turn: ActiveTurn): Promise<boolean> {
+  async #routeMatches(route: RouteSpec, output: Message | Message[] | null, input: EntryMessage[], turn: ActiveTurn): Promise<boolean> {
     if (!route.when) return true;
     const text = output === null
       ? inputTextOf(input)

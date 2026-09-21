@@ -22,11 +22,11 @@ async def test_input_object_defaults_to_asis_and_prefers_fn(tmp_path):
         seen.append(value["messages"][0]["content"][0]["text"])
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}, "finishReason": "stop"}
     fields_runtime = create_goondan(config={"agents": {"main": {"model": "m", "input": {"fields": {"name": "the name to greet"}}}}}, models={"m": model})
-    await fields_runtime.run({"name": "Ada"}, session_id="fields")
+    await (await fields_runtime.run({"name": "Ada"}, session_id="fields")).result
     unused = tmp_path / "unused.md"
     unused.write_text("template", encoding="utf-8")
     fn_runtime = create_goondan(config={"agents": {"main": {"model": "m", "input": {"fn": "format", "template": str(unused)}}}}, models={"m": model}, functions={"format": lambda value: f"fn:{value['name']}"})
-    await fn_runtime.run({"name": "Ada"}, session_id="fn")
+    await (await fn_runtime.run({"name": "Ada"}, session_id="fn")).result
     assert seen == ['{"name":"Ada"}', "fn:Ada"]
 
 
@@ -37,7 +37,7 @@ async def test_serial_routes():
         assert value["messages"][0]["content"][0]["text"] == "analysis"
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "edited"}]}, "finishReason": "stop"}
     runtime = create_goondan(config={"agents": {"a": {"model": "a"}, "e": {"inherit": "a", "model": "e"}}, "routes": ["a", "e"]}, models={"a": analyst, "e": editor})
-    assert (await runtime.run("input", session_id="serial"))["output"] == "edited"
+    assert (await (await runtime.run("input", session_id="serial")).result)["output"] == "edited"
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_completion_saves_entire_batch_after_32_steps():
         return value
     store = InMemoryConversationStore()
     runtime = create_goondan(config={"agents": {"main": {"model": "m", "tools": ["work"], "extensions": {"policy": {}}, "hooks": {"onToolResult": [{"extension": "policy"}]}}}}, models={"m": model}, tools={"work": define_tool(name="work", description="work", input={}, execute=execute)}, extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"onToolResult": complete}))}, _conversation_projection=store)
-    result = await runtime.run("input", session_id="long")
+    result = await (await runtime.run("input", session_id="long")).result
     assert generations == 34 and calls == 68
     assert result["output"] == "complete"
     assert len([p for m in await store.load("long", "main") for p in m["content"] if p["type"] == "tool.result"]) == 68

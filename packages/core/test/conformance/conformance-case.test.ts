@@ -39,7 +39,7 @@ describe("parseCase", () => {
         { parallel: [[{ run: { sessionId: "c1", input: "a" } }]] },
       ],
     });
-    expect(parsed.steps[0]).toEqual({ action: "run", settle: true, sessionId: "c1", input: "hi" });
+    expect(parsed.steps[0]).toEqual({ action: "run", settle: true, sessionId: "c1", input: "hi", awaitResult: true });
     expect(parsed.steps[1]).toMatchObject({ action: "decide", settle: false, operation: "<op:a>" });
     expect(parsed.steps[3]).toEqual({ action: "reach", settle: false, gate: "gate" });
     expect(parsed.steps[4]).toMatchObject({ action: "parallel" });

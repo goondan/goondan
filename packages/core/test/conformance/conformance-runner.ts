@@ -101,6 +101,7 @@ interface RuntimeHandle {
   runtime: unknown;
   owner: object;
   closed: boolean;
+  runs: Map<string, unknown>;
 }
 
 interface LeaseHandle {
@@ -190,6 +191,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
   const leases = new Map<string, LeaseHandle>();
   const deletedSessions = new Set<string>();
   const handles: RuntimeHandle[] = [];
+  const runs = new Map<string, unknown>();
   let effectiveConfig: Json = null;
   let loaded: unknown;
 
@@ -200,7 +202,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
     // spec/goondan.md "합성 결과와 유효 구성" and RuntimeBindings.directory.
     const bindings = buildBindings({ scripts, owner, store, directory });
     const runtime = await createGoondan(caseFile.config.mode === "file" ? loaded : caseFile.config.document, bindings);
-    const handle: RuntimeHandle = { runtime, owner, closed: false };
+    const handle: RuntimeHandle = { runtime, owner, closed: false, runs };
     handles.push(handle);
     return handle;
   };
@@ -352,10 +354,30 @@ async function callRuntimeStep(
 ): Promise<StepOutcome> {
   switch (step.action) {
     case "run": {
-      const options: Record<string, unknown> = { sessionId: step.sessionId };
+      const options: Record<string, unknown> = {};
+      if (step.sessionId !== undefined) options["sessionId"] = step.sessionId;
+      if (step.meta !== undefined) options["meta"] = step.meta;
       if (step.agent !== undefined) options["agent"] = step.agent;
       if (step.startAgent !== undefined) options["startAgent"] = step.startAgent;
-      return { kind: "value", value: await awaited(callMethod(handle.runtime, "run", [step.input, options], "goondan.run")) };
+      const run = await awaited(callMethod(handle.runtime, "run", [step.input, options], "goondan.run"));
+      if (!step.awaitResult) {
+        if (step.handle === undefined) throw new CaseFailure("an unawaited run has no handle alias");
+        if (handle.runs.has(step.handle)) throw new CaseFailure(`the run handle alias ${step.handle} is already in use`);
+        handle.runs.set(step.handle, run);
+        const sessionId = member(run, "sessionId");
+        const turnId = member(run, "turnId");
+        const inputId = member(run, "inputId");
+        if (!isString(sessionId) || sessionId.length === 0 || !isString(turnId) || turnId.length === 0 || !isString(inputId) || inputId.length === 0) {
+          throw new CaseFailure("goondan.run did not return non-empty sessionId, turnId and inputId members");
+        }
+        return { kind: "value", value: { sessionId: step.sessionId === undefined ? "<generated-session>" : sessionId, turnId, inputId } };
+      }
+      return { kind: "value", value: await awaited(member(run, "result")) };
+    }
+    case "awaitRun": {
+      const run = handle.runs.get(step.handle);
+      if (run === undefined) throw new CaseFailure(`no run handle has the alias ${step.handle}`);
+      return { kind: "value", value: await awaited(member(run, "result")) };
     }
     case "decide": {
       const operations = member(handle.runtime, "operations");
@@ -595,6 +617,17 @@ function projectStepOutcome(step: Step, outcome: StepOutcome, failures: string[]
 function projectReturnValue(step: Step, value: unknown, failures: string[]): Json | undefined {
   switch (step.action) {
     case "run": {
+      if (!step.awaitResult) return snapshot(value);
+      const result = snapshot(value);
+      if (!isJsonObject(result)) return result;
+      const projected: JsonObject = {};
+      for (const key of ["turnId", "output", "outputs", "usage", "finishReason", "status", "runs"]) {
+        if (Object.hasOwn(result, key)) projected[key] = result[key] ?? null;
+      }
+      checkUsageTotal(projected, failures);
+      return projected;
+    }
+    case "awaitRun": {
       const result = snapshot(value);
       if (!isJsonObject(result)) return result;
       const projected: JsonObject = {};

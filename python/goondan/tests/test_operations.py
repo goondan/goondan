@@ -48,7 +48,7 @@ def runtime_with_operation(model: Model, *, store: InMemoryStore | None = None, 
 
 
 async def make_pending(runtime: Any, session_id: str = "s") -> dict[str, Any]:
-    await runtime.run("start", session_id=session_id)
+    await (await runtime.run("start", session_id=session_id)).result
     return (await runtime.operations.list(session_id))[0]
 
 
@@ -162,7 +162,7 @@ async def test_replay_marks_interrupted_execution_failed_and_delivers_it():
     await first.close()
 
     second = runtime_with_operation(Model(answer("opened"), answer("completion")), store=store)
-    await second.run("open", session_id="s")
+    await (await second.run("open", session_id="s")).result
     await second.idle()
     recovered = (await second.operations.list("s"))[0]
     assert recovered["status"] == "failed"

@@ -12,10 +12,23 @@ def answer(text: str = "done") -> dict[str, Any]:
     return {"message": {"role": "assistant", "content": [{"type": "text", "text": text}]}, "finishReason": "stop"}
 
 
-def test_create_goondan_accepts_positional_config_and_run_requires_a_session():
+async def run_result(awaitable: Any) -> dict[str, Any]:
+    return await (await awaitable).result
+
+
+async def await_result(handle: Any) -> dict[str, Any]:
+    return await handle.result
+
+
+@pytest.mark.asyncio
+async def test_create_goondan_accepts_positional_config_and_run_generates_a_session():
     goondan = create_goondan({"agents": {"main": {"model": "m"}}}, models={"m": lambda value: answer()})
-    with pytest.raises(TypeError):
-        goondan.run("x")
+    handle = await goondan.run("x")
+    assert handle.session_id
+    assert not hasattr(handle, "__await__")
+    first, second = await asyncio.gather(handle.result, handle.result)
+    assert first is second
+    assert first["status"] == "done" and first["turnId"] == handle.turn_id
 
 
 def test_v3_public_runtime_surface_has_one_store_and_no_steer_or_store_projections():
@@ -47,14 +60,14 @@ async def test_same_session_turns_are_serial_and_other_sessions_run_together():
             return answer()
 
     goondan = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": Model()})
-    first = asyncio.create_task(goondan.run("1", session_id="same"))
+    first = await goondan.run("1", session_id="same")
     await first_started.wait()
-    second = asyncio.create_task(goondan.run("2", session_id="same"))
-    other = asyncio.create_task(goondan.run("3", session_id="other"))
-    await other
+    second = await goondan.run("2", session_id="same")
+    other = await goondan.run("3", session_id="other")
+    await other.result
     assert started == ["same", "other"]
     release.set()
-    await asyncio.gather(first, second)
+    await asyncio.gather(first.result, second.result)
     assert started == ["same", "other", "same"]
 
 
@@ -80,13 +93,14 @@ async def test_two_runtimes_serialize_the_same_session_with_the_store_lease():
     config = {"agents": {"a": {"model": "m"}}}
     first_runtime = create_goondan(config, models={"m": model}, store=store)
     second_runtime = create_goondan(config, models={"m": model}, store=store)
-    first = asyncio.create_task(first_runtime.run("one", session_id="leased"))
+    first = await first_runtime.run("one", session_id="leased")
     await started.wait()
-    second = asyncio.create_task(second_runtime.run("two", session_id="leased"))
+    second_acceptance = asyncio.create_task(second_runtime.run("two", session_id="leased"))
     await asyncio.sleep(0.01)
     assert inputs == [["one"]]
     release.set()
-    await asyncio.gather(first, second)
+    second = await second_acceptance
+    await asyncio.gather(first.result, second.result)
 
     assert inputs == [["one"], ["one", "two"]]
 
@@ -99,15 +113,15 @@ async def test_stateful_and_stateless_instances_and_conversations():
         return answer(str(len(value["messages"])))
 
     stateful = create_goondan(config={"agents": {"a": {"model": "m"}}}, models={"m": model}, store=store)
-    first = await stateful.run("x", session_id="s")
-    second = await stateful.run("y", session_id="s")
+    first = await (await stateful.run("x", session_id="s")).result
+    second = await (await stateful.run("y", session_id="s")).result
     assert first["runs"][0]["instance"] == second["runs"][0]["instance"] == "s/a"
     stateful_view = fold("s", [event async for event in store.scan(session_id="s")])
     assert [item["instance"] for item in stateful_view["conversations"]] == ["s/a"]
 
     stateless = create_goondan(config={"agents": {"a": {"model": "m", "stateful": False}}}, models={"m": model}, store=store)
-    one = await stateless.run("x", session_id="t")
-    two = await stateless.run("y", session_id="t")
+    one = await (await stateless.run("x", session_id="t")).result
+    two = await (await stateless.run("y", session_id="t")).result
     assert one["runs"][0]["instance"] != two["runs"][0]["instance"]
     stateless_view = fold("t", [event async for event in store.scan(session_id="t")])
     assert {item["instance"] for item in stateless_view["conversations"]} == {one["runs"][0]["instance"], two["runs"][0]["instance"]}
@@ -128,8 +142,8 @@ async def test_stateless_extension_is_created_and_disposed_for_every_run():
         models={"m": lambda value: answer()},
         extensions={"e": define_extension(name="e", create=create)},
     )
-    await goondan.run("one", session_id="s")
-    await goondan.run("two", session_id="s")
+    await (await goondan.run("one", session_id="s")).result
+    await (await goondan.run("two", session_id="s")).result
     assert created == [1, 2]
     assert disposed == [1, 2]
 
@@ -173,7 +187,7 @@ async def test_derived_runs_serialize_only_stateful_instances(stateful: bool, ex
         models={"main": lambda value: answer(), "helper": helper},
         extensions={"e": define_extension(name="e", hooks=["onStep"], create=lambda **kwargs: Extension(hooks={"onStep": hook}))},
     )
-    await goondan.run("x", session_id="s")
+    await (await goondan.run("x", session_id="s")).result
     assert maximum == expected_parallel
 
 
@@ -216,7 +230,7 @@ async def test_stateful_child_inputs_join_the_active_execution_and_share_its_out
         extensions={"e": define_extension(name="e", hooks=["onStep"], create=lambda **kwargs: Extension(hooks={"onStep": hook}))},
     )
 
-    result = await runtime.run("start", session_id="joined")
+    result = await (await runtime.run("start", session_id="joined")).result
 
     assert [item["content"][0]["text"] for item in outputs] == ["shared", "shared"]
     assert calls == [["one"], ["one", "two"]]
@@ -259,7 +273,7 @@ async def test_cancelling_one_waiter_does_not_cancel_a_shared_child_execution():
         extensions={"e": define_extension(name="e", hooks=["onStep"], create=lambda **kwargs: Extension(hooks={"onStep": hook}))},
     )
 
-    await runtime.run("start", session_id="shared-cancel")
+    await (await runtime.run("start", session_id="shared-cancel")).result
     assert reached == ["started", "shared"]
 
 
@@ -299,13 +313,13 @@ async def test_new_host_turn_joins_a_stateful_execution_started_by_a_late_async_
         extensions={"late": define_extension(name="late", hooks=["onStep"], create=lambda **kwargs: Extension(hooks={"onStep": late_hook}))},
     )
 
-    first = await runtime.run("first", session_id="late-join", agent="main")
+    first = await (await runtime.run("first", session_id="late-join", agent="main")).result
     start_child.set()
     await child_started.wait()
-    joined = asyncio.create_task(runtime.run("host", session_id="late-join", agent="helper"))
+    joined = await runtime.run("host", session_id="late-join", agent="helper")
     await asyncio.sleep(0)
     release_child.set()
-    second = await joined
+    second = await joined.result
     await runtime.idle()
 
     assert first["turnId"] != second["turnId"]
@@ -357,15 +371,15 @@ async def test_new_host_turn_joins_a_stateful_execution_started_by_an_approved_a
         models={"main": main, "worker": worker},
     )
     try:
-        await runtime.run("first", session_id="operation-join", agent="main")
+        await (await runtime.run("first", session_id="operation-join", agent="main")).result
         operation = (await runtime.operations.list("operation-join"))[0]
         await runtime.operations.decide("operation-join", operation["operationId"], {"decision": "approved"})
         await child_started.wait()
 
-        joined = asyncio.create_task(runtime.run("host", session_id="operation-join", agent="worker"))
+        joined = await runtime.run("host", session_id="operation-join", agent="worker")
         await asyncio.sleep(0)
         release_child.set()
-        host_result = await joined
+        host_result = await joined.result
         await runtime.idle()
 
         completed = (await runtime.operations.list("operation-join"))[0]
@@ -395,7 +409,8 @@ async def test_synchronous_agent_wait_cycle_is_rejected_before_input_is_queued()
     )
 
     with pytest.raises(GoondanExecutionError) as raised:
-        await asyncio.wait_for(runtime.run("start", session_id="cycle", agent="a"), 1)
+        handle = await runtime.run("start", session_id="cycle", agent="a")
+        await asyncio.wait_for(handle.result, 1)
 
     assert (raised.value.where, raised.value.codes) == ("onStep", ["hook_error"])
     projected = fold("cycle", [event async for event in store.scan(session_id="cycle")])
@@ -419,7 +434,7 @@ async def test_child_execution_uses_the_same_session_and_parent_execution_id():
 
     config = {"agents": {"main": {"model": "main", "extensions": {"e": {}}, "hooks": {"onStep": [{"extension": "e"}]}}, "helper": {"model": "helper"}}}
     goondan = create_goondan(config=config, models={"main": lambda value: answer(), "helper": helper}, extensions={"e": define_extension(name="e", hooks=["onStep"], create=lambda **kwargs: Extension(hooks={"onStep": hook}))})
-    result = await goondan.run("x", session_id="s")
+    result = await (await goondan.run("x", session_id="s")).result
     child = next(run for run in result["runs"] if run["agent"] == "helper")
     assert child["instance"] == "s/helper"
     assert child["parentExecutionId"] == result["runs"][0]["executionId"]
@@ -474,7 +489,7 @@ async def _v2_steer_queued_before_a_turn_keeps_its_agent_tag():
         models={"m": Model()},
     )
     goondan.steer("s", {"queued": True}, agent="b")
-    await goondan.run("x", session_id="s")
+    await (await goondan.run("x", session_id="s")).result
     assert seen["a"][-1]["content"] == [{"type": "text", "text": "x"}]
     assert seen["b"][-1]["content"] == [{"type": "text", "text": '{"queued":true}'}]
 
@@ -492,13 +507,13 @@ async def test_abort_stops_every_waiter_joined_to_the_active_turn():
         return answer()
 
     goondan = create_goondan(config={"agents": {"a": {"model": "m"}}}, models={"m": model})
-    active = asyncio.create_task(goondan.run("1", session_id="s"))
+    active = await goondan.run("1", session_id="s")
     await asyncio.sleep(0)
-    waiting = asyncio.create_task(goondan.run("2", session_id="s"))
+    waiting = await goondan.run("2", session_id="s")
     await asyncio.sleep(0)
     assert goondan.abort("s") is True
     gate.set()
-    outcomes = await asyncio.gather(active, waiting, return_exceptions=True)
+    outcomes = await asyncio.gather(active.result, waiting.result, return_exceptions=True)
     assert all(isinstance(outcome, GoondanAbortError) for outcome in outcomes)
 
 
@@ -521,21 +536,23 @@ async def test_cancelling_an_accepted_run_waiter_keeps_the_turn_and_input_alive(
         return answer()
 
     runtime = create_goondan({"agents": {"a": {"model": "m"}}}, models={"m": model})
-    active = asyncio.create_task(runtime.run("one", session_id="accepted"))
+    active = await runtime.run("one", session_id="accepted")
     await started.wait()
-    waiter = asyncio.create_task(runtime.run("two", session_id="accepted"))
+    accepted = await runtime.run("two", session_id="accepted")
+    waiter = asyncio.create_task(await_result(accepted))
     await asyncio.sleep(0)
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
         await waiter
     release.set()
-    await active
+    await active.result
+    await accepted.result
 
     assert seen == [["one"], ["one", "two"]]
 
 
 @pytest.mark.asyncio
-async def test_idle_does_not_wait_for_a_host_requested_turn():
+async def test_idle_waits_for_a_host_requested_turn():
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -545,20 +562,22 @@ async def test_idle_does_not_wait_for_a_host_requested_turn():
         return answer()
 
     runtime = create_goondan({"agents": {"a": {"model": "m"}}}, models={"m": model})
-    turn = asyncio.create_task(runtime.run("one", session_id="host-turn"))
+    turn = await runtime.run("one", session_id="host-turn")
     await started.wait()
-    await asyncio.wait_for(runtime.idle(), 0.1)
-    assert not turn.done()
+    waiting = asyncio.create_task(runtime.idle())
+    await asyncio.sleep(0)
+    assert not waiting.done()
     release.set()
-    await turn
+    await waiting
+    await turn.result
 
 
 @pytest.mark.asyncio
 async def test_session_delete_removes_only_the_named_journal_stream():
     store = InMemoryStore()
     goondan = create_goondan(config={"agents": {"a": {"model": "m"}}}, models={"m": lambda value: answer()}, store=store)
-    await goondan.run("one", session_id="s")
-    await goondan.run("two", session_id="other")
+    await (await goondan.run("one", session_id="s")).result
+    await (await goondan.run("two", session_id="other")).result
     await goondan.sessions.delete("s")
     assert [event async for event in store.scan(session_id="s")] == []
     assert [event async for event in store.scan(session_id="other")]
@@ -575,21 +594,21 @@ async def test_session_delete_rejects_active_and_waiting_turns():
         return answer()
 
     goondan = create_goondan({"agents": {"a": {"model": "m"}}}, models={"m": model})
-    active = asyncio.create_task(goondan.run("one", session_id="s"))
+    active = await goondan.run("one", session_id="s")
     await started.wait()
-    waiting = asyncio.create_task(goondan.run("two", session_id="s"))
+    waiting = await goondan.run("two", session_id="s")
     await asyncio.sleep(0)
     with pytest.raises(GoondanExecutionError) as error:
         await goondan.sessions.delete("s")
     assert error.value.codes == ["runtime_error"]
     release.set()
-    await asyncio.gather(active, waiting)
+    await asyncio.gather(active.result, waiting.result)
 
 
 @pytest.mark.asyncio
 async def test_session_identifiers_are_opaque_strings():
     goondan = create_goondan(config={"agents": {"a": {"model": "m"}}}, models={"m": lambda value: answer()})
-    assert (await goondan.run("x", session_id="opaque#id"))["status"] == "done"
+    assert (await (await goondan.run("x", session_id="opaque#id")).result)["status"] == "done"
     await goondan.sessions.delete("opaque#id")
 
 
@@ -602,12 +621,12 @@ async def test_close_rejects_a_waiting_turn_with_runtime_error():
         return answer()
 
     goondan = create_goondan(config={"agents": {"a": {"model": "m"}}}, models={"m": model})
-    active = asyncio.create_task(goondan.run("1", session_id="s"))
+    active = await goondan.run("1", session_id="s")
     await asyncio.sleep(0)
-    waiting = asyncio.create_task(goondan.run("2", session_id="s"))
+    waiting = await goondan.run("2", session_id="s")
     await asyncio.sleep(0)
     await goondan.close()
     with pytest.raises(GoondanAbortError):
-        await active
+        await active.result
     with pytest.raises(GoondanAbortError):
-        await waiting
+        await waiting.result

@@ -1,0 +1,181 @@
+{
+  "steps": [
+    {"result": {"output": "메타 확인", "status": "done"}}
+  ],
+  "observations": {
+    "journalEvents": [
+      {
+        "seq": 1,
+        "version": 1,
+        "type": "turn.start",
+        "sessionId": "meta",
+        "turnId": "<turn:1>",
+        "data": {}
+      },
+      {
+        "seq": 2,
+        "version": 1,
+        "type": "input.received",
+        "sessionId": "meta",
+        "turnId": "<turn:1>",
+        "inputId": "<input:1>",
+        "data": {
+          "input": "안녕",
+          "meta": {"channel": "web", "requestType": "chat"}
+        }
+      },
+      {
+        "seq": 3,
+        "version": 1,
+        "type": "agent.start",
+        "sessionId": "meta",
+        "agent": "main",
+        "instance": "meta/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "kind": "turn",
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [{"type": "text", "text": "안녕"}],
+              "meta": {"channel": "web", "requestType": "chat", "kind": "start"}
+            }
+          ]
+        }
+      },
+      {
+        "seq": 4,
+        "version": 1,
+        "type": "conversation.message.appended",
+        "sessionId": "meta",
+        "agent": "main",
+        "instance": "meta/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "message": {
+            "role": "user",
+            "source": "main",
+            "content": [{"type": "text", "text": "안녕"}],
+            "meta": {"channel": "web", "requestType": "chat", "kind": "start"}
+          }
+        }
+      },
+      {
+        "seq": 5,
+        "version": 1,
+        "type": "conversation.message.appended",
+        "sessionId": "meta",
+        "agent": "main",
+        "instance": "meta/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "메타 확인"}],
+            "source": "model"
+          }
+        }
+      },
+      {
+        "seq": 6,
+        "version": 1,
+        "type": "agent.done",
+        "sessionId": "meta",
+        "agent": "main",
+        "instance": "meta/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "output": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "메타 확인"}],
+            "source": "model"
+          },
+          "finishReason": "stop",
+          "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        }
+      },
+      {
+        "seq": 7,
+        "version": 1,
+        "type": "turn.done",
+        "sessionId": "meta",
+        "turnId": "<turn:1>",
+        "data": {
+          "result": {
+            "turnId": "<turn:1>",
+            "outputs": [
+              {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "메타 확인"}],
+                "source": "model"
+              }
+            ],
+            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "status": "done",
+            "runs": [
+              {
+                "agent": "main",
+                "instance": "meta/main",
+                "executionId": "<execution:1>",
+                "turnId": "<turn:1>",
+                "kind": "turn",
+                "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "finishReason": "stop",
+                "status": "done"
+              }
+            ],
+            "output": "메타 확인",
+            "finishReason": "stop"
+          }
+        }
+      }
+    ],
+    "functionCalls": [
+      {
+        "fn": "choose",
+        "value": {
+          "output": null,
+          "text": "안녕",
+          "input": [
+            {
+              "role": "user",
+              "content": [{"type": "text", "text": "안녕"}],
+              "meta": {"channel": "web", "requestType": "chat"}
+            }
+          ]
+        }
+      },
+      {
+        "fn": "inspectPrompt",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [{"type": "text", "text": "안녕"}],
+            "meta": {"channel": "web", "requestType": "chat", "kind": "start"}
+          }
+        ]
+      }
+    ],
+    "conversations": {
+      "meta/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [{"type": "text", "text": "안녕"}],
+          "meta": {"channel": "web", "requestType": "chat", "kind": "start"}
+        },
+        {
+          "role": "assistant",
+          "content": [{"type": "text", "text": "메타 확인"}],
+          "source": "model"
+        }
+      ]
+    }
+  }
+}

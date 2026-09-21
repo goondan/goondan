@@ -26,11 +26,11 @@ async def test_run_normalizes_messages_parts_strings_json_and_empty_arrays():
 
     goondan = create_goondan({"agents": {"main": {"model": "m", "stateful": False}}}, models={"m": model})
     message = {"id": "given", "role": "user", "source": "host", "content": [{"type": "text", "text": "message"}]}
-    await goondan.run([message], session_id="messages")
-    await goondan.run([{"type": "text", "text": "part"}], session_id="parts")
-    await goondan.run("string", session_id="string")
-    await goondan.run({"json": True}, session_id="json")
-    await goondan.run([], session_id="empty")
+    await (await goondan.run([message], session_id="messages")).result
+    await (await goondan.run([{"type": "text", "text": "part"}], session_id="parts")).result
+    await (await goondan.run("string", session_id="string")).result
+    await (await goondan.run({"json": True}, session_id="json")).result
+    await (await goondan.run([], session_id="empty")).result
 
     assert seen[0] == [message]
     assert seen[1][0]["content"] == [{"type": "text", "text": "part"}]
@@ -65,7 +65,7 @@ async def test_input_rule_changes_only_direct_json_parts_and_preserves_message_f
         models={"m": model},
         functions={"shape": lambda value: {"greeting": value["name"]}},
     )
-    await goondan.run([message], session_id="s")
+    await (await goondan.run([message], session_id="s")).result
     assert seen[0] == {
         **message,
         "content": [
@@ -89,7 +89,7 @@ async def test_input_hook_can_replace_the_message_array_before_input_conversion(
         models={"m": model},
         functions={"replace": lambda value: [replacement]},
     )
-    await goondan.run("discarded", session_id="s")
+    await (await goondan.run("discarded", session_id="s")).result
     assert seen == [[{**replacement, "content": [{"type": "text", "text": "7"}]}]]
 
 
@@ -127,7 +127,7 @@ async def test_route_preserves_output_content_and_adds_origin_metadata():
         {"agents": {"first": {"model": "first"}, "second": {"model": "second"}}, "routes": ["first", "second"]},
         models={"first": first, "second": second},
     )
-    await goondan.run("x", session_id="s")
+    await (await goondan.run("x", session_id="s")).result
     assert received[0]["content"] == content
     assert received[0]["meta"] == {"from": "first", "instance": "s/first", "kind": "start"}
 
@@ -164,6 +164,6 @@ async def test_a_branch_failure_aborts_the_other_branch_and_keeps_the_first_erro
     }
     goondan = create_goondan(config, models={"split": split, "broken": broken, "slow": slow}, max_retries=0)
     with pytest.raises(GoondanExecutionError) as error:
-        await goondan.run("x", session_id="s")
+        await (await goondan.run("x", session_id="s")).result
     assert error.value.codes == ["model_error"]
     assert slow_cancelled.is_set()

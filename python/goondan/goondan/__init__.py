@@ -19,13 +19,15 @@ from .types import (
     HookContext,
     ModelContext,
     NoLog,
+    RunHandle,
+    RunResult,
     Tool,
     define_extension,
     define_tool,
 )
 
 __all__ = [
-    "Extension", "ExtensionDefinition", "HookContext", "ModelContext", "NoLog",
+    "Extension", "ExtensionDefinition", "HookContext", "ModelContext", "NoLog", "RunHandle", "RunResult",
     "InMemoryStore", "Store", "StoreConflictError", "StoreError", "StoreInputError",
     "FOLD_VERSION", "FoldError", "UnsupportedJournalVersionError", "fold",
     "GoondanAbortError", "GoondanConfig", "GoondanConfigError", "GoondanError",

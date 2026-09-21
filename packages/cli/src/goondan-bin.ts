@@ -69,7 +69,8 @@ async function main(): Promise<void> {
   const raw = options.inputFile ? await readFile(resolve(options.inputFile), 'utf8') : options.input ?? await new Promise<string>((done) => { let value = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (chunk: string) => { value += chunk; }); process.stdin.on('end', () => done(value)); });
   const goondan = createGoondan(loaded, candidate);
   try {
-    const result = await goondan.run(parseRunInput(raw), { sessionId: options.sessionId, agent: options.agent });
+    const run = await goondan.run(parseRunInput(raw), { sessionId: options.sessionId, agent: options.agent });
+    const result = await run.result;
     const output = renderOutputs(result.outputs, true);
     if (output.length > 0) process.stdout.write(`${output}\n`);
   } finally { await goondan.close(); }

@@ -249,7 +249,8 @@ describe("extension instance preparation", () => {
       version: 1, name: "t",
       agents: { a: { model: "main", extensions: { quiet: {} }, hooks: { onOutput: [{ extension: "quiet" }] } } },
     }, bindings({ extensions: { quiet } }));
-    const failure: unknown = await runtime.run("hello", { sessionId: "c" }).catch((error: unknown) => error);
+    const handle = await runtime.run("hello", { sessionId: "c" });
+    const failure: unknown = await handle.result.catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(GoondanConfigError);
     if (failure instanceof GoondanConfigError) {
       expect(codes(failure.issues)).toEqual(["/agents/a/hooks/onOutput/0/extension:binding.extension_hook"]);
@@ -313,7 +314,8 @@ describe("the execution error", () => {
     const broken: Model = { async generate(): Promise<ModelResult> { throw new Error("model down"); } };
     const runtime = createGoondan({ agents: { main: { model: "m" } } }, { directory: ".", models: { m: broken } });
 
-    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((cause: unknown) => cause);
+    const handle = await runtime.run("hi", { sessionId: "c" });
+    const error: unknown = await handle.result.catch((cause: unknown) => cause);
 
     expect(isGoondanExecutionError(error)).toBe(true);
     if (!isGoondanExecutionError(error)) throw new Error("Expected an execution error");
@@ -339,7 +341,8 @@ describe("the execution error", () => {
     const runtime = createGoondan({ agents: { main: { model: "m", tools: ["act"] } } },
       { directory: ".", models: { m: model }, tools: { act } });
 
-    const error: unknown = await runtime.run("hi", { sessionId: "c" }).catch((cause: unknown) => cause);
+    const handle = await runtime.run("hi", { sessionId: "c" });
+    const error: unknown = await handle.result.catch((cause: unknown) => cause);
 
     if (!isGoondanExecutionError(error)) throw new Error("Expected an execution error");
     expect({ where: error.where, codes: error.codes, attempt: error.attempt }).toEqual({ where: "tool", codes: ["tool_error"], attempt: 1 });

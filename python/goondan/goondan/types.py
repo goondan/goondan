@@ -96,6 +96,26 @@ class GoondanConfig(dict[str, Any]):
     templates: dict[str, str] | None = None
 
 
+class RunResult:
+    """여러 번 기다릴 수 있으며 대기 취소가 군단 턴을 취소하지 않는 턴 결과입니다."""
+
+    def __init__(self, task: asyncio.Task[dict[str, Any]]):
+        self._task = task
+
+    def __await__(self):
+        return asyncio.shield(self._task).__await__()
+
+
+@dataclass(frozen=True)
+class RunHandle:
+    """저널이 수락한 호스트 입력과 그 입력이 속한 턴 결과를 가리킵니다."""
+
+    session_id: str
+    turn_id: str
+    input_id: str
+    result: RunResult
+
+
 def _message(role: str, text: str, source: str) -> dict[str, Any]:
     """§단계 값과 대화 저장: a new message with one `text` part and no optional field."""
     return {"id": uuid.uuid4().hex, "role": role, "content": [{"type": "text", "text": text}], "source": source}

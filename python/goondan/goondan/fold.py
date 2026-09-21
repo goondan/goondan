@@ -272,6 +272,7 @@ def fold(
             journal_input: dict[str, Any] = {"inputId": event["inputId"], "input": copy.deepcopy(data.get("input"))}
             for key in ("agent", "startAgent"):
                 if key in data: journal_input[key] = data[key]
+            if "meta" in data: journal_input["meta"] = copy.deepcopy(data["meta"])
             if "operationId" in event: journal_input["operationId"] = event["operationId"]
             turn["inputs"].append(journal_input)
             input_ids.add(str(event["inputId"]))

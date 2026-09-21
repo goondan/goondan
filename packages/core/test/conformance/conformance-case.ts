@@ -109,6 +109,7 @@ export const CONFIG_ERROR_CODES: readonly string[] = [
 
 /** The spec's execution error codes; the first value of `codes` must be one. */
 export const EXECUTION_ERROR_CODES: readonly string[] = [
+  "input_invalid",
   "model_error",
   "tool_error",
   "tool_unavailable",
@@ -256,7 +257,8 @@ export type CaseConfig =
   | { mode: "document"; document: JsonObject; directory: string };
 
 export type Step =
-  | { action: "run"; settle: boolean; sessionId: string; input: Json; agent?: string; startAgent?: string }
+  | { action: "run"; settle: boolean; sessionId?: string; input: Json; meta?: JsonObject; agent?: string; startAgent?: string; awaitResult: boolean; handle?: string }
+  | { action: "awaitRun"; settle: boolean; handle: string }
   | { action: "decide"; settle: boolean; operation: string; value: Json; sessionId?: string }
   | { action: "list"; settle: boolean; sessionId?: string }
   | { action: "abort"; settle: boolean; sessionId: string }
@@ -776,6 +778,7 @@ function parseConfig(raw: Json | undefined, pointer: string): CaseConfig {
 
 const STEP_ACTIONS = [
   "run",
+  "awaitRun",
   "decide",
   "list",
   "abort",
@@ -812,19 +815,31 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
   switch (action) {
     case "run": {
       const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["sessionId", "input", "agent", "startAgent"]);
+      requireKeys(payload, valuePointer, ["sessionId", "input", "meta", "agent", "startAgent", "awaitResult", "handle"]);
       if (!Object.hasOwn(payload, "input")) fail(valuePointer, "run requires input");
       const step: Step = {
         action: "run",
         settle,
-        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
         input: payload["input"] ?? null,
+        awaitResult: Object.hasOwn(payload, "awaitResult")
+          ? readBoolean(payload["awaitResult"], at(valuePointer, "awaitResult"))
+          : true,
       };
+      if (Object.hasOwn(payload, "sessionId")) step.sessionId = readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"));
+      if (Object.hasOwn(payload, "meta")) step.meta = readObject(payload["meta"], at(valuePointer, "meta"));
       if (Object.hasOwn(payload, "agent")) step.agent = readNonEmptyString(payload["agent"], at(valuePointer, "agent"));
       if (Object.hasOwn(payload, "startAgent")) {
         step.startAgent = readNonEmptyString(payload["startAgent"], at(valuePointer, "startAgent"));
       }
+      if (Object.hasOwn(payload, "handle")) step.handle = readNonEmptyString(payload["handle"], at(valuePointer, "handle"));
+      if (!step.awaitResult && step.handle === undefined) fail(valuePointer, "a run that does not await its result requires handle");
+      if (step.awaitResult && step.handle !== undefined) fail(at(valuePointer, "handle"), "is only allowed when awaitResult is false");
       return step;
+    }
+    case "awaitRun": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["handle"]);
+      return { action, settle, handle: readNonEmptyString(payload["handle"], at(valuePointer, "handle")) };
     }
     case "decide": {
       const payload = readObject(value, valuePointer);
@@ -1123,7 +1138,7 @@ export function parseExpected(raw: Json, caseFile: CaseFile): ExpectedFile {
     }
     if (
       step.kind === "result" &&
-      !["run", "decide", "list", "abort", "acquireLease", "renewLease", "appendJournal", "scanJournal", "headJournal"].includes(actual.action)
+      !["run", "awaitRun", "decide", "list", "abort", "acquireLease", "renewLease", "appendJournal", "scanJournal", "headJournal"].includes(actual.action)
     ) {
       fail(`/steps/${String(index)}/result`, `step ${actual.action} has no return value`);
     }

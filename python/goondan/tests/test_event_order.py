@@ -40,7 +40,7 @@ async def test_journal_and_observational_events_share_one_ordered_channel():
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: "ok")},
         host=host,
     )
-    await runtime.run("hello", session_id="s")
+    await (await runtime.run("hello", session_id="s")).result
     assert host.types() == [
         "turn.start", "input.received", "agent.start", "conversation.message.appended",
         "step.start", "step.done", "conversation.message.appended", "tool.start",
@@ -63,7 +63,7 @@ async def test_failed_execution_closes_agent_before_turn():
 
     runtime = create_goondan({"agents": {"main": {"model": "m"}}}, models={"m": broken}, host=host)
     with pytest.raises(GoondanExecutionError):
-        await runtime.run("hello", session_id="s")
+        await (await runtime.run("hello", session_id="s")).result
     assert host.types()[-3:] == ["step.error", "agent.error", "turn.error"]
     agent_error, turn_error = host.events[-2:]
     assert agent_error["data"]["status"] == "failed"
@@ -85,7 +85,7 @@ async def test_approval_creation_is_journaled_without_tool_execution_events():
         tools={"work": define_tool(name="work", description="work", input={"type": "object"}, execute=lambda value, ctx: value)},
         host=host,
     )
-    await runtime.run("hello", session_id="s")
+    await (await runtime.run("hello", session_id="s")).result
     assert "operation.created" in host.types()
     assert not {"tool.start", "tool.done", "tool.error"} & set(host.types())
     await runtime.close()

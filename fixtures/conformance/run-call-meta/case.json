@@ -1,0 +1,49 @@
+{
+  "description": "run 호출 메타는 원본 입력의 route 조건과 입력 훅, 저장 메시지와 input.received 이벤트에서 유지된다.",
+  "spec": [
+    "입력",
+    "route 조건",
+    "단계 실행 순서",
+    "저널 이벤트 종류"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "hooks": {
+            "onPrompt": [
+              {"fn": "inspectPrompt"}
+            ]
+          }
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": "main",
+          "when": {"fn": "choose"}
+        },
+        {"from": "main", "to": "$output"}
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {"responses": [{"text": "메타 확인"}]}
+    },
+    "functions": {
+      "choose": {"op": "equals", "path": "/input/0/meta/channel", "value": "web"},
+      "inspectPrompt": {"op": "identity"}
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "meta",
+        "input": "안녕",
+        "meta": {"channel": "web", "requestType": "chat"}
+      }
+    }
+  ]
+}

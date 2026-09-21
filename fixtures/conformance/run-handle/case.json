@@ -1,0 +1,52 @@
+{
+  "description": "run은 입력 수락 뒤 식별자 핸들을 반환하며 result와 idle이 진행 중인 턴의 완료를 기다린다.",
+  "spec": [
+    "실행 핸들",
+    "남은 작업 대기"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": ["main"]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "await": "accepted",
+            "then": {"text": "지연 완료"}
+          },
+          {"text": "idle 완료"}
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "input": "세션 자동 생성",
+        "awaitResult": false,
+        "handle": "generated"
+      },
+      "settle": false
+    },
+    {"reach": "accepted", "settle": false},
+    {"release": "accepted"},
+    {"awaitRun": {"handle": "generated"}},
+    {
+      "run": {
+        "sessionId": "idle-session",
+        "input": "기다리지 않은 결과",
+        "awaitResult": false,
+        "handle": "idle"
+      }
+    },
+    {"awaitRun": {"handle": "idle"}}
+  ]
+}

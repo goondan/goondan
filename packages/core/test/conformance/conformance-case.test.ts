@@ -7,7 +7,7 @@ const minimal: Json = { description: "설명", spec: ["에이전트"], steps: []
 describe("parseCase", () => {
   it("fills the default config and empty bindings", () => {
     const parsed = parseCase(minimal);
-    expect(parsed.config).toEqual({ mode: "file", path: "config", variants: [] });
+    expect(parsed.config).toEqual({ mode: "file", path: "config" });
     expect(parsed.bindings.models.size).toBe(0);
     expect(parsed.steps).toEqual([]);
   });
@@ -20,7 +20,6 @@ describe("parseCase", () => {
 
   it("rejects path together with document", () => {
     expect(() => parseCase({ ...minimal, config: { path: "config", document: {} } })).toThrow("both path and document");
-    expect(() => parseCase({ ...minimal, config: { document: {}, variants: [] } })).toThrow("/config/variants");
     expect(() => parseCase({ ...minimal, config: { path: "c", directory: "d" } })).toThrow("/config/directory");
   });
 

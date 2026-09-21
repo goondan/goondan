@@ -211,7 +211,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
     if (caseFile.config.mode === "file") {
       const entry = resolve(caseDirectory, caseFile.config.path);
       try {
-        loaded = await loadConfig(entry, caseFile.config.variants);
+        loaded = await loadConfig(entry);
       } catch (error) {
         setupError = { phase: "load", error };
         throw error;

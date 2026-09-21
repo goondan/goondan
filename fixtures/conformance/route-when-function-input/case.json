@@ -1,5 +1,5 @@
 {
-  "description": "$input route의 when 함수는 output null, 입력 텍스트와 변환된 턴 입력 메시지 배열을 받는다.",
+  "description": "$input route의 when 함수는 output null, 입력 텍스트와 수신 에이전트 정보가 아직 붙지 않은 호스트 입력 메시지 배열을 받는다.",
   "spec": [
     "route 조건",
     "입력"

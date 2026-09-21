@@ -361,53 +361,6 @@ async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_counts
         await runtime.close()
 
 
-# --- the model call limit ----------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("value", [0, -1, "2", True, 1.5])
-def test_an_invalid_max_steps_fails_the_runtime_creation(value: Any):
-    with pytest.raises(ValueError):
-        create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": Model()}, max_steps=value)
-
-
-@pytest.mark.asyncio
-async def test_a_run_that_reached_the_model_call_limit_fails_without_another_call_or_error_stage():
-    host = Host()
-    errors: list[Any] = []
-    model = Model(tool_call("echo", "c-1"), tool_call("echo", "c-2"), answer())
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onError": [{"name": "seen", "fn": "seen"}]}}}}
-    runtime = create_goondan(
-        config=config, models={"m": model}, host=host, max_steps=2,
-        tools={"echo": define_tool(name="echo", description="echo", input={}, execute=lambda value, ctx: value)},
-        functions={"seen": lambda value: errors.append(value) or value},
-    )
-    try:
-        with pytest.raises(GoondanError) as failure:
-            await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("runtime", ["runtime_error"])
-        assert len(model.inputs) == 2 and errors == []
-        assert [event["type"] for event in host.events if event["type"] == "step.start"] == ["step.start"] * 2
-    finally:
-        await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_the_model_call_limit_counts_retried_calls():
-    model = Model(answer("first"), answer("second"), answer("third"))
-    config = {"agents": {"main": {"model": "m", "hooks": {"onModelResult": [{"name": "again", "fn": "again"}]}}}}
-    runtime = create_goondan(
-        config=config, models={"m": model}, max_steps=2, max_retries=5,
-        functions={"again": lambda value: {"retry": True, "target": "model"}},
-    )
-    try:
-        with pytest.raises(GoondanError) as failure:
-            await runtime.run("hello", session_id="c1")
-        assert failure.value.codes == ["runtime_error"]
-        assert len(model.inputs) == 2
-    finally:
-        await runtime.close()
-
-
 # --- input -------------------------------------------------------------------------------------
 
 

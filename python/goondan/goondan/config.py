@@ -1,11 +1,11 @@
-"""File composition, variants, path declarations, inheritance and the four validation phases."""
+"""File composition, path declarations, inheritance and the four validation phases."""
 
 from __future__ import annotations
 
 import copy
 import os
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from . import _schema
 from ._schema import Issue, Segment, issue
@@ -494,23 +494,11 @@ def _prepare(
     return config
 
 
-def load_config(
-    directory: str | Path,
-    variants: Iterable[str] | None = None,
-) -> GoondanConfig:
+def load_config(directory: str | Path) -> GoondanConfig:
     """Read, compose and validate a configuration from disk (read, schema and reference phases)."""
-    names = list(variants or [])
-    for name in names:
-        if not isinstance(name, str) or not name or "/" in name or "\\" in name:
-            _fail("load.not_found", (), f"variant names must not be empty or contain a path separator: {name!r}")
-
     entry = _target_of(os.path.abspath(str(directory)), (), directories=True)
     entry_directory = os.path.dirname(os.path.realpath(entry))
     document = _compose_file(entry, {}, (), (), ())
-    for name in names:
-        variant = _target_of(os.path.join(entry_directory, "variants", f"{name}.yaml"), (), directories=False)
-        document = _merge(document, _compose_file(variant, {}, (), (), ()))
-
     return _prepare(
         document,
         directory=entry_directory,

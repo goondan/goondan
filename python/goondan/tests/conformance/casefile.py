@@ -328,7 +328,7 @@ class _Check:
     def bindings(self, value: Any, path: str) -> None:
         if not self.mapping(value, path):
             return
-        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "maxRetries", "maxSteps"))
+        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "maxRetries"))
         if "models" in value and self.mapping(value["models"], f"{path}/models"):
             for name, script in value["models"].items():
                 at = f"{path}/models/{name}"
@@ -494,11 +494,9 @@ def check_case(case: Any, expected: Any) -> None:
                 check.text(heading, f"case.json/spec/{index}")
         config = case.get("config")
         if config is not None and check.mapping(config, "case.json/config"):
-            check.keys(config, "case.json/config", ("path", "variants", "document", "directory"))
+            check.keys(config, "case.json/config", ("path", "document", "directory"))
             if "path" in config and "document" in config:
                 check.add("case.json/config", "must use either 'path' or 'document', not both")
-            if "variants" in config and "document" in config:
-                check.add("case.json/config/variants", "belongs to the file mode")
             if "directory" in config and "document" not in config:
                 check.add("case.json/config/directory", "belongs to the document mode")
             if "path" in config:
@@ -507,11 +505,6 @@ def check_case(case: Any, expected: Any) -> None:
                 check.text(config["directory"], "case.json/config/directory")
             if "document" in config:
                 check.mapping(config["document"], "case.json/config/document")
-            if "variants" in config and check.array(config["variants"], "case.json/config/variants"):
-                for index, name in enumerate(config["variants"]):
-                    # A variant name goes to the host unchanged, the empty name included: §읽기 오류
-                    # makes that name a `load.not_found` the host reports.
-                    check.text(name, f"case.json/config/variants/{index}", allow_empty=True)
         if "bindings" in case:
             check.bindings(case["bindings"], "case.json/bindings")
         if "steps" in case and check.array(case["steps"], "case.json/steps"):

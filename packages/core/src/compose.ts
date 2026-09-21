@@ -7,8 +7,6 @@ import { validateDefinition } from "./schema.ts";
 import { parseConfigDocument } from "./yaml.ts";
 import { type ConfigIssue, type ConfigIssueCode, type Json } from "./types.ts";
 
-export interface ComposeOptions { variants?: readonly string[] }
-
 export interface ComposedConfig {
   /** The composed document, before defaults, inheritance and removals. */
   document: Record<string, Json>;
@@ -16,14 +14,14 @@ export interface ComposedConfig {
   directory: string;
   /** The real path of the entry file. */
   entry: string;
-  /** Every YAML file the entry and its variants composed, in read order. */
+  /** Every YAML file in the resource graph, in read order. */
   files: readonly string[];
 }
 
 /** One YAML file: its real path for messages and its file system identity for comparisons. */
 export interface YamlFile { path: string; id: string }
 
-/** One resource graph: the entry file or one variant reads its own graph. */
+/** The resource graph that starts at the entry file. */
 interface ResourceGraph { composed: Set<string>; open: YamlFile[] }
 
 /**
@@ -185,24 +183,11 @@ export function resolveEntryFile(input: string): YamlFile {
   }
 }
 
-/**
- * Reads the entry file and the requested variants and merges them into the composed document.
- * The read phase stops at the first error.
- */
-export function composeConfig(input: string, options: ComposeOptions = {}): ComposedConfig {
-  const variants = options.variants ?? [];
-  for (const variant of variants) {
-    if (variant.length === 0 || variant.includes("/") || variant.includes("\\")) {
-      raise("load.not_found", [], `${JSON.stringify(variant)} is not a variant name`);
-    }
-  }
+/** Reads and composes the entry file's resource graph. The read phase stops at the first error. */
+export function composeConfig(input: string): ComposedConfig {
   const entry = resolveEntryFile(input);
   const directory = dirname(entry.path);
   const files: string[] = [];
-  let document = composeFile(entry, { composed: new Set(), open: [] }, files);
-  for (const variant of variants) {
-    const target = resolveEntryFile(join(directory, "variants", `${variant}.yaml`));
-    document = toRecord(mergeValues(document, composeFile(target, { composed: new Set(), open: [] }, files)));
-  }
+  const document = composeFile(entry, { composed: new Set(), open: [] }, files);
   return { document, directory, entry: entry.path, files };
 }

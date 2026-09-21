@@ -187,7 +187,6 @@ class ScriptedModel:
 
 def write_config(tmp_path: Path) -> Path:
     (tmp_path / "templates").mkdir()
-    (tmp_path / "variants").mkdir()
     (tmp_path / "templates" / "system.md").write_text("Agent {{ agent.name }} / {{ params.lang }}\n", encoding="utf-8")
     (tmp_path / "templates" / "note.md").write_text("NOTE={{ inputText }}\n", encoding="utf-8")
     (tmp_path / "goondan.yaml").write_text(
@@ -205,20 +204,10 @@ agents:
       - {tool: echo, hint: returns input}
     hooks:
       onInput: [{name: normalize, fn: normalize}]
-      onStep:
-        - {extension: marks}
-        - {name: delayed, fn: delayed, mode: async, optional: true}
+      onStep: [{extension: marks}]
       onModelInput: [{name: note, template: templates/note.md}]
       onToolResult: [{name: decorate, fn: decorate}]
       onOutput: [{name: polish, fn: polish}]
-""",
-        encoding="utf-8",
-    )
-    (tmp_path / "variants" / "plain.yaml").write_text(
-        """agents:
-  worker:
-    hooks:
-      onStep: [{extension: marks}]
 """,
         encoding="utf-8",
     )
@@ -244,7 +233,7 @@ async def test_native_turn_hooks_tool_storage_and_templates(tmp_path: Path):
         return messages
 
     runtime = create_goondan(
-        config=load_config(root, variants=["plain"]),
+        config=load_config(root),
         models={"scripted": model},
         tools={"echo": define_tool(name="echo", description="echo", input={"type": "object"}, execute=lambda value, ctx: value)},
         functions={
@@ -509,20 +498,9 @@ def test_empty_route_list_is_a_schema_error():
     assert [(item["code"], item["path"]) for item in error.value.issues] == [("schema.oneOf", "/routes")]
 
 
-def test_variant_names_and_shared_template_syntax(tmp_path: Path):
-    (tmp_path / "variants").mkdir()
+def test_shared_template_syntax(tmp_path: Path):
     (tmp_path / "templates").mkdir()
     (tmp_path / "goondan.yaml").write_text("agents: {main: {model: m}}\n", encoding="utf-8")
-    (tmp_path / "variants" / "changed.yaml").write_text("name: changed\n", encoding="utf-8")
-    assert load_config(tmp_path, variants=["changed"])["name"] == "changed"
-    with pytest.raises(GoondanConfigError) as missing:
-        load_config(tmp_path, variants=["changed.yaml"])
-    assert [(item["code"], item["path"]) for item in missing.value.issues] == [("load.not_found", "")]
-    assert "changed.yaml.yaml" in str(missing.value)
-    with pytest.raises(GoondanConfigError) as separator:
-        load_config(tmp_path, variants=["../changed"])
-    assert [(item["code"], item["path"]) for item in separator.value.issues] == [("load.not_found", "")]
-
     tail = tmp_path / "templates" / "tail.md"
     tail.write_text("{{ params.items | join(',') | trim }}", encoding="utf-8")
     main = tmp_path / "templates" / "main.md"

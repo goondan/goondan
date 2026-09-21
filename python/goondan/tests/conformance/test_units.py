@@ -262,14 +262,6 @@ def test_check_case_rejects_an_unknown_key_and_a_missing_key():
     assert any("description" in problem for problem in error.value.problems)
 
 
-def test_check_case_keeps_a_variant_name_the_host_has_to_reject():
-    """§읽기 오류: an empty variant name is a `load.not_found` the host reports, not a case problem."""
-    check_case(minimal_case(config={"path": "goondan.yaml", "variants": [""]}), {"steps": []})
-    with pytest.raises(CaseFormatError) as error:
-        check_case(minimal_case(config={"path": "goondan.yaml", "variants": [1]}), {"steps": []})
-    assert any("variants/0" in problem for problem in error.value.problems)
-
-
 def test_check_case_accepts_a_run_model_operation_whose_messages_are_no_array():
     """§훅 컨텍스트와 호스트 함수: `model.run` gets the value unchanged, so any JSON may be passed."""
 

@@ -249,11 +249,10 @@ export interface CaseBindings {
   extensions: Map<string, ExtensionScript>;
   ports: Map<string, Json>;
   maxRetries?: { value: Json };
-  maxSteps?: { value: Json };
 }
 
 export type CaseConfig =
-  | { mode: "file"; path: string; variants: string[] }
+  | { mode: "file"; path: string }
   | { mode: "document"; document: JsonObject; directory: string };
 
 export type Step =
@@ -712,7 +711,7 @@ function parseExtensionScript(raw: Json | undefined, pointer: string, name: stri
 
 function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
   const object = readObject(raw, pointer);
-  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "maxRetries", "maxSteps"]);
+  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "maxRetries"]);
   const bindings: CaseBindings = {
     models: new Map(),
     tools: new Map(),
@@ -749,19 +748,17 @@ function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
     for (const [name, value] of Object.entries(ports)) bindings.ports.set(name, value ?? null);
   }
   if (Object.hasOwn(object, "maxRetries")) bindings.maxRetries = { value: object["maxRetries"] ?? null };
-  if (Object.hasOwn(object, "maxSteps")) bindings.maxSteps = { value: object["maxSteps"] ?? null };
   return bindings;
 }
 
 function parseConfig(raw: Json | undefined, pointer: string): CaseConfig {
-  if (raw === undefined) return { mode: "file", path: "config", variants: [] };
+  if (raw === undefined) return { mode: "file", path: "config" };
   const object = readObject(raw, pointer);
-  requireKeys(object, pointer, ["path", "variants", "document", "directory"]);
+  requireKeys(object, pointer, ["path", "document", "directory"]);
   const hasPath = Object.hasOwn(object, "path");
   const hasDocument = Object.hasOwn(object, "document");
   if (hasPath && hasDocument) fail(pointer, "must not have both path and document");
   if (hasDocument) {
-    if (Object.hasOwn(object, "variants")) fail(at(pointer, "variants"), "is only allowed with path");
     return {
       mode: "document",
       document: readObject(object["document"], at(pointer, "document")),
@@ -774,7 +771,6 @@ function parseConfig(raw: Json | undefined, pointer: string): CaseConfig {
   return {
     mode: "file",
     path: hasPath ? readNonEmptyString(object["path"], at(pointer, "path")) : "config",
-    variants: Object.hasOwn(object, "variants") ? readStringArray(object["variants"], at(pointer, "variants")) : [],
   };
 }
 

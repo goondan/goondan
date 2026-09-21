@@ -1,4 +1,4 @@
-"""§파일 합성, variant와 경로 기준 and §YAML 해석."""
+"""§파일 합성과 경로 기준 and §YAML 해석."""
 
 from __future__ import annotations
 
@@ -181,11 +181,9 @@ def test_template_keys_inside_params_stay_user_data(tmp_path: Path):
 
 def test_a_symlinked_entry_uses_the_target_directory(tmp_path: Path):
     write(tmp_path, "real/goondan.yaml", "agents: {main: {model: m}}\n")
-    write(tmp_path, "real/variants/changed.yaml", "name: changed\n")
     link = tmp_path / "link.yaml"
     os.symlink(tmp_path / "real" / "goondan.yaml", link)
-    config = load_config(link, variants=["changed"])
-    assert config["name"] == "changed"
+    config = load_config(link)
     assert config.directory == str((tmp_path / "real").resolve())
 
 
@@ -210,23 +208,6 @@ def test_the_yaml_suffix_check_ignores_case(tmp_path: Path):
     write(tmp_path, "Shared.YML", "agents: {main: {model: m}}\n")
     write(tmp_path, "goondan.yaml", "resources: [Shared.YML]\n")
     assert load_config(tmp_path)["agents"]["main"]["model"] == "m"
-
-
-def test_variants_are_separate_resource_graphs(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "name: base\nagents: {main: {model: m}}\n")
-    write(tmp_path, "variants/again.yaml", "resources: [../goondan.yaml]\n")
-    write(tmp_path, "variants/renamed.yaml", "name: renamed\n")
-    assert load_config(tmp_path, variants=["renamed", "again"])["name"] == "base"
-    assert load_config(tmp_path, variants=["again", "renamed"])["name"] == "renamed"
-    assert load_config(tmp_path, variants=["again", "again"])["name"] == "base"
-
-
-def test_a_variant_directory_is_not_an_entry_directory(tmp_path: Path):
-    write(tmp_path, "goondan.yaml", "agents: {main: {model: m}}\n")
-    write(tmp_path, "variants/broken.yaml/goondan.yaml", "name: nested\n")
-    with pytest.raises(GoondanConfigError) as error:
-        load_config(tmp_path, variants=["broken"])
-    assert issues_of(error) == [("load.not_yaml", "")]
 
 
 # --- API contracts -------------------------------------------------------------------------

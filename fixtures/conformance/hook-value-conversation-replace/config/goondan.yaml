@@ -4,5 +4,5 @@ agents:
     extensions:
       compact: {}
     hooks:
-      conversation:
+      onStep:
         - extension: compact

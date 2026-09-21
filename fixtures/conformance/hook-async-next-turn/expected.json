@@ -18,7 +18,10 @@
                   "type": "text",
                   "text": "첫"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [],
@@ -35,7 +38,10 @@
                   "type": "text",
                   "text": "첫"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "assistant",
@@ -55,7 +61,10 @@
                   "type": "text",
                   "text": "둘"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "user",
@@ -83,7 +92,10 @@
               "type": "text",
               "text": "첫"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -103,7 +115,10 @@
               "type": "text",
               "text": "둘"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",

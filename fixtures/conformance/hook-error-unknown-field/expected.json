@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "schema.additionalProperties",
-        "path": "/agents/main/hooks/output/0/retries"
+        "path": "/agents/main/hooks/onOutput/0/retries"
       }
     ]
   }

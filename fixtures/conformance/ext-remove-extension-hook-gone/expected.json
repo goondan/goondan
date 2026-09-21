@@ -1,7 +1,5 @@
 {
-  "steps": [
-
-  ],
+  "steps": [],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -10,11 +8,10 @@
         "base": {
           "model": "m",
           "extensions": {
-            "memo": {
-            }
+            "memo": {}
           },
           "hooks": {
-            "modelInput": [
+            "onModelInput": [
               {
                 "extension": "memo"
               }
@@ -23,24 +20,18 @@
         },
         "mid": {
           "model": "m",
-          "extensions": {
-          },
+          "extensions": {},
           "hooks": {
-            "modelInput": [
-
-            ]
+            "onModelInput": []
           }
         },
         "child": {
           "model": "m",
           "extensions": {
-            "memo": {
-            }
+            "memo": {}
           },
           "hooks": {
-            "modelInput": [
-
-            ]
+            "onModelInput": []
           }
         }
       }

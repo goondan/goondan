@@ -46,16 +46,18 @@ describe("parseCase", () => {
     expect(parsed.steps[4]).toMatchObject({ action: "parallel" });
   });
 
-  it("parses steer targets and session deletion", () => {
+  it("parses journal leases and session deletion", () => {
     const parsed = parseCase({
       ...minimal,
       steps: [
-        { steer: { sessionId: "c1", value: "추가", agent: "main" } },
+        { acquireLease: { sessionId: "c1", owner: "runner-a", lease: "a" } },
+        { renewLease: { lease: "a" } },
         { deleteSession: { sessionId: "c1" } },
       ],
     });
     expect(parsed.steps).toEqual([
-      { action: "steer", settle: true, sessionId: "c1", value: "추가", agent: "main" },
+      { action: "acquireLease", settle: true, sessionId: "c1", owner: "runner-a", lease: "a" },
+      { action: "renewLease", settle: true, lease: "a" },
       { action: "deleteSession", settle: true, sessionId: "c1" },
     ]);
   });
@@ -87,13 +89,13 @@ describe("parseCase", () => {
       bindings: {
         extensions: {
           memory: {
-            definition: { hooks: ["modelInput"] },
-            instance: { hooks: { modelInput: { op: "append", messages: [{ role: "user", text: "기억" }] } } },
+            definition: { hooks: ["onModelInput"] },
+            instance: { hooks: { onModelInput: { op: "append", messages: [{ role: "user", text: "기억" }] } } },
           },
         },
       },
     });
-    expect(parsed.bindings.extensions.get("memory")?.instance?.hooks.get("modelInput")).toMatchObject({ op: "append" });
+    expect(parsed.bindings.extensions.get("memory")?.instance?.hooks.get("onModelInput")).toMatchObject({ op: "append" });
   });
 
   it("rejects an unknown value stage", () => {
@@ -125,8 +127,8 @@ describe("parseCase", () => {
     expect(parsed.bindings.tools.get("lookup")).toMatchObject({ description: "", input: { type: "object" } });
   });
 
-  it("rejects an unknown host callback", () => {
-    expect(() => parseCase({ ...minimal, bindings: { host: { nope: true } } })).toThrow("is not a host callback");
+  it("rejects the removed host callback binding", () => {
+    expect(() => parseCase({ ...minimal, bindings: { host: { nope: true } } })).toThrow("is not a known key");
   });
 });
 

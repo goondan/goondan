@@ -22,7 +22,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "output": {
+            "onOutput": {
               "op": "constant",
               "value": "평문"
             }

@@ -1,4 +1,4 @@
-extends: ../goondan.yaml
+resources: [../goondan.yaml]
 agents:
   main:
     params:

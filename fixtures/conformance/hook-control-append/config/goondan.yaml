@@ -1,15 +1,15 @@
 agents:
   main:
     model: m
-    extensions:
-      memo: {}
     hooks:
-      conversation:
+      onStep:
         - name: ctx
-          extension: memo
+          fn: rule
+          role: system
         - name: after
           fn: mark
-          using: input
-      modelInput:
+          role: user
+      onModelInput:
         - name: mi
-          extension: memo
+          fn: add
+          role: user

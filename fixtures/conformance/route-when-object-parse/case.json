@@ -1,15 +1,47 @@
 {
   "description": "객체 조건은 출력 텍스트가 JSON이 아니거나 JSON 객체가 아니면 일치하지 않으며 NaN도 JSON으로 받아들이지 않는다.",
-  "spec": ["route 조건"],
+  "spec": [
+    "route 조건"
+  ],
   "bindings": {
     "models": {
-      "sourceModel": {"responses": [{"text": "NaN"}, {"text": "1"}]},
-      "wrongModel": {"responses": []},
-      "goodModel": {"responses": [{"text": "첫째"}, {"text": "둘째"}]}
+      "sourceModel": {
+        "responses": [
+          {
+            "text": "NaN"
+          },
+          {
+            "text": "1"
+          }
+        ]
+      },
+      "wrongModel": {
+        "responses": []
+      },
+      "goodModel": {
+        "responses": [
+          {
+            "text": "첫째"
+          },
+          {
+            "text": "둘째"
+          }
+        ]
+      }
     }
   },
   "steps": [
-    {"run": {"sessionId": "s1", "input": "첫 입력"}},
-    {"run": {"sessionId": "s2", "input": "둘째 입력"}}
+    {
+      "run": {
+        "sessionId": "s1",
+        "input": "첫 입력"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "s2",
+        "input": "둘째 입력"
+      }
+    }
   ]
 }

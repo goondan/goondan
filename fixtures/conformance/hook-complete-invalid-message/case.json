@@ -1,7 +1,7 @@
 {
   "description": "인수가 문자열 id와 source를 가진 assistant 메시지가 아니면 아무것도 예약하지 않고 오류를 던지므로 필수 훅은 toolResult 단계의 hook_error로 실행을 실패시킨다.",
   "spec": [
-    "`execution.complete`"
+    "제어 결과"
   ],
   "bindings": {
     "models": {
@@ -36,7 +36,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "toolResult": {
+            "onToolResult": {
               "op": "complete",
               "message": {
                 "role": "assistant",

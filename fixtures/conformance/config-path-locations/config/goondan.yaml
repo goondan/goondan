@@ -5,7 +5,7 @@ agents:
       - template: sys-a.md
       - text: 인라인 블록
     hooks:
-      modelInput:
+      onModelInput:
         - template: hook.md
   second:
     model: m

@@ -1,0 +1,44 @@
+{
+  "description": "onPrompt 확장 훅의 append 결과는 새 메시지 ID를 가진 메시지로 입력 묶음 뒤에 한 번 붙고, 입력 묶음과 함께 대화에 저장된다.",
+  "spec": [
+    "단계 값과 대화 저장",
+    "훅 실행과 결과",
+    "인라인 훅"
+  ],
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "context": {
+        "instance": {
+          "hooks": {
+            "onPrompt": {
+              "op": "append",
+              "messages": [
+                {
+                  "role": "system",
+                  "text": "보강된 문맥"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "prompt-append",
+        "input": "질문"
+      }
+    }
+  ]
+}

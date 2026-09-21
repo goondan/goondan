@@ -4,7 +4,7 @@ agents:
     extensions:
       probe: {}
     hooks:
-      modelInput:
+      onModelInput:
         - name: probe
           extension: probe
           optional: true

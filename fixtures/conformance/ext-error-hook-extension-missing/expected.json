@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "reference.extension",
-        "path": "/agents/main/hooks/modelInput/0/extension"
+        "path": "/agents/main/hooks/onModelInput/0/extension"
       }
     ]
   }

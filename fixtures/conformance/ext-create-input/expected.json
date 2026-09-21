@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "extensionLog": [
@@ -9,8 +8,7 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {
-        },
+        "options": {},
         "ports": {
           "db": {
             "dsn": "local"
@@ -24,8 +22,7 @@
               "locale": "ko"
             },
             "extensions": {
-              "memo": {
-              }
+              "memo": {}
             }
           }
         }

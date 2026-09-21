@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "polish",
-          "content": [
-            {
-              "type": "text",
-              "text": "[assistant:완료]"
-            }
-          ]
-        },
+        "output": "[assistant:완료]",
         "status": "done"
       }
     }
@@ -27,7 +18,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

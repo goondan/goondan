@@ -11,29 +11,11 @@ import copy
 from typing import Any, Callable, Mapping, Sequence
 
 from goondan import Extension, define_extension, define_tool
-from goondan.store import InMemoryConversationStore, InMemoryOperationStore
+from goondan.store import InMemoryStore
 
-from .casefile import HOST_CALLBACKS
-from .errors import CaseFailure, ScriptError, UnsupportedFeature
+from .errors import ScriptError, UnsupportedFeature
 from .gates import GateOwner, Gates
 from .ops import HookBridge, OpRunner, resolve
-
-EVENT_DATA_KEYS: dict[str, tuple[str, ...]] = {
-    "turn.start": ("input",),
-    "turn.done": ("output", "steps", "usage"),
-    "turn.error": ("where", "codes"),
-    "step.start": ("step",),
-    "step.textDelta": ("step", "delta"),
-    "step.done": ("step", "finishReason"),
-    "step.error": ("step", "codes"),
-    "tool.start": ("tool", "callId", "args"),
-    "tool.done": ("tool", "callId", "args", "result"),
-    "tool.error": ("tool", "callId", "args", "codes"),
-    "humanApproval.created": ("operationId", "tool", "callId", "reasons"),
-    "hook.applied": ("value", "hook"),
-    "hook.skipped": ("value", "hook"),
-    "hook.failed": ("value", "hook"),
-}
 
 OPERATION_TIMESTAMPS = ("createdAt", "updatedAt", "deliveredAt")
 
@@ -69,9 +51,11 @@ def has_member(holder: Any, name: str, camel: str) -> bool:
 
 
 MEMBER_NAMES = {
-    "agent": "agent", "session_id": "sessionId", "turn_id": "turnId", "step": "step",
+    "agent": "agent", "session_id": "sessionId", "turn_id": "turnId", "instance": "instance",
+    "execution_id": "executionId", "parent_execution_id": "parentExecutionId", "operation_id": "operationId",
+    "step": "step",
     "tool_call": "toolCall", "input": "input", "conversation": "conversation", "execution": "execution",
-    "retry_count": "retryCount",
+    "retry_count": "retryCount", "input_kind": "inputKind", "location": "location", "route": "route",
 }
 
 
@@ -81,7 +65,10 @@ def project_members(context: Any, names: Sequence[str]) -> dict[str, Any]:
     for name in names:
         camel = MEMBER_NAMES[name]
         if has_member(context, name, camel):
-            projected[camel] = snapshot(read_member(context, name, camel))
+            value = read_member(context, name, camel)
+            if value is None and name in {"parent_execution_id", "operation_id", "input_kind", "step"}:
+                continue
+            projected[camel] = snapshot(value)
     return projected
 
 
@@ -92,109 +79,26 @@ def project_operation(operation: Any) -> Any:
 
 
 def project_event(event: Mapping[str, Any]) -> dict[str, Any]:
-    data = event.get("data")
-    kept: dict[str, Any] = {}
-    if isinstance(data, Mapping):
-        allowed = EVENT_DATA_KEYS.get(str(event.get("name")))
-        names = allowed if allowed is not None else tuple(key for key in data if key != "error")
-        for key in names:
-            if key in data:
-                kept[key] = snapshot(data[key])
-        if "operationId" in data and "operationId" not in kept:
-            kept["operationId"] = snapshot(data["operationId"])
-    return {"name": event.get("name"), "agent": event.get("agent"), "sessionId": event.get("sessionId"),
-            "turnId": event.get("turnId"), "instance": event.get("instance"),
-            "parentInstance": event.get("parentInstance"), "parentTurnId": event.get("parentTurnId"),
-            "rootTurnId": event.get("rootTurnId"), "data": kept}
+    keys = (
+        "seq", "version", "type", "sessionId", "agent", "instance", "turnId", "executionId",
+        "inputId", "parentExecutionId", "operationId", "data", "skippable", "observational",
+    )
+    return {key: snapshot(event[key]) for key in keys if key in event}
 
 
 class Observations:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
+        self.raw_events: list[dict[str, Any]] = []
         self.model_inputs: dict[str, list[Any]] = {}
         self.model_contexts: dict[str, list[Any]] = {}
         self.tool_calls: list[dict[str, Any]] = []
         self.tool_contexts: list[dict[str, Any]] = []
         self.function_calls: list[dict[str, Any]] = []
+        self.function_contexts: list[dict[str, Any]] = []
         self.hook_calls: list[dict[str, Any]] = []
         self.hook_contexts: list[dict[str, Any]] = []
-        self.host_calls: list[dict[str, Any]] = []
         self.extension_log: list[dict[str, Any]] = []
-
-
-class RecordingConversationStore(InMemoryConversationStore):
-    """The host's in-memory conversation store with a record of the scopes it stored.
-
-    The runner store is the language's memory store plus recording, so the runtime sees
-    exactly the store protocol the host ships. Scopes come out in the order they were
-    first written; a scope that was only read is not an observation.
-    """
-
-    def observation(self) -> dict[str, Any]:
-        return {f"{session_id}/{agent}": snapshot(messages)
-                for (session_id, agent), messages in self.conversations.items()}
-
-
-class RecordingOperationStore(InMemoryOperationStore):
-    """The host's in-memory operation store with a record of the changes it accepted.
-
-    Every method the runtime calls goes through the store the host ships, and the runner
-    only adds the history entry a change that was accepted produces. A transition the
-    store refused returns `None` and leaves the history alone.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.history: dict[tuple[str, str], list[str]] = {}
-
-    def _note(self, operation: Any) -> None:
-        if not isinstance(operation, Mapping):
-            return
-        key = (str(operation.get("sessionId")), str(operation.get("operationId")))
-        entries = self.history.setdefault(key, [])
-        entry = f"{operation.get('status')}/{operation.get('deliveryStatus')}"
-        if not entries or entries[-1] != entry:
-            entries.append(entry)
-
-    async def save(self, operation: dict[str, Any]) -> None:
-        await super().save(operation)
-        self._note(operation)
-
-    async def transition(self, *arguments: Any, **options: Any) -> dict[str, Any] | None:
-        changed = await super().transition(*arguments, **options)
-        self._note(changed)
-        return changed
-
-    async def claim_delivery(self, *arguments: Any, **options: Any) -> dict[str, Any] | None:
-        changed = await super().claim_delivery(*arguments, **options)
-        self._note(changed)
-        return changed
-
-    async def release_delivery(self, *arguments: Any, **options: Any) -> dict[str, Any] | None:
-        changed = await super().release_delivery(*arguments, **options)
-        self._note(changed)
-        return changed
-
-    def keys(self) -> list[tuple[str, str]]:
-        """The stored operations in the order they were first saved."""
-        return list(self.operations)
-
-    def aliases(self) -> dict[str, str]:
-        """Map each operation identifier to `<op:callId>`, numbering repeats from the second."""
-        used: dict[str, int] = {}
-        mapping: dict[str, str] = {}
-        for key in self.keys():
-            operation = self.operations.get(key, {})
-            call = operation.get("toolCall") if isinstance(operation, Mapping) else None
-            call_id = call.get("id") if isinstance(call, Mapping) else None
-            label = str(call_id) if isinstance(call_id, str) else "unknown"
-            used[label] = used.get(label, 0) + 1
-            suffix = "" if used[label] == 1 else f"#{used[label]}"
-            mapping[key[1]] = f"<op:{label}{suffix}>"
-        return mapping
-
-    def observation_history(self, aliases: Mapping[str, str]) -> dict[str, list[str]]:
-        return {aliases.get(key[1], key[1]): list(entries) for key, entries in self.history.items()}
 
 
 class CaseState:
@@ -206,8 +110,9 @@ class CaseState:
         self.gates = Gates()
         self.ops = OpRunner(self.gates)
         self.observations = Observations()
-        self.conversation_store = RecordingConversationStore()
-        self.operation_store = RecordingOperationStore()
+        self.store = InMemoryStore()
+        self.operation_aliases: dict[str, str] = {}
+        self.operation_records: dict[str, Any] = {}
         self.model_cursor: dict[str, int] = {}
         self.tool_cursor: dict[str, int] = {}
         self.instances = 0
@@ -269,24 +174,42 @@ class CaseState:
                 sizes[f"{name}.{tool_name}"] = len(tool_script.get("results", []))
         return sizes
 
-    def observation_document(self, effective_config: Any, operations: Any) -> dict[str, Any]:
-        aliases = self.operation_store.aliases()
+    def record_operations(self, operations: Sequence[Any]) -> None:
+        used: dict[str, int] = {}
+        for operation in operations:
+            if not isinstance(operation, Mapping) or not isinstance(operation.get("operationId"), str):
+                continue
+            operation_id = operation["operationId"]
+            call = operation.get("toolCall")
+            call_id = call.get("id") if isinstance(call, Mapping) else "unknown"
+            label = str(call_id) if isinstance(call_id, str) else "unknown"
+            used[label] = used.get(label, 0) + 1
+            suffix = "" if used[label] == 1 else f"#{used[label]}"
+            self.operation_aliases.setdefault(operation_id, f"<op:{label}{suffix}>")
+            self.operation_records[operation_id] = snapshot(operation)
+
+    def observation_document(
+        self, effective_config: Any, journal_events: Any, journal_states: Any,
+        conversations: Any, operations: Any, operation_history: Any,
+    ) -> dict[str, Any]:
         observed = self.observations
         return {
             "effectiveConfig": effective_config,
             "events": observed.events,
+            "journalEvents": journal_events,
+            "journalStates": journal_states,
             "modelInputs": observed.model_inputs,
             "modelContexts": observed.model_contexts,
             "toolCalls": observed.tool_calls,
             "toolContexts": observed.tool_contexts,
             "functionCalls": observed.function_calls,
+            "functionContexts": observed.function_contexts,
             "hookCalls": observed.hook_calls,
             "hookContexts": observed.hook_contexts,
-            "hostCalls": observed.host_calls,
             "extensionLog": observed.extension_log,
-            "conversations": self.conversation_store.observation(),
+            "conversations": conversations,
             "operations": operations,
-            "operationHistory": self.operation_store.observation_history(aliases),
+            "operationHistory": operation_history,
         }
 
 
@@ -301,7 +224,6 @@ class RuntimeBindings:
         self.functions = {name: self._function(name, op) for name, op in state.bindings.get("functions", {}).items()}
         self.extensions = {name: self._extension(name, script) for name, script in state.bindings.get("extensions", {}).items()}
         self.ports = copy.deepcopy(dict(state.bindings.get("ports", {})))
-        self.host = self._host()
 
     # -- models --------------------------------------------------------------------------
 
@@ -313,7 +235,10 @@ class RuntimeBindings:
             async def generate(self, model_input: Any, context: Any = None) -> Any:
                 state.observations.model_inputs.setdefault(name, []).append(snapshot(model_input))
                 state.observations.model_contexts.setdefault(name, []).append(
-                    project_members(context, ("agent", "session_id", "turn_id", "step")) if context is not None else None
+                    project_members(context, (
+                        "agent", "session_id", "turn_id", "instance", "execution_id",
+                        "parent_execution_id", "operation_id", "step",
+                    )) if context is not None else None
                 )
                 response = state.next_model_response(name)
                 return await self._respond(response, context)
@@ -363,7 +288,10 @@ class RuntimeBindings:
         async def execute(args: Any, context: Any) -> Any:
             state.observations.tool_calls.append({"tool": name, "args": snapshot(args)})
             projected = {"tool": name}
-            projected.update(project_members(context, ("agent", "session_id", "turn_id")))
+            projected.update(project_members(context, (
+                "agent", "session_id", "turn_id", "instance", "execution_id",
+                "parent_execution_id", "operation_id",
+            )))
             call = read_member(context, "tool_call", "toolCall")
             if call is not None:
                 projected["toolCall"] = {"id": read_member(call, "id", "id"), "name": read_member(call, "name", "name"),
@@ -380,17 +308,19 @@ class RuntimeBindings:
                 return await run_result(item["then"], context)
             if "error" in item:
                 raise ScriptError(item["error"])
-            if "raw" in item:
-                return copy.deepcopy(item["raw"])
+            if "value" in item:
+                return copy.deepcopy(item["value"])
+            if "result" in item:
+                return copy.deepcopy(item["result"])
             if "runAgent" in item:
                 request = item["runAgent"]
-                run = read_member(context, "run_agent", "runAgent")
+                agents = read_member(context, "agents", "agents")
+                run = read_member(agents, "run", "run")
                 if run is None:
-                    raise state.unsupported_feature("tool context 'run_agent'")
-                outcome = await resolve(run(request["name"], copy.deepcopy(request.get("input"))))
-                output = outcome.get("output") if isinstance(outcome, Mapping) else None
+                    raise state.unsupported_feature("tool context 'agents.run'")
+                output = await resolve(run(request["name"], copy.deepcopy(request.get("input"))))
                 content = output.get("content") if isinstance(output, Mapping) else None
-                return snapshot(content)
+                return snapshot(content if content is not None else [])
             if "text" in item:
                 content = [{"type": "text", "text": item["text"]}]
             elif "json" in item:
@@ -409,8 +339,16 @@ class RuntimeBindings:
         state = self.state
         owner = self.owner
 
-        async def call(value: Any) -> Any:
+        async def call(value: Any, context: Any = None) -> Any:
             state.observations.function_calls.append({"fn": name, "value": snapshot(value)})
+            projected = {"fn": name}
+            if context is not None:
+                projected["context"] = project_members(context, (
+                    "agent", "session_id", "turn_id", "instance", "execution_id",
+                    "parent_execution_id", "operation_id", "location", "route", "input_kind",
+                    "step", "retry_count", "input", "conversation",
+                ))
+            state.observations.function_contexts.append(projected)
             return await state.ops.run(op, value, site=f"functions/{name}", owner=owner)
 
         return call
@@ -463,7 +401,10 @@ class RuntimeBindings:
         async def hook(value: Any, context: Any) -> Any:
             state.observations.hook_calls.append({"extension": extension, "stage": stage, "value": snapshot(value)})
             projected = {"extension": extension, "stage": stage}
-            projected.update(project_members(context, ("agent", "session_id", "turn_id", "input", "conversation", "retry_count")))
+            projected.update(project_members(context, (
+                "agent", "session_id", "turn_id", "instance", "execution_id", "parent_execution_id",
+                "operation_id", "input_kind", "step", "input", "conversation", "retry_count",
+            )))
             state.observations.hook_contexts.append(projected)
             return await state.ops.run(op, value, site=f"extensions/{extension}/instance/hooks/{stage}",
                                        owner=owner, hook=HookBridge(context, state.note_unsupported))
@@ -478,38 +419,6 @@ class RuntimeBindings:
 
         return handle
 
-    # -- host callbacks and events -------------------------------------------------------
-
-    def _host(self) -> Any:
-        scripts = self.state.bindings.get("host", {})
-        if not scripts:
-            return None
-        namespace: dict[str, Any] = {}
-        for callback, script in scripts.items():
-            namespace[HOST_CALLBACKS[callback]] = staticmethod(self._callback(callback, script))
-        return type("ConformanceHost", (), namespace)()
-
-    def _callback(self, callback: str, script: Any) -> Callable[..., Any]:
-        state = self.state
-        owner = self.owner
-        defaults = {"validateOperation": True, "validateOperationInputPatch": True}
-
-        async def call(*arguments: Any) -> Any:
-            if callback == "validateOperationInputPatch":
-                if len(arguments) != 2:
-                    raise CaseFailure(f"{callback} expects the operation and the input patch, got {len(arguments)} arguments")
-                value: Any = {"operation": project_operation(arguments[0]), "inputPatch": snapshot(arguments[1])}
-            elif callback == "validateOperation":
-                value = project_operation(arguments[0]) if arguments else None
-            else:
-                value = snapshot(arguments[0]) if arguments else None
-            state.observations.host_calls.append({"callback": callback, "value": value})
-            if script is True:
-                return defaults.get(callback)
-            return await state.ops.run(script, value, site=f"host/{callback}", owner=owner)
-
-        return call
-
     def emit(self) -> Callable[..., Any]:
         state = self.state
 
@@ -519,7 +428,9 @@ class RuntimeBindings:
                 return
             at = event.get("at")
             if isinstance(at, bool) or not isinstance(at, (int, float)):
-                state.fail(f"the event {event.get('name')!r} must have a number 'at'")
+                state.fail(f"the event {event.get('type')!r} must have a number 'at'")
+            value = snapshot(event)
+            state.observations.raw_events.append(value)
             state.observations.events.append(project_event(event))
 
         return receive

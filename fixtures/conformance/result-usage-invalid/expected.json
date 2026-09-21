@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "modelResult",
+        "where": "onModelResult",
         "codes": [
           "value_invalid"
         ],
@@ -11,7 +11,7 @@
     },
     {
       "error": {
-        "where": "modelResult",
+        "where": "onModelResult",
         "codes": [
           "value_invalid"
         ],
@@ -30,7 +30,10 @@
               "type": "text",
               "text": "질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ],
       "c2/main": [
@@ -42,7 +45,10 @@
               "type": "text",
               "text": "질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

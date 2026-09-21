@@ -1,7 +1,7 @@
 {
   "description": "훅 컨텍스트의 model.run에 메시지 배열이 아닌 값을 전달하면 모델을 호출하지 않고 호출이 실패하며, 훅이 그 오류를 처리하지 않으면 훅이 실패한다.",
   "spec": [
-    "훅 컨텍스트와 호스트 함수",
+    "실행 컨텍스트와 호스트 함수",
     "훅 실패"
   ],
   "bindings": {
@@ -14,7 +14,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "runModel",
               "messages": "메시지 아님"
             }

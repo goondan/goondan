@@ -1,48 +1,43 @@
-import { isRecord, jsonEqual, jsonText, ownKeys } from "./json.ts";
+import { isRecord, jsonEqual, jsonIssues, jsonText, ownKeys, toJson } from "./json.ts";
 import { validateDefinition } from "./schema.ts";
 import {
-  type Json, type Message, type ModelInput, type ModelResult, type Part, type ToolCall,
-  type ToolResult, type ValueName,
+  type Complete, type Json, type Message, type ModelInput, type ModelResponse,
+  type ModelResult, type Part, type Retry, type ToolCall, type ToolExecution, type ToolResult,
+  type ToolReturn, type Usage, type ValueName,
 } from "./types.ts";
 
-/** 메시지 스키마 전체를 확인하는 타입 가드입니다. */
-export function isMessage(value: unknown): value is Message {
-  return validateDefinition("message", value, []).length === 0;
-}
-
-export function isMessageArray(value: unknown): value is Message[] {
-  return Array.isArray(value) && value.every(isMessage);
-}
-
-export function isPart(value: unknown): value is Part {
-  return validateDefinition("part", value, []).length === 0;
-}
-
-export function isPartArray(value: unknown): value is Part[] {
-  return Array.isArray(value) && value.length > 0 && value.every(isPart);
-}
-
+export function isMessage(value: unknown): value is Message { return validateDefinition("message", value, []).length === 0; }
+export function isMessageArray(value: unknown): value is Message[] { return Array.isArray(value) && value.every(isMessage); }
+export function isPart(value: unknown): value is Part { return validateDefinition("part", value, []).length === 0; }
+export function isPartArray(value: unknown): value is Part[] { return Array.isArray(value) && value.every(isPart); }
+function isJson(value: unknown): value is Json { return jsonIssues(value).length === 0; }
 export function isToolCall(value: unknown): value is ToolCall {
-  return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && "args" in value;
+  return validateDefinition("toolCall", value, []).length === 0;
 }
-
 export function isToolResult(value: unknown): value is ToolResult {
   return isRecord(value) && typeof value.callId === "string" && typeof value.name === "string"
-    && "args" in value && Array.isArray(value.content);
+    && value.callId.length > 0 && value.name.length > 0
+    && ownKeys(value).every((key) => ["callId", "name", "args", "content", "isError", "keep", "meta"].includes(key))
+    && isJson(value.args) && isPartArray(value.content)
+    && (value.isError === undefined || typeof value.isError === "boolean")
+    && (value.keep === undefined || typeof value.keep === "boolean")
+    && (value.meta === undefined || (isRecord(value.meta) && isJson(value.meta)));
 }
-
 export function isModelInput(value: unknown): value is ModelInput {
-  return isRecord(value) && Array.isArray(value.system) && Array.isArray(value.messages)
-    && Array.isArray(value.tools) && isRecord(value.options);
+  return modelInputIssue(value, "model input") === undefined;
 }
-
 export function isModelResult(value: unknown): value is ModelResult {
-  return isRecord(value) && isMessage(value.message) && typeof value.finishReason === "string";
+  return modelResultIssue(value, "model result") === undefined;
 }
 
-/** Reports why a value is not the `message` the schema defines, or `undefined` when it is one. */
+function optional(value: Record<string, unknown>, key: string, ok: (candidate: unknown) => boolean, label: string): string | undefined {
+  const candidate = value[key];
+  if (candidate === undefined) return undefined;
+  return ok(candidate) ? undefined : `${label}/${key} has an unsupported value`;
+}
+
 export function messageIssue(value: unknown, label: string): string | undefined {
-  const [first] = validateDefinition("message", value, []);
+  const first = validateDefinition("message", value, [])[0];
   if (!first) return undefined;
   return `${label}${first.path === "" ? "" : first.path} ${first.message}`;
 }
@@ -53,281 +48,262 @@ function messagesIssue(value: unknown, label: string): string | undefined {
     const issue = messageIssue(item, `${label}/${String(index)}`);
     if (issue) return issue;
   }
+  const ids = value.filter(isMessage).map((message) => message.id);
+  if (new Set(ids).size !== ids.length) return `${label} repeats a message id`;
   return undefined;
 }
 
-function partsIssue(value: unknown, label: string): string | undefined {
-  if (!Array.isArray(value)) return `${label} is not an array of parts`;
-  for (const [index, item] of value.entries()) {
-    const [first] = validateDefinition("part", item, []);
-    if (first) return `${label}/${String(index)}${first.path} ${first.message}`;
-  }
-  return undefined;
-}
-
-function optional(value: Record<string, unknown>, key: string, ok: (candidate: unknown) => boolean, label: string): string | undefined {
-  const candidate = value[key];
-  if (candidate === undefined) return undefined;
-  return ok(candidate) ? undefined : `${label}/${key} has an unsupported value`;
-}
-
-function isJsonObject(value: unknown): boolean {
-  return isRecord(value);
-}
-
-const finishReasons = new Set(["stop", "tool", "length", "other"]);
-
-/**
- * Checks the usage of a model result. Every key may be left out, and a missing key counts as 0, but
- * a key that is present carries a finite JSON number of 0 or more.
- */
 function usageIssue(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return `${label}/usage is not an object`;
+  for (const key of ownKeys(value)) if (!["input", "output", "cacheRead", "cacheWrite"].includes(key)) return `${label}/usage/${key} is not supported`;
   for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
-    const number = value[key];
-    if (number === undefined) continue;
-    if (typeof number !== "number" || !Number.isFinite(number) || number < 0) return `${label}/usage/${key} is not a number of 0 or more`;
+    const count = value[key];
+    if (count !== undefined && (typeof count !== "number" || !Number.isFinite(count) || count < 0)) return `${label}/usage/${key} is not a number of 0 or more`;
   }
   return undefined;
 }
 
 function modelInputIssue(value: unknown, label: string): string | undefined {
   if (!isRecord(value)) return `${label} is not a model input`;
-  if (!Array.isArray(value.system)) return `${label}/system is not an array of system blocks`;
-  for (const [index, block] of value.system.entries()) {
-    if (!isRecord(block) || typeof block.text !== "string" || typeof block.source !== "string") return `${label}/system/${String(index)} is not a system block`;
-    if (block.cache !== undefined && typeof block.cache !== "boolean") return `${label}/system/${String(index)}/cache is not a boolean`;
+  if (ownKeys(value).some((key) => !["system", "messages", "tools", "options"].includes(key))) return `${label} has an unsupported field`;
+  if (!Array.isArray(value.system)) return `${label}/system is not an array`;
+  for (const block of value.system) {
+    if (!isRecord(block) || typeof block.text !== "string" || typeof block.source !== "string"
+      || ownKeys(block).some((key) => !["text", "source", "cache"].includes(key))
+      || (block.cache !== undefined && typeof block.cache !== "boolean")) return `${label}/system contains an invalid block`;
   }
-  const messages = messagesIssue(value.messages, `${label}/messages`);
-  if (messages) return messages;
-  if (!Array.isArray(value.tools)) return `${label}/tools is not an array of tool definitions`;
-  for (const [index, tool] of value.tools.entries()) {
-    if (!isRecord(tool) || typeof tool.name !== "string" || typeof tool.description !== "string" || !isRecord(tool.input)) {
-      return `${label}/tools/${String(index)} is not a tool definition`;
-    }
-  }
-  if (!isRecord(value.options)) return `${label}/options is not an object`;
+  const messageProblem = messagesIssue(value.messages, `${label}/messages`);
+  if (messageProblem) return messageProblem;
+  if (!Array.isArray(value.tools) || value.tools.some((tool) => !isRecord(tool) || typeof tool.name !== "string"
+    || typeof tool.description !== "string" || !isRecord(tool.input) || !isJson(tool.input)
+    || ownKeys(tool).some((key) => !["name", "description", "input"].includes(key)))) return `${label}/tools is invalid`;
+  if (!isRecord(value.options) || !isJson(value.options)) return `${label}/options is not a JSON object`;
   return undefined;
 }
 
 function modelResultIssue(value: unknown, label: string): string | undefined {
   if (!isRecord(value)) return `${label} is not a model result`;
-  const message = messageIssue(value.message, `${label}/message`);
-  if (message) return message;
-  if (!isRecord(value.message) || value.message.role !== "assistant") return `${label}/message/role is not "assistant"`;
-  if (typeof value.finishReason !== "string" || !finishReasons.has(value.finishReason)) return `${label}/finishReason is not a finish reason`;
+  if (ownKeys(value).some((key) => !["message", "usage", "finishReason"].includes(key))) return `${label} has an unsupported field`;
+  const problem = messageIssue(value.message, `${label}/message`);
+  if (problem) return problem;
+  if (!isRecord(value.message) || value.message.role !== "assistant") return `${label}/message/role is not assistant`;
+  if (value.finishReason !== "stop" && value.finishReason !== "tool" && value.finishReason !== "length" && value.finishReason !== "other") {
+    return `${label}/finishReason is invalid`;
+  }
   return usageIssue(value.usage, label);
 }
 
-function toolCallIssue(value: unknown, label: string, callId: string | undefined): string | undefined {
-  if (!isRecord(value)) return `${label} is not a tool call`;
-  if (typeof value.id !== "string") return `${label}/id is not a string`;
-  if (typeof value.name !== "string") return `${label}/name is not a string`;
-  if (!("args" in value)) return `${label}/args is missing`;
+function toolCallIssue(value: unknown, label: string, callId?: string): string | undefined {
+  if (!isToolCall(value)) return `${label} is not a tool call`;
   if (callId !== undefined && value.id !== callId) return `${label}/id does not name the tool call being processed`;
   return undefined;
 }
 
-function toolResultIssue(value: unknown, label: string, callId: string | undefined): string | undefined {
-  if (!isRecord(value)) return `${label} is not a tool result`;
-  if (typeof value.callId !== "string") return `${label}/callId is not a string`;
-  if (typeof value.name !== "string") return `${label}/name is not a string`;
-  if (!("args" in value)) return `${label}/args is missing`;
-  const parts = partsIssue(value.content, `${label}/content`);
-  if (parts) return parts;
+function toolResultIssue(value: unknown, label: string, callId?: string): string | undefined {
+  if (!isToolResult(value)) return `${label} is not a tool result`;
   if (callId !== undefined && value.callId !== callId) return `${label}/callId does not name the tool call being processed`;
-  return optional(value, "isError", (candidate) => typeof candidate === "boolean", label)
-    ?? optional(value, "keep", (candidate) => typeof candidate === "boolean", label)
-    ?? optional(value, "meta", isJsonObject, label);
+  return undefined;
 }
 
-/**
- * Reports why a value does not satisfy the form of a value processing stage, or `undefined` when it
- * does. `callId` is the identifier of the tool call the `toolCall` and `toolResult` stages process.
- */
 export function stageValueIssue(stage: ValueName, value: unknown, callId?: string): string | undefined {
   const label = `the ${stage} value`;
   switch (stage) {
-    case "input": return messagesIssue(value, label);
-    case "error": return undefined;
-    case "conversation": return messagesIssue(value, label);
-    case "modelInput": return modelInputIssue(value, label);
-    case "modelResult": return modelResultIssue(value, label);
-    case "toolCall": return toolCallIssue(value, label, callId);
-    case "toolResult": return toolResultIssue(value, label, callId);
-    case "output": {
-      const issue = messageIssue(value, label);
-      if (issue) return issue;
-      return isRecord(value) && value.role === "assistant" ? undefined : `${label}/role is not "assistant"`;
+    case "onInput":
+    case "onPrompt":
+    case "onStep": return messagesIssue(value, label);
+    case "onModelInput": return modelInputIssue(value, label);
+    case "onModelResult": return modelResultIssue(value, label);
+    case "onToolCall": return toolCallIssue(value, label, callId);
+    case "onToolResult": return toolResultIssue(value, label, callId);
+    case "onOutput": {
+      const problem = messageIssue(value, label);
+      if (problem) return problem;
+      return isRecord(value) && value.role === "assistant" ? undefined : `${label}/role is not assistant`;
+    }
+    case "onError": {
+      const first = validateDefinition("executionError", value, [])[0];
+      return first ? `${label}${first.path === "" ? "" : first.path} ${first.message}` : undefined;
     }
   }
 }
 
-/** The control result a synchronous hook returned, once its form has been checked. */
+export interface Normalized<T> { value?: T; issue?: string }
+
+export function normalizeModelResponse(value: unknown, id: string): Normalized<ModelResult> {
+  if (!isRecord(value) || !isRecord(value.message)) return { issue: "the model response is not an object with a message" };
+  if (ownKeys(value).some((key) => !["message", "finishReason", "usage"].includes(key))) return { issue: "the model response has an unsupported field" };
+  if (ownKeys(value.message).some((key) => !["id", "role", "content", "source", "key", "keep", "meta"].includes(key))) {
+    return { issue: "the model response/message has an unsupported field" };
+  }
+  if (value.message.role !== "assistant") return { issue: "the model response/message/role is not assistant" };
+  if (!isPartArray(value.message.content)) return { issue: "the model response/message/content is not an array of parts" };
+  if (value.message.id !== undefined && (typeof value.message.id !== "string" || value.message.id.length === 0)) return { issue: "the model response/message/id is invalid" };
+  if (value.message.source !== undefined && (typeof value.message.source !== "string" || value.message.source.length === 0)) return { issue: "the model response/message/source is invalid" };
+  if (value.message.key !== undefined && typeof value.message.key !== "string") return { issue: "the model response/message/key is invalid" };
+  if (value.message.keep !== undefined && typeof value.message.keep !== "boolean") return { issue: "the model response/message/keep is invalid" };
+  if (value.message.meta !== undefined && (!isRecord(value.message.meta) || !isJson(value.message.meta))) return { issue: "the model response/message/meta is invalid" };
+  if (value.finishReason !== "stop" && value.finishReason !== "tool" && value.finishReason !== "length" && value.finishReason !== "other") {
+    return { issue: "the model response/finishReason is invalid" };
+  }
+  const usageProblem = usageIssue(value.usage, "the model response");
+  if (usageProblem) return { issue: usageProblem };
+  const complete: Message = {
+    id: typeof value.message.id === "string" ? value.message.id : id,
+    role: "assistant",
+    content: structuredClone(value.message.content),
+    source: typeof value.message.source === "string" ? value.message.source : "model",
+  };
+  if (typeof value.message.key === "string") complete.key = value.message.key;
+  if (typeof value.message.keep === "boolean") complete.keep = value.message.keep;
+  if (isRecord(value.message.meta)) {
+    const meta = toJson(value.message.meta);
+    if (meta === undefined || !isRecord(meta)) return { issue: "the model response/message/meta is invalid" };
+    complete.meta = meta;
+  }
+  const result: ModelResult = { message: complete, finishReason: value.finishReason };
+  if (isRecord(value.usage)) {
+    const candidate: Partial<Usage> = {};
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+      const count = value.usage[key];
+      if (typeof count === "number") Object.defineProperty(candidate, key, { value: count, enumerable: true, writable: true });
+    }
+    result.usage = candidate;
+  }
+  return { value: result };
+}
+
+export function normalizeToolReturn(value: unknown, call: ToolCall): Normalized<ToolResult> {
+  let content: Part[];
+  let isError: boolean | undefined;
+  let keep: boolean | undefined;
+  let meta: Record<string, Json> | undefined;
+  if (Array.isArray(value) && value.every(isPart)) content = structuredClone(value);
+  else if (isRecord(value) && Object.hasOwn(value, "content")) {
+    const extra = ownKeys(value).filter((key) => !["content", "isError", "keep", "meta"].includes(key));
+    if (extra.length > 0 || !isPartArray(value.content)) return { issue: "the tool result object is invalid" };
+    const optionalIssue = optional(value, "isError", (item) => typeof item === "boolean", "the tool result")
+      ?? optional(value, "keep", (item) => typeof item === "boolean", "the tool result")
+      ?? optional(value, "meta", (item) => isRecord(item) && isJson(item), "the tool result");
+    if (optionalIssue) return { issue: optionalIssue };
+    content = structuredClone(value.content);
+    if (typeof value.isError === "boolean") isError = value.isError;
+    if (typeof value.keep === "boolean") keep = value.keep;
+    if (isRecord(value.meta)) {
+      const candidate = toJson(value.meta);
+      if (candidate !== undefined && isRecord(candidate)) meta = candidate;
+    }
+  } else {
+    if (!isJson(value)) return { issue: "the tool returned a non-JSON value" };
+    const json = toJson(value);
+    if (json === undefined) return { issue: "the tool returned a non-JSON value" };
+    content = [{ type: "json", value: json }];
+  }
+  const result: ToolResult = { callId: call.id, name: call.name, args: structuredClone(call.args), content };
+  if (isError !== undefined) result.isError = isError;
+  if (keep !== undefined) result.keep = keep;
+  if (meta !== undefined) result.meta = meta;
+  return { value: result };
+}
+
 export type ControlResult =
   | { kind: "append"; messages: Message[] }
   | { kind: "call"; call: ToolCall; execution?: Record<string, Json> }
   | { kind: "approval"; reason: string }
-  | { kind: "result"; result: ToolResult }
-  | { kind: "retry"; target: "model" | "tool"; afterMs?: number };
-
-/** A control-shaped result whose form the specification does not allow. */
+  | { kind: "result"; result: ToolReturn }
+  | { kind: "retry"; target: "model" | "tool"; afterMs?: number }
+  | { kind: "complete"; output: Message };
 export interface ControlIssue { issue: string }
+export function isControlIssue(value: ControlResult | ControlIssue): value is ControlIssue { return "issue" in value; }
 
-export function isControlIssue(value: ControlResult | ControlIssue): value is ControlIssue {
-  return "issue" in value;
-}
+function extraKeys(value: Record<string, unknown>, allowed: readonly string[]): string[] { return ownKeys(value).filter((key) => !allowed.includes(key)); }
+function unexpected(keys: readonly string[]): ControlIssue { return { issue: `a control result cannot declare ${keys.join(", ")}` }; }
 
-/** The control keys each stage recognises; the same shape elsewhere is an ordinary value. */
-const controlKeys: Readonly<Record<ValueName, readonly string[]>> = {
-  input: [],
-  conversation: ["append"],
-  modelInput: ["append"],
-  modelResult: ["retry"],
-  toolCall: ["call", "approval", "result"],
-  toolResult: [],
-  output: [],
-  error: ["retry"],
-};
-
-function extraKeys(value: Record<string, unknown>, allowed: readonly string[]): string[] {
-  return ownKeys(value).filter((key) => !allowed.includes(key));
-}
-
-function unexpected(keys: readonly string[]): ControlIssue {
-  return { issue: `a control result cannot declare ${keys.map((key) => JSON.stringify(key)).join(", ")}` };
-}
-
-/**
- * Classifies a hook result at one stage: `undefined` when it is an ordinary value, a
- * {@link ControlResult} when it is a well formed control result, and a {@link ControlIssue} when it
- * is control shaped but malformed.
- */
 export function controlResult(stage: ValueName, value: unknown, callId?: string): ControlResult | ControlIssue | undefined {
   if (!isRecord(value)) return undefined;
-  const present = controlKeys[stage].filter((key) => ownKeys(value).includes(key));
-  const [key] = present;
-  if (key === undefined) return undefined;
-  if (present.length > 1) return { issue: `a control result cannot combine ${present.join(" and ")}` };
-  if (key === "append") {
+  if ((stage === "onPrompt" || stage === "onStep" || stage === "onModelInput") && Object.hasOwn(value, "append")) {
     const extra = extraKeys(value, ["append"]);
     if (extra.length > 0) return unexpected(extra);
-    const issue = messagesIssue(value.append, "append");
-    return issue ? { issue } : { kind: "append", messages: isMessageArray(value.append) ? value.append : [] };
+    if (!isMessageArray(value.append)) return { issue: "append is not an array of messages" };
+    return { kind: "append", messages: structuredClone(value.append) };
   }
-  if (key === "call") {
+  if (stage === "onToolCall" && Object.hasOwn(value, "call")) {
     const extra = extraKeys(value, ["call", "execution"]);
     if (extra.length > 0) return unexpected(extra);
     const issue = toolCallIssue(value.call, "call", callId);
-    if (issue) return { issue };
+    if (issue || !isToolCall(value.call)) return { issue: issue ?? "call is invalid" };
     if (value.execution !== undefined && !isRecord(value.execution)) return { issue: "execution is not an object" };
-    if (!isToolCall(value.call)) return { issue: "call is not a tool call" };
-    const execution = value.execution;
-    return isRecord(execution) ? { kind: "call", call: value.call, execution: jsonRecord(execution) } : { kind: "call", call: value.call };
+    if (isRecord(value.execution)) {
+      if (!isJson(value.execution)) return { issue: "execution is not JSON" };
+      const execution = toJson(value.execution);
+      if (execution !== undefined && isRecord(execution)) return { kind: "call", call: value.call, execution };
+    }
+    return { kind: "call", call: value.call };
   }
-  if (key === "approval") {
+  if (stage === "onToolCall" && Object.hasOwn(value, "approval")) {
     const extra = extraKeys(value, ["approval"]);
     if (extra.length > 0) return unexpected(extra);
-    const approval = value.approval;
-    if (!isRecord(approval) || typeof approval.reason !== "string") return { issue: "approval does not declare a reason" };
-    const inner = extraKeys(approval, ["reason"]);
-    if (inner.length > 0) return unexpected(inner);
-    return { kind: "approval", reason: approval.reason };
+    if (!isRecord(value.approval) || typeof value.approval.reason !== "string" || extraKeys(value.approval, ["reason"]).length > 0) return { issue: "approval is invalid" };
+    return { kind: "approval", reason: value.approval.reason };
   }
-  if (key === "result") {
+  if (stage === "onToolCall" && Object.hasOwn(value, "result")) {
     const extra = extraKeys(value, ["result"]);
     if (extra.length > 0) return unexpected(extra);
-    const issue = toolResultIssue(value.result, "result", callId);
-    if (issue) return { issue };
-    if (!isToolResult(value.result)) return { issue: "result is not a tool result" };
+    if (!isJson(value.result)) return { issue: "result is not JSON" };
     return { kind: "result", result: value.result };
   }
-  const extra = extraKeys(value, ["retry", "target", "afterMs"]);
-  if (extra.length > 0) return unexpected(extra);
-  if (value.retry !== true) return { issue: "retry is not true" };
-  const target = value.target;
-  if (target !== "model" && (target !== "tool" || stage === "modelResult")) {
-    return { issue: stage === "modelResult" ? 'a modelResult retry can only target "model"' : 'retry does not target "model" or "tool"' };
+  if ((stage === "onModelResult" || stage === "onError") && Object.hasOwn(value, "retry")) {
+    const extra = extraKeys(value, ["retry", "target", "afterMs"]);
+    if (extra.length > 0) return unexpected(extra);
+    if (value.retry !== true || (value.target !== "model" && value.target !== "tool") || (stage === "onModelResult" && value.target !== "model")) return { issue: "retry is invalid" };
+    if (value.afterMs !== undefined && (typeof value.afterMs !== "number" || !Number.isFinite(value.afterMs) || value.afterMs < 0)) return { issue: "afterMs is invalid" };
+    const retry: Retry = { retry: true, target: value.target };
+    if (typeof value.afterMs === "number") retry.afterMs = value.afterMs;
+    return { kind: "retry", target: retry.target, ...(retry.afterMs === undefined ? {} : { afterMs: retry.afterMs }) };
   }
-  const afterMs = value.afterMs;
-  if (afterMs !== undefined && (typeof afterMs !== "number" || !Number.isFinite(afterMs) || afterMs < 0)) {
-    return { issue: "afterMs is not a number of 0 or more" };
+  if (stage === "onToolResult" && Object.hasOwn(value, "complete")) {
+    const extra = extraKeys(value, ["complete"]);
+    if (extra.length > 0) return unexpected(extra);
+    const complete: Complete | undefined = isMessage(value.complete) ? { complete: value.complete } : undefined;
+    if (!complete || complete.complete.role !== "assistant") return { issue: "complete is not an assistant message" };
+    return { kind: "complete", output: complete.complete };
   }
-  return typeof afterMs === "number" ? { kind: "retry", target, afterMs } : { kind: "retry", target };
+  return undefined;
 }
 
-/** Narrows an already checked record of JSON values. */
-function jsonRecord(value: Record<string, unknown>): Record<string, Json> {
-  const result: Record<string, Json> = {};
-  for (const key of ownKeys(value)) {
-    const child: unknown = value[key];
-    if (child === null || typeof child === "string" || typeof child === "boolean" || typeof child === "number") result[key] = child;
-    else if (Array.isArray(child) || isRecord(child)) result[key] = jsonClone(child);
-  }
-  return result;
-}
-
-function jsonClone(value: unknown): Json {
-  if (Array.isArray(value)) return value.map((item) => jsonClone(item));
-  if (isRecord(value)) return jsonRecord(value);
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return null;
-}
-
-/**
- * Applies the duplicate check of `append` results and asynchronous hook results: a message is left
- * out when the last message of the target list with the same `source` and `key` has the same `role`
- * and a JSON-equal `content`. The target list grows with every message this call keeps.
- */
 export function appendMessages(existing: readonly Message[], added: readonly Message[]): Message[] {
   const kept: Message[] = [];
   for (const message of added) {
     let last: Message | undefined;
-    for (const candidate of [...existing, ...kept]) {
-      if (candidate.source === message.source && candidate.key === message.key) last = candidate;
-    }
+    for (const candidate of [...existing, ...kept]) if (candidate.source === message.source && candidate.key === message.key) last = candidate;
     if (last && last.role === message.role && jsonEqual(last.content, message.content)) continue;
     kept.push(message);
   }
   return kept;
 }
 
-/** 메시지에서 선언 순서대로 `text` 부분만 이어 붙인 출력 텍스트입니다. */
-export function textOf(parts: readonly Part[]): string {
-  return parts.map((part) => part.type === "text" ? part.text : "").join("");
-}
-
-/** `json` 부분을 포함하고 메시지 사이를 줄바꿈으로 연결한 입력 텍스트입니다. */
+export function textOf(parts: readonly Part[]): string { return parts.map((part) => part.type === "text" ? part.text : "").join(""); }
 export function inputTextOf(messages: readonly Message[]): string {
   return messages.map((message) => message.content.map((part) => part.type === "text" ? part.text : part.type === "json" ? jsonText(part.value) : "").join("")).join("\n");
 }
 
-/**
- * Removes the `tool.call` and `tool.result` parts of a stored conversation whose `callId` has no
- * counterpart, and then the messages the removal emptied. A message whose `content` was already an
- * empty array stays. Returns `undefined` when the conversation needs no repair.
- */
 export function repairToolPairs(conversation: readonly Message[]): Message[] | undefined {
   const calls = new Set<string>();
   const results = new Set<string>();
-  for (const message of conversation) {
-    for (const part of message.content) {
-      if (part.type === "tool.call") calls.add(part.callId);
-      else if (part.type === "tool.result") results.add(part.callId);
-    }
+  for (const message of conversation) for (const part of message.content) {
+    if (part.type === "tool.call") calls.add(part.callId);
+    else if (part.type === "tool.result") results.add(part.callId);
   }
-  const unpaired = (part: Part): boolean =>
-    (part.type === "tool.call" || part.type === "tool.result") && !(calls.has(part.callId) && results.has(part.callId));
+  const unpaired = (part: Part): boolean => (part.type === "tool.call" || part.type === "tool.result") && !(calls.has(part.callId) && results.has(part.callId));
   if (!conversation.some((message) => message.content.some(unpaired))) return undefined;
   const repaired: Message[] = [];
   for (const message of conversation) {
     const content = message.content.filter((part) => !unpaired(part));
-    if (content.length === message.content.length) { repaired.push(message); continue; }
-    // Only a message the repair emptied is dropped; one that was already empty stays.
-    if (content.length === 0) continue;
-    repaired.push({ ...message, content });
+    if (content.length === message.content.length) repaired.push(message);
+    else if (content.length > 0) repaired.push({ ...message, content });
   }
   return repaired;
 }
+
+export function draftModelResponse(value: ModelResponse): ModelResponse { return value; }
+export function toolExecution(value: ToolExecution): ToolExecution { return value; }

@@ -4,7 +4,7 @@ agents:
     extensions:
       slow: {}
     hooks:
-      conversation:
+      onStep:
         - name: hold
           extension: slow
           optional: true

@@ -1,8 +1,0 @@
-agents:
-  main:
-    model: m
-    extensions:
-      alpha: {}
-      beta: {}
-      gamma: {}
-routes: [main]

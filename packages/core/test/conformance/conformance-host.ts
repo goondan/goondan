@@ -62,20 +62,18 @@ export async function createGoondan(config: unknown, bindings: unknown): Promise
   return isPromiseLike(result) ? await result : result;
 }
 
-export function newConversationStore(): object {
-  const ctor = member(core, "MemoryConversationStore");
-  if (!isFunction(ctor)) throw new UnsupportedError("MemoryConversationStore");
+export function newStore(): object {
+  const ctor = member(core, "MemoryStore");
+  if (!isFunction(ctor)) throw new UnsupportedError("MemoryStore");
   const store: unknown = Reflect.construct(ctor, []);
-  if (!isObjectLike(store)) throw new UnsupportedError("MemoryConversationStore");
+  if (!isObjectLike(store)) throw new UnsupportedError("MemoryStore");
   return store;
 }
 
-export function newOperationStore(): object {
-  const ctor = member(core, "MemoryOperationStore");
-  if (!isFunction(ctor)) throw new UnsupportedError("MemoryOperationStore");
-  const store: unknown = Reflect.construct(ctor, []);
-  if (!isObjectLike(store)) throw new UnsupportedError("MemoryOperationStore");
-  return store;
+export async function foldJournal(sessionId: string, events: Json[]): Promise<Json> {
+  const fold = requireFunction(core, "fold", "fold");
+  const result = Reflect.apply(fold, undefined, [sessionId, events]);
+  return snapshot(isPromiseLike(result) ? await result : result);
 }
 
 /** The effective config carried by a `loadConfig` result. */

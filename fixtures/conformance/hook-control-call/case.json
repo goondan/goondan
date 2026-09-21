@@ -63,7 +63,7 @@
       "policy": {
         "instance": {
           "hooks": {
-            "toolCall": {
+            "onToolCall": {
               "op": "constant",
               "value": {
                 "call": {

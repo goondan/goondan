@@ -1,7 +1,8 @@
 {
   "description": "모델 구현이 전달한 텍스트 조각마다 그 호출의 step.start와 step.done 사이에서 받은 순서대로 step.textDelta 이벤트를 알린다.",
   "spec": [
-    "텍스트 조각"
+    "텍스트 조각",
+    "실행 이벤트"
   ],
   "bindings": {
     "models": {

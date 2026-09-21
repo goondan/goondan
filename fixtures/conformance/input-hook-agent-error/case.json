@@ -1,11 +1,10 @@
 {
-  "description": "input 단계의 agent 인라인 훅이 실패하면 기본 선택 훅 규칙에 따라 실패를 건너뛰고 원래 메시지 배열로 에이전트를 실행한다.",
-  "spec": ["입력", "인라인 훅", "훅 실패", "파생 세션"],
-  "bindings": {
-    "models": {
-      "m": {"responses": [{"text": "완료"}]},
-      "helperModel": {"responses": [{"error": "도움 실패"}]}
-    }
-  },
-  "steps": [{"run": {"sessionId": "s", "input": "원본"}}]
+  "description": "동기 onInput 훅은 agent 실행 요소를 사용할 수 없으므로 로드 단계에서 구성 오류가 된다.",
+  "spec": [
+    "입력",
+    "인라인 훅",
+    "훅 실패",
+    "하위 실행"
+  ],
+  "steps": []
 }

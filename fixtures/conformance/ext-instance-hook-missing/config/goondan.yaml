@@ -4,6 +4,6 @@ agents:
     extensions:
       memo: {}
     hooks:
-      modelInput:
+      onModelInput:
         - extension: memo
           optional: true

@@ -4,4 +4,6 @@
 
 공개 API는 `goondan` 패키지가 제공하고, 공식 모델 어댑터는 `goondan[models]` 선택 의존성으로 설치하는 `goondan.models` 하위 패키지가 제공합니다. 언어 간 의미는 루트의 `spec/`과 `fixtures/`를 기준으로 맞추며, Python 전용 편의 기능도 구성 파일의 공통 의미를 유지합니다.
 
+세션 상태는 `Store`의 append 전용 저널에 기록하고 `fold`로 재생합니다. Python 공개 이름은 snake_case를 사용하며 저널 이벤트와 실행 결과처럼 직렬화되는 필드는 camelCase를 유지합니다.
+
 검증은 저장소 루트에서 `pnpm test:python`으로, 또는 `python/goondan`에서 `uv run --extra test python -m pytest`로 실행합니다.

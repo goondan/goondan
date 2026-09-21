@@ -4,7 +4,7 @@ agents:
     extensions:
       memo: {}
     hooks:
-      conversation:
+      onStep:
         - name: note
           extension: memo
           mode: async

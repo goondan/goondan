@@ -1,6 +1,6 @@
-import type { Json, Message, Model, ModelInput, ModelResult, Part, ToolDefinition } from "@goondan/core";
+import type { DraftMessage, Json, Message, Model, ModelInput, ModelResponse, ModelResult, Part, ToolDefinition } from "@goondan/core";
 import { ModelError, invalidRequest, invalidResponse, streamError, unsupportedContent } from "./errors.ts";
-import { newMessageId, randomHex } from "./ids.ts";
+import { randomHex } from "./ids.ts";
 import { cloneJson, isJsonObject, mergeObjects, own, setKey, toJson, type JsonObject } from "./json.ts";
 import {
   PDF_TYPE,
@@ -354,7 +354,7 @@ class OpenAIChatStreamAssembler implements StreamAssembler {
     else if (isJsonObject(args)) call.args = JSON.stringify(args);
   }
 
-  result(): ModelResult {
+  result(): ModelResponse {
     if (!this.#done) throw new ModelError("OpenAI stream ended before [DONE] or a finish_reason", { provider: PROVIDER, code: "network" });
     const content: Part[] = this.#text === "" ? [] : [{ type: "text", text: this.#text }];
     for (const call of [...this.#calls].sort((left, right) => left.key - right.key)) {
@@ -376,8 +376,8 @@ class OpenAIChatStreamAssembler implements StreamAssembler {
       ? "length"
       : hasCalls ? "tool" : this.#finishReason === "stop" ? "stop" : "other";
     const meta: JsonObject = { id: this.#id ?? null, model: this.#model, finishReason: this.#finishReason ?? null };
-    const message: Message = { id: newMessageId(), role: "assistant", source: "model", content, meta: { [PROVIDER]: meta } };
-    const result: ModelResult = { message, finishReason };
+    const message: DraftMessage = { role: "assistant", content, meta: { [PROVIDER]: meta } };
+    const result: ModelResponse = { message, finishReason };
     const usage = this.#usage;
     if (usage !== undefined) {
       const details = own(usage, "prompt_tokens_details");

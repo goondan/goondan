@@ -5,9 +5,9 @@ agents:
     extensions:
       memo: {}
     hooks:
-      toolCall:
+      onToolCall:
         - name: shortcut
           fn: giveResult
-      toolResult:
+      onToolResult:
         - name: done
           extension: memo

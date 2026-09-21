@@ -1,0 +1,83 @@
+{
+  "steps": [
+    {
+      "result": {
+        "status": "done",
+        "output": "완료"
+      }
+    }
+  ],
+  "observations": {
+    "conversations": {
+      "prompt-append/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "system",
+          "source": "prompt-context",
+          "content": [
+            {
+              "type": "text",
+              "text": "보강된 문맥"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
+      ]
+    },
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "질문"
+                }
+              ],
+              "meta": {
+                "kind": "start"
+              }
+            },
+            {
+              "role": "system",
+              "source": "prompt-context",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "보강된 문맥"
+                }
+              ]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

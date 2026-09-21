@@ -4,6 +4,6 @@ agents:
     extensions:
       memo: {}
     hooks:
-      conversation:
+      onStep:
         - name: ctx
           extension: memo

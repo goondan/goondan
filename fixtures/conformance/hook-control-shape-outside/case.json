@@ -6,7 +6,7 @@
   "bindings": {
     "models": {
       "m": {
-          "responses": []
+        "responses": []
       }
     },
     "functions": {

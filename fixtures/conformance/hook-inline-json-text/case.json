@@ -1,5 +1,5 @@
 {
-  "description": "인라인 결과가 문자열이 아니면 결과 텍스트는 JSON 텍스트로 직렬화한 문자열이며, conversation 단계는 그 텍스트를 가진 메시지를 추가하고 output 단계는 새 assistant 메시지가 현재 값을 대신한다.",
+  "description": "role을 선언한 인라인 fn 훅의 결과가 문자열이 아니면 JSON 텍스트로 직렬화한 메시지를 현재 메시지 목록에 보강한다.",
   "spec": [
     "인라인 훅"
   ],
@@ -27,14 +27,6 @@
             null
           ],
           "s": "é"
-        }
-      },
-      "makeOut": {
-        "op": "constant",
-        "value": {
-          "k": [
-            1
-          ]
         }
       }
     }

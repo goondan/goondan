@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "extensionLog": [
@@ -20,8 +19,7 @@
           "n": 1,
           "checked": true
         },
-        "ports": {
-        },
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
@@ -55,8 +53,7 @@
         "options": {
           "n": 2
         },
-        "ports": {
-        },
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {

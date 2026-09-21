@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "output",
+        "where": "onOutput",
         "codes": [
           "hook_error"
         ],
@@ -21,7 +21,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -34,89 +37,6 @@
           ]
         }
       ]
-    },
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "안녕"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "finishReason": "stop"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "hook.failed",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "value": "output",
-          "hook": "broken"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "where": "output",
-          "codes": [
-            "hook_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ]
+    }
   }
 }

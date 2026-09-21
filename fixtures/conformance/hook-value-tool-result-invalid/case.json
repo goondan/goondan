@@ -27,7 +27,7 @@
       "lookup": {
         "results": [
           {
-            "raw": {
+            "value": {
               "callId": "c-1",
               "name": "lookup",
               "args": {},

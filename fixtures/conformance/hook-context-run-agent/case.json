@@ -1,8 +1,8 @@
 {
   "description": "훅 컨텍스트의 agents.run은 같은 파생 세션에서 대상 에이전트 하나를 실행하고 턴의 에이전트 실행 기록에 hook 항목을 만들며 그 사용량은 턴 사용량에 포함된다.",
   "spec": [
-    "훅 컨텍스트와 호스트 함수",
-    "파생 세션"
+    "실행 컨텍스트와 호스트 함수",
+    "하위 실행"
   ],
   "bindings": {
     "models": {
@@ -33,7 +33,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "runAgent",
               "name": "helper",
               "input": "부탁"

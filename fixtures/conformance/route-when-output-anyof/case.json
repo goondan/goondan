@@ -1,5 +1,8 @@
 {
   "description": "when.output은 문자열이나 객체여야 하므로 숫자는 schema.anyOf 구성 오류다.",
-  "spec": ["route 조건", "오류 코드"],
+  "spec": [
+    "route 조건",
+    "오류 코드"
+  ],
   "steps": []
 }

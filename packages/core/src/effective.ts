@@ -7,7 +7,10 @@ import {
   type ToolUse, type ValueName,
 } from "./types.ts";
 
-export const valueNames: readonly ValueName[] = ["input", "conversation", "modelInput", "modelResult", "toolCall", "toolResult", "output", "error"];
+export const valueNames: readonly ValueName[] = [
+  "onInput", "onPrompt", "onStep", "onModelInput", "onModelResult",
+  "onToolCall", "onToolResult", "onOutput", "onError",
+];
 const valueNameSet = new Set<string>(valueNames);
 
 export function isValueName(value: string): value is ValueName {
@@ -61,7 +64,7 @@ export function templateIdentifier(template: string, directory: string | undefin
   return relativePath.split(sep).join("/");
 }
 
-/** `remove.hooks`, 훅 이벤트와 훅 파생 세션이 사용하는 식별자입니다. */
+/** `remove.hooks`와 훅 실행 이벤트가 사용하는 식별자입니다. */
 export function hookIdentifier(hook: Json, directory: string | undefined): string | undefined {
   const value = record(hook);
   if (!value) return undefined;
@@ -233,15 +236,23 @@ export function normalizeRoutes(routes: Json | undefined): Json[] | undefined {
 
 interface RouteEdge { index: number; from: string; to: string; conditional: boolean }
 
+function routeNode(value: Json | undefined): string | undefined {
+  if (typeof value === "string") return value;
+  const node = record(value);
+  return node && typeof node.fn === "string" ? `@fn:${node.fn}` : undefined;
+}
+
 function routeEdges(routes: readonly Json[], agents: ReadonlySet<string>): RouteEdge[] {
   const edges: RouteEdge[] = [];
   routes.forEach((raw, index) => {
     const route = record(raw);
-    if (!route || typeof route.from !== "string" || typeof route.to !== "string") return;
-    const { from, to } = route;
+    if (!route) return;
+    const from = routeNode(route.from);
+    const to = routeNode(route.to);
+    if (from === undefined || to === undefined) return;
     if (from === "$output" || to === "$input" || (from === "$input" && to === "$output")) return;
-    if (from !== "$input" && !agents.has(from)) return;
-    if (to !== "$output" && !agents.has(to)) return;
+    if (from !== "$input" && !from.startsWith("@fn:") && !agents.has(from)) return;
+    if (to !== "$output" && !to.startsWith("@fn:") && !agents.has(to)) return;
     edges.push({ index, from, to, conditional: isRecord(route.when) });
   });
   return edges;
@@ -304,13 +315,7 @@ function departureAgents(edges: readonly RouteEdge[], target: string): Set<strin
 function routeStructureIssues(routes: readonly Json[], agents: ReadonlySet<string>, specs: ReadonlyMap<string, Record<string, Json>>): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   const edges = routeEdges(routes, agents);
-  const sources = new Set(edges.map((edge) => edge.from));
   if (!edges.some((edge) => edge.from === "$input")) issues.push(issue("routes.no_input", ["routes"], "no route starts from $input"));
-  if (!edges.some((edge) => edge.to === "$output")) issues.push(issue("routes.no_output", ["routes"], "no route reaches $output"));
-  for (const edge of edges) {
-    if (edge.to === "$output" || sources.has(edge.to)) continue;
-    issues.push(issue("routes.no_route", ["routes", edge.index, "to"], `no route declares ${JSON.stringify(edge.to)} as its from`));
-  }
   const reachable = allReach(edges, "$input");
   for (const edge of edges) {
     if (edge.from === "$input" || reachable.has(edge.from)) continue;
@@ -357,13 +362,16 @@ function routeIssues(raw: Json | undefined, agents: ReadonlySet<string>, specs: 
   } else {
     declared.forEach((rawRoute, index) => {
       const route = record(rawRoute);
-      if (!route || typeof route.from !== "string" || typeof route.to !== "string") return;
-      if (route.from === "$input" && route.to === "$output") issues.push(issue("routes.reserved", ["routes", index], "$input cannot route directly to $output"));
+      if (!route) return;
+      const from = routeNode(route.from);
+      const to = routeNode(route.to);
+      if (from === undefined || to === undefined) return;
+      if (from === "$input" && to === "$output") issues.push(issue("routes.reserved", ["routes", index], "$input cannot route directly to $output"));
       else {
-        if (route.from === "$output") issues.push(issue("routes.reserved", ["routes", index, "from"], "$output cannot be a route source"));
-        else if (route.from !== "$input" && !agents.has(route.from)) issues.push(issue("reference.agent", ["routes", index, "from"], "does not name an agent of this configuration"));
-        if (route.to === "$input") issues.push(issue("routes.reserved", ["routes", index, "to"], "$input cannot be a route target"));
-        else if (route.to !== "$output" && !agents.has(route.to)) issues.push(issue("reference.agent", ["routes", index, "to"], "does not name an agent of this configuration"));
+        if (from === "$output") issues.push(issue("routes.reserved", ["routes", index, "from"], "$output cannot be a route source"));
+        else if (from !== "$input" && !from.startsWith("@fn:") && !agents.has(from)) issues.push(issue("reference.agent", ["routes", index, "from"], "does not name an agent of this configuration"));
+        if (to === "$input") issues.push(issue("routes.reserved", ["routes", index, "to"], "$input cannot be a route target"));
+        else if (to !== "$output" && !to.startsWith("@fn:") && !agents.has(to)) issues.push(issue("reference.agent", ["routes", index, "to"], "does not name an agent of this configuration"));
       }
     });
   }
@@ -394,7 +402,6 @@ function agentReferenceIssues(name: string, spec: Record<string, Json>, agents: 
   for (const stage of ownKeys(hooks)) {
     const entries = list(hooks[stage]);
     if (!entries) continue;
-    const asyncIdentifiers = new Set<string>();
     entries.forEach((raw, index) => {
       const hook = record(raw);
       if (!hook) return;
@@ -411,13 +418,7 @@ function agentReferenceIssues(name: string, spec: Record<string, Json>, agents: 
           if (typeof item === "string" && !agents.has(item)) issues.push(issue("reference.agent", [...at, "agent", position], "does not name an agent of this configuration"));
         });
       }
-      if (stage === "conversation" && hook.mode === "async") {
-        const identifier = hookIdentifier(raw, directory);
-        if (identifier !== undefined) {
-          if (asyncIdentifiers.has(identifier)) issues.push(issue("reference.duplicate_hook", at, `repeats the async hook ${JSON.stringify(identifier)}`));
-          asyncIdentifiers.add(identifier);
-        }
-      }
+      void directory;
     });
   }
   return issues;
@@ -478,8 +479,6 @@ function toHook(raw: Json): InlineHookSpec {
     else if (key === "template" && typeof item === "string") hook.template = item;
     else if (key === "agent" && typeof item === "string") hook.agent = item;
     else if (key === "agent" && Array.isArray(item)) hook.agent = item.filter((name): name is string => typeof name === "string");
-    else if (key === "using" && (item === "input" || item === "conversation")) hook.using = item;
-    else if (key === "using" && isRecord(item) && typeof item.fn === "string") hook.using = { fn: item.fn };
     else if (key === "when" && isRecord(item) && typeof item.fn === "string") hook.when = { fn: item.fn };
     else if (key === "mode" && (item === "sync" || item === "async")) hook.mode = item;
     else if (key === "optional" && typeof item === "boolean") hook.optional = item;
@@ -536,8 +535,17 @@ function toRoutes(raw: Json | undefined): RouteSpec[] | undefined {
   const routes: RouteSpec[] = [];
   for (const item of entries) {
     const value = record(item);
-    if (!value || typeof value.from !== "string" || typeof value.to !== "string") continue;
-    const route: RouteSpec = { from: value.from, to: value.to };
+    if (!value) continue;
+    const from = value.from;
+    const to = value.to;
+    if (!(typeof from === "string" || (isRecord(from) && typeof from.fn === "string"))) continue;
+    if (!(typeof to === "string" || (isRecord(to) && typeof to.fn === "string"))) continue;
+    const fromEndpoint = typeof from === "string" ? from : { fn: typeof from.fn === "string" ? from.fn : "" };
+    const toEndpoint = typeof to === "string" ? to : { fn: typeof to.fn === "string" ? to.fn : "" };
+    const route: RouteSpec = {
+      from: fromEndpoint,
+      to: toEndpoint,
+    };
     const when = record(value.when);
     if (when && typeof when.fn === "string") route.when = { fn: when.fn };
     else if (when && typeof when.output === "string") route.when = { output: when.output };

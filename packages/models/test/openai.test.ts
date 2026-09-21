@@ -124,6 +124,8 @@ describe("OpenAI streaming and errors", () => {
     const { fetch } = scriptedFetch([sseResponse(`${openAITextStream("hi")}data: {not json\n\n`)]);
     const result = await createOpenAIChatModel({ model: MODEL, apiKey: "k", env: {}, fetch }).generate(userInput("hi"), context());
     expect(result).toMatchObject({ finishReason: "stop", message: { content: [{ type: "text", text: "hi" }], meta: { openai: { id: "chatcmpl-test", model: "gpt-test", finishReason: "stop" } } } });
+    expect(result.message.id).toBeUndefined();
+    expect(result.message.source).toBeUndefined();
     expect(result.usage).toBeUndefined();
   });
 

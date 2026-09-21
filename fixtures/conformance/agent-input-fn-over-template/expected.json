@@ -13,7 +13,10 @@
               "type": "text",
               "text": "FN"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

@@ -65,7 +65,7 @@ export function messagesWithoutId(value: Json, pointer = ""): string[] {
   return found;
 }
 
-/** `turnId`와 `parentTurnId` 키에 저장된 모든 문자열 값입니다. */
+/** `turnId` 키에 저장된 모든 문자열 값입니다. */
 export function collectTurnIds(value: Json, into = new Set<string>()): Set<string> {
   if (isJsonArray(value)) {
     for (const item of value) collectTurnIds(item, into);
@@ -74,23 +74,36 @@ export function collectTurnIds(value: Json, into = new Set<string>()): Set<strin
   if (!isJsonObject(value)) return into;
   for (const [key, item] of Object.entries(value)) {
     if (item === undefined) continue;
-    if ((key === "turnId" || key === "parentTurnId") && isString(item) && item !== "") into.add(item);
+    if (key === "turnId" && isString(item) && item !== "") into.add(item);
     collectTurnIds(item, into);
   }
   return into;
 }
 
-/** `rootTurnId` 키에 저장된 모든 문자열 값입니다. */
-export function collectRootTurnIds(value: Json, into = new Set<string>()): Set<string> {
+export function collectExecutionIds(value: Json, into = new Set<string>()): Set<string> {
   if (isJsonArray(value)) {
-    for (const item of value) collectRootTurnIds(item, into);
+    for (const item of value) collectExecutionIds(item, into);
     return into;
   }
   if (!isJsonObject(value)) return into;
   for (const [key, item] of Object.entries(value)) {
     if (item === undefined) continue;
-    if (key === "rootTurnId" && isString(item) && item !== "") into.add(item);
-    collectRootTurnIds(item, into);
+    if ((key === "executionId" || key === "parentExecutionId") && isString(item) && item !== "") into.add(item);
+    collectExecutionIds(item, into);
+  }
+  return into;
+}
+
+export function collectInputIds(value: Json, into = new Set<string>()): Set<string> {
+  if (isJsonArray(value)) {
+    for (const item of value) collectInputIds(item, into);
+    return into;
+  }
+  if (!isJsonObject(value)) return into;
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) continue;
+    if (key === "inputId" && isString(item) && item !== "") into.add(item);
+    collectInputIds(item, into);
   }
   return into;
 }
@@ -179,13 +192,16 @@ export function numberTurnIds(document: ResultDocument, turnIds: ReadonlySet<str
   return labels;
 }
 
-/** 문서에 처음 나타난 순서대로 최상위 턴 식별자에 `<root:N>` 별칭을 붙입니다. */
-export function numberRootTurnIds(document: ResultDocument, identifiers: ReadonlySet<string>): Map<string, string> {
+export function numberIdentifiers(
+  document: ResultDocument,
+  identifiers: ReadonlySet<string>,
+  label: "execution" | "input",
+): Map<string, string> {
   const candidates = [...identifiers].sort((left, right) => right.length - left.length);
   const labels = new Map<string, string>();
   traverseStrings(document, (text) => {
     for (const identifier of scanIdentifiers(text, candidates)) {
-      if (!labels.has(identifier)) labels.set(identifier, `<root:${String(labels.size + 1)}>`);
+      if (!labels.has(identifier)) labels.set(identifier, `<${label}:${String(labels.size + 1)}>`);
     }
   });
   return labels;
@@ -257,7 +273,8 @@ export interface NormalizeResult {
   document: ResultDocument;
   instanceLabels: Map<string, string>;
   turnLabels: Map<string, string>;
-  rootTurnLabels: Map<string, string>;
+  executionLabels: Map<string, string>;
+  inputLabels: Map<string, string>;
 }
 
 export function normalizeDocument(document: ResultDocument, options: NormalizeOptions): NormalizeResult {
@@ -280,12 +297,19 @@ export function normalizeDocument(document: ResultDocument, options: NormalizeOp
   for (const value of withInstances.observations.values()) collectTurnIds(value, turnIds);
   const turnLabels = numberTurnIds(withInstances, turnIds);
   const withTurns = mapDocument(withInstances, (value) => replaceStrings(value, (text) => replaceAll(text, turnLabels)));
-  const rootTurnIds = new Set<string>();
-  collectRootTurnIds(withTurns.steps, rootTurnIds);
-  for (const value of withTurns.observations.values()) collectRootTurnIds(value, rootTurnIds);
-  const rootTurnLabels = numberRootTurnIds(withTurns, rootTurnIds);
-  const withRoots = mapDocument(withTurns, (value) => replaceStrings(value, (text) => replaceAll(text, rootTurnLabels)));
-  return { document: withRoots, instanceLabels, turnLabels, rootTurnLabels };
+  const executionIds = new Set<string>();
+  collectExecutionIds(withTurns.steps, executionIds);
+  for (const value of withTurns.observations.values()) collectExecutionIds(value, executionIds);
+  const executionLabels = numberIdentifiers(withTurns, executionIds, "execution");
+  const withExecutions = mapDocument(withTurns, (value) =>
+    replaceStrings(value, (text) => replaceAll(text, executionLabels)),
+  );
+  const inputIds = new Set<string>();
+  collectInputIds(withExecutions.steps, inputIds);
+  for (const value of withExecutions.observations.values()) collectInputIds(value, inputIds);
+  const inputLabels = numberIdentifiers(withExecutions, inputIds, "input");
+  const withInputs = mapDocument(withExecutions, (value) => replaceStrings(value, (text) => replaceAll(text, inputLabels)));
+  return { document: withInputs, instanceLabels, turnLabels, executionLabels, inputLabels };
 }
 
 function mapDocument(document: ResultDocument, map: (value: Json) => Json): ResultDocument {

@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "schema.exclusiveMinimum",
-        "path": "/agents/main/hooks/output/0/timeout"
+        "path": "/agents/main/hooks/onOutput/0/timeout"
       }
     ]
   }

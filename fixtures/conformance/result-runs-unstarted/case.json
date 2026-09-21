@@ -21,12 +21,12 @@
       "probe": {
         "definition": {
           "hooks": [
-            "output"
+            "onOutput"
           ]
         },
         "instance": {
           "hooks": {
-            "output": {
+            "onOutput": {
               "op": "runAgent",
               "name": "ghost"
             }

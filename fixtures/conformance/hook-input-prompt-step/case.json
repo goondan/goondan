@@ -1,0 +1,69 @@
+{
+  "description": "입력 하나에는 onInput이 한 번, 입력 묶음에는 onPrompt가 한 번, 모델 호출 직전에는 onStep이 한 번 실행된다.",
+  "spec": [
+    "값 처리 단계와 훅",
+    "단계 실행 순서",
+    "단계 값과 대화 저장",
+    "훅 선언",
+    "훅 실행과 결과"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "hooks": {
+            "onInput": [
+              {
+                "fn": "input"
+              }
+            ],
+            "onPrompt": [
+              {
+                "fn": "prompt"
+              }
+            ],
+            "onStep": [
+              {
+                "fn": "step"
+              }
+            ]
+          }
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "input": {
+        "op": "identity"
+      },
+      "prompt": {
+        "op": "identity"
+      },
+      "step": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "hooks",
+        "input": "입력"
+      }
+    }
+  ]
+}

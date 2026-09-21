@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import Any, Callable, Iterator, Mapping, Sequence
 
 SECTION_ORDER = (
-    "effectiveConfig", "events", "modelInputs", "modelContexts", "toolCalls", "toolContexts",
-    "functionCalls", "hookCalls", "hookContexts", "hostCalls", "extensionLog", "conversations",
-    "operations", "operationHistory",
+    "effectiveConfig", "events", "journalEvents", "journalStates", "modelInputs", "modelContexts",
+    "toolCalls", "toolContexts", "functionCalls", "functionContexts", "hookCalls", "hookContexts",
+    "extensionLog", "conversations", "operations", "operationHistory",
 )
 
 
@@ -90,10 +90,9 @@ def strip_message_ids(value: Any) -> Any:
 def collect_turn_ids(value: Any) -> set[str]:
     found: set[str] = set()
     if isinstance(value, Mapping):
-        for key in ("turnId", "parentTurnId"):
-            candidate = value.get(key)
-            if isinstance(candidate, str) and candidate:
-                found.add(candidate)
+        candidate = value.get("turnId")
+        if isinstance(candidate, str) and candidate:
+            found.add(candidate)
         for item in value.values():
             found |= collect_turn_ids(item)
     elif isinstance(value, list):
@@ -102,17 +101,18 @@ def collect_turn_ids(value: Any) -> set[str]:
     return found
 
 
-def collect_root_turn_ids(value: Any) -> set[str]:
+def collect_identifiers(value: Any, keys: set[str]) -> set[str]:
     found: set[str] = set()
     if isinstance(value, Mapping):
-        candidate = value.get("rootTurnId")
-        if isinstance(candidate, str) and candidate:
-            found.add(candidate)
+        for key in keys:
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate:
+                found.add(candidate)
         for item in value.values():
-            found |= collect_root_turn_ids(item)
+            found |= collect_identifiers(item, keys)
     elif isinstance(value, list):
         for item in value:
-            found |= collect_root_turn_ids(item)
+            found |= collect_identifiers(item, keys)
     return found
 
 
@@ -126,6 +126,18 @@ def turn_aliases(document: Mapping[str, Any]) -> dict[str, str]:
             if identifier not in order:
                 order.append(identifier)
     return {identifier: f"<turn:{index + 1}>" for index, identifier in enumerate(order)}
+
+
+def identifier_aliases(document: Mapping[str, Any], keys: set[str], label: str) -> dict[str, str]:
+    identifiers = collect_identifiers(document, keys)
+    order: list[str] = []
+    for text in document_strings(document):
+        hits = sorted((text.find(identifier), -len(identifier), identifier)
+                      for identifier in identifiers if identifier in text)
+        for _, _, identifier in hits:
+            if identifier not in order:
+                order.append(identifier)
+    return {identifier: f"<{label}:{index + 1}>" for index, identifier in enumerate(order)}
 
 
 def stateless_instance_aliases(document: Mapping[str, Any]) -> dict[str, str]:
@@ -171,13 +183,8 @@ def normalize_document(document: Mapping[str, Any], *, case_paths: Sequence[str]
     result = substitute(result, replacer(dict(operation_aliases)))
     result = substitute(result, replacer(stateless_instance_aliases(result)))
     result = substitute(result, replacer(turn_aliases(result)))
-    root_ids = collect_root_turn_ids(result)
-    order: list[str] = []
-    for text in document_strings(result):
-        hits = sorted((text.find(identifier), identifier) for identifier in root_ids if identifier in text)
-        for _, identifier in hits:
-            if identifier not in order:
-                order.append(identifier)
-    roots = {identifier: f"<root:{index + 1}>" for index, identifier in enumerate(order)}
-    result = substitute(result, replacer(roots))
+    result = substitute(result, replacer(identifier_aliases(
+        result, {"executionId", "parentExecutionId"}, "execution"
+    )))
+    result = substitute(result, replacer(identifier_aliases(result, {"inputId"}, "input")))
     return result

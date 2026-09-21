@@ -1,9 +1,35 @@
 {
-  "steps": [{
-    "parallel": [
-      [{"error": {"where": "runtime", "codes": ["aborted"], "attempt": 1}}],
-      [{}, {"error": {"where": "runtime", "codes": ["runtime_error"], "attempt": 1}}],
-      [{}, {}]
-    ]
-  }]
+  "steps": [
+    {
+      "parallel": [
+        [
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "aborted"
+              ],
+              "attempt": 1
+            }
+          }
+        ],
+        [
+          {},
+          {}
+        ]
+      ]
+    }
+  ]
 }

@@ -6,8 +6,8 @@ agents:
     extensions:
       policy: {}
     hooks:
-      toolCall:
+      onToolCall:
         - name: tap
           fn: tap
-      error:
+      onError:
         - extension: policy

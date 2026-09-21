@@ -11,7 +11,6 @@
 import {
   type CaseBindings,
   type ExtensionScript,
-  type HostCallbackName,
   type ModelResponse,
   type ModelScript,
   type Op,
@@ -33,23 +32,6 @@ import {
 } from "./conformance-json.ts";
 import { type HookOpBridge, type MessageExtraScript, type OpContext, ScriptError, runOp } from "./conformance-ops.ts";
 
-const EVENT_DATA_KEYS: ReadonlyMap<string, readonly string[]> = new Map([
-  ["turn.start", ["input"]],
-  ["turn.done", ["output", "steps", "usage"]],
-  ["turn.error", ["where", "codes"]],
-  ["step.start", ["step"]],
-  ["step.textDelta", ["step", "delta"]],
-  ["step.done", ["step", "finishReason"]],
-  ["step.error", ["step", "codes"]],
-  ["tool.start", ["tool", "callId", "args"]],
-  ["tool.done", ["tool", "callId", "args", "result"]],
-  ["tool.error", ["tool", "callId", "args", "codes"]],
-  ["humanApproval.created", ["operationId", "tool", "callId", "reasons"]],
-  ["hook.applied", ["value", "hook"]],
-  ["hook.skipped", ["value", "hook"]],
-  ["hook.failed", ["value", "hook"]],
-]);
-
 export interface ObservationState {
   events: Json[];
   rawEvents: Json[];
@@ -58,11 +40,10 @@ export interface ObservationState {
   toolCalls: Json[];
   toolContexts: Json[];
   functionCalls: Json[];
+  functionContexts: Json[];
   hookCalls: Json[];
   hookContexts: Json[];
-  hostCalls: Json[];
   extensionLog: Json[];
-  conversationScopes: Map<string, { sessionId: string; agent: string }>;
   operationHistory: Map<string, string[]>;
   operationAliases: Map<string, string>;
   operationCallIds: Map<string, string>;
@@ -78,11 +59,10 @@ function newObservationState(): ObservationState {
     toolCalls: [],
     toolContexts: [],
     functionCalls: [],
+    functionContexts: [],
     hookCalls: [],
     hookContexts: [],
-    hostCalls: [],
     extensionLog: [],
-    conversationScopes: new Map(),
     operationHistory: new Map(),
     operationAliases: new Map(),
     operationCallIds: new Map(),
@@ -101,37 +81,16 @@ export function projectOperation(operation: Json): Json {
   return projected;
 }
 
-function projectEvent(event: Json): Json {
+export function projectEvent(event: Json): Json {
   if (!isJsonObject(event)) return event;
-  const name = event["name"];
-  const data = event["data"];
-  const projectedData: JsonObject = {};
-  const keys = isString(name) ? EVENT_DATA_KEYS.get(name) : undefined;
-  if (isJsonObject(data)) {
-    if (keys === undefined) {
-      for (const [key, value] of Object.entries(data)) {
-        if (value !== undefined) projectedData[key] = value;
-      }
-    } else {
-      for (const key of keys) {
-        if (Object.hasOwn(data, key)) projectedData[key] = data[key] ?? null;
-      }
-      if (!keys.includes("operationId") && Object.hasOwn(data, "operationId")) {
-        projectedData["operationId"] = data["operationId"] ?? null;
-      }
-    }
+  const projected: JsonObject = {};
+  for (const key of [
+    "seq", "version", "type", "sessionId", "agent", "instance", "turnId", "executionId", "inputId",
+    "parentExecutionId", "operationId", "data", "skippable", "observational",
+  ]) {
+    if (Object.hasOwn(event, key)) projected[key] = event[key] ?? null;
   }
-  return {
-    name: name ?? null,
-    agent: event["agent"] ?? null,
-    sessionId: event["sessionId"] ?? null,
-    turnId: event["turnId"] ?? null,
-    instance: event["instance"] ?? null,
-    parentInstance: event["parentInstance"] ?? null,
-    parentTurnId: event["parentTurnId"] ?? null,
-    rootTurnId: event["rootTurnId"] ?? null,
-    data: projectedData,
-  };
+  return projected;
 }
 
 function isOperationLike(value: Json): value is JsonObject {
@@ -237,6 +196,17 @@ function contextValue(ctx: unknown, name: string): Json {
   return snapshot(member(ctx, name));
 }
 
+function projectContext(ctx: unknown, extras: readonly string[] = []): JsonObject {
+  const projected: JsonObject = {};
+  for (const name of [
+    "agent", "sessionId", "turnId", "instance", "executionId", "parentExecutionId", "operationId", ...extras,
+  ]) {
+    const value = member(ctx, name);
+    if (value !== undefined) projected[name] = snapshot(value);
+  }
+  return projected;
+}
+
 function signalOf(ctx: unknown): AbortSignal | undefined {
   const signal = member(ctx, "signal");
   return signal instanceof AbortSignal ? signal : undefined;
@@ -267,8 +237,7 @@ function buildModelResult(response: ModelResponse, content: Json[]): ModelUsageR
 export interface RuntimeBindingOptions {
   scripts: CaseScripts;
   owner: object;
-  conversationStore: object;
-  operationStore: object;
+  store: object;
   /** The configuration directory of a case that hands the runtime a document instead of a file. */
   directory?: string;
 }
@@ -278,8 +247,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
   const { scripts, owner } = options;
   const observations = scripts.observations;
   const bindings: Record<string, unknown> = {
-    conversationStore: options.conversationStore,
-    operationStore: options.operationStore,
+    store: options.store,
   };
   if (options.directory !== undefined) bindings["directory"] = options.directory;
 
@@ -291,12 +259,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
         inputs.push(snapshot(input));
         observations.modelInputs.set(name, inputs);
         const contexts = observations.modelContexts.get(name) ?? [];
-        contexts.push({
-          agent: contextValue(ctx, "agent"),
-          sessionId: contextValue(ctx, "sessionId"),
-          turnId: contextValue(ctx, "turnId"),
-          step: contextValue(ctx, "step"),
-        });
+        contexts.push(projectContext(ctx, ["step"]));
         observations.modelContexts.set(name, contexts);
         return applyModelResponse(scripts.nextModelResponse(name, script), ctx, scripts, owner);
       },
@@ -312,8 +275,12 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
 
   const functions: Record<string, unknown> = {};
   for (const [name, op] of scripts.bindings.functions) {
-    functions[name] = async (value: unknown): Promise<unknown> => {
+    functions[name] = async (value: unknown, ctx: unknown): Promise<unknown> => {
       observations.functionCalls.push({ fn: name, value: snapshot(value) });
+      observations.functionContexts.push({
+        fn: name,
+        context: projectContext(ctx, ["location", "route", "inputKind", "step", "retryCount", "input", "conversation"]),
+      });
       return runOp(op, value, { gates: scripts.gates, counters: scripts.counters, owner });
     };
   }
@@ -331,7 +298,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
     bindings["ports"] = ports;
   }
 
-  bindings["host"] = buildHost(scripts, owner);
+  bindings["host"] = buildHost(scripts);
   if (scripts.bindings.maxRetries) bindings["maxRetries"] = scripts.bindings.maxRetries.value;
   if (scripts.bindings.maxSteps) bindings["maxSteps"] = scripts.bindings.maxSteps.value;
   return bindings;
@@ -382,9 +349,7 @@ function buildTool(name: string, site: string, script: ToolScript, scripts: Case
       const execution = member(ctx, "execution");
       observations.toolContexts.push({
         tool: name,
-        agent: contextValue(ctx, "agent"),
-        sessionId: contextValue(ctx, "sessionId"),
-        turnId: contextValue(ctx, "turnId"),
+        ...projectContext(ctx),
         toolCall: isJsonObject(toolCall)
           ? { id: toolCall["id"] ?? null, name: toolCall["name"] ?? null, args: toolCall["args"] ?? null }
           : toolCall,
@@ -408,19 +373,13 @@ async function applyToolResult(
     return applyToolResult(result.then, ctx, scripts, owner);
   }
   if (result.kind === "error") throw new ScriptError(result.message);
-  if (result.kind === "raw") return result.value;
-  const call = snapshot(member(ctx, "toolCall"));
-  const callId = isJsonObject(call) ? call["id"] ?? null : null;
-  const name = isJsonObject(call) ? call["name"] ?? null : null;
-  const args = isJsonObject(call) ? call["args"] ?? null : null;
+  if (result.kind === "value" || result.kind === "result") return result.value;
   if (result.kind === "runAgent") {
     const agents = member(ctx, "agents");
     const run = member(agents, "run");
     if (!isFunction(run)) throw new UnsupportedError("tool context agents.run");
-    const value: unknown = await Reflect.apply(run, agents, [result.name, result.input]);
-    const output = snapshot(member(value, "output"));
-    const content = isJsonObject(output) ? output["content"] ?? [] : [];
-    return { callId, name, args, content };
+    const output = snapshot(await Reflect.apply(run, agents, [result.name, result.input]));
+    return isJsonObject(output) && isJsonArray(output["content"]) ? output["content"] : [];
   }
   const content: Json[] =
     result.kind === "text"
@@ -428,11 +387,12 @@ async function applyToolResult(
       : result.kind === "json"
         ? [{ type: "json", value: result.value }]
         : result.content;
-  const toolResult: JsonObject = { callId, name, args, content };
-  if (result.extras.isError !== undefined) toolResult["isError"] = result.extras.isError;
-  if (result.extras.keep !== undefined) toolResult["keep"] = result.extras.keep;
-  if (result.extras.meta !== undefined) toolResult["meta"] = result.extras.meta;
-  return toolResult;
+  if (result.extras.isError === undefined && result.extras.keep === undefined && result.extras.meta === undefined) return content;
+  const value: JsonObject = { content };
+  if (result.extras.isError !== undefined) value["isError"] = result.extras.isError;
+  if (result.extras.keep !== undefined) value["keep"] = result.extras.keep;
+  if (result.extras.meta !== undefined) value["meta"] = result.extras.meta;
+  return value;
 }
 
 function hookBridge(ctx: unknown): HookOpBridge {
@@ -484,9 +444,7 @@ function buildHookFunction(extension: string, stage: ValueStage, op: Op, scripts
     observations.hookContexts.push({
       extension,
       stage,
-      agent: contextValue(ctx, "agent"),
-      sessionId: contextValue(ctx, "sessionId"),
-      turnId: contextValue(ctx, "turnId"),
+      ...projectContext(ctx, ["inputKind", "step"]),
       input: contextValue(ctx, "input"),
       conversation: contextValue(ctx, "conversation"),
       retryCount: contextValue(ctx, "retryCount"),
@@ -545,7 +503,7 @@ function buildExtension(name: string, script: ExtensionScript, scripts: CaseScri
     const on: Record<string, unknown> = {};
     for (const eventName of instanceScript?.events ?? []) {
       on[eventName] = (event: unknown): void => {
-        const projected = snapshot(member(event, "name"));
+        const projected = snapshot(member(event, "type"));
         observations.extensionLog.push({ action: "event", instance: instanceNumber, name: projected });
       };
     }
@@ -562,99 +520,13 @@ function buildExtension(name: string, script: ExtensionScript, scripts: CaseScri
   return extension;
 }
 
-function buildHost(scripts: CaseScripts, owner: object): Record<string, unknown> {
+function buildHost(scripts: CaseScripts): Record<string, unknown> {
   const observations = scripts.observations;
-  const host: Record<string, unknown> = {
+  return {
     emit: (event: unknown): void => {
       const value = snapshot(event);
       observations.rawEvents.push(value);
       observations.events.push(projectEvent(value));
     },
-  };
-  const declared = scripts.bindings.host;
-  const call = async (name: HostCallbackName, value: Json, args: unknown): Promise<unknown> => {
-    observations.hostCalls.push({ callback: name, value });
-    const script = declared.get(name);
-    if (script === undefined || script.kind === "default") {
-      return name === "validateOperation" || name === "validateOperationInputPatch" ? true : undefined;
-    }
-    return runOp(script.op, args, { gates: scripts.gates, counters: scripts.counters, owner });
-  };
-  if (declared.has("requestApproval")) {
-    host["requestApproval"] = async (request: unknown): Promise<unknown> => call("requestApproval", snapshot(request), request);
-  }
-  if (declared.has("captureOperationContext")) {
-    host["captureOperationContext"] = async (request: unknown): Promise<unknown> =>
-      call("captureOperationContext", snapshot(request), request);
-  }
-  if (declared.has("validateOperation")) {
-    host["validateOperation"] = async (operation: unknown): Promise<unknown> =>
-      call("validateOperation", projectOperation(snapshot(operation)), operation);
-  }
-  if (declared.has("validateOperationInputPatch")) {
-    host["validateOperationInputPatch"] = async (operation: unknown, patch: unknown): Promise<unknown> => {
-      const combined = { operation: projectOperation(snapshot(operation)), inputPatch: snapshot(patch) };
-      return call("validateOperationInputPatch", combined, combined);
-    };
-  }
-  if (declared.has("deliverOperationCompletion")) {
-    host["deliverOperationCompletion"] = async (completion: unknown): Promise<unknown> =>
-      call("deliverOperationCompletion", snapshot(completion), completion);
-  }
-  return host;
-}
-
-/** Wraps a store so that every call is recorded for the observations. */
-export function recordStore(inner: object, onCall: (method: string, args: unknown[], result: unknown) => void): object {
-  return new Proxy(inner, {
-    get(target, property, receiver): unknown {
-      const value: unknown = Reflect.get(target, property, receiver);
-      if (!isFunction(value) || typeof property !== "string") return value;
-      return (...args: unknown[]): unknown => {
-        const result: unknown = Reflect.apply(value, target, args);
-        if (isPromiseLike(result)) {
-          return Promise.resolve(result).then((settled: unknown) => {
-            onCall(property, args, settled);
-            return settled;
-          });
-        }
-        onCall(property, args, result);
-        return result;
-      };
-    },
-  });
-}
-
-export function conversationRecorder(scripts: CaseScripts) {
-  return (method: string, args: unknown[]): void => {
-    if (method === "deleteSession") {
-      const sessionId = args[0];
-      if (typeof sessionId !== "string") return;
-      for (const key of scripts.observations.conversationScopes.keys()) {
-        if (key.startsWith(`${sessionId}/`) || key.startsWith(`${sessionId}#`)) {
-          scripts.observations.conversationScopes.delete(key);
-        }
-      }
-      return;
-    }
-    if (method !== "append" && method !== "replace" && method !== "finish") return;
-    const sessionId = args[0];
-    const agent = args[1];
-    if (typeof sessionId !== "string" || typeof agent !== "string") return;
-    scripts.observations.conversationScopes.set(`${sessionId}/${agent}`, { sessionId, agent });
-  };
-}
-
-export function operationRecorder(scripts: CaseScripts) {
-  return (method: string, args: unknown[], result: unknown): void => {
-    const settled = snapshot(result);
-    if (isOperationLike(settled)) {
-      scripts.recordOperation(settled);
-      return;
-    }
-    if (isJsonArray(settled)) return;
-    if (method !== "save") return;
-    const saved = snapshot(args[0]);
-    if (isOperationLike(saved)) scripts.recordOperation(saved);
   };
 }

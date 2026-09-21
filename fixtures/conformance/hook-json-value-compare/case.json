@@ -32,8 +32,8 @@
       },
       "isOne": {
         "op": "equals",
-          "path": "/0/content/0/text",
-          "value": "{\"n\":1}"
+        "path": "/0/content/0/text",
+        "value": "{\"n\":1}"
       }
     }
   },
@@ -42,7 +42,7 @@
       "run": {
         "sessionId": "c1",
         "input": {
-          "n": 1.0
+          "n": 1
         }
       }
     },

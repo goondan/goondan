@@ -4,7 +4,7 @@ agents:
     tools:
       - agent: worker
     hooks:
-      output:
+      onOutput:
         - agent: [reviewer, checker]
   worker:
     model: w

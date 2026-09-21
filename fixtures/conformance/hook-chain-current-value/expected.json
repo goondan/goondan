@@ -6,23 +6,39 @@
     "functionCalls": [
       {
         "fn": "first",
-          "value": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [{"type": "text", "text": "안녕"}]
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ],
+            "meta": {
+              "kind": "start"
             }
-          ]
+          }
+        ]
       },
       {
         "fn": "second",
-          "value": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [{"type": "text", "text": "첫째"}]
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "첫째"
+              }
+            ],
+            "meta": {
+              "kind": "start"
             }
-          ]
+          }
+        ]
       }
     ],
     "conversations": {
@@ -35,7 +51,10 @@
               "type": "text",
               "text": "둘째"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

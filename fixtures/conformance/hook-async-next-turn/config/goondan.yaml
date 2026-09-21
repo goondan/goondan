@@ -2,8 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: note
           fn: asyncNote
           mode: async
-          using: input

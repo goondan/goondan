@@ -4,6 +4,6 @@ agents:
     extensions:
       bad: {}
     hooks:
-      conversation:
+      onStep:
         - name: bad
           extension: bad

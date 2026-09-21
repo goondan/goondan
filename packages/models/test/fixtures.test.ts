@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Block, Json, Message, Model, ModelInput, ModelResult, Part, Role, ToolDefinition } from "@goondan/core";
+import type { Block, Json, Message, Model, ModelInput, ModelResponse, Part, Role, ToolDefinition } from "@goondan/core";
 import { describe, expect, it } from "vitest";
 import {
   buildAnthropicRequest,
@@ -176,9 +176,12 @@ function readInput(value: Json): ModelInput {
   };
 }
 
-function resultWithoutMessageId(result: ModelResult): Json {
+function resultWithoutMessageId(result: ModelResponse): Json {
   const message = toJson(result.message);
-  if (isJsonObject(message)) delete message.id;
+  if (isJsonObject(message)) {
+    delete message.id;
+    if (message.source === undefined) message.source = "model";
+  }
   return toJson({ ...result, message });
 }
 
@@ -234,7 +237,11 @@ async function runCase(provider: Provider, directory: string): Promise<void> {
 
   if (stream !== undefined) {
     const deltas: string[] = [];
-    const ctx = { agent: "main", sessionId: "fixture", turnId: "turn", step: 1, signal: new AbortController().signal, onTextDelta: (delta: string) => deltas.push(delta) };
+    const ctx = {
+      agent: "main", sessionId: "fixture", turnId: "turn", instance: "fixture/main", executionId: "execution",
+      step: 1, signal: new AbortController().signal, log: { info() {}, warn() {}, error() {} },
+      onTextDelta: (delta: string) => { deltas.push(delta); },
+    };
     try {
       const result = await model.generate(input ?? EMPTY_INPUT, ctx);
       if (expected.result !== undefined) expect(resultWithoutMessageId(result)).toStrictEqual(expected.result);

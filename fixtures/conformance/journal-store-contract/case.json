@@ -1,0 +1,150 @@
+{
+  "description": "메모리 저널 저장소는 임대 순서, 갱신, 기대 head와 펜싱 토큰을 지키며 삭제 뒤 더 큰 토큰으로 빈 스트림을 시작한다.",
+  "spec": [
+    "저널",
+    "스트림과 저장소 계약",
+    "이벤트 봉투와 범위",
+    "저널 이벤트 종류",
+    "fold",
+    "동시 쓰기",
+    "지원 범위와 분산 저장소 수용 기준",
+    "버전과 업그레이드",
+    "삭제"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "acquireLease": {
+        "sessionId": "c1",
+        "owner": "first",
+        "lease": "first"
+      }
+    },
+    {
+      "acquireLease": {
+        "sessionId": "c1",
+        "owner": "second",
+        "lease": "blocked"
+      }
+    },
+    {
+      "appendJournal": {
+        "lease": "first",
+        "expected": 0,
+        "writeId": "first-write",
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "c1",
+            "turnId": "old-turn",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "releaseLease": {
+        "lease": "first"
+      }
+    },
+    {
+      "acquireLease": {
+        "sessionId": "c1",
+        "owner": "second",
+        "lease": "second"
+      }
+    },
+    {
+      "renewLease": {
+        "lease": "second"
+      }
+    },
+    {
+      "appendJournal": {
+        "lease": "first",
+        "expected": 1,
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.error",
+            "sessionId": "c1",
+            "turnId": "old-turn",
+            "data": {
+              "status": "aborted",
+              "error": {
+                "where": "runtime",
+                "codes": ["aborted"],
+                "message": "이전 작성자의 늦은 종료",
+                "attempt": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "deleteStoreSession": {
+        "sessionId": "c1",
+        "lease": "first"
+      }
+    },
+    {
+      "deleteStoreSession": {
+        "sessionId": "c1",
+        "lease": "second"
+      }
+    },
+    {
+      "headJournal": {
+        "sessionId": "c1"
+      }
+    },
+    {
+      "acquireLease": {
+        "sessionId": "c1",
+        "owner": "third",
+        "lease": "third"
+      }
+    },
+    {
+      "appendJournal": {
+        "lease": "third",
+        "expected": 0,
+        "writeId": "new-write",
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "c1",
+            "turnId": "new-turn",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "scanJournal": {
+        "sessionId": "c1"
+      }
+    }
+  ]
+}

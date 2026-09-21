@@ -5,15 +5,42 @@
   "observations": {
     "events": [
       {
-        "name": "turn.start",
-        "agent": "main",
+        "seq": 1,
+        "version": 1,
+        "type": "turn.start",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "data": {}
+      },
+      {
+        "seq": 2,
+        "version": 1,
+        "type": "input.received",
+        "sessionId": "c1",
+        "turnId": "<turn:1>",
+        "inputId": "<input:1>",
         "data": {
+          "input": "안녕"
+        }
+      },
+      {
+        "seq": 3,
+        "version": 1,
+        "type": "agent.start",
+        "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "kind": "turn",
           "input": [
             {
               "role": "user",
               "source": "main",
+              "meta": {
+                "kind": "start"
+              },
               "content": [
                 {
                   "type": "text",
@@ -22,72 +49,115 @@
               ]
             }
           ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        }
       },
       {
-        "name": "step.start",
-        "agent": "main",
+        "seq": 4,
+        "version": 1,
+        "type": "conversation.message.appended",
         "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
         "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "message": {
+            "role": "user",
+            "source": "main",
+            "meta": {
+              "kind": "start"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "안녕"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "type": "step.start",
+        "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
         "data": {
           "step": 1
         },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        "observational": true
       },
       {
-        "name": "step.textDelta",
-        "agent": "main",
+        "type": "step.textDelta",
         "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
         "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
         "data": {
           "step": 1,
           "delta": "he"
         },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        "observational": true
       },
       {
-        "name": "step.textDelta",
-        "agent": "main",
+        "type": "step.textDelta",
         "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
         "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
         "data": {
           "step": 1,
           "delta": "llo"
         },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        "observational": true
       },
       {
-        "name": "step.done",
-        "agent": "main",
+        "type": "step.done",
         "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
         "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
         "data": {
           "step": 1,
           "finishReason": "stop"
         },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        "observational": true
       },
       {
-        "name": "turn.done",
-        "agent": "main",
+        "seq": 5,
+        "version": 1,
+        "type": "conversation.message.appended",
         "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
         "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "data": {
+          "message": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "seq": 6,
+        "version": 1,
+        "type": "agent.done",
+        "sessionId": "c1",
+        "agent": "main",
+        "instance": "c1/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
         "data": {
           "output": {
             "role": "assistant",
@@ -99,18 +169,64 @@
               }
             ]
           },
-          "steps": 1,
+          "finishReason": "stop",
           "usage": {
             "input": 2,
             "output": 1,
             "cacheRead": 0,
             "cacheWrite": 0
           }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        }
+      },
+      {
+        "seq": 7,
+        "version": 1,
+        "type": "turn.done",
+        "sessionId": "c1",
+        "turnId": "<turn:1>",
+        "data": {
+          "result": {
+            "turnId": "<turn:1>",
+            "outputs": [
+              {
+                "role": "assistant",
+                "source": "model",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hello"
+                  }
+                ]
+              }
+            ],
+            "output": "hello",
+            "usage": {
+              "input": 2,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "runs": [
+              {
+                "agent": "main",
+                "instance": "c1/main",
+                "executionId": "<execution:1>",
+                "turnId": "<turn:1>",
+                "kind": "turn",
+                "finishReason": "stop",
+                "status": "done",
+                "usage": {
+                  "input": 2,
+                  "output": 1,
+                  "cacheRead": 0,
+                  "cacheWrite": 0
+                }
+              }
+            ]
+          }
+        }
       }
     ]
   }

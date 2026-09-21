@@ -25,10 +25,8 @@ import {
 import {
   CaseScripts,
   buildBindings,
-  conversationRecorder,
-  operationRecorder,
+  projectEvent,
   projectOperation,
-  recordStore,
 } from "./conformance-bindings.ts";
 import { GateCancelledError } from "./conformance-gates.ts";
 import {
@@ -39,10 +37,10 @@ import {
   callMethod,
   createGoondan,
   effectiveConfigOf,
+  foldJournal,
   loadConfig,
   member,
-  newConversationStore,
-  newOperationStore,
+  newStore,
   validateConfig,
 } from "./conformance-host.ts";
 import {
@@ -52,6 +50,7 @@ import {
   formatDifferences,
   isJsonArray,
   isJsonObject,
+  isFunction,
   isNumber,
   isPromiseLike,
   isString,
@@ -102,6 +101,11 @@ interface RuntimeHandle {
   runtime: unknown;
   owner: object;
   closed: boolean;
+}
+
+interface LeaseHandle {
+  token: number;
+  value: object;
 }
 
 type StepOutcome =
@@ -182,10 +186,9 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
   const caseDirectory = join(root, caseId);
   const { caseFile, expected } = await readCaseFiles(caseDirectory);
   const scripts = new CaseScripts(caseFile.bindings);
-  const innerConversationStore = newConversationStore();
-  const innerOperationStore = newOperationStore();
-  const conversationStore = recordStore(innerConversationStore, conversationRecorder(scripts));
-  const operationStore = recordStore(innerOperationStore, operationRecorder(scripts));
+  const store = newStore();
+  const leases = new Map<string, LeaseHandle>();
+  const deletedSessions = new Set<string>();
   const handles: RuntimeHandle[] = [];
   let effectiveConfig: Json = null;
   let loaded: unknown;
@@ -195,7 +198,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
     const directory = caseFile.config.mode === "document" ? resolve(caseDirectory, caseFile.config.directory) : undefined;
     // A document-mode runtime reads its configuration directory from the bindings; see
     // spec/goondan.md "합성 결과와 유효 구성" and RuntimeBindings.directory.
-    const bindings = buildBindings({ scripts, owner, conversationStore, operationStore, directory });
+    const bindings = buildBindings({ scripts, owner, store, directory });
     const runtime = await createGoondan(caseFile.config.mode === "file" ? loaded : caseFile.config.document, bindings);
     const handle: RuntimeHandle = { runtime, owner, closed: false };
     handles.push(handle);
@@ -244,7 +247,10 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
   let stopped = false;
   try {
     for (const [index, step] of caseFile.steps.entries()) {
-      const outcome = await withTimeout(runStep(step, () => current, makeRuntime, scripts, failures), `step ${String(index)} (${step.action})`);
+      const outcome = await withTimeout(
+        runStep(step, () => current, makeRuntime, scripts, store, leases, deletedSessions, failures),
+        `step ${String(index)} (${step.action})`,
+      );
       if (step.action === "restart") current = handles[handles.length - 1];
       stepDocuments.push(projectStepOutcome(step, outcome, failures));
       if (step.settle) {
@@ -265,7 +271,7 @@ async function executeCase(root: string, caseId: string, failures: string[]): Pr
   // Observations are collected while the runtimes are still open.
   let observations = new Map<ObservationSection, Json>();
   try {
-    observations = await collectObservations(scripts, current, innerConversationStore, innerOperationStore, effectiveConfig, failures);
+    observations = await collectObservations(scripts, store, effectiveConfig, deletedSessions, failures);
   } catch (error) {
     failures.push(describeError(error));
     stopped = true;
@@ -297,6 +303,9 @@ async function runStep(
   currentOf: () => RuntimeHandle | undefined,
   makeRuntime: () => Promise<RuntimeHandle>,
   scripts: CaseScripts,
+  store: object,
+  leases: Map<string, LeaseHandle>,
+  deletedSessions: Set<string>,
   failures: string[],
 ): Promise<StepOutcome> {
   const handle = currentOf();
@@ -314,7 +323,9 @@ async function runStep(
       const branches = await Promise.all(
         step.branches.map(async (branch) => {
           const outcomes: StepOutcome[] = [];
-          for (const inner of branch) outcomes.push(await runStep(inner, currentOf, makeRuntime, scripts, failures));
+          for (const inner of branch) {
+            outcomes.push(await runStep(inner, currentOf, makeRuntime, scripts, store, leases, deletedSessions, failures));
+          }
           return outcomes;
         }),
       );
@@ -325,13 +336,20 @@ async function runStep(
   }
   if (!handle) throw new CaseFailure("no runtime is available for this step");
   try {
-    return await callRuntimeStep(step, handle, scripts);
+    return await callRuntimeStep(step, handle, scripts, store, leases, deletedSessions);
   } catch (error) {
     return { kind: "error", error };
   }
 }
 
-async function callRuntimeStep(step: Step, handle: RuntimeHandle, scripts: CaseScripts): Promise<StepOutcome> {
+async function callRuntimeStep(
+  step: Step,
+  handle: RuntimeHandle,
+  scripts: CaseScripts,
+  store: object,
+  leases: Map<string, LeaseHandle>,
+  deletedSessions: Set<string>,
+): Promise<StepOutcome> {
   switch (step.action) {
     case "run": {
       const options: Record<string, unknown> = { sessionId: step.sessionId };
@@ -340,43 +358,24 @@ async function callRuntimeStep(step: Step, handle: RuntimeHandle, scripts: CaseS
       return { kind: "value", value: await awaited(callMethod(handle.runtime, "run", [step.input, options], "goondan.run")) };
     }
     case "decide": {
-      const target = resolveOperation(step.operation, step.sessionId, scripts);
+      const operations = member(handle.runtime, "operations");
+      const target = await resolveOperation(step.operation, step.sessionId, scripts, operations);
       return {
         kind: "value",
-        value: await awaited(
-          callMethod(handle.runtime, "decideOperation", [target.sessionId, target.operationId, step.value], "runtime.decideOperation"),
-        ),
-      };
-    }
-    case "cancel": {
-      const target = resolveOperation(step.operation, step.sessionId, scripts);
-      return {
-        kind: "value",
-        value: await awaited(
-          callMethod(handle.runtime, "cancelOperation", [target.sessionId, target.operationId], "runtime.cancelOperation"),
-        ),
+        value: await awaited(callMethod(operations, "decide", [target.sessionId, target.operationId, step.value], "operations.decide")),
       };
     }
     case "list": {
+      const operations = member(handle.runtime, "operations");
       const args = step.sessionId === undefined ? [] : [step.sessionId];
-      return { kind: "value", value: await awaited(callMethod(handle.runtime, "listOperations", args, "runtime.listOperations")) };
-    }
-    case "recover": {
-      const args = step.sessionId === undefined ? [] : [step.sessionId];
-      await awaited(callMethod(handle.runtime, "recoverOperations", args, "runtime.recoverOperations"));
-      return { kind: "none" };
+      return { kind: "value", value: await awaited(callMethod(operations, "list", args, "operations.list")) };
     }
     case "abort":
       return { kind: "value", value: await awaited(callMethod(handle.runtime, "abort", [step.sessionId], "runtime.abort")) };
-    case "steer": {
-      const options: Record<string, unknown> = {};
-      if (step.agent !== undefined) options["agent"] = step.agent;
-      await awaited(callMethod(handle.runtime, "steer", [step.sessionId, step.value, options], "runtime.steer"));
-      return { kind: "none" };
-    }
     case "deleteSession": {
       const sessions = member(handle.runtime, "sessions");
       await awaited(callMethod(sessions, "delete", [step.sessionId], "goondan.sessions.delete"));
+      deletedSessions.add(step.sessionId);
       return { kind: "none" };
     }
     case "close": {
@@ -386,8 +385,119 @@ async function callRuntimeStep(step: Step, handle: RuntimeHandle, scripts: CaseS
       if (isPromiseLike(pending)) await pending;
       return { kind: "none" };
     }
+    case "acquireLease": {
+      const value = await awaited(callMethod(store, "acquireLease", [step.sessionId, step.owner], "store.acquireLease"));
+      if (value === null) return { kind: "value", value: null };
+      if (typeof value !== "object") throw new CaseFailure("store.acquireLease did not return a lease or null");
+      const token = member(value, "token");
+      if (!isNumber(token)) throw new CaseFailure("store lease has no numeric token");
+      const expiresAt = member(value, "expiresAt");
+      if (expiresAt !== null && !isNumber(expiresAt)) throw new CaseFailure("store lease has no numeric or null expiresAt");
+      leases.set(step.lease, { token, value });
+      return { kind: "value", value: { token, expiresAt } };
+    }
+    case "renewLease": {
+      const lease = requireLease(leases, step.lease);
+      return { kind: "value", value: await awaited(callMethod(lease.value, "renew", [], "lease.renew")) };
+    }
+    case "releaseLease": {
+      const lease = requireLease(leases, step.lease);
+      await awaited(callMethod(lease.value, "release", [], "lease.release"));
+      return { kind: "none" };
+    }
+    case "appendJournal": {
+      const options: Record<string, unknown> = {};
+      if (step.lease !== undefined) options["token"] = requireLease(leases, step.lease).token;
+      if (step.expected !== undefined) options["expected"] = step.expected;
+      if (step.writeId !== undefined) options["writeId"] = step.writeId;
+      return { kind: "value", value: await awaited(callMethod(store, "append", [step.events, options], "store.append")) };
+    }
+    case "appendOperationTransition":
+      await appendOperationTransition(store, scripts, step);
+      return { kind: "none" };
+    case "scanJournal": {
+      const options: Record<string, unknown> = {};
+      if (step.sessionId !== undefined) options["sessionId"] = step.sessionId;
+      if (step.fromSeq !== undefined) options["fromSeq"] = step.fromSeq;
+      if (step.limit !== undefined) options["limit"] = step.limit;
+      const value = callMethod(store, "scan", [options], "store.scan");
+      return { kind: "value", value: await collectValues(value) };
+    }
+    case "headJournal":
+      return { kind: "value", value: await awaited(callMethod(store, "head", [step.sessionId], "store.head")) };
+    case "deleteStoreSession": {
+      const lease = requireLease(leases, step.lease);
+      await awaited(callMethod(store, "deleteSession", [step.sessionId, { token: lease.token }], "store.deleteSession"));
+      deletedSessions.add(step.sessionId);
+      return { kind: "none" };
+    }
     default:
       throw new CaseFailure(`step ${step.action} is not a runtime request`);
+  }
+}
+
+async function appendOperationTransition(
+  store: object,
+  scripts: CaseScripts,
+  step: Extract<Step, { action: "appendOperationTransition" }>,
+): Promise<void> {
+  const events = await collectValues(callMethod(store, "scan", [{ sessionId: step.sessionId }], "store.scan"));
+  const state = await foldJournal(step.sessionId, events);
+  if (!isJsonObject(state) || !isJsonArray(state["operations"])) {
+    throw new CaseFailure(`journal ${step.sessionId} has no operation list`);
+  }
+  for (const operation of state["operations"]) scripts.recordOperation(operation);
+  const target = findOperationAlias(step.operation, step.sessionId, scripts);
+  if (target === undefined) throw new CaseFailure(`no operation matches the alias ${step.operation}`);
+  const operation = state["operations"].find(
+    (candidate) => isJsonObject(candidate) && candidate["operationId"] === target.operationId,
+  );
+  if (!isJsonObject(operation)) throw new CaseFailure(`operation ${step.operation} is not stored`);
+  const currentStatus = operation["status"];
+  const currentDelivery = operation["deliveryStatus"];
+  const valid =
+    ((step.status === "approved" || step.status === "rejected") && currentStatus === "pending") ||
+    (step.status === "running" && currentStatus === "approved") ||
+    (step.status === "delivering" && currentStatus === "rejected" && currentDelivery === "pending");
+  if (!valid) {
+    throw new CaseFailure(
+      `operation ${step.operation} cannot enter ${step.status} from ${JSON.stringify(currentStatus)}/${JSON.stringify(currentDelivery)}`,
+    );
+  }
+  const updatedAt = operation["updatedAt"];
+  if (!isNumber(updatedAt)) throw new CaseFailure(`operation ${step.operation} has no numeric updatedAt`);
+  const event: JsonObject = {
+    version: 1,
+    type: step.status === "approved"
+      ? "operation.approved"
+      : step.status === "running"
+        ? "operation.execution.started"
+        : step.status === "rejected"
+          ? "operation.rejected"
+          : "operation.delivery.claimed",
+    sessionId: step.sessionId,
+    agent: operation["agent"] ?? null,
+    instance: operation["instance"] ?? null,
+    turnId: operation["turnId"] ?? null,
+    executionId: operation["executionId"] ?? null,
+    operationId: target.operationId,
+    data: { updatedAt: updatedAt + 1 },
+  };
+  if (isString(operation["parentExecutionId"])) event["parentExecutionId"] = operation["parentExecutionId"];
+  const lease = await awaited(callMethod(store, "acquireLease", [step.sessionId, `fixture-${step.status}`], "store.acquireLease"));
+  if (lease === null || typeof lease !== "object") throw new CaseFailure(`cannot acquire the ${step.sessionId} fixture lease`);
+  const token = member(lease, "token");
+  if (!isNumber(token)) throw new CaseFailure("fixture lease has no numeric token");
+  try {
+    const head = await awaited(callMethod(store, "head", [step.sessionId], "store.head"));
+    if (!isNumber(head)) throw new CaseFailure("store.head did not return a number");
+    await awaited(callMethod(store, "append", [[event], {
+      expected: head,
+      token,
+      writeId: `fixture-${target.operationId}-${step.status}`,
+    }], "store.append"));
+  } finally {
+    await awaited(callMethod(lease, "release", [], "lease.release"));
   }
 }
 
@@ -395,17 +505,58 @@ async function awaited(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value;
 }
 
-function resolveOperation(
+function requireLease(leases: ReadonlyMap<string, LeaseHandle>, alias: string): LeaseHandle {
+  const lease = leases.get(alias);
+  if (lease === undefined) throw new CaseFailure(`no acquired lease has the alias ${alias}`);
+  return lease;
+}
+
+async function collectValues(source: unknown): Promise<Json[]> {
+  const settled = await awaited(source);
+  if (Array.isArray(settled)) return snapshot(settled);
+  if ((typeof settled !== "object" || settled === null) && typeof settled !== "function") {
+    throw new CaseFailure("store.scan did not return an iterable");
+  }
+  const factory: unknown = Reflect.get(Object(settled), Symbol.asyncIterator);
+  if (!isFunction(factory)) throw new CaseFailure("store.scan did not return an async iterable");
+  const iterator: unknown = Reflect.apply(factory, settled, []);
+  const values: Json[] = [];
+  while (true) {
+    const next = snapshot(await awaited(callMethod(iterator, "next", [], "store.scan iterator")));
+    if (!isJsonObject(next)) throw new CaseFailure("store.scan iterator returned an invalid result");
+    if (next["done"] === true) return values;
+    values.push(next["value"] ?? null);
+  }
+}
+
+async function resolveOperation(
   operation: string,
   sessionId: string | undefined,
   scripts: CaseScripts,
-): { operationId: string; sessionId: string } {
+  operations: unknown,
+): Promise<{ operationId: string; sessionId: string }> {
   if (!operation.startsWith("<op:")) {
     if (sessionId === undefined) {
       throw new CaseFailure(`step needs sessionId when operation ${operation} is not an alias`);
     }
     return { operationId: operation, sessionId };
   }
+  let found = findOperationAlias(operation, sessionId, scripts);
+  if (found !== undefined) return found;
+  const listed = snapshot(await awaited(callMethod(operations, "list", [], "operations.list")));
+  if (isJsonArray(listed)) {
+    for (const record of listed) scripts.recordOperation(record);
+  }
+  found = findOperationAlias(operation, sessionId, scripts);
+  if (found !== undefined) return found;
+  throw new CaseFailure(`no operation matches the alias ${operation}`);
+}
+
+function findOperationAlias(
+  operation: string,
+  sessionId: string | undefined,
+  scripts: CaseScripts,
+): { operationId: string; sessionId: string } | undefined {
   for (const [operationId, alias] of scripts.observations.operationAliases) {
     if (alias !== operation) continue;
     if (sessionId !== undefined) return { operationId, sessionId };
@@ -414,7 +565,7 @@ function resolveOperation(
     if (!isString(stored)) throw new CaseFailure(`operation ${operation} has no stored sessionId`);
     return { operationId, sessionId: stored };
   }
-  throw new CaseFailure(`no operation matches the alias ${operation}`);
+  return undefined;
 }
 
 function projectStepOutcome(step: Step, outcome: StepOutcome, failures: string[]): Json {
@@ -447,14 +598,13 @@ function projectReturnValue(step: Step, value: unknown, failures: string[]): Jso
       const result = snapshot(value);
       if (!isJsonObject(result)) return result;
       const projected: JsonObject = {};
-      for (const key of ["output", "outputs", "usage", "finishReason", "status", "runs"]) {
+      for (const key of ["turnId", "output", "outputs", "usage", "finishReason", "status", "runs"]) {
         if (Object.hasOwn(result, key)) projected[key] = result[key] ?? null;
       }
       checkUsageTotal(projected, failures);
       return projected;
     }
     case "decide":
-    case "cancel":
       return projectOperation(snapshot(value));
     case "list": {
       const list = snapshot(value);
@@ -462,6 +612,15 @@ function projectReturnValue(step: Step, value: unknown, failures: string[]): Jso
     }
     case "abort":
       return snapshot(value);
+    case "acquireLease":
+    case "renewLease":
+    case "headJournal":
+      return snapshot(value);
+    case "appendJournal":
+    case "scanJournal": {
+      const events = snapshot(value);
+      return isJsonArray(events) ? events.map(projectEvent) : events;
+    }
     default:
       return undefined;
   }
@@ -497,6 +656,9 @@ function projectStepError(error: unknown, failures: string[]): Json {
     return { issues: configError.issues };
   }
   if (error instanceof ScriptError) return { scriptError: error.message };
+  if (error instanceof Error && (error.name === "StoreConflictError" || error.name === "StoreInputError")) {
+    return { storeError: error.name };
+  }
   const executionError = asExecutionError(error);
   if (executionError) {
     const projected: JsonObject = {
@@ -515,10 +677,9 @@ function projectStepError(error: unknown, failures: string[]): Json {
 
 async function collectObservations(
   scripts: CaseScripts,
-  current: RuntimeHandle | undefined,
-  conversationStore: object,
-  operationStore: object,
+  store: object,
   effectiveConfig: Json,
+  deletedSessions: ReadonlySet<string>,
   failures: string[],
 ): Promise<Map<ObservationSection, Json>> {
   const observations = scripts.observations;
@@ -528,44 +689,99 @@ async function collectObservations(
   // entries and aborted turn events that the case must not observe.
   sections.set("effectiveConfig", effectiveConfig);
   sections.set("events", snapshot(observations.events));
+  const stored = await collectValues(callMethod(store, "scan", [{}], "store.scan"));
+  const grouped = new Map<string, Json[]>();
+  for (const event of stored) {
+    if (!isJsonObject(event) || !isString(event["sessionId"])) continue;
+    const events = grouped.get(event["sessionId"]) ?? [];
+    const expectedSeq = events.length + 1;
+    if (event["seq"] !== expectedSeq) {
+      failures.push(`journal ${event["sessionId"]} expected seq ${String(expectedSeq)} but got ${JSON.stringify(event["seq"])}`);
+    }
+    if (!isNumber(event["at"])) failures.push(`stored event ${event["sessionId"]}:${String(expectedSeq)} has no numeric at`);
+    events.push(event);
+    grouped.set(event["sessionId"], events);
+  }
+  sections.set("journalEvents", stored.map(projectEvent));
+  const states: JsonObject = {};
+  for (const [sessionId, events] of grouped) states[sessionId] = await foldJournal(sessionId, events);
+  sections.set("journalStates", states);
   sections.set("modelInputs", snapshot(fromMap(observations.modelInputs)));
   sections.set("modelContexts", snapshot(fromMap(observations.modelContexts)));
   sections.set("toolCalls", snapshot(observations.toolCalls));
   sections.set("toolContexts", snapshot(observations.toolContexts));
   sections.set("functionCalls", snapshot(observations.functionCalls));
+  sections.set("functionContexts", snapshot(observations.functionContexts));
   sections.set("hookCalls", snapshot(observations.hookCalls));
   sections.set("hookContexts", snapshot(observations.hookContexts));
-  sections.set("hostCalls", snapshot(observations.hostCalls));
   sections.set("extensionLog", snapshot(observations.extensionLog));
 
   const conversations: JsonObject = {};
-  for (const [key, scope] of [...observations.conversationScopes].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
-    const messages = await awaited(callMethod(conversationStore, "load", [scope.sessionId, scope.agent], "conversationStore.load"));
-    conversations[key] = snapshot(messages);
+  const operations: Json[] = [];
+  for (const [sessionId, state] of Object.entries(states)) {
+    if (!isJsonObject(state)) continue;
+    const foldedConversations = state["conversations"];
+    if (isJsonArray(foldedConversations)) {
+      for (const conversation of foldedConversations) {
+        if (!isJsonObject(conversation) || !isString(conversation["agent"]) || !isString(conversation["instance"])) continue;
+        const stable = conversation["instance"] === `${sessionId}/${conversation["agent"]}`;
+        const key = stable
+          ? `${sessionId}/${conversation["agent"]}`
+          : `${sessionId}/${conversation["agent"]}@${conversation["instance"]}`;
+        conversations[key] = conversation["messages"] ?? [];
+      }
+    }
+    const foldedOperations = state["operations"];
+    if (isJsonArray(foldedOperations)) operations.push(...foldedOperations);
   }
   sections.set("conversations", conversations);
-
-  let listed: Json = [];
-  if (current && !current.closed) {
-    try {
-      listed = snapshot(await awaited(callMethod(current.runtime, "listOperations", [], "runtime.listOperations")));
-    } catch {
-      listed = snapshot(await awaited(callMethod(operationStore, "list", [], "operationStore.list")));
-    }
-  } else {
-    listed = snapshot(await awaited(callMethod(operationStore, "list", [], "operationStore.list")));
-  }
-  checkStoredOperations(listed, failures);
-  sections.set("operations", isJsonArray(listed) ? listed.map(projectOperation) : listed);
-  checkEvents(observations.rawEvents, failures);
-
-  const history: JsonObject = {};
-  for (const [operationId, entries] of observations.operationHistory) {
-    const alias = observations.operationAliases.get(operationId) ?? operationId;
-    history[alias] = [...entries];
-  }
-  sections.set("operationHistory", history);
+  operations.sort(compareOperations);
+  checkStoredOperations(operations, failures);
+  for (const operation of operations) scripts.recordOperation(operation);
+  sections.set("operations", operations.map(projectOperation));
+  sections.set("operationHistory", buildOperationHistory(stored, scripts));
+  checkEvents(observations.rawEvents, stored, deletedSessions, failures);
   return sections;
+}
+
+function compareOperations(left: Json, right: Json): number {
+  if (!isJsonObject(left) || !isJsonObject(right)) return 0;
+  const leftAt = isNumber(left["createdAt"]) ? left["createdAt"] : 0;
+  const rightAt = isNumber(right["createdAt"]) ? right["createdAt"] : 0;
+  if (leftAt !== rightAt) return leftAt - rightAt;
+  const leftSession = isString(left["sessionId"]) ? left["sessionId"] : "";
+  const rightSession = isString(right["sessionId"]) ? right["sessionId"] : "";
+  return compareCodePoints(leftSession, rightSession);
+}
+
+function buildOperationHistory(events: readonly Json[], scripts: CaseScripts): JsonObject {
+  const status = new Map<string, { status: string; delivery: string; entries: string[] }>();
+  for (const event of events) {
+    if (!isJsonObject(event) || !isString(event["operationId"]) || !isString(event["type"])) continue;
+    const id = event["operationId"];
+    const current = status.get(id) ?? { status: "pending", delivery: "pending", entries: [] };
+    switch (event["type"]) {
+      case "operation.approved": current.status = "approved"; break;
+      case "operation.rejected": current.status = "rejected"; break;
+      case "operation.cancelled": current.status = "cancelled"; break;
+      case "operation.execution.started": current.status = "running"; break;
+      case "operation.completed": current.status = "completed"; break;
+      case "operation.failed": current.status = "failed"; break;
+      case "operation.delivery.claimed": current.delivery = "delivering"; break;
+      case "operation.delivery.finished": {
+        const data = event["data"];
+        current.delivery = isJsonObject(data) && data["outcome"] === "delivered" ? "delivered" : "pending";
+        break;
+      }
+      default: break;
+    }
+    const entry = `${current.status}/${current.delivery}`;
+    if (current.entries[current.entries.length - 1] !== entry) current.entries.push(entry);
+    status.set(id, current);
+  }
+  const result: JsonObject = {};
+  for (const [id, current] of status) result[scripts.observations.operationAliases.get(id) ?? id] = current.entries;
+  return result;
 }
 
 function fromMap(map: ReadonlyMap<string, Json[]>): JsonObject {
@@ -589,10 +805,34 @@ function checkStoredOperations(operations: Json, failures: string[]): void {
   }
 }
 
-function checkEvents(events: readonly Json[], failures: string[]): void {
+function checkEvents(
+  events: readonly Json[],
+  stored: readonly Json[],
+  deletedSessions: ReadonlySet<string>,
+  failures: string[],
+): void {
+  const storedBySequence = new Map<string, Json>();
+  for (const event of stored) {
+    if (!isJsonObject(event) || !isString(event["sessionId"]) || !isNumber(event["seq"])) continue;
+    storedBySequence.set(`${event["sessionId"]}:${String(event["seq"])}`, projectEvent(event));
+  }
   for (const event of events) {
     if (!isJsonObject(event)) continue;
-    if (!isNumber(event["at"])) failures.push(`event ${JSON.stringify(event["name"])} has no numeric at`);
+    if (!isNumber(event["at"])) failures.push(`event ${JSON.stringify(event["type"])} has no numeric at`);
+    if (event["observational"] === true) {
+      if (Object.hasOwn(event, "seq")) failures.push(`observational event ${JSON.stringify(event["type"])} has seq`);
+      continue;
+    }
+    if (!isNumber(event["seq"]) || !isString(event["sessionId"])) {
+      failures.push(`journal event ${JSON.stringify(event["type"])} has no sessionId and seq`);
+      continue;
+    }
+    const key = `${event["sessionId"]}:${String(event["seq"])}`;
+    const storedEvent = storedBySequence.get(key);
+    if (storedEvent === undefined || diffJson(projectEvent(event), storedEvent, "").length > 0) {
+      if (deletedSessions.has(event["sessionId"])) continue;
+      failures.push(`execution event ${key} does not match the stored journal event`);
+    }
   }
 }
 
@@ -719,7 +959,7 @@ function compareStep(step: Step, expected: ExpectedStep, actual: Json, pointer: 
         failures.push(`${pointer}/result: the step returned no value`);
         return;
       }
-      const restricted = isJsonObject(expected.value) && isJsonObject(result) ? restrictKeys(result, Object.keys(expected.value)) : result;
+      const restricted = restrictShape(result, expected.value);
       const differences = diffJson(restricted, expected.value, `${pointer}/result`);
       if (differences.length > 0) failures.push(formatDifferences(differences));
       return;
@@ -753,10 +993,27 @@ function compareStep(step: Step, expected: ExpectedStep, actual: Json, pointer: 
   }
 }
 
-function restrictKeys(value: JsonObject, keys: readonly string[]): JsonObject {
+function restrictShape(actual: Json, expected: Json): Json {
+  if (isJsonArray(actual) && isJsonArray(expected)) {
+    return actual.map((item, index) => {
+      const wanted = expected[index];
+      return wanted === undefined ? item : restrictShape(item, wanted);
+    });
+  }
+  if (isJsonObject(actual) && isJsonObject(expected)) {
+    const restricted: JsonObject = {};
+    for (const [key, wanted] of Object.entries(expected)) {
+      if (wanted !== undefined && Object.hasOwn(actual, key)) restricted[key] = restrictShape(actual[key] ?? null, wanted);
+    }
+    return restricted;
+  }
+  return actual;
+}
+
+function restrictKeys(actual: JsonObject, keys: readonly string[]): JsonObject {
   const restricted: JsonObject = {};
   for (const key of keys) {
-    if (Object.hasOwn(value, key)) restricted[key] = value[key] ?? null;
+    if (Object.hasOwn(actual, key)) restricted[key] = actual[key] ?? null;
   }
   return restricted;
 }
@@ -782,6 +1039,11 @@ function compareStepError(expected: ExpectedStepError, actual: Json, pointer: st
       }
       const differences = diffJson(restrictIssues(issues, expected.issues), expected.issues, `${pointer}/issues`);
       if (differences.length > 0) failures.push(formatDifferences(differences));
+      return;
+    }
+    case "store": {
+      const name = object["storeError"];
+      if (name !== expected.name) failures.push(`${pointer}/storeError: expected ${expected.name}, got ${JSON.stringify(name)}`);
       return;
     }
     default: {

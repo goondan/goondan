@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "본문"
-            }
-          ]
-        },
+        "output": "본문",
         "usage": {
           "input": 2,
           "output": 1,
@@ -34,13 +25,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "helper",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "hook",
             "usage": {
               "input": 0,
@@ -49,180 +38,13 @@
               "cacheWrite": 0
             },
             "status": "failed",
-            "instance": "c1#<turn:1>#helper/helper",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
+            "instance": "c1/helper",
+            "executionId": "<execution:2>",
+            "parentExecutionId": "<execution:1>"
           }
         ]
       }
     }
   ],
-  "observations": {
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "질문"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "finishReason": "stop"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.start",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "helper",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "본문"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.error",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1,
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.error",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "where": "model",
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "hook.failed",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "value": "output",
-          "hook": "helper"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "output": {
-            "role": "assistant",
-            "source": "model",
-            "content": [
-              {
-                "type": "text",
-                "text": "본문"
-              }
-            ]
-          },
-          "steps": 1,
-          "usage": {
-            "input": 2,
-            "output": 1,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ]
-  }
+  "observations": {}
 }

@@ -22,10 +22,6 @@
       "addHint": {
         "op": "constant",
         "value": "힌트"
-      },
-      "polish": {
-        "op": "textSuffix",
-        "suffix": " (정리)"
       }
     }
   },

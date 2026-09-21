@@ -1,5 +1,5 @@
 {
-  "description": "추가할 메시지와 source와 key가 같은 가장 뒤 메시지가 role과 content까지 같으면 그 메시지는 추가하지 않고, 내용이 달라지면 새 메시지로 추가한다.",
+  "description": "메시지를 보강할 때 source와 key가 같은 가장 뒤 메시지의 role과 content가 같으면 추가하지 않고, 내용이 달라지면 새 메시지로 추가한다.",
   "spec": [
     "제어 결과"
   ],

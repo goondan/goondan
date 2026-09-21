@@ -11,6 +11,7 @@ import {
   type JsonObject,
   isJsonArray,
   isJsonObject,
+  isNumber,
   isString,
   isStringArray,
 } from "./conformance-json.ts";
@@ -25,14 +26,16 @@ export class CaseFormatError extends Error {
 export const OBSERVATION_SECTIONS = [
   "effectiveConfig",
   "events",
+  "journalEvents",
+  "journalStates",
   "modelInputs",
   "modelContexts",
   "toolCalls",
   "toolContexts",
   "functionCalls",
+  "functionContexts",
   "hookCalls",
   "hookContexts",
-  "hostCalls",
   "extensionLog",
   "conversations",
   "operations",
@@ -41,25 +44,17 @@ export const OBSERVATION_SECTIONS = [
 export type ObservationSection = (typeof OBSERVATION_SECTIONS)[number];
 
 export const VALUE_STAGES = [
-  "input",
-  "conversation",
-  "modelInput",
-  "modelResult",
-  "toolCall",
-  "toolResult",
-  "output",
-  "error",
+  "onInput",
+  "onPrompt",
+  "onStep",
+  "onModelInput",
+  "onModelResult",
+  "onToolCall",
+  "onToolResult",
+  "onOutput",
+  "onError",
 ] as const;
 export type ValueStage = (typeof VALUE_STAGES)[number];
-
-export const HOST_CALLBACKS = [
-  "requestApproval",
-  "captureOperationContext",
-  "validateOperation",
-  "validateOperationInputPatch",
-  "deliverOperationCompletion",
-] as const;
-export type HostCallbackName = (typeof HOST_CALLBACKS)[number];
 
 const SCHEMA_KEYWORDS = [
   "type",
@@ -95,11 +90,8 @@ export const CONFIG_ERROR_CODES: readonly string[] = [
   "reference.inherit_cycle",
   "reference.extension",
   "reference.duplicate_tool",
-  "reference.duplicate_hook",
   "routes.reserved",
-  "routes.no_route",
   "routes.no_input",
-  "routes.no_output",
   "routes.unreachable",
   "routes.cycle",
   "routes.wait_cycle",
@@ -123,7 +115,6 @@ export const EXECUTION_ERROR_CODES: readonly string[] = [
   "hook_error",
   "value_invalid",
   "route_error",
-  "steer_invalid",
   "operation_invalid",
   "runtime_error",
   "aborted",
@@ -221,7 +212,8 @@ export type ToolResultScript =
   | { kind: "json"; value: Json; extras: ToolResultExtras }
   | { kind: "content"; content: Json[]; extras: ToolResultExtras }
   | { kind: "error"; message: string }
-  | { kind: "raw"; value: Json }
+  | { kind: "value"; value: Json }
+  | { kind: "result"; value: JsonObject }
   | { kind: "runAgent"; name: string; input: Json }
   | { kind: "await"; gate: string; then: ToolResultScript };
 
@@ -250,15 +242,12 @@ export interface ExtensionScript {
   instance?: ExtensionInstanceScript;
 }
 
-export type HostCallbackScript = { kind: "default" } | { kind: "op"; op: Op };
-
 export interface CaseBindings {
   models: Map<string, ModelScript>;
   tools: Map<string, ToolScript>;
   functions: Map<string, Op>;
   extensions: Map<string, ExtensionScript>;
   ports: Map<string, Json>;
-  host: Map<HostCallbackName, HostCallbackScript>;
   maxRetries?: { value: Json };
   maxSteps?: { value: Json };
 }
@@ -270,16 +259,21 @@ export type CaseConfig =
 export type Step =
   | { action: "run"; settle: boolean; sessionId: string; input: Json; agent?: string; startAgent?: string }
   | { action: "decide"; settle: boolean; operation: string; value: Json; sessionId?: string }
-  | { action: "cancel"; settle: boolean; operation: string; sessionId?: string }
   | { action: "list"; settle: boolean; sessionId?: string }
-  | { action: "recover"; settle: boolean; sessionId?: string }
   | { action: "abort"; settle: boolean; sessionId: string }
-  | { action: "steer"; settle: boolean; sessionId: string; value: Json; agent?: string }
   | { action: "deleteSession"; settle: boolean; sessionId: string }
   | { action: "restart"; settle: boolean }
   | { action: "close"; settle: boolean }
   | { action: "release"; settle: boolean; gate: string }
   | { action: "reach"; settle: boolean; gate: string }
+  | { action: "acquireLease"; settle: boolean; sessionId: string; owner: string; lease: string }
+  | { action: "renewLease"; settle: boolean; lease: string }
+  | { action: "releaseLease"; settle: boolean; lease: string }
+  | { action: "appendJournal"; settle: boolean; events: Json[]; lease?: string; expected?: number; writeId?: string }
+  | { action: "appendOperationTransition"; settle: boolean; sessionId: string; operation: string; status: "approved" | "running" | "rejected" | "delivering" }
+  | { action: "scanJournal"; settle: boolean; sessionId?: string; fromSeq?: number; limit?: number }
+  | { action: "headJournal"; settle: boolean; sessionId: string }
+  | { action: "deleteStoreSession"; settle: boolean; sessionId: string; lease: string }
   | { action: "parallel"; settle: boolean; branches: Step[][] };
 
 export interface CaseFile {
@@ -297,6 +291,7 @@ export type ExpectedError =
 export type ExpectedStepError =
   | { kind: "execution"; where: Json; codes: Json; attempt: Json; toolCall?: Json; message?: string }
   | { kind: "issues"; issues: JsonObject[] }
+  | { kind: "store"; name: "StoreConflictError" | "StoreInputError" }
   | { kind: "script"; message: string };
 
 export type ExpectedStep =
@@ -342,6 +337,11 @@ function readNonEmptyString(value: Json | undefined, pointer: string): string {
 
 function readBoolean(value: Json | undefined, pointer: string): boolean {
   if (typeof value !== "boolean") fail(pointer, "must be a boolean");
+  return value;
+}
+
+function readNonNegativeInteger(value: Json | undefined, pointer: string): number {
+  if (!isNumber(value) || !Number.isSafeInteger(value) || value < 0) fail(pointer, "must be a non-negative safe integer");
   return value;
 }
 
@@ -594,7 +594,7 @@ const TOOL_EXTRA_KEYS = ["isError", "keep", "meta"] as const;
 
 export function parseToolResultScript(raw: Json | undefined, pointer: string): ToolResultScript {
   const object = readObject(raw, pointer);
-  const key = exactlyOne(object, pointer, ["text", "json", "content", "error", "raw", "runAgent", "await"]);
+  const key = exactlyOne(object, pointer, ["text", "json", "content", "value", "result", "error", "runAgent", "await"]);
   switch (key) {
     case "text":
       requireKeys(object, pointer, ["text", ...TOOL_EXTRA_KEYS]);
@@ -612,9 +612,12 @@ export function parseToolResultScript(raw: Json | undefined, pointer: string): T
     case "error":
       requireKeys(object, pointer, ["error"]);
       return { kind: "error", message: readString(object["error"], at(pointer, "error")) };
-    case "raw":
-      requireKeys(object, pointer, ["raw"]);
-      return { kind: "raw", value: object["raw"] ?? null };
+    case "value":
+      requireKeys(object, pointer, ["value"]);
+      return { kind: "value", value: object["value"] ?? null };
+    case "result":
+      requireKeys(object, pointer, ["result"]);
+      return { kind: "result", value: readObject(object["result"], at(pointer, "result")) };
     case "runAgent": {
       requireKeys(object, pointer, ["runAgent"]);
       const call = readObject(object["runAgent"], at(pointer, "runAgent"));
@@ -709,14 +712,13 @@ function parseExtensionScript(raw: Json | undefined, pointer: string, name: stri
 
 function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
   const object = readObject(raw, pointer);
-  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "host", "maxRetries", "maxSteps"]);
+  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "maxRetries", "maxSteps"]);
   const bindings: CaseBindings = {
     models: new Map(),
     tools: new Map(),
     functions: new Map(),
     extensions: new Map(),
     ports: new Map(),
-    host: new Map(),
   };
   if (Object.hasOwn(object, "models")) {
     const models = readObject(object["models"], at(pointer, "models"));
@@ -745,19 +747,6 @@ function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
   if (Object.hasOwn(object, "ports")) {
     const ports = readObject(object["ports"], at(pointer, "ports"));
     for (const [name, value] of Object.entries(ports)) bindings.ports.set(name, value ?? null);
-  }
-  if (Object.hasOwn(object, "host")) {
-    const hostPointer = at(pointer, "host");
-    const host = readObject(object["host"], hostPointer);
-    for (const [name, value] of Object.entries(host)) {
-      const known = HOST_CALLBACKS.find((candidate) => candidate === name);
-      if (known === undefined) fail(at(hostPointer, name), "is not a host callback");
-      if (value === true) {
-        bindings.host.set(known, { kind: "default" });
-        continue;
-      }
-      bindings.host.set(known, { kind: "op", op: parseOp(value, at(hostPointer, name), "value", `host.${name}`) });
-    }
   }
   if (Object.hasOwn(object, "maxRetries")) bindings.maxRetries = { value: object["maxRetries"] ?? null };
   if (Object.hasOwn(object, "maxSteps")) bindings.maxSteps = { value: object["maxSteps"] ?? null };
@@ -792,16 +781,21 @@ function parseConfig(raw: Json | undefined, pointer: string): CaseConfig {
 const STEP_ACTIONS = [
   "run",
   "decide",
-  "cancel",
   "list",
-  "recover",
   "abort",
-  "steer",
   "deleteSession",
   "restart",
   "close",
   "release",
   "reach",
+  "acquireLease",
+  "renewLease",
+  "releaseLease",
+  "appendJournal",
+  "appendOperationTransition",
+  "scanJournal",
+  "headJournal",
+  "deleteStoreSession",
   "parallel",
 ] as const;
 
@@ -851,30 +845,13 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
       }
       return step;
     }
-    case "cancel": {
-      const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["operation", "sessionId"]);
-      const step: Step = {
-        action: "cancel",
-        settle,
-        operation: readNonEmptyString(payload["operation"], at(valuePointer, "operation")),
-      };
-      if (Object.hasOwn(payload, "sessionId")) {
-        step.sessionId = readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"));
-      }
-      return step;
-    }
-    case "list":
-    case "recover": {
+    case "list": {
       const payload = readObject(value, valuePointer);
       requireKeys(payload, valuePointer, ["sessionId"]);
       const sessionId = Object.hasOwn(payload, "sessionId")
         ? readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId"))
         : undefined;
-      if (action === "list") {
-        return sessionId === undefined ? { action: "list", settle } : { action: "list", settle, sessionId };
-      }
-      return sessionId === undefined ? { action: "recover", settle } : { action: "recover", settle, sessionId };
+      return sessionId === undefined ? { action: "list", settle } : { action: "list", settle, sessionId };
     }
     case "abort": {
       const payload = readObject(value, valuePointer);
@@ -884,21 +861,6 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
         settle,
         sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
       };
-    }
-    case "steer": {
-      const payload = readObject(value, valuePointer);
-      requireKeys(payload, valuePointer, ["sessionId", "value", "agent"]);
-      if (!Object.hasOwn(payload, "value")) fail(valuePointer, "steer requires value");
-      const step: Step = {
-        action: "steer",
-        settle,
-        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
-        value: payload["value"] ?? null,
-      };
-      if (Object.hasOwn(payload, "agent")) {
-        step.agent = readNonEmptyString(payload["agent"], at(valuePointer, "agent"));
-      }
-      return step;
     }
     case "deleteSession": {
       const payload = readObject(value, valuePointer);
@@ -927,6 +889,73 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
     }
     case "reach":
       return { action: "reach", settle: false, gate: readGate(value, valuePointer) };
+    case "acquireLease": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "owner", "lease"]);
+      return {
+        action,
+        settle,
+        sessionId: readString(payload["sessionId"], at(valuePointer, "sessionId")),
+        owner: readNonEmptyString(payload["owner"], at(valuePointer, "owner")),
+        lease: readNonEmptyString(payload["lease"], at(valuePointer, "lease")),
+      };
+    }
+    case "renewLease":
+    case "releaseLease": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["lease"]);
+      return { action, settle, lease: readNonEmptyString(payload["lease"], at(valuePointer, "lease")) };
+    }
+    case "appendJournal": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["events", "lease", "expected", "writeId"]);
+      const step: Step = { action, settle, events: readArray(payload["events"], at(valuePointer, "events")) };
+      if (Object.hasOwn(payload, "lease")) step.lease = readNonEmptyString(payload["lease"], at(valuePointer, "lease"));
+      if (Object.hasOwn(payload, "expected")) {
+        step.expected = readNonNegativeInteger(payload["expected"], at(valuePointer, "expected"));
+      }
+      if (Object.hasOwn(payload, "writeId")) step.writeId = readNonEmptyString(payload["writeId"], at(valuePointer, "writeId"));
+      return step;
+    }
+    case "appendOperationTransition": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "operation", "status"]);
+      const status = readNonEmptyString(payload["status"], at(valuePointer, "status"));
+      if (status !== "approved" && status !== "running" && status !== "rejected" && status !== "delivering") {
+        fail(at(valuePointer, "status"), "must be approved, running, rejected or delivering");
+      }
+      return {
+        action,
+        settle,
+        sessionId: readNonEmptyString(payload["sessionId"], at(valuePointer, "sessionId")),
+        operation: readNonEmptyString(payload["operation"], at(valuePointer, "operation")),
+        status,
+      };
+    }
+    case "scanJournal": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "fromSeq", "limit"]);
+      const step: Step = { action, settle };
+      if (Object.hasOwn(payload, "sessionId")) step.sessionId = readString(payload["sessionId"], at(valuePointer, "sessionId"));
+      if (Object.hasOwn(payload, "fromSeq")) step.fromSeq = readNonNegativeInteger(payload["fromSeq"], at(valuePointer, "fromSeq"));
+      if (Object.hasOwn(payload, "limit")) step.limit = readNonNegativeInteger(payload["limit"], at(valuePointer, "limit"));
+      return step;
+    }
+    case "headJournal": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId"]);
+      return { action, settle, sessionId: readString(payload["sessionId"], at(valuePointer, "sessionId")) };
+    }
+    case "deleteStoreSession": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "lease"]);
+      return {
+        action,
+        settle,
+        sessionId: readString(payload["sessionId"], at(valuePointer, "sessionId")),
+        lease: readNonEmptyString(payload["lease"], at(valuePointer, "lease")),
+      };
+    }
     default: {
       if (inBranch) fail(pointer, "parallel is not allowed inside a parallel branch");
       const branches = readArray(value, valuePointer);
@@ -1002,6 +1031,12 @@ function parseExpectedError(raw: Json | undefined, pointer: string): ExpectedErr
 
 function parseExpectedStepError(raw: Json | undefined, pointer: string): ExpectedStepError {
   const object = readObject(raw, pointer);
+  if (Object.hasOwn(object, "storeError")) {
+    requireKeys(object, pointer, ["storeError"]);
+    const name = readString(object["storeError"], at(pointer, "storeError"));
+    if (name !== "StoreConflictError" && name !== "StoreInputError") fail(at(pointer, "storeError"), "must name a store error");
+    return { kind: "store", name };
+  }
   if (Object.hasOwn(object, "scriptError")) {
     requireKeys(object, pointer, ["scriptError"]);
     return { kind: "script", message: readNonEmptyString(object["scriptError"], at(pointer, "scriptError")) };
@@ -1090,7 +1125,10 @@ export function parseExpected(raw: Json, caseFile: CaseFile): ExpectedFile {
         }
       }
     }
-    if (step.kind === "result" && !["run", "decide", "cancel", "list", "abort"].includes(actual.action)) {
+    if (
+      step.kind === "result" &&
+      !["run", "decide", "list", "abort", "acquireLease", "renewLease", "appendJournal", "scanJournal", "headJournal"].includes(actual.action)
+    ) {
       fail(`/steps/${String(index)}/result`, `step ${actual.action} has no return value`);
     }
   }

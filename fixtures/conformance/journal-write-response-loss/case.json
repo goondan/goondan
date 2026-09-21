@@ -1,0 +1,74 @@
+{
+  "description": "append 응답을 받지 못한 작성자가 같은 writeId와 인수로 다시 요청하면 최초 저장 결과를 받고 이벤트는 한 번만 기록된다.",
+  "spec": [
+    "스트림과 저장소 계약",
+    "동시 쓰기"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "acquireLease": {
+        "sessionId": "lost",
+        "owner": "writer",
+        "lease": "writer"
+      }
+    },
+    {
+      "appendJournal": {
+        "lease": "writer",
+        "expected": 0,
+        "writeId": "stable-write",
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "lost",
+            "turnId": "lost-turn",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "appendJournal": {
+        "lease": "writer",
+        "expected": 0,
+        "writeId": "stable-write",
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "lost",
+            "turnId": "lost-turn",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "headJournal": {
+        "sessionId": "lost"
+      }
+    },
+    {
+      "scanJournal": {
+        "sessionId": "lost"
+      }
+    }
+  ]
+}

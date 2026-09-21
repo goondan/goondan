@@ -1,0 +1,103 @@
+{
+  "description": "프로세스가 delivering 작업을 남기고 종료되면 새 군단 객체는 같은 deliveryId로 전달을 다시 선점하고 한 번의 완료 입력을 확정한다.",
+  "spec": [
+    "완료 전달",
+    "복구",
+    "군단 객체 종료와 작업"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            {
+              "tool": "publish",
+              "approval": "required"
+            }
+          ]
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": {
+            "fn": "wake"
+          }
+        }
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "delivery-1",
+                "name": "publish",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "결정 대기"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "publish": {
+        "results": []
+      }
+    },
+    "functions": {
+      "wake": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "delivery",
+        "input": "작업 생성",
+        "agent": "main"
+      }
+    },
+    {
+      "close": {}
+    },
+    {
+      "appendOperationTransition": {
+        "sessionId": "delivery",
+        "operation": "<op:delivery-1>",
+        "status": "rejected"
+      },
+      "settle": false
+    },
+    {
+      "appendOperationTransition": {
+        "sessionId": "delivery",
+        "operation": "<op:delivery-1>",
+        "status": "delivering"
+      },
+      "settle": false
+    },
+    {
+      "restart": {}
+    },
+    {
+      "run": {
+        "sessionId": "delivery",
+        "input": "복구 시작"
+      }
+    },
+    {
+      "list": {
+        "sessionId": "delivery"
+      }
+    }
+  ]
+}

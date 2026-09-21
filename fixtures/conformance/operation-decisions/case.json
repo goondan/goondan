@@ -1,0 +1,167 @@
+{
+  "description": "operations.decide는 pending 작업을 승인·거절·취소하고, 승인 입력 수정을 검증하며, 종료 작업의 재결정을 무시하고 완료 입력을 새 턴으로 전달한다.",
+  "spec": [
+    "승인 작업 생성",
+    "작업 기록과 상태",
+    "결정과 조회",
+    "승인된 작업의 실행",
+    "완료 전달"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            {
+              "tool": "publish",
+              "approval": "required"
+            }
+          ]
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "p-approved",
+                "name": "publish",
+                "args": {
+                  "doc": "승인 전"
+                }
+              }
+            ]
+          },
+          {
+            "text": "승인 대기"
+          },
+          {
+            "text": "승인 완료 입력"
+          },
+          {
+            "toolCalls": [
+              {
+                "callId": "p-rejected",
+                "name": "publish",
+                "args": {
+                  "doc": "거절 전"
+                }
+              }
+            ]
+          },
+          {
+            "text": "거절 대기"
+          },
+          {
+            "text": "거절 완료 입력"
+          },
+          {
+            "toolCalls": [
+              {
+                "callId": "p-cancelled",
+                "name": "publish",
+                "args": {
+                  "doc": "취소 전"
+                }
+              }
+            ]
+          },
+          {
+            "text": "취소 대기"
+          },
+          {
+            "text": "취소 완료 입력"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "publish": {
+        "description": "문서를 게시한다.",
+        "input": {
+          "type": "object",
+          "required": [
+            "doc"
+          ],
+          "properties": {
+            "doc": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "results": [
+          {
+            "text": "게시 완료"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "approved",
+        "input": "승인 사례"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:p-approved>",
+        "value": {
+          "decision": "approved",
+          "inputPatch": {
+            "doc": "승인 후"
+          }
+        }
+      }
+    },
+    {
+      "run": {
+        "sessionId": "rejected",
+        "input": "거절 사례"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:p-rejected>",
+        "value": {
+          "decision": "rejected"
+        }
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:p-rejected>",
+        "value": {
+          "decision": "cancelled"
+        }
+      }
+    },
+    {
+      "run": {
+        "sessionId": "cancelled",
+        "input": "취소 사례"
+      }
+    },
+    {
+      "decide": {
+        "operation": "<op:p-cancelled>",
+        "value": {
+          "decision": "cancelled"
+        }
+      }
+    },
+    {
+      "list": {}
+    }
+  ]
+}

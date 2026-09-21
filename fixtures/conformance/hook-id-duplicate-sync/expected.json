@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -11,7 +10,7 @@
         "base": {
           "model": "m",
           "hooks": {
-            "output": [
+            "onOutput": [
               {
                 "fn": "f"
               },
@@ -24,9 +23,7 @@
         "child": {
           "model": "m",
           "hooks": {
-            "output": [
-
-            ]
+            "onOutput": []
           }
         }
       }
@@ -41,15 +38,18 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
-          "source": "f",
+          "source": "model",
           "content": [
             {
               "type": "text",
-              "text": "완료!!"
+              "text": "완료"
             }
           ]
         }

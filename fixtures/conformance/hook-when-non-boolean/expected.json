@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "output",
+        "where": "onOutput",
         "codes": [
           "hook_error"
         ],

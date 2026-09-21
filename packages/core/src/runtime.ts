@@ -1,1779 +1,2228 @@
-import { TemplateRenderer } from "./template.ts";
-import { MemoryConversationStore, MemoryOperationStore } from "./store.ts";
+import { bindingIssues, enabledExtensions, instanceIssues, toolEntry, type ProvidedExtension } from "./binding.ts";
 import { prepareRuntimeConfig } from "./config.ts";
-import { bindingIssues, instanceIssues, toolEntry, type ProvidedExtension } from "./binding.ts";
-import { GoondanConfigError, GoondanExecutionError, isGoondanConfigError, raiseIssues } from "./errors.ts";
-import { isJsonObject, jsonEqual, jsonText } from "./json.ts";
-import { inlineHookIdentifier, isValueName } from "./effective.ts";
+import { GoondanConfigError, GoondanExecutionError, raiseIssues } from "./errors.ts";
+import { fold, JOURNAL_VERSION } from "./fold.ts";
+import { inlineHookIdentifier } from "./effective.ts";
+import { compareText, isRecord, jsonEqual, jsonText, toJson } from "./json.ts";
 import {
-  approvalReason, completionInput, decisionIssue, decisionUpdate, effectiveCall, interruptedMessage,
-  isTerminalStatus, newOperation, patchIssue, patchedCall, pendingToolContent, validationFailedMessage,
+  approvalReason, decisionIssue, effectiveCall, interruptedMessage, isTerminalStatus,
+  newOperation, patchIssue, patchedCall, pendingToolContent, validationFailedMessage,
 } from "./operation.ts";
+import { addUsage, failRun, finishRun, flattenRuns, startRun, totalUsage, zeroUsage, type RunNode, type RunSink } from "./runs.ts";
+import { validateJsonValue } from "./schema.ts";
 import {
-  appendMessages, controlResult, inputTextOf, isControlIssue, isMessage, isMessageArray, isModelInput, isModelResult,
-  isPartArray, isToolCall, isToolResult, repairToolPairs, stageValueIssue, textOf, type ControlResult,
+  appendMessages, controlResult, inputTextOf, isControlIssue, isMessage, isMessageArray,
+  isModelInput, isModelResult, isPartArray, isToolCall, isToolResult, normalizeModelResponse,
+  normalizeToolReturn, repairToolPairs, stageValueIssue, textOf,
 } from "./stage.ts";
+import { MemoryStore } from "./store.ts";
+import { TemplateRenderer } from "./template.ts";
 import {
-  abortRun, addUsage, detachedSink, failRun, finishRun, flattenRuns, recordModelCall, startRun, totalUsage, zeroUsage,
-  type RunLineage, type RunNode, type RunSink,
-} from "./runs.ts";
-import {
-  type AgentRunResult, type AgentSpec, type ApprovalRequest, type Block,
-  type ExtensionInstance, type HookContext, type HookResult, type InlineHookSpec, type Json,
-  type LoadedConfig, type Message, type GoondanFunction, type ModelInput, type ModelResult, type Part,
-  type RouteSpec, type RunInput, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent, type ErrorLocation, type RuntimeEventName,
-  type OperationCompletion, type OperationDecision, type OperationStatus, type OperationUpdate,
-  type MessageExtra, type PendingOperation, type Tool, type ToolCall, type ToolContext,
-  type ToolDefinition, type ToolResult, type TurnError, type TurnResult, type Usage, type ValueName,
+  type AgentRunResult, type AgentSpec, type ExecutionContext, type ExtensionInstance,
+  type FinishReason, type GoondanFunction, type HookContext, type InlineHookSpec,
+  type JournalEvent, type JournalState, type Json, type LoadedConfig, type Message,
+  type ModelInput, type ModelResult, type NewJournalEvent, type ObservationalEvent,
+  type OperationDecision, type Part, type PendingOperation, type RouteEndpoint, type RouteSpec,
+  type RunInput, type RunKind, type RunOptions, type RuntimeBindings, type RuntimeEvent,
+  type StoreLease, type Tool, type ToolCall, type ToolContext, type ToolDefinition,
+  type ToolResult, type ToolReturn, type TurnError, type TurnResult, type Usage, type ValueName,
 } from "./types.ts";
 
 const noLog = { info() {}, warn() {}, error() {} };
-type PipelineValue = HookResult | TurnError;
 
-/** The execution error of an aborted agent run: `where` `runtime`, `codes` `["aborted"]`. */
+function reason(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function id(): string { return globalThis.crypto.randomUUID(); }
 function abortFailure(cause?: unknown): GoondanExecutionError {
   return new GoondanExecutionError({ where: "runtime", codes: ["aborted"], message: "aborted" }, cause === undefined ? undefined : { cause });
 }
-
-/**
- * 에이전트 실행 밖에서 발생한 route 조건 오류나 진행할 route가 없는 오류입니다.
- */
+function runtimeFailure(message: string, cause?: unknown): GoondanExecutionError {
+  return new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message }, cause === undefined ? undefined : { cause });
+}
 function routeFailure(message: string, cause?: unknown): GoondanExecutionError {
   return new GoondanExecutionError({ where: "runtime", codes: ["route_error"], message }, cause === undefined ? undefined : { cause });
 }
-
-/** The execution error of a run that could not prepare its extension instances. */
-function preparationFailure(error: unknown): GoondanExecutionError {
-  if (error instanceof GoondanExecutionError) return error;
-  return new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: reason(error) }, { cause: error });
-}
-
-/** The execution error the runtime reports when a request names an operation it cannot act on. */
-function operationInvalid(message: string): GoondanExecutionError {
+function operationFailure(message: string): GoondanExecutionError {
   return new GoondanExecutionError({ where: "runtime", codes: ["operation_invalid"], message });
 }
-
-/** The execution error every request a closed runtime refuses reports. */
-function closedFailure(): GoondanExecutionError {
-  return new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "The runtime is closed" });
+function detail(error: GoondanExecutionError, attempt: number): TurnError {
+  const value: TurnError = { where: error.where, codes: [...error.codes], message: error.message, attempt };
+  if (error.toolCall !== undefined) value.toolCall = structuredClone(error.toolCall);
+  return value;
+}
+function executionFailure(where: ValueName | "model" | "tool" | "runtime", code: string, message: string, attempt: number, toolCall?: ToolCall, cause?: unknown): GoondanExecutionError {
+  const failure = new GoondanExecutionError({ where, codes: [code], message, attempt, toolCall }, cause === undefined ? undefined : { cause });
+  return failure;
+}
+function modelCodes(error: unknown): string[] {
+  if (isRecord(error) && typeof error.code === "string" && error.code.length > 0) return ["model_error", error.code];
+  return ["model_error"];
 }
 
-/**
- * The codes of a model failure: `model_error`, followed by the `code` the thrown error declared when
- * that is a non-empty string. The second code belongs to the model implementation.
- */
-function modelErrorCodes(error: unknown): string[] {
-  const code: unknown = isObject(error) ? error.code : undefined;
-  return typeof code === "string" && code !== "" ? ["model_error", code] : ["model_error"];
-}
-
-/** The execution error one failure reports at the attempt of the agent run that is reporting it. */
-function failureDetail(failure: GoondanExecutionError, attempt: number): TurnError {
-  const detail: TurnError = { where: failure.where, codes: failure.codes, message: failure.message, attempt };
-  if (failure.toolCall !== undefined) detail.toolCall = failure.toolCall;
-  return detail;
-}
-
-/** Whether a failure already reports an abort, which no other location turns into its own failure. */
-function carriesAbort(error: unknown): error is GoondanExecutionError {
-  return error instanceof GoondanExecutionError && error.codes.includes("aborted");
-}
-
-/**
- * The `where`, `codes` and `error` of one failure that is reported outside the stage order: an
- * extension preparation that failed, and the runs the configuration error of one such preparation
- * fails on its way out. A configuration error reports the codes of its issues in order.
- */
-function failureData(error: unknown): Record<string, Json> {
-  const issues = isGoondanConfigError(error) ? error.issues : undefined;
-  return {
-    where: "runtime",
-    codes: issues ? issues.map((issue) => issue.code) : ["runtime_error"],
-    error: reason(error),
-  };
-}
-
-function reason(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-/**
- * Disposes the instances of one execution scope in creation order. A failed clean-up never keeps the
- * remaining instances from being disposed and never replaces the failure that started the clean-up.
- */
-async function disposeAll(instances: ReadonlyMap<string, ExtensionInstance>): Promise<void> {
-  for (const instance of instances.values()) {
-    try { await instance.dispose?.(); } catch { /* A failed clean-up is never reported in its place. */ }
+class Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+  constructor() {
+    let resolveValue = (_value: T): void => undefined;
+    let rejectValue = (_reason?: unknown): void => undefined;
+    this.promise = new Promise<T>((resolve, reject) => { resolveValue = resolve; rejectValue = reject; });
+    this.resolve = resolveValue;
+    this.reject = rejectValue;
   }
 }
-function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function toolCalls(result: ModelResult): ToolCall[] { return result.message.content.filter((part): part is Extract<Part, { type: "tool.call" }> => part.type === "tool.call").map((part) => ({ id: part.callId, name: part.name, args: part.args })); }
 
-/** The call a `target: tool` retry processes again, with everything its `toolCall` stage produced. */
-interface RetryToolStage { call: ToolCall; execution?: Record<string, Json>; remainingCalls: ToolCall[]; approvals: string[] }
-/**
- * One entry of an agent's effective `tools` list. `name` is the exposed name, which is the binding
- * key of a host tool, the name of an extension tool or the agent name of an agent tool.
- */
+class Mutex {
+  #tail: Promise<void> = Promise.resolve();
+  async run<T>(body: () => Promise<T> | T): Promise<T> {
+    const before = this.#tail;
+    let release = (): void => undefined;
+    this.#tail = new Promise<void>((resolve) => { release = resolve; });
+    await before;
+    try { return await body(); } finally { release(); }
+  }
+}
+
+interface SessionRuntime {
+  sessionId: string;
+  mutex: Mutex;
+  appendMutex: Mutex;
+  leaseMutex: Mutex;
+  events: JournalEvent[];
+  state: JournalState;
+  loaded: boolean;
+  recovered: boolean;
+  actors: Map<string, Actor>;
+  waits: Map<string, Set<string>>;
+  lease?: StoreLease;
+  leaseController?: AbortController;
+  leaseRenewal?: Promise<void>;
+  leaseFailure?: GoondanExecutionError;
+  controllers: Set<AbortController>;
+  turn?: ActiveTurn;
+}
+
+type InputOrigin = "host" | "route" | "tool" | "hook" | "operation";
+interface InputRequest {
+  target: string;
+  messages: Message[];
+  origin: InputOrigin;
+  kind: RunKind;
+  routeIndex?: number;
+  routeSource?: string;
+  parentExecutionId?: string;
+  operationId?: string;
+  followsRoutes: boolean;
+  preserveMessages?: boolean;
+  waiter?: Deferred<Message>;
+  turn?: ActiveTurn;
+  reserved?: true;
+}
+
+interface Actor {
+  agent: string;
+  instance: string;
+  stateful: boolean;
+  queue: InputRequest[];
+  running?: ExecutionGroup;
+}
+
+interface ExecutionGroup {
+  turn: ActiveTurn;
+  actor: Actor;
+  executionId: string;
+  requests: InputRequest[];
+  routeRequested: boolean;
+  singleOutputRequested: boolean;
+  controller: AbortController;
+  deferred: Deferred<AgentRunResult>;
+  state?: ExecutionState;
+}
+
+interface OutputEntry { route: number; order: number; message: Message; finishReason: FinishReason }
+interface ActiveTurn {
+  session: SessionRuntime;
+  turnId: string;
+  controller: AbortController;
+  deferred: Deferred<TurnResult>;
+  actors: Map<string, Actor>;
+  executions: Map<string, ExecutionGroup>;
+  functions: Map<string, number>;
+  waits: Map<string, Set<string>>;
+  runs: RunNode[];
+  outputs: OutputEntry[];
+  outputOrder: number;
+  activity: number;
+  failed?: unknown;
+  closing: boolean;
+}
+
+interface AsyncHookTask { sessionId: string; settled: boolean; message?: Message; promise: Promise<void>; controller: AbortController }
+interface ExecutionState {
+  group: ExecutionGroup;
+  agent: string;
+  spec: AgentSpec;
+  instance: string;
+  executionId: string;
+  turnId: string;
+  parentExecutionId?: string;
+  operationId?: string;
+  input: Message[];
+  startInput: Message[];
+  conversation: Message[];
+  inputKind: "start" | "steer";
+  step: number;
+  retryCount: number;
+  usage: Usage;
+  finishReason?: FinishReason;
+  completion?: Message;
+  extensions: Map<string, ExtensionInstance>;
+  pendingHooks: Map<string, AsyncHookTask>;
+  runNode: RunNode;
+}
+
+interface HookStageResult {
+  value: unknown;
+  approvals: string[];
+  execution?: Record<string, Json>;
+  result?: ToolReturn;
+  retry?: { target: "model" | "tool"; afterMs?: number };
+  complete?: Message;
+}
+
 interface ToolEntry {
   name: string;
-  /** The definition the model receives, with the entry's `hint` already appended. */
   definition: ToolDefinition;
-  execute(input: Json, ctx: ToolContext): Promise<ToolResult> | ToolResult;
-}
-/** What a model call may still announce: a text chunk of a call that has not returned yet. */
-interface Streaming { active: boolean }
-/** One scheduled asynchronous conversation hook of an execution scope. */
-interface AsyncHookTask { promise: Promise<void>; settled: boolean; messages?: Message[] }
-/** What every hook of one value processing stage produced. */
-interface StageRun {
-  value: PipelineValue;
-  /** The approval reasons `{approval}` results added, in the order the hooks returned them. */
-  approvals: string[];
-  /** The `execution` of the last `{call, execution}` result, which replaces earlier ones. */
-  execution?: Record<string, Json>;
-  /** The tool result a `{result}` result supplied; the remaining hooks do not run. */
-  result?: ToolResult;
-  /** The retry a `{retry}` result requested; the remaining hooks do not run. */
-  retry?: { target: "model" | "tool"; afterMs?: number };
-}
-/** route 실행이 `$output`에 전달한 출력과 각 실행의 종료 사유입니다. */
-interface RouteRunResult { outputs: Message[]; finishReasons: string[] }
-/**
- * 호스트가 중단하거나 실행 중 입력을 보낼 세션과 흐름 실행 여부입니다. 승인 작업의 독립 실행은
- * `host`가 `null`이며 `close()`만 중단합니다.
- */
-interface RunScope { host: string | null; foreground: boolean }
-/** The options an agent run takes; the public {@link RunOptions} never carries a conversation. */
-interface AgentRunOptions { sessionId: string; signal?: AbortSignal; foreground: boolean; lineage: RunLineage }
-interface RunRegistration { signal: AbortSignal; release(): void }
-interface QueuedSteer { value: Json; agent?: string }
-interface PendingRouteInput { routeIndex: number; order: number; messages: Message[] }
-interface RouteCompletion { token: string; agent: string; input: PendingRouteInput[]; result?: AgentRunResult; error?: unknown }
-interface TurnState {
-  completion?: Message; retryTool?: RetryToolStage; agent: string; instance: string; scope: RunScope;
-  agentSpec: AgentSpec; sessionId: string; turnId: string; parentInstance: string | null;
-  parentTurnId: string | null; rootTurnId: string; input: Message[]; conversation: Message[];
-  step: number; retryCount: number; signal: AbortSignal; messageNumber: number;
-  /** The usage of the model responses this run received itself; a sub-run keeps its own. */
-  usage: Usage;
-  /** The records of the runs this one started, in the order it started them. */
-  runs: RunNode[];
-  extensions: Map<string, ExtensionInstance>; pending: Map<string, AsyncHookTask>; asyncController: AbortController;
-  /**
-   * The calls of the model response being processed whose result this run already stored. A retry
-   * does not follow a request for one of them; every new response starts the set again, so a call a
-   * new response repeats always runs.
-   */
-  storedCalls: Set<string>;
-  /** An approved operation's execution is not an agent run, so `execution.complete` has no effect. */
-  operation: boolean;
-  operationInput?: { type: "operation_execution"; operationId: string };
-  /** A failure inside the `error` stage is never sent to the `error` stage again. */
-  handlingError: boolean;
-  emitting: Promise<void>;
+  approval: boolean;
+  host?: Tool;
+  agent?: string;
 }
 
-/** 문자열 결합에서 생길 수 있는 충돌 없이 `(sessionId, agent)` 조합을 구분합니다. */
+function endpointKey(endpoint: RouteEndpoint): string { return typeof endpoint === "string" ? endpoint : `@fn:${endpoint.fn}`; }
+function sameEndpoint(left: RouteEndpoint, right: string): boolean { return endpointKey(left) === right; }
 function scopeKey(sessionId: string, agent: string): string { return JSON.stringify([sessionId, agent]); }
+function cloneMessages(messages: readonly Message[]): Message[] { return messages.map((message) => structuredClone(message)); }
 
 export class Goondan {
-  readonly #renderer: TemplateRenderer;
   readonly #bindings: RuntimeBindings;
   readonly #store;
-  readonly #operationStore;
+  readonly #renderer: TemplateRenderer;
+  readonly #sessions = new Map<string, SessionRuntime>();
   readonly #instances = new Map<string, Map<string, ExtensionInstance>>();
-  readonly #pendingHooks = new Map<string, Map<string, AsyncHookTask>>();
-  /** 실행 범위별 비동기 훅 작업에 세션 삭제나 객체 종료를 알립니다. */
-  readonly #asyncControllers = new Map<string, AbortController>();
-  /** 실행 중인 턴마다 하나씩 두며, 호스트가 중단할 수 있는 세션별로 묶은 컨트롤러입니다. */
-  readonly #controllers = new Map<string, Set<AbortController>>();
-  /** `close()`만 중단하는 승인 작업 실행의 컨트롤러입니다. */
-  readonly #detached = new Set<AbortController>();
-  readonly #queuedInput = new Map<string, QueuedSteer[]>();
-  readonly #operationExecutions = new Map<string, Promise<void>>();
-  /** 이 객체가 실행 중인 완료 전달 작업입니다. 복구할 때에는 그대로 둡니다. */
-  readonly #deliveries = new Map<string, Promise<void>>();
-  readonly #activeTurns = new Map<string, Promise<TurnResult>>();
-  readonly #turnTails = new Map<string, Promise<void>>();
-  readonly #turnCounts = new Map<string, number>();
-  readonly #agentTails = new Map<string, Promise<void>>();
-  readonly #foregroundAgents = new Map<string, Map<string, number>>();
-  /** `idle()`이 기다리는 비동기 훅, 작업 실행과 완료 전달입니다. */
+  readonly #pendingByInstance = new Map<string, Map<string, AsyncHookTask>>();
   readonly #tasks = new Set<Promise<void>>();
+  readonly #detachedControllers = new Set<AbortController>();
+  readonly #sessionWork = new Map<string, number>();
   #closed = false;
   readonly loaded: LoadedConfig;
   readonly sessions: { delete(sessionId: string): Promise<void> };
+  readonly operations: {
+    list(sessionId?: string): Promise<PendingOperation[]>;
+    decide(sessionId: string, operationId: string, value: OperationDecision): Promise<PendingOperation>;
+  };
+
   constructor(input: LoadedConfig | unknown, bindings: RuntimeBindings) {
-    const retries = bindings.maxRetries;
-    if (retries !== undefined && (!Number.isInteger(retries) || retries < 0)) throw new TypeError("maxRetries must be an integer of 0 or more");
-    const steps = bindings.maxSteps;
-    if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new TypeError("maxSteps must be an integer of 1 or more");
+    if (bindings.maxRetries !== undefined && (!Number.isInteger(bindings.maxRetries) || bindings.maxRetries < 0)) throw new TypeError("maxRetries must be an integer of 0 or more");
+    if (bindings.maxSteps !== undefined && (!Number.isInteger(bindings.maxSteps) || bindings.maxSteps < 1)) throw new TypeError("maxSteps must be an integer of 1 or more");
     const loaded = prepareRuntimeConfig(input, bindings.directory);
     raiseIssues(bindingIssues(loaded.config, bindings));
     this.loaded = loaded;
     this.#bindings = bindings;
-    this.#store = bindings.conversationStore ?? new MemoryConversationStore();
-    this.#operationStore = bindings.operationStore ?? new MemoryOperationStore();
+    this.#store = bindings.store ?? new MemoryStore();
     this.#renderer = new TemplateRenderer(loaded.templates, loaded.directory);
-    this.sessions = { delete: async (sessionId) => { await this.#deleteSession(sessionId); } };
-  }
-
-  run(input: RunInput, options: RunOptions): Promise<TurnResult> {
-    try { this.#hostSession(options.sessionId); } catch (error) { return Promise.reject(error); }
-    return this.#enqueueRun(input, options, { parentInstance: null, parentTurnId: null, rootTurnId: this.#id() });
-  }
-
-  #enqueueRun(input: RunInput, options: RunOptions, lineage: RunLineage): Promise<TurnResult> {
-    if (this.#closed) return Promise.reject(closedFailure());
-    const sessionId = options.sessionId;
-    const previous = this.#turnTails.get(sessionId) ?? Promise.resolve();
-    this.#turnCounts.set(sessionId, (this.#turnCounts.get(sessionId) ?? 0) + 1);
-    const running = previous.catch(() => undefined).then(async () => {
-      if (this.#closed) throw closedFailure();
-      const turn = this.#executeTurn(input, options, { host: sessionId, foreground: true }, { kind: "turn", nodes: [] }, lineage);
-      this.#activeTurns.set(sessionId, turn);
-      try { return await turn; }
-      finally { if (this.#activeTurns.get(sessionId) === turn) this.#activeTurns.delete(sessionId); }
-    });
-    const tail = running.then(() => undefined, () => undefined);
-    this.#turnTails.set(sessionId, tail);
-    void tail.finally(() => {
-      const count = (this.#turnCounts.get(sessionId) ?? 1) - 1;
-      if (count === 0) { this.#turnCounts.delete(sessionId); if (this.#turnTails.get(sessionId) === tail) this.#turnTails.delete(sessionId); }
-      else this.#turnCounts.set(sessionId, count);
-    });
-    return running;
-  }
-
-  async #executeTurn(input: RunInput, options: RunOptions, scope: RunScope, sink: RunSink, lineage: RunLineage): Promise<TurnResult> {
-    if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a turn declares either agent or startAgent, not both");
-    if (options.startAgent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.startAgent)) throw routeFailure(`Unknown agent: ${options.startAgent}`);
-    if (options.agent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.agent)) throw routeFailure(`Unknown agent: ${options.agent}`);
-    const routes = this.loaded.config.routes;
-    // A start agent that no route continues from cannot progress, so no agent runs at all.
-    if (options.startAgent !== undefined && routes && !routes.some((route) => route.from === options.startAgent)) {
-      throw routeFailure(`No route starts from ${options.startAgent}`);
-    }
-    const registration = this.#register(scope, options.signal);
-    const start = sink.nodes.length;
-    try {
-      let routed: RouteRunResult;
-      if (options.agent !== undefined) {
-        const messages = this.#toMessages(input, options.agent);
-        const result = await this.#runAgent(options.agent, messages, { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
-        routed = { outputs: [result.output], finishReasons: [result.finishReason] };
-      } else if (routes === undefined) {
-        const agent = options.startAgent ?? Object.keys(this.loaded.config.agents)[0];
-        if (agent === undefined) throw routeFailure("the goondan declares no agent");
-        const result = await this.#runAgent(agent, this.#toMessages(input, agent), { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
-        routed = { outputs: [result.output], finishReasons: [result.finishReason] };
-      } else {
-        routed = await this.#runRoutes(input, options.startAgent, { sessionId: options.sessionId, signal: registration.signal, foreground: true, lineage }, scope, sink);
-      }
-      const [first] = routed.outputs;
-      if (first === undefined) throw routeFailure("the routes reached no output");
-      // Several outputs are joined into a new message that carries no optional field and is stored
-      // in no conversation; a single output is that output itself.
-      const output: Message = routed.outputs.length === 1 ? first : this.#goondanOutput(routed.outputs);
-      const finishReason = routed.finishReasons.every((value) => value === routed.finishReasons[0]) ? routed.finishReasons[0] ?? "stop" : "other";
-      const runs = flattenRuns(sink.nodes.slice(start));
-      return { output, outputs: routed.outputs, usage: totalUsage(runs), finishReason, status: "done", runs };
-    } finally { registration.release(); }
-  }
-
-  /**
-   * `$output`에 둘 이상의 메시지가 도달했을 때 만드는 대표 출력입니다. 출력 텍스트를 빈 줄로
-   * 연결한 `text` 부분 하나와 `goondan` source를 가집니다.
-   */
-  #goondanOutput(outputs: readonly Message[]): Message {
-    return { id: this.#id(), role: "assistant", source: "goondan", content: [{ type: "text", text: outputs.map((item) => textOf(item.content)).join("\n\n") }] };
-  }
-
-  /**
-   * 실행 하나의 중단 컨트롤러를 등록합니다. 같은 호스트 세션에서 시작한 하위 실행도 함께
-   * 중단하며 `release()`는 이 컨트롤러만 제거합니다.
-   */
-  #register(scope: RunScope, parent?: AbortSignal): RunRegistration {
-    const controller = new AbortController();
-    let set: Set<AbortController>;
-    if (scope.host === null) set = this.#detached;
-    else {
-      const existing = this.#controllers.get(scope.host);
-      set = existing ?? new Set<AbortController>();
-      if (!existing) this.#controllers.set(scope.host, set);
-    }
-    set.add(controller);
-    const onAbort = () => { controller.abort(); };
-    if (parent) { if (parent.aborted) controller.abort(); else parent.addEventListener("abort", onAbort, { once: true }); }
-    return {
-      signal: controller.signal,
-      release: () => {
-        parent?.removeEventListener("abort", onAbort);
-        set.delete(controller);
-        if (scope.host !== null && set.size === 0) this.#controllers.delete(scope.host);
-      },
+    this.sessions = { delete: async (sessionId) => this.#deleteSession(sessionId) };
+    this.operations = {
+      list: async (sessionId) => this.#listOperations(sessionId),
+      decide: async (sessionId, operationId, value) => this.#decideOperation(sessionId, operationId, value),
     };
   }
 
-  /** Records background work so that `idle()` can wait for it. */
-  #track(work: Promise<unknown>): void {
-    const entry = work.then(() => undefined, () => undefined);
-    this.#tasks.add(entry);
-    void entry.then(() => { this.#tasks.delete(entry); });
-  }
-
-  /** Resolves when the work the runtime carries on outside a host request has finished. */
-  async idle(): Promise<void> {
-    while (this.#tasks.size > 0) await Promise.all([...this.#tasks]);
-  }
-
-  /** The stored operations in creation order, of one conversation or of the whole store. */
-  async listOperations(sessionId?: string): Promise<PendingOperation[]> { return this.#operationStore.list(sessionId); }
-
-  /**
-   * Approves or rejects a pending operation. The decision returns as soon as it is recorded and never
-   * waits for the execution or the completion delivery it starts.
-   */
-  async decideOperation(sessionId: string, operationId: string, resolution: OperationDecision): Promise<PendingOperation> {
-    if (this.#closed) throw closedFailure();
-    const operation = await this.#operationStore.get(sessionId, operationId);
-    if (!operation) throw operationInvalid(`Unknown operation: ${operationId}`);
-    const invalid = decisionIssue(resolution);
-    if (invalid) throw operationInvalid(invalid);
-    const update = resolution.inputPatch === undefined
-      ? decisionUpdate(resolution.decision)
-      : await this.#patchUpdate(resolution, operation);
-    const updated = await this.#transition(operation, ["pending"], update);
-    // A decision that arrives for an operation which is no longer pending changes nothing.
-    if (!updated) return (await this.#operationStore.get(sessionId, operationId)) ?? operation;
-    if (updated.status === "approved") this.#startOperation(updated);
-    else this.#startDelivery(updated);
-    return updated;
-  }
-
-  /** The update of an approval that carries an input patch, once the host has allowed the patch. */
-  async #patchUpdate(resolution: OperationDecision, operation: PendingOperation): Promise<OperationUpdate> {
-    const invalid = patchIssue(resolution, operation);
-    if (invalid) throw operationInvalid(invalid);
-    const patch = this.#json(resolution.inputPatch, "the operation inputPatch");
-    if (!isJsonObject(patch)) throw operationInvalid("an operation inputPatch is a JSON object");
-    const host = this.#bindings.host;
-    let allowed: unknown;
-    // A host that cannot validate the patch, refuses it or fails did not allow the patch.
-    if (host?.validateOperationInputPatch) {
-      try { allowed = await host.validateOperationInputPatch(structuredClone(operation), patch); }
-      catch { allowed = false; }
+  async run(input: RunInput, options: RunOptions): Promise<TurnResult> {
+    if (this.#closed) throw runtimeFailure("The runtime is closed");
+    if (options.signal?.aborted) throw abortFailure(options.signal.reason);
+    if (options.agent !== undefined && options.startAgent !== undefined) {
+      throw routeFailure("a run declares either agent or startAgent, not both");
     }
-    if (allowed !== true) throw operationInvalid("the host did not allow the operation inputPatch");
-    const call = patchedCall(operation.toolCall, patch);
-    if (!call) throw operationInvalid("an input patched tool call takes JSON object arguments");
-    return decisionUpdate("approved", patch, call);
-  }
-
-  /** Cancels an operation that has not started running; a running or settled one does not change. */
-  async cancelOperation(sessionId: string, operationId: string): Promise<PendingOperation> {
-    if (this.#closed) throw closedFailure();
-    const operation = await this.#operationStore.get(sessionId, operationId);
-    if (!operation) throw operationInvalid(`Unknown operation: ${operationId}`);
-    const updated = await this.#transition(operation, ["pending", "approved"], { status: "cancelled" });
-    if (!updated) return (await this.#operationStore.get(sessionId, operationId)) ?? operation;
-    this.#startDelivery(updated);
-    return updated;
-  }
-
-  /**
-   * Continues the operations a previous runtime left in the store. The request returns once every
-   * pending approval was requested again and the remaining work was started, and reports the first
-   * failed approval request after processing every operation.
-   */
-  async recoverOperations(sessionId?: string): Promise<void> {
-    if (this.#closed) throw closedFailure();
-    let first: unknown;
-    for (const operation of await this.#operationStore.list(sessionId)) {
-      // Work this runtime is still carrying out is not treated as interrupted.
-      if (this.#operationExecutions.has(operation.operationId) || this.#deliveries.has(operation.operationId)) continue;
-      if (operation.status === "pending") {
-        try { await this.#requestApproval(operation); } catch (error) { if (first === undefined) first = error; }
-        continue;
-      }
-      if (operation.status === "approved") { this.#startOperation(operation); continue; }
-      if (operation.status === "running") {
-        const failed = await this.#transition(operation, ["running"], { status: "failed", error: interruptedMessage, errorCode: "execution_interrupted" });
-        if (failed) this.#startDelivery(failed);
-        continue;
-      }
-      if (operation.deliveryStatus === "delivered") continue;
-      const ready = operation.deliveryStatus === "delivering"
-        ? await this.#operationStore.releaseDelivery(operation.sessionId, operation.operationId, operation.deliveryId, this.#now())
-        : operation;
-      if (ready) this.#startDelivery(ready);
+    const requested = options.agent ?? options.startAgent;
+    if (requested !== undefined && !Object.hasOwn(this.loaded.config.agents, requested)) {
+      throw routeFailure(`Unknown agent: ${requested}`);
     }
-    if (first !== undefined) throw first;
-  }
-
-  /** Asks the host to decide a pending operation, with a request rebuilt from the stored record. */
-  async #requestApproval(operation: PendingOperation): Promise<void> {
-    const host = this.#bindings.host;
-    if (!host?.requestApproval) return;
-    await host.requestApproval({
-      operationId: operation.operationId, sessionId: operation.sessionId, turnId: operation.turnId,
-      agent: operation.agent, instance: operation.instance, parentInstance: operation.parentInstance,
-      parentTurnId: operation.parentTurnId, rootTurnId: operation.rootTurnId,
-      toolCall: structuredClone(operation.toolCall), reasons: [...operation.reasons],
+    const session = this.#session(options.sessionId);
+    const turn = await session.mutex.run(async () => {
+      if (this.#closed) {
+        if (session.turn?.controller.signal.aborted) return session.turn;
+        throw runtimeFailure("The runtime is closed");
+      }
+      if (options.signal?.aborted) throw abortFailure(options.signal.reason);
+      await this.#load(session);
+      if (!session.turn) {
+        const acquired = session.lease === undefined;
+        if (acquired) this.#installLease(session, await this.#waitLease(session.sessionId, options.signal));
+        try {
+          await this.#refresh(session);
+          await this.#recover(session);
+          if (options.signal?.aborted) throw abortFailure(options.signal.reason);
+          session.turn = await this.#startTurn(session, input, options);
+        } catch (error) {
+          if (acquired && !session.turn && (this.#sessionWork.get(session.sessionId) ?? 0) === 0) {
+            await this.#releaseLease(session);
+          }
+          throw error;
+        }
+      } else {
+        if (options.signal?.aborted) throw abortFailure(options.signal.reason);
+        await this.#acceptHostInput(session.turn, input, options);
+      }
+      return session.turn;
     });
+    if (!turn) throw runtimeFailure("the turn was not created");
+    if (!options.signal) return turn.deferred.promise;
+    if (options.signal.aborted) throw abortFailure(options.signal.reason);
+    const cancelled = new Promise<TurnResult>((_resolve, reject) => {
+      options.signal?.addEventListener("abort", () => reject(abortFailure(options.signal?.reason)), { once: true });
+    });
+    return Promise.race([turn.deferred.promise, cancelled]);
   }
-  steer(sessionId: string, input: Json, options: { agent?: string } = {}): void {
-    this.#hostSession(sessionId);
-    if (this.#closed) return;
-    if (options.agent !== undefined && !Object.hasOwn(this.loaded.config.agents, options.agent)) throw this.#steerFailure(`Unknown agent: ${options.agent}`);
-    const foreground = this.#foregroundAgents.get(sessionId);
-    let agent = options.agent;
-    if (agent !== undefined && (foreground?.get(agent) ?? 0) > 1) throw this.#steerFailure(`More than one ${agent} execution is running`);
-    if (agent === undefined && foreground) {
-      const running = [...foreground.entries()].flatMap(([name, count]) => Array.from({ length: count }, () => name));
-      if (running.length === 1) agent = running[0];
-      else if (running.length > 1) throw this.#steerFailure("agent is required while more than one route execution is running");
-    }
-    const queue = this.#queuedInput.get(sessionId) ?? [];
-    const item: QueuedSteer = { value: structuredClone(input) };
-    if (agent !== undefined) item.agent = agent;
-    queue.push(item); this.#queuedInput.set(sessionId, queue);
-  }
+
   abort(sessionId: string): boolean {
-    this.#hostSession(sessionId);
     if (this.#closed) return false;
-    const controllers = this.#controllers.get(sessionId);
-    if (!controllers || controllers.size === 0) return false;
-    for (const controller of [...controllers]) controller.abort();
+    const turn = this.#sessions.get(sessionId)?.turn;
+    if (!turn) return false;
+    turn.controller.abort(abortFailure());
     return true;
   }
-  /**
-   * Stops every run, asynchronous hook, operation execution and completion delivery, and disposes the
-   * extension instances. What an operation left in the store stays as it is, so the recovery of a new
-   * runtime built on the same store continues it.
-   */
-  async close(): Promise<void> { await this.#shutdown(); }
 
-  /** 군단 객체가 가진 실행과 비동기 작업을 종료합니다. */
-  async #shutdown(): Promise<void> {
+  async idle(): Promise<void> {
+    while (this.#tasks.size > 0) await Promise.allSettled([...this.#tasks]);
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
     this.#closed = true;
-    // Only the runtime the host created holds runs, detached executions and the steering queue.
-    for (const controllers of this.#controllers.values()) for (const controller of [...controllers]) controller.abort();
-    for (const controller of [...this.#detached]) controller.abort();
-    this.#queuedInput.clear();
-    // 종료된 객체는 비동기 훅에 중단을 알리고 이후 결과를 반영하지 않습니다.
-    for (const controller of this.#asyncControllers.values()) controller.abort();
-    this.#asyncControllers.clear();
-    this.#pendingHooks.clear();
-    for (const byConversation of this.#instances.values()) await disposeAll(byConversation);
+    for (const session of this.#sessions.values()) session.turn?.controller.abort(abortFailure());
+    for (const controller of this.#detachedControllers) controller.abort(abortFailure());
+    for (const tasks of this.#pendingByInstance.values()) for (const task of tasks.values()) task.controller.abort(abortFailure());
+    await Promise.allSettled([...this.#tasks]);
+    for (const instances of this.#instances.values()) await this.#dispose(instances);
     this.#instances.clear();
+    for (const session of this.#sessions.values()) await this.#releaseLease(session);
   }
 
-  /** 일치한 route를 실행하고, 독립 분기는 동시에 시작하며 stateful 입력은 합칩니다. */
-  async #runRoutes(input: RunInput, startAgent: string | undefined, options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<RouteRunResult> {
-    const routes = this.loaded.config.routes ?? [];
-    const pending = new Map<string, PendingRouteInput[]>();
-    const running = new Map<string, Promise<RouteCompletion>>();
-    const active = new Map<string, number>();
-    const outputs: Array<{ route: number; order: number; message: Message; finishReason: string }> = [];
-    let order = 0;
-    const departures = this.#departureSets(routes);
-    const entryAgent = startAgent ?? routes.find((route) => route.from === "$input" && route.to !== "$output")?.to ?? Object.keys(this.loaded.config.agents)[0] ?? "goondan";
-    const turnInput = this.#toMessages(input, entryAgent);
-    const add = (agent: string, item: PendingRouteInput): void => { pending.set(agent, [...(pending.get(agent) ?? []), item]); };
-    const routeMessage = (target: string, from: string, instance: string, message: Message): Message => ({
-      id: this.#id(), role: "user", source: target, content: structuredClone(message.content), meta: { from, instance },
-    });
-    const dispatch = async (from: string, result: AgentRunResult | undefined, initial: RunInput | undefined): Promise<void> => {
-      const candidates = routes.map((route, index) => ({ route, index })).filter(({ route }) => route.from === from);
-      const matched: Array<{ route: RouteSpec; index: number; messages: Message[] }> = [];
-      for (const candidate of candidates) {
-        const messages = initial === undefined
-          ? result === undefined ? [] : candidate.route.to === "$output" ? [] : [routeMessage(candidate.route.to, from, result.instance, result.output)]
-          : candidate.route.to === "$output" ? [] : this.#toMessages(initial, candidate.route.to);
-        const conditionInput = from === "$input" && initial !== undefined
-          ? this.#toMessages(initial, candidate.route.to === "$output" ? entryAgent : candidate.route.to)
-          : turnInput;
-        const output = result?.output ?? null;
-        const text = result ? textOf(result.output.content) : inputTextOf(conditionInput);
-        if (await this.#routeMatches(candidate.route, output, text, conditionInput)) matched.push({ ...candidate, messages });
-      }
-      if (matched.length === 0) throw routeFailure(`No route matched from ${from}`);
-      for (const candidate of matched) {
-        if (candidate.route.to === "$output") {
-          if (result) outputs.push({ route: candidate.index, order: order++, message: result.output, finishReason: result.finishReason });
-          continue;
-        }
-        add(candidate.route.to, { routeIndex: candidate.index, order: order++, messages: candidate.messages });
-      }
+  #session(sessionId: string): SessionRuntime {
+    const current = this.#sessions.get(sessionId);
+    if (current) return current;
+    const created: SessionRuntime = {
+      sessionId,
+      mutex: new Mutex(),
+      appendMutex: new Mutex(),
+      leaseMutex: new Mutex(),
+      events: [],
+      state: { version: 1, sessionId, head: 0, conversations: [], operations: [], turns: [], executions: [] },
+      loaded: false,
+      recovered: false,
+      actors: new Map(),
+      waits: new Map(),
+      controllers: new Set(),
     };
-    if (startAgent !== undefined) add(startAgent, { routeIndex: -1, order: order++, messages: this.#toMessages(input, startAgent) });
-    else await dispatch("$input", undefined, input);
-
-    const launch = (agent: string, items: PendingRouteInput[]): void => {
-      const token = this.#id();
-      active.set(agent, (active.get(agent) ?? 0) + 1);
-      const messages = items.sort((left, right) => left.routeIndex - right.routeIndex || left.order - right.order).flatMap((item) => item.messages);
-      const promise = this.#runAgent(agent, messages, options, scope, sink).then(
-        (result): RouteCompletion => ({ token, agent, input: items, result }),
-        (error): RouteCompletion => ({ token, agent, input: items, error }),
-      );
-      running.set(token, promise);
-    };
-    const startReady = (): boolean => {
-      let started = false;
-      for (const [agent, items] of [...pending]) {
-        if (items.length === 0) { pending.delete(agent); continue; }
-        if (this.#agent(agent).stateful === false) {
-          pending.delete(agent);
-          for (const item of items) launch(agent, [item]);
-          started = true;
-          continue;
-        }
-        if ((active.get(agent) ?? 0) > 0) continue;
-        const waits = [...(departures.get(agent) ?? [])].some((source) => (active.get(source) ?? 0) > 0 || (pending.get(source)?.length ?? 0) > 0);
-        if (waits) continue;
-        pending.delete(agent); launch(agent, items); started = true;
-      }
-      return started;
-    };
-    const stopBranches = async (error: unknown): Promise<never> => {
-      if (scope.host !== null) for (const controller of this.#controllers.get(scope.host) ?? []) controller.abort();
-      await Promise.allSettled(running.values());
-      throw error;
-    };
-
-    while (pending.size > 0 || running.size > 0) {
-      startReady();
-      if (running.size === 0) throw routeFailure("Stateful route inputs cannot make progress");
-      const completed = await Promise.race(running.values());
-      running.delete(completed.token);
-      active.set(completed.agent, Math.max(0, (active.get(completed.agent) ?? 1) - 1));
-      if (completed.error !== undefined) return await stopBranches(completed.error);
-      if (completed.result) {
-        try { await dispatch(completed.agent, completed.result, undefined); }
-        catch (error) { return await stopBranches(error); }
-      }
-    }
-    outputs.sort((left, right) => left.route - right.route || left.order - right.order);
-    return { outputs: outputs.map((item) => item.message), finishReasons: outputs.map((item) => item.finishReason) };
+    this.#sessions.set(sessionId, created);
+    return created;
   }
 
-  async #routeMatches(route: RouteSpec, output: Message | null, text: string, input: Message[]): Promise<boolean> {
-    if (!route.when) return true;
-    if ("fn" in route.when) {
-      let decision: Json;
-      try { decision = await this.#callFunction(route.when.fn, this.#json({ output, text, input }, "route condition")); }
-      catch (error) { throw routeFailure(`The route condition ${route.when.fn} failed: ${reason(error)}`, error); }
-      if (typeof decision !== "boolean") throw routeFailure(`The route condition ${route.when.fn} must return true or false`);
-      return decision;
-    }
-    if (typeof route.when.output === "string") return text === route.when.output;
-    let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return false; }
-    if (!isObject(parsed)) return false;
-    return Object.entries(route.when.output).every(([key, value]) => Object.hasOwn(parsed, key) && jsonEqual(this.#json(parsed[key], key), value));
+  async #load(session: SessionRuntime): Promise<void> {
+    if (session.loaded) return;
+    const events: JournalEvent[] = [];
+    for await (const event of this.#store.scan({ sessionId: session.sessionId })) events.push(event);
+    session.events = events;
+    session.state = fold(session.sessionId, events);
+    session.loaded = true;
   }
 
-  #departureSets(routes: readonly RouteSpec[]): Map<string, Set<string>> {
-    const result = new Map<string, Set<string>>();
-    const agents = Object.keys(this.loaded.config.agents);
-    for (const target of agents) {
-      const reachable = new Set<string>();
-      const queue = ["$input"];
-      while (queue.length > 0) {
-        const from = queue.shift();
-        if (from === undefined) continue;
-        for (const route of routes) {
-          if (route.from !== from || route.to === "$output" || route.to === target || reachable.has(route.to)) continue;
-          reachable.add(route.to); queue.push(route.to);
-        }
-      }
-      const reachesTarget = (start: string): boolean => {
-        const seen = new Set<string>(); const work = [start];
-        while (work.length > 0) {
-          const from = work.shift(); if (from === undefined || seen.has(from)) continue; seen.add(from);
-          for (const route of routes) { if (route.from !== from) continue; if (route.to === target) return true; if (route.to !== "$output") work.push(route.to); }
-        }
-        return false;
-      };
-      result.set(target, new Set([...reachable].filter((agent) => reachesTarget(agent))));
+  async #waitLease(sessionId: string, signal?: AbortSignal): Promise<StoreLease> {
+    while (true) {
+      if (signal?.aborted) throw abortFailure(signal.reason);
+      if (this.#closed) throw runtimeFailure("The runtime is closed");
+      const lease = await this.#store.acquireLease(sessionId, id());
+      if (lease) return lease;
+      await new Promise<void>((resolve) => setTimeout(resolve, 1));
     }
-    return result;
   }
 
-  /** 에이전트 하나를 실행하고 stateful 인스턴스의 실행을 직렬화합니다. */
-  async #runAgent(agent: string, rawInput: Message[], options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<AgentRunResult> {
-    const spec = this.#agent(agent);
-    if (spec.stateful === false) return await this.#runAgentNow(agent, rawInput, options, scope, sink);
-    const key = scopeKey(options.sessionId, agent);
-    const previous = this.#agentTails.get(key) ?? Promise.resolve();
-    const running = previous.catch(() => undefined).then(() => this.#runAgentNow(agent, rawInput, options, scope, sink));
-    const tail = running.then(() => undefined, () => undefined);
-    this.#agentTails.set(key, tail);
-    void tail.finally(() => { if (this.#agentTails.get(key) === tail) this.#agentTails.delete(key); });
-    return await running;
+  #installLease(session: SessionRuntime, lease: StoreLease): void {
+    session.lease = lease;
+    session.leaseFailure = undefined;
+    if (lease.expiresAt === null) return;
+    const controller = new AbortController();
+    session.leaseController = controller;
+    const renewal = this.#renewLease(session, lease, controller.signal);
+    session.leaseRenewal = renewal;
+    void renewal.catch(() => undefined);
   }
 
-  async #runAgentNow(agent: string, rawInput: Message[], options: AgentRunOptions, scope: RunScope, sink: RunSink): Promise<AgentRunResult> {
-    // An execution that was told to stop starts no further run, so a sub-run announces nothing.
-    if (options.signal?.aborted) throw abortFailure();
-    const spec = this.#agent(agent);
-    const registration = this.#register(scope, options.signal);
-    const turnId = this.#id();
-    const stateful = spec.stateful !== false;
-    const instance = stateful ? `${options.sessionId}/${agent}` : this.#id();
-    const node = startRun(sink, agent, instance, turnId, options.lineage);
-    let state: TurnState;
-    try {
-      const extensions = await this.#extensions(agent, spec, options.sessionId, instance, stateful);
-      const loaded = stateful ? await this.#store.load(options.sessionId, agent) : [];
-      state = this.#state(agent, instance, spec, rawInput, options.sessionId, turnId, options.lineage, loaded, registration.signal, scope, extensions, node.children);
-    } catch (error) {
-      // A run that could not prepare its extension instances reports turn.error without turn.start.
-      await this.#preparationError(error, agent, options.sessionId, turnId, instance, options.lineage);
-      registration.release();
-      throw isGoondanConfigError(error) ? error : preparationFailure(error);
-    }
-    try {
-      const result = await this.#runStages(state);
-      finishRun(node, state.usage, result.finishReason);
-      return result;
-    } catch (error) {
+  async #renewLease(session: SessionRuntime, lease: StoreLease, signal: AbortSignal): Promise<void> {
+    const initial = lease.expiresAt === null ? null : lease.expiresAt - Date.now();
+    if (initial === null) return;
+    if (initial <= 0) { this.#loseLease(session, new Error("the session lease expired")); return; }
+    let minimumTtl = initial;
+    while (!signal.aborted && session.lease === lease && lease.expiresAt !== null) {
+      const delay = Math.max(1, Math.floor(minimumTtl / 2));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delay);
+        signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      if (signal.aborted || session.lease !== lease) return;
       try {
-        // A failure the `error` stage recovered from still ends the run normally.
-        const result = await this.#handleError(error, state);
-        finishRun(node, state.usage, result.finishReason);
-        return result;
-      } catch (failed) {
-        // A failed run still reports the usage of the model responses it received.
-        if (carriesAbort(failed)) abortRun(node, state.usage); else failRun(node, state.usage);
-        throw failed;
+        const renewed = await session.leaseMutex.run(() => lease.renew());
+        if (!renewed) { this.#loseLease(session, new Error("the session lease renewal was rejected")); return; }
+        if (lease.expiresAt === null) return;
+        const ttl = lease.expiresAt - Date.now();
+        if (ttl <= 0) { this.#loseLease(session, new Error("the renewed session lease expired")); return; }
+        minimumTtl = Math.min(minimumTtl, ttl);
+      } catch (error) {
+        this.#loseLease(session, error);
+        return;
+      }
+    }
+  }
+
+  #loseLease(session: SessionRuntime, cause: unknown): void {
+    if (session.leaseFailure) return;
+    const failure = runtimeFailure(`session lease lost: ${reason(cause)}`, cause);
+    session.leaseFailure = failure;
+    session.turn?.controller.abort(failure);
+    for (const controller of session.controllers) controller.abort(failure);
+  }
+
+  async #verifyLease(session: SessionRuntime, lease: StoreLease): Promise<void> {
+    if (session.leaseFailure) throw session.leaseFailure;
+    try {
+      const renewed = await session.leaseMutex.run(() => lease.renew());
+      if (!renewed) throw new Error("the session lease was lost");
+      if (lease.expiresAt !== null && lease.expiresAt <= Date.now()) throw new Error("the session lease expired");
+    } catch (error) {
+      this.#loseLease(session, error);
+      throw session.leaseFailure ?? runtimeFailure(reason(error), error);
+    }
+  }
+
+  async #releaseLease(session: SessionRuntime): Promise<void> {
+    const lease = session.lease;
+    const controller = session.leaseController;
+    const renewal = session.leaseRenewal;
+    session.lease = undefined;
+    session.leaseController = undefined;
+    session.leaseRenewal = undefined;
+    controller?.abort();
+    if (renewal) await Promise.allSettled([renewal]);
+    await lease?.release();
+  }
+
+  async #append(session: SessionRuntime, events: NewJournalEvent[]): Promise<JournalEvent[]> {
+    if (events.length === 0) return [];
+    return session.appendMutex.run(async () => {
+      const ownLease = session.lease === undefined;
+      if (ownLease) this.#installLease(session, await this.#waitLease(session.sessionId));
+      const lease = session.lease;
+      if (!lease) throw runtimeFailure("the session lease is not held");
+      try {
+        await this.#verifyLease(session, lease);
+        const stored = await this.#store.append(events, { expected: session.state.head, token: lease.token, writeId: id() });
+        session.events.push(...stored);
+        session.state = fold(session.sessionId, session.events);
+        for (const event of stored) await this.#emit(event);
+        return stored;
+      } catch (error) {
+        throw runtimeFailure(reason(error), error);
+      } finally {
+        if (ownLease && !session.turn) {
+          await this.#releaseLease(session);
+        }
+      }
+    });
+  }
+
+  #event(sessionId: string, type: string, data: unknown, scope: {
+    turnId?: string; inputId?: string; agent?: string; instance?: string; executionId?: string;
+    parentExecutionId?: string; operationId?: string; skippable?: true;
+  } = {}): NewJournalEvent {
+    const event: NewJournalEvent = { version: JOURNAL_VERSION, type, sessionId, data };
+    if (scope.turnId !== undefined) event.turnId = scope.turnId;
+    if (scope.inputId !== undefined) event.inputId = scope.inputId;
+    if (scope.agent !== undefined) event.agent = scope.agent;
+    if (scope.instance !== undefined) event.instance = scope.instance;
+    if (scope.executionId !== undefined) event.executionId = scope.executionId;
+    if (scope.parentExecutionId !== undefined) event.parentExecutionId = scope.parentExecutionId;
+    if (scope.operationId !== undefined) event.operationId = scope.operationId;
+    if (scope.skippable !== undefined) event.skippable = scope.skippable;
+    return event;
+  }
+
+  async #recover(session: SessionRuntime): Promise<void> {
+    if (session.recovered) return;
+    const events: NewJournalEvent[] = [];
+    const failure = detail(abortFailure(), 1);
+    for (const execution of session.state.executions.filter((item) => item.status === "running")) {
+      events.push(this.#event(session.sessionId, "agent.error", { status: "aborted", error: failure, usage: zeroUsage() }, execution));
+    }
+    for (const turn of session.state.turns.filter((item) => item.status === "running")) {
+      events.push(this.#event(session.sessionId, "turn.error", { status: "aborted", error: failure }, { turnId: turn.turnId }));
+    }
+    const now = Date.now();
+    for (const operation of session.state.operations) {
+      if (operation.status === "running") {
+        events.push(this.#operationEvent(operation, "operation.failed", { updatedAt: now, error: interruptedMessage, errorCode: "execution_interrupted" }));
+      } else if (isTerminalStatus(operation.status) && operation.deliveryStatus === "delivering") {
+        events.push(this.#operationEvent(operation, "operation.delivery.finished", { updatedAt: now, outcome: "interrupted" }));
+      }
+    }
+    if (events.length > 0) await this.#append(session, events);
+    session.recovered = true;
+    const operations = session.state.operations.map((item) => structuredClone(item));
+    for (const operation of operations) {
+      if (operation.status === "approved") this.#track(this.#executeOperation(operation));
+      else if (isTerminalStatus(operation.status) && operation.deliveryStatus === "pending") this.#track(this.#deliverOperation(operation));
+    }
+  }
+
+  async #startTurn(session: SessionRuntime, input: RunInput, options: RunOptions): Promise<ActiveTurn> {
+    const turn: ActiveTurn = {
+      session,
+      turnId: id(),
+      controller: new AbortController(),
+      deferred: new Deferred<TurnResult>(),
+      actors: new Map(),
+      executions: new Map(),
+      functions: new Map(),
+      waits: new Map(),
+      runs: [],
+      outputs: [],
+      outputOrder: 0,
+      activity: 0,
+      closing: false,
+    };
+    const inputId = id();
+    await this.#append(session, [
+      this.#event(session.sessionId, "turn.start", {}, { turnId: turn.turnId }),
+      this.#event(session.sessionId, "input.received", this.#inputData(input, options), { turnId: turn.turnId, inputId }),
+    ]);
+    try { await this.#dispatchHost(turn, input, options); }
+    catch (error) { this.#failTurn(turn, error); }
+    queueMicrotask(() => { void this.#maybeClose(turn); });
+    return turn;
+  }
+
+  async #acceptHostInput(turn: ActiveTurn, input: RunInput, options: RunOptions): Promise<void> {
+    if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a run declares either agent or startAgent, not both");
+    const inputId = id();
+    await this.#append(turn.session, [this.#event(turn.session.sessionId, "input.received", this.#inputData(input, options), { turnId: turn.turnId, inputId })]);
+    try { await this.#dispatchHost(turn, input, options); }
+    catch (error) { this.#failTurn(turn, error); }
+  }
+
+  #inputData(input: RunInput, options: RunOptions): Record<string, unknown> {
+    const data: Record<string, unknown> = { input: structuredClone(input) };
+    if (options.agent !== undefined) data.agent = options.agent;
+    if (options.startAgent !== undefined) data.startAgent = options.startAgent;
+    return data;
+  }
+
+  async #dispatchHost(turn: ActiveTurn, input: RunInput, options: RunOptions): Promise<void> {
+    if (options.agent !== undefined && options.startAgent !== undefined) throw routeFailure("a run declares either agent or startAgent, not both");
+    const agents = this.loaded.config.agents;
+    if (options.agent !== undefined) {
+      if (!Object.hasOwn(agents, options.agent)) throw routeFailure(`Unknown agent: ${options.agent}`);
+      const request = this.#hostRequest(options.agent, input, false);
+      const group = this.#enqueue(turn, request);
+      if (!group) throw routeFailure("the requested agent did not start");
+      return;
+    }
+    if (options.startAgent !== undefined) {
+      if (!Object.hasOwn(agents, options.startAgent)) throw routeFailure(`Unknown agent: ${options.startAgent}`);
+      this.#enqueue(turn, this.#hostRequest(options.startAgent, input, this.loaded.config.routes !== undefined));
+      return;
+    }
+    const routes = this.loaded.config.routes;
+    if (routes === undefined) {
+      const first = Object.keys(agents)[0];
+      if (first === undefined) throw routeFailure("the configuration has no start agent");
+      const group = this.#enqueue(turn, this.#hostRequest(first, input, false));
+      if (!group) throw routeFailure("the requested agent did not start");
+      return;
+    }
+    const preserveMessages = isMessageArray(input);
+    const matching: Array<{ route: RouteSpec; index: number; messages: Message[] }> = [];
+    for (const [index, route] of routes.entries()) {
+      if (!sameEndpoint(route.from, "$input")) continue;
+      const source = typeof route.to === "string" && route.to !== "$output" ? route.to : "input";
+      const messages = this.#rawMessages(input, source);
+      if (await this.#routeMatches(route, null, messages, turn)) matching.push({ route, index, messages });
+    }
+    if (matching.length === 0) throw routeFailure("no route matched $input");
+    await Promise.all(matching.map((item) => {
+      const target = item.route.to;
+      const routed = typeof target === "string" && target !== "$output" && !preserveMessages
+        ? item.messages.map((message): Message => ({ ...structuredClone(message), source: target }))
+        : item.messages;
+      return this.#routeTarget(turn, item.route.to, routed, item.index, "$input", undefined, "stop", true, preserveMessages);
+    }));
+    this.#scheduleReady(turn);
+  }
+
+  #hostRequest(agent: string, input: RunInput, followsRoutes: boolean): InputRequest {
+    return {
+      target: agent,
+      messages: this.#rawMessages(input, agent),
+      origin: "host",
+      kind: "turn",
+      followsRoutes,
+      preserveMessages: isMessageArray(input),
+    };
+  }
+
+  #rawMessages(input: RunInput, source: string): Message[] {
+    if (isMessageArray(input)) return structuredClone(input);
+    if (isPartArray(input)) return [{ id: id(), role: "user", content: structuredClone(input), source }];
+    if (typeof input === "string") return [{ id: id(), role: "user", content: [{ type: "text", text: input }], source }];
+    const json = toJson(input) ?? null;
+    return [{ id: id(), role: "user", content: [{ type: "json", value: json }], source }];
+  }
+
+  #actor(turn: ActiveTurn, agent: string): Actor {
+    const spec = this.loaded.config.agents[agent];
+    if (!spec) throw routeFailure(`Unknown agent: ${agent}`);
+    const stateful = spec.stateful !== false;
+    const key = stateful ? agent : `${agent}:${id()}`;
+    const found = stateful ? turn.session.actors.get(key) : turn.actors.get(key);
+    if (found) {
+      turn.actors.set(key, found);
+      return found;
+    }
+    const actor: Actor = { agent, instance: stateful ? `${turn.session.sessionId}/${agent}` : id(), stateful, queue: [] };
+    turn.actors.set(key, actor);
+    if (stateful) turn.session.actors.set(key, actor);
+    return actor;
+  }
+
+  #enqueue(turn: ActiveTurn, request: InputRequest, deferRouteStart = false): ExecutionGroup | undefined {
+    if (turn.failed !== undefined || turn.controller.signal.aborted) {
+      request.waiter?.reject(abortFailure());
+      return undefined;
+    }
+    request.turn = turn;
+    const actor = this.#actor(turn, request.target);
+    if (actor.running) {
+      actor.queue.push(request);
+      if (actor.running.turn !== turn) {
+        request.reserved = true;
+        turn.activity += 1;
+      }
+      if (request.origin === "route") actor.running.routeRequested = true;
+      if (request.origin === "host" && !request.followsRoutes) actor.running.singleOutputRequested = true;
+      return actor.running;
+    }
+    actor.queue.push(request);
+    if (deferRouteStart && actor.stateful && request.origin === "route") return undefined;
+    if (actor.stateful && request.origin === "route" && !this.#routeReady(turn, actor.agent)) return undefined;
+    return this.#startActor(turn, actor);
+  }
+
+  #routeReady(turn: ActiveTurn, target: string): boolean {
+    const routes = this.loaded.config.routes ?? [];
+    const sources = new Set<string>();
+    for (const route of routes) {
+      if (endpointKey(route.to) !== target) continue;
+      const source = endpointKey(route.from);
+      if (source !== "$input" && source !== target && this.#reachableWithout(source, target)) sources.add(source);
+    }
+    for (const source of sources) if (source.startsWith("@fn:") && (turn.functions.get(source) ?? 0) > 0) return false;
+    for (const actor of turn.actors.values()) {
+      if (!sources.has(actor.agent)) continue;
+      if (actor.running?.turn === turn || actor.queue.some((request) => request.turn === turn)) return false;
+    }
+    return true;
+  }
+
+  #reachableWithout(node: string, excluded: string): boolean {
+    const routes = this.loaded.config.routes ?? [];
+    const reached = new Set<string>(["$input"]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const route of routes) {
+        const from = endpointKey(route.from);
+        const to = endpointKey(route.to);
+        if (to === excluded || from === excluded || !reached.has(from) || reached.has(to)) continue;
+        reached.add(to);
+        changed = true;
+      }
+    }
+    return reached.has(node);
+  }
+
+  #startActor(turn: ActiveTurn, actor: Actor): ExecutionGroup | undefined {
+    if (actor.running || actor.queue.length === 0) return actor.running;
+    const owner = actor.queue[0]?.turn ?? turn;
+    const routeOnly = actor.queue.every((request) => request.origin === "route");
+    if (actor.stateful && routeOnly && !this.#routeReady(owner, actor.agent)) return undefined;
+    const ordered = actor.queue.splice(0).sort((left, right) => (left.routeIndex ?? -1) - (right.routeIndex ?? -1));
+    for (const request of ordered) {
+      if (!request.reserved || request.turn === undefined) continue;
+      request.reserved = undefined;
+      request.turn.activity -= 1;
+    }
+    for (const request of ordered) {
+      request.messages = request.messages.map((message) => this.#kindMessage(
+        structuredClone(message),
+        "start",
+        request.preserveMessages === true,
+      ));
+    }
+    const group: ExecutionGroup = {
+      turn: owner,
+      actor,
+      executionId: id(),
+      requests: [...ordered],
+      routeRequested: ordered.some((request) => request.followsRoutes),
+      singleOutputRequested: ordered.some((request) => request.origin === "host" && !request.followsRoutes),
+      controller: new AbortController(),
+      deferred: new Deferred<AgentRunResult>(),
+    };
+    actor.running = group;
+    owner.executions.set(group.executionId, group);
+    owner.activity += 1;
+    void group.deferred.promise.catch(() => undefined);
+    const run = this.#runGroup(group, ordered);
+    this.#track(run.finally(() => this.#activityDone(owner)));
+    return group;
+  }
+
+  async #runGroup(group: ExecutionGroup, initial: InputRequest[]): Promise<void> {
+    const turn = group.turn;
+    const actor = group.actor;
+    try {
+      const result = await this.#executeAgent(group, initial);
+      group.deferred.resolve(result);
+      for (const request of group.requests) request.waiter?.resolve(result.output);
+      const participants = new Map<ActiveTurn, InputRequest[]>();
+      for (const request of group.requests) {
+        const owner = request.turn ?? turn;
+        const requests = participants.get(owner) ?? [];
+        requests.push(request);
+        participants.set(owner, requests);
+      }
+      for (const [owner, requests] of participants) {
+        if (requests.some((request) => request.origin === "host" && !request.followsRoutes)) {
+          owner.outputs.push({ route: -1, order: owner.outputOrder++, message: result.output, finishReason: result.finishReason });
+        }
+        if (requests.some((request) => request.followsRoutes)) {
+          await this.#routeFrom(owner, actor.agent, result.output, actor.instance, result.finishReason, group.state?.startInput ?? []);
+        }
+      }
+    } catch (error) {
+      group.deferred.reject(error);
+      for (const request of group.requests) request.waiter?.reject(error);
+      for (const request of group.requests) {
+        if ((request.followsRoutes || (request.origin === "host" && !request.followsRoutes)) && request.turn) {
+          this.#failTurn(request.turn, error);
+        }
       }
     } finally {
-      registration.release();
-      this.#unmarkForeground(state);
-      if (!stateful) {
-        state.asyncController.abort();
-        await disposeAll(state.extensions);
-        state.pending.clear();
+      actor.running = undefined;
+      turn.executions.delete(group.executionId);
+      for (const edges of turn.session.waits.values()) edges.delete(group.executionId);
+      turn.session.waits.delete(group.executionId);
+      const participantTurns = new Set<ActiveTurn>();
+      for (const request of group.requests) {
+        if (!request.reserved || request.turn === undefined) continue;
+        request.reserved = undefined;
+        request.turn.activity -= 1;
+        participantTurns.add(request.turn);
       }
+      if (actor.queue.length > 0) this.#startActor(actor.queue[0]?.turn ?? turn, actor);
+      this.#scheduleReady(turn);
+      for (const participant of participantTurns) void this.#maybeClose(participant);
     }
   }
 
-  /** Steps 1 to 6 of the stage order of one agent run. */
-  async #runStages(state: TurnState): Promise<AgentRunResult> {
-    state.input = await this.#input(state);
-    state.input = await this.#applyInputRule(state);
-    this.#markForeground(state);
-    await this.#emit("turn.start", state, { input: this.#json(state.input, "input") });
-    state.conversation.push(...state.input); await this.#append(state, state.input);
-    // Tool call parts a failed or aborted run left unpaired are repaired before the first safe point.
-    await this.#repair(state);
-    // The conversation stage runs once per agent run, right after the first safe conversation point.
-    await this.#safePoint(state);
-    const conversation = (await this.#pipeline("conversation", state.conversation, state)).value;
-    if (!isMessageArray(conversation)) throw new GoondanExecutionError({ where: "conversation", codes: ["value_invalid"], message: "the conversation value is not an array of messages" });
-    if (conversation !== state.conversation) { state.conversation = conversation; await this.#replace(state); }
-    return await this.#modelLoop(state);
-  }
-
-  /**
-   * Removes the `tool.call` and `tool.result` parts of the stored conversation whose counterpart is
-   * missing, so that the `conversation` stage and the model receive paired calls only.
-   */
-  async #repair(state: TurnState): Promise<void> {
-    const repaired = repairToolPairs(state.conversation);
-    if (!repaired) return;
-    state.conversation = repaired;
-    await this.#replace(state);
-  }
-
-  /**
-   * Handles a safe conversation point: the host's steered input first, then the results of the
-   * asynchronous hooks that have finished. Both are appended to the conversation and stored. An
-   * execution that was told to stop stores nothing, so it takes neither: the steered values stay in
-   * the queue and the finished tasks stay in the scope for the next execution that reaches a point.
-   */
-  async #safePoint(state: TurnState): Promise<void> {
-    if (state.signal.aborted) return;
-    await this.#drainSteering(state);
-    await this.#drainPending(state);
-  }
-
-  async #preparationError(error: unknown, agent: string, sessionId: string, turnId: string, instance: string, lineage: RunLineage): Promise<void> {
-    // No extension instance exists in this scope, so the event only reaches the host.
-    await this.#deliver({ name: "turn.error", agent, sessionId, turnId, instance, ...lineage, at: Date.now(), data: failureData(error) }, new Map());
-  }
-
-  /** Steps 3 to 6 of the stage order: model input, model call, tool calls and the output stage. */
-  async #modelLoop(state: TurnState): Promise<AgentRunResult> {
-      const spec = state.agentSpec;
-      for (;;) {
-        if (state.signal.aborted) throw abortFailure();
-        // A run with a message scheduled skips the safe point and the modelInput stage.
-        if (state.completion) return await this.#finishToolTurn(state.completion, state);
-        // A run that used up its model calls stops before the safe point and the modelInput stage.
-        const limit = this.#bindings.maxSteps;
-        if (limit !== undefined && state.step >= limit) {
-          throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: `The agent run reached its limit of ${String(limit)} model calls` });
-        }
-        // Every model call after the first one starts at a safe conversation point.
-        if (state.step > 0) await this.#safePoint(state);
-        const modelInput = await this.#modelInput(state);
-        // The call number belongs to the call that is starting, so a `modelInput` hook's `model.run`
-        // still reports the number of the last call the run started.
-        state.step += 1;
-        const step = state.step;
-        await this.#emit("step.start", state, { step, messages: modelInput.messages.length, tools: modelInput.tools.map((tool) => tool.name) });
-        let modelResult: ModelResult;
-        const streaming: Streaming = { active: true };
-        try {
-          if (state.signal.aborted) throw abortFailure();
-          // The model implementation receives a copy, so what it keeps never changes the conversation.
-          const raw = await this.#model(spec).generate(structuredClone(modelInput), {
-            agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, step, signal: state.signal,
-            onTextDelta: (delta) => { this.#textDelta(state, streaming, step, delta); },
-          });
-          streaming.active = false;
-          // A result that arrives after the abort was signalled is not used.
-          if (state.signal.aborted) throw abortFailure();
-          // The runtime fills `id` and `source` and checks the form before the modelResult hooks run.
-          modelResult = this.#modelResult(raw);
-        } catch (error) {
-          streaming.active = false;
-          const message = reason(error);
-          const aborted = state.signal.aborted;
-          const failed = error instanceof GoondanExecutionError ? error : new GoondanExecutionError({ where: "model", codes: modelErrorCodes(error), message }, { cause: error });
-          await this.#emit("step.error", state, { step, error: message, codes: aborted ? ["aborted"] : failed.codes });
-          throw aborted ? abortFailure(error) : failed;
-        }
-        addUsage(state.usage, modelResult.usage);
-        await this.#emit("step.done", state, { step, finishReason: modelResult.finishReason });
-        const stage = await this.#pipeline("modelResult", modelResult, state);
-        if (stage.retry) {
-          // The message of a retried model result is not stored.
-          state.retryCount += 1;
-          await this.#waitForRetry(state, stage.retry.afterMs);
-          continue;
-        }
-        if (!isModelResult(stage.value)) throw new GoondanExecutionError({ where: "modelResult", codes: ["value_invalid"], message: "the modelResult value is not a model result" });
-        modelResult = stage.value;
-        state.conversation.push(modelResult.message); await this.#append(state, [modelResult.message]);
-        const calls = toolCalls(modelResult);
-        if (calls.length > 0) {
-          // Every response starts its own batch, so a call a new response repeats always runs again.
-          state.storedCalls.clear();
-          let ended: Message | undefined;
-          for (const [index, call] of calls.entries()) ended = (await this.#executeTool(call, state, calls.slice(index + 1))) ?? ended;
-          if (ended) return this.#finishToolTurn(ended, state);
-          continue;
-        }
-        const outputValue = (await this.#pipeline("output", modelResult.message, state)).value;
-        if (!isMessage(outputValue)) throw new GoondanExecutionError({ where: "output", codes: ["value_invalid"], message: "the output value is not a message" });
-        state.conversation[state.conversation.length - 1] = outputValue;
-        await this.#replace(state);
-        return await this.#finish(state, outputValue, modelResult.finishReason);
-      }
-  }
-
-  /**
-   * Announces one text chunk of the model call that is running. A chunk that arrives after the call
-   * returned or after the abort was signalled, and a chunk that is not a string, is not announced.
-   */
-  #textDelta(state: TurnState, streaming: Streaming, step: number, delta: unknown): void {
-    if (!streaming.active || typeof delta !== "string" || state.signal.aborted) return;
-    void this.#emit("step.textDelta", state, { step, delta });
-  }
-
-  /**
-   * Fills the `id` and `source` a model implementation may omit, then checks the model result form.
-   * A model implementation that answered with something other than an object is reported the same
-   * way, as an invalid `modelResult` value and never as a model failure.
-   */
-  #modelResult(raw: unknown): ModelResult {
-    const message: unknown = isObject(raw) ? raw.message : undefined;
-    let filled: unknown = raw;
-    if (isObject(raw) && isObject(message)) {
-      const complete: Record<string, unknown> = { ...message };
-      if (complete.id === undefined) complete.id = this.#id();
-      if (complete.source === undefined) complete.source = "model";
-      filled = { ...raw, message: complete };
+  #scheduleReady(turn: ActiveTurn): void {
+    for (const actor of turn.actors.values()) {
+      if (!actor.running && actor.queue.length > 0) this.#startActor(actor.queue[0]?.turn ?? turn, actor);
     }
-    const issue = stageValueIssue("modelResult", filled);
-    if (issue) throw new GoondanExecutionError({ where: "modelResult", codes: ["value_invalid"], message: issue });
-    if (!isModelResult(filled)) throw new GoondanExecutionError({ where: "modelResult", codes: ["value_invalid"], message: "the modelResult value is not a model result" });
-    return filled;
   }
 
-  #retryLimit(): number { return this.#bindings.maxRetries ?? 3; }
-
-  /**
-   * Waits for a retry request's `afterMs`. An execution told to stop never follows the request, and
-   * one told to stop while it waits stops waiting at once and fails with the abort.
-   */
-  async #waitForRetry(state: TurnState, afterMs: number | undefined): Promise<void> {
-    if (afterMs !== undefined && afterMs > 0 && !state.signal.aborted) {
-      await new Promise<void>((settle) => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const stop = (): void => { if (timer !== undefined) clearTimeout(timer); settle(); };
-        timer = setTimeout(() => { state.signal.removeEventListener("abort", stop); settle(); }, afterMs);
-        state.signal.addEventListener("abort", stop, { once: true });
-      });
-    }
-    if (state.signal.aborted) throw abortFailure();
-  }
-
-  /** Whether the runtime follows a retry request for this failure. */
-  #canRetry(target: "model" | "tool", turnError: TurnError, state: TurnState): boolean {
-    if (state.retryCount >= this.#retryLimit()) return false;
-    if (target === "model") return turnError.where === "model";
-    const pending = state.retryTool;
-    if (turnError.where !== "tool" || !pending) return false;
-    // A call whose result this run already stored is not run again.
-    return !state.storedCalls.has(pending.call.id);
-  }
-
-  async #handleError(error: unknown, state: TurnState): Promise<AgentRunResult> {
-      // A configuration error of an extension preparation fails the whole turn unchanged. The run
-      // that was waiting for it still ends, so it announces the turn.error its turn.start expects.
-      if (isGoondanConfigError(error)) {
-        await this.#emit("turn.error", state, failureData(error));
-        throw error;
-      }
-      // An aborted run reports the abort whatever failed, and never reaches the error stage.
-      const aborted = state.signal.aborted;
-      const attempt = state.retryCount + 1;
-      const turnError: TurnError = aborted
-        ? { where: "runtime", codes: ["aborted"], message: "aborted", attempt }
-        : error instanceof GoondanExecutionError
-          ? failureDetail(error, attempt)
-          : { where: "runtime", codes: ["runtime_error"], message: reason(error), attempt };
-      // Only a model or tool failure reaches the error stage, and never a failure raised inside it.
-      if (!aborted && !state.handlingError && (turnError.where === "model" || turnError.where === "tool")) {
-        state.handlingError = true;
-        let stage: StageRun | undefined;
-        let hookError: unknown;
-        try { stage = await this.#pipeline("error", turnError, state); }
-        catch (failure) { hookError = failure; }
-        finally { state.handlingError = false; }
-        if (hookError !== undefined) return await this.#handleError(hookError, state);
-        const retry = stage?.retry;
-        if (retry && this.#canRetry(retry.target, turnError, state)) {
-          state.retryCount += 1;
-          try {
-            await this.#waitForRetry(state, retry.afterMs);
-            if (retry.target === "tool" && state.retryTool) {
-              const pending = state.retryTool;
-              let ended = await this.#dispatchTool(pending.call, pending.execution, pending.remainingCalls, pending.approvals, state);
-              // The calls of the same model response that have not run yet keep their own remainder.
-              const remaining = pending.remainingCalls;
-              for (const [index, call] of remaining.entries()) ended = (await this.#executeTool(call, state, remaining.slice(index + 1))) ?? ended;
-              state.retryTool = undefined;
-              if (ended) return await this.#finishToolTurn(ended, state);
-            }
-            return await this.#modelLoop(state);
-          } catch (retryError) { return await this.#handleError(retryError, state); }
-        }
-      }
-      await this.#emit("turn.error", state, { where: turnError.where, codes: turnError.codes, error: turnError.message });
-      // The thrown execution error carries the same fields the `error` stage received.
-      throw new GoondanExecutionError(turnError, { cause: error instanceof Error ? error : undefined });
-  }
-
-  /** Runs the output stage of a run that ends with a message `execution.complete` scheduled. */
-  async #finishToolTurn(ended: Message, state: TurnState): Promise<AgentRunResult> {
-    const endedValue = (await this.#pipeline("output", ended, state)).value;
-    if (!isMessage(endedValue)) throw new GoondanExecutionError({ where: "output", codes: ["value_invalid"], message: "the output value is not a message" });
-    state.conversation.push(endedValue); await this.#append(state, [endedValue]);
-    return await this.#finish(state, endedValue, "tool");
-  }
-
-  async #finish(state: TurnState, output: Message, finishReason: string): Promise<AgentRunResult> {
-    await this.#emit("turn.done", state, { output: this.#json(output, "turn.done"), steps: state.step, usage: this.#json(state.usage, "usage") });
-    return { output, usage: state.usage, finishReason, status: "done", instance: state.instance };
-  }
-
-  #state(agent: string, instance: string, agentSpec: AgentSpec, input: Message[], sessionId: string, turnId: string, lineage: RunLineage, conversation: Message[], signal: AbortSignal, scope: RunScope, extensions: Map<string, ExtensionInstance>, runs: RunNode[]): TurnState {
-    const key = scopeKey(sessionId, agent); const stateful = agentSpec.stateful !== false;
-    let pending = stateful ? this.#pendingHooks.get(key) : undefined;
-    if (!pending) { pending = new Map(); if (agentSpec.stateful !== false) this.#pendingHooks.set(key, pending); }
-    let asyncController = stateful ? this.#asyncControllers.get(key) : undefined;
-    if (!asyncController) { asyncController = new AbortController(); if (stateful) this.#asyncControllers.set(key, asyncController); }
-    return { agent, instance, scope, agentSpec, sessionId, turnId, ...lineage, input, conversation, step: 0, retryCount: 0, signal, messageNumber: 0, usage: zeroUsage(), runs, extensions, pending, asyncController, storedCalls: new Set<string>(), operation: false, handlingError: false, emitting: Promise.resolve() };
-  }
-
-  #childLineage(state: TurnState): RunLineage {
-    return { parentInstance: state.instance, parentTurnId: state.turnId, rootTurnId: state.rootTurnId };
-  }
-
-  /** Where the sub-runs of one agent run record themselves; an asynchronous hook records nothing. */
-  #sink(state: TurnState, kind: RunKind, asynchronous = false): RunSink {
-    return asynchronous ? detachedSink(kind) : { kind, nodes: state.runs };
-  }
-
-  /**
-   * Prepares the extension instances of one execution scope, in the declaration order of the
-   * effective configuration. A failed preparation disposes what it already created and stores
-   * nothing, so the next run in the same scope prepares again from the start.
-   */
-  async #extensions(agent: string, spec: AgentSpec, sessionId: string, instance: string, cache: boolean): Promise<Map<string, ExtensionInstance>> {
-    const key = cache ? scopeKey(sessionId, agent) : instance; const cached = cache ? this.#instances.get(key) : undefined; if (cached) return cached;
-    const instances = new Map<string, ExtensionInstance>();
-    const dispose = async (): Promise<void> => { await disposeAll(instances); };
+  async #executeAgent(group: ExecutionGroup, initial: InputRequest[]): Promise<AgentRunResult> {
+    const turn = group.turn;
+    const actor = group.actor;
+    const spec = this.loaded.config.agents[actor.agent];
+    if (!spec) throw routeFailure(`Unknown agent: ${actor.agent}`);
+    const first = initial[0];
+    const cause = first?.parentExecutionId !== undefined ? { parentExecutionId: first.parentExecutionId }
+      : first?.operationId !== undefined ? { operationId: first.operationId } : {};
+    const sink: RunSink = { kind: first?.kind ?? "turn", nodes: turn.runs };
+    const node = startRun(sink, actor.agent, actor.instance, group.executionId, turn.turnId, cause);
+    const extensions = await this.#extensions(actor.agent, spec, turn.session.sessionId, actor.instance, actor.stateful);
+    const conversation = actor.stateful
+      ? cloneMessages(turn.session.state.conversations.find((item) => item.agent === actor.agent && item.instance === actor.instance)?.messages ?? [])
+      : [];
+    const state: ExecutionState = {
+      group,
+      agent: actor.agent,
+      spec,
+      instance: actor.instance,
+      executionId: group.executionId,
+      turnId: turn.turnId,
+      input: [],
+      startInput: [],
+      conversation,
+      inputKind: "start",
+      step: 0,
+      retryCount: 0,
+      usage: zeroUsage(),
+      extensions,
+      pendingHooks: this.#pending(actor.instance),
+      runNode: node,
+    };
+    if (cause.parentExecutionId !== undefined) state.parentExecutionId = cause.parentExecutionId;
+    if (cause.operationId !== undefined) state.operationId = cause.operationId;
+    group.state = state;
+    await this.#append(turn.session, [this.#event(turn.session.sessionId, "agent.start", {
+      kind: sink.kind,
+      input: initial.flatMap((request) => cloneMessages(request.messages)),
+    }, this.#scope(state))]);
     try {
-      for (const [name, use] of Object.entries(spec.extensions ?? {})) {
-        if (use.enabled === false) continue;
-        const definition = this.#bindings.extensions?.[name]; if (!definition) throw new Error(`Unknown extension: ${name}`);
-        // The validator may be asynchronous: its result is awaited here so that a rejection fails
-        // the preparation instead of escaping, and so that the value it returns is the create input.
-        const options: Json = use.options ?? {}; const validated = (await definition.options?.validate(options)) ?? options;
-        // Only the ports the definition requires are handed to the extension.
-        const ports: Record<string, unknown> = {};
-        for (const port of definition.requires ?? []) ports[port] = this.#bindings.ports?.[port];
-        instances.set(name, await definition.create({ options: validated, ports, agent: { name: agent, spec }, log: this.#bindings.logger ?? noLog }));
-      }
-    } catch (error) {
-      await dispose();
+      await this.#processInputs(state, initial, "start");
+      state.startInput = cloneMessages(state.input);
+      await this.#repair(state);
+      const result = await this.#modelLoop(state);
+      finishRun(node, state.usage, result.finishReason);
+      await this.#append(turn.session, [this.#event(turn.session.sessionId, "agent.done", {
+        output: result.output,
+        finishReason: result.finishReason,
+        usage: state.usage,
+      }, this.#scope(state))]);
+      return result;
+    } catch (caught) {
+      const error = turn.controller.signal.aborted || group.controller.signal.aborted ? abortFailure(caught) : this.#asExecutionError(caught);
+      failRun(node, state.usage);
+      await this.#append(turn.session, [this.#event(turn.session.sessionId, "agent.error", {
+        status: error.codes.includes("aborted") ? "aborted" : "failed",
+        error: detail(error, state.retryCount + 1),
+        usage: state.usage,
+      }, this.#scope(state))]);
       throw error;
-    }
-    const provided = new Map<string, ProvidedExtension>();
-    for (const [name, instance] of instances) {
-      provided.set(name, { stages: Object.keys(instance.hooks ?? {}).filter(isValueName), tools: (instance.tools ?? []).map((tool) => tool.name) });
-    }
-    const issues = instanceIssues(agent, spec, this.#bindings, provided);
-    if (issues.length > 0) {
-      await dispose();
-      throw new GoondanConfigError(issues);
-    }
-    if (cache) this.#instances.set(key, instances); return instances;
-  }
-
-  /** Renders a declared template, reporting a failure as the execution error of its own location. */
-  #render(template: string, variables: Record<string, Json>, where: ErrorLocation, code: string): string {
-    try {
-      return this.#renderer.render(template, variables);
-    } catch (error) {
-      throw new GoondanExecutionError({ where, codes: [code], message: error instanceof Error ? error.message : String(error) }, { cause: error });
+    } finally {
+      if (!actor.stateful) {
+        const pending = state.pendingHooks;
+        if (pending.size === 0) this.#pendingByInstance.delete(actor.instance);
+        else {
+          const discard = Promise.allSettled([...pending.values()].map((task) => task.promise)).then(() => {
+            if (this.#pendingByInstance.get(actor.instance) === pending) this.#pendingByInstance.delete(actor.instance);
+          });
+          this.#track(discard);
+        }
+        await this.#dispose(extensions);
+      }
     }
   }
 
-  async #input(state: TurnState): Promise<Message[]> {
-    const value = (await this.#pipeline("input", state.input, state)).value;
-    if (!isMessageArray(value)) throw new GoondanExecutionError({ where: "input", codes: ["value_invalid"], message: "the input value is not an array of messages" });
-    return value;
+  #scope(state: ExecutionState): {
+    turnId: string; agent: string; instance: string; executionId: string;
+    parentExecutionId?: string; operationId?: string;
+  } {
+    const scope: {
+      turnId: string; agent: string; instance: string; executionId: string;
+      parentExecutionId?: string; operationId?: string;
+    } = { turnId: state.turnId, agent: state.agent, instance: state.instance, executionId: state.executionId };
+    if (state.parentExecutionId !== undefined) scope.parentExecutionId = state.parentExecutionId;
+    if (state.operationId !== undefined) scope.operationId = state.operationId;
+    return scope;
   }
 
-  /**
-   * Turns the agent input into the first user message. `fn` wins over `template`, and a value that is
-   * not a string becomes JSON text. The message carries the declared agent name as its `source`.
-   */
-  async #applyInputRule(state: TurnState): Promise<Message[]> {
-    const rule = state.agentSpec.input ?? "asis";
-    const messages: Message[] = [];
-    for (const message of state.input) {
+  async #processInputs(state: ExecutionState, requests: InputRequest[], kind: "start" | "steer"): Promise<void> {
+    const transformed: Message[] = [];
+    for (const request of requests) {
+      state.input = request.messages.map((message) => this.#kindMessage(structuredClone(message), kind, request.preserveMessages === true));
+      state.inputKind = kind;
+      const inputStage = await this.#hooks("onInput", state.input, state);
+      if (!isMessageArray(inputStage.value)) throw executionFailure("onInput", "value_invalid", "onInput did not return messages", state.retryCount + 1);
+      const ruled = await this.#applyInputRule(inputStage.value, state);
+      transformed.push(...ruled);
+    }
+    state.input = transformed;
+    const prompt = await this.#hooks("onPrompt", transformed, state);
+    if (!isMessageArray(prompt.value)) throw executionFailure("onPrompt", "value_invalid", "onPrompt did not return messages", state.retryCount + 1);
+    state.input = cloneMessages(prompt.value);
+    await this.#appendMessages(state, prompt.value);
+  }
+
+  #kindMessage(message: Message, kind: "start" | "steer", preserve: boolean): Message {
+    if (preserve) return message;
+    if (message.meta?.kind !== undefined) return message;
+    return { ...message, meta: { ...(message.meta ?? {}), kind } };
+  }
+
+  async #applyInputRule(messages: Message[], state: ExecutionState): Promise<Message[]> {
+    const rule = state.spec.input;
+    if (rule === "asis") return cloneMessages(messages);
+    const result: Message[] = [];
+    for (const message of messages) {
       const content: Part[] = [];
       for (const part of message.content) {
         if (part.type !== "json") { content.push(structuredClone(part)); continue; }
         let text: string;
-        if (rule !== "asis" && typeof rule.fn === "string") text = await this.#inputPartText(part.value, rule.fn);
-        else if (rule !== "asis" && typeof rule.template === "string") text = this.#render(rule.template, isObject(part.value) ? this.#jsonRecord(part.value) : { text: part.value }, "input", "runtime_error");
-        else text = jsonText(part.value);
+        if (rule?.fn) {
+          try {
+            const returned = await this.#function(rule.fn, part.value, state, "onInput");
+            const json = returned === undefined ? null : toJson(returned);
+            if (json === undefined) throw executionFailure("onInput", "value_invalid", "the input function did not return JSON", state.retryCount + 1);
+            text = typeof json === "string" ? json : jsonText(json);
+          } catch (error) {
+            if (error instanceof GoondanExecutionError) throw error;
+            throw executionFailure("onInput", "runtime_error", reason(error), state.retryCount + 1, undefined, error);
+          }
+        } else if (rule?.template) {
+          try {
+            const variables = isRecord(part.value) ? structuredClone(part.value) : { text: structuredClone(part.value) };
+            text = this.#renderer.render(rule.template, variables);
+          } catch (error) {
+            throw executionFailure("onInput", "runtime_error", reason(error), state.retryCount + 1, undefined, error);
+          }
+        } else text = jsonText(part.value);
         content.push({ type: "text", text });
       }
-      messages.push({ ...structuredClone(message), content });
+      result.push({ ...message, content });
     }
-    return messages;
+    return result;
   }
 
-  /**
-   * The message text an `input.fn` produced. A failing call is a `runtime_error` of the `input`
-   * location and a result that is not JSON a `value_invalid` of the same location.
-   */
-  async #inputPartText(input: Json, name: string): Promise<string> {
-    const fn: GoondanFunction | undefined = this.#bindings.functions?.[name];
-    if (!fn) throw new GoondanExecutionError({ where: "input", codes: ["runtime_error"], message: `Unknown function: ${name}` });
-    let returned: Json | undefined;
-    try { returned = await fn(structuredClone(input)); }
-    catch (error) { throw new GoondanExecutionError({ where: "input", codes: ["runtime_error"], message: reason(error) }, { cause: error }); }
-    let value: Json;
-    try { value = this.#json(returned, `the result of the function ${name}`); }
-    catch (error) { throw new GoondanExecutionError({ where: "input", codes: ["value_invalid"], message: reason(error) }, { cause: error }); }
-    return typeof value === "string" ? value : jsonText(value);
+  async #repair(state: ExecutionState): Promise<void> {
+    const repaired = repairToolPairs(state.conversation);
+    if (!repaired) return;
+    const events: NewJournalEvent[] = [];
+    for (const message of state.conversation) {
+      const next = repaired.find((candidate) => candidate.id === message.id);
+      if (!next) events.push(this.#event(state.group.turn.session.sessionId, "conversation.message.removed", { messageId: message.id }, this.#scope(state)));
+      else if (!jsonEqual(message, next)) events.push(this.#event(state.group.turn.session.sessionId, "conversation.message.replaced", { messageId: message.id, message: next }, this.#scope(state)));
+    }
+    await this.#append(state.group.turn.session, events);
+    state.conversation = cloneMessages(repaired);
   }
 
-  /** The model input of step 3 before any `modelInput` hook: the value `model.run` also starts from. */
-  #baseModelInput(state: TurnState): ModelInput {
-    const tools = this.#tools(state).map((entry) => entry.definition);
-    const declared = state.agentSpec.systemMessage;
-    const blocks = Array.isArray(declared) ? declared : declared ? [declared] : [];
-    const variables: Record<string, Json> = {
-      params: state.agentSpec.params ?? {}, tools: this.#json(tools, "modelInput"),
-      agent: { name: state.agent }, model: state.agentSpec.model ?? "",
-      input: this.#json(state.input, "input"), inputText: inputTextOf(state.input),
+  async #safePoint(state: ExecutionState): Promise<boolean> {
+    if (state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted) throw abortFailure();
+    await this.#drainAsync(state);
+    const queue = state.group.actor.queue.splice(0);
+    if (queue.length > 0) {
+      state.group.requests.push(...queue);
+      if (queue.some((request) => request.followsRoutes)) state.group.routeRequested = true;
+      await this.#processInputs(state, queue, "steer");
+    }
+    return queue.length > 0;
+  }
+
+  async #modelLoop(state: ExecutionState): Promise<AgentRunResult> {
+    while (true) {
+      await this.#safePoint(state);
+      if (this.#bindings.maxSteps !== undefined && state.step >= this.#bindings.maxSteps) {
+        throw executionFailure("runtime", "runtime_error", "maxSteps reached", state.retryCount + 1);
+      }
+      const stepStage = await this.#hooks("onStep", cloneMessages(state.conversation), state);
+      if (!isMessageArray(stepStage.value)) throw executionFailure("onStep", "value_invalid", "onStep did not return messages", state.retryCount + 1);
+      await this.#replaceConversation(state, stepStage.value);
+      let modelInput = await this.#modelInput(state);
+      const inputStage = await this.#hooks("onModelInput", modelInput, state);
+      if (!isModelInput(inputStage.value)) throw executionFailure("onModelInput", "value_invalid", "onModelInput did not return a model input", state.retryCount + 1);
+      modelInput = inputStage.value;
+      let modelResult: ModelResult;
+      try {
+        modelResult = await this.#callModel(state, modelInput);
+      } catch (error) {
+        const failure = this.#asExecutionError(error, "model", modelCodes(error));
+        const handled = await this.#handleError(failure, state);
+        if (handled && state.retryCount < (this.#bindings.maxRetries ?? 3)) {
+          await this.#waitRetry(handled.afterMs, state);
+          state.retryCount += 1;
+          continue;
+        }
+        throw failure;
+      }
+      addUsage(state.usage, modelResult.usage);
+      const resultStage = await this.#hooks("onModelResult", modelResult, state);
+      if (resultStage.retry) {
+        if (state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw executionFailure("onModelResult", "hook_error", "retry limit reached", state.retryCount + 1);
+        await this.#waitRetry(resultStage.retry.afterMs, state);
+        state.retryCount += 1;
+        continue;
+      }
+      if (!isModelResult(resultStage.value)) throw executionFailure("onModelResult", "value_invalid", "onModelResult did not return a model result", state.retryCount + 1);
+      modelResult = resultStage.value;
+      await this.#appendMessages(state, [modelResult.message]);
+      const calls = modelResult.message.content.filter((part) => part.type === "tool.call");
+      if (calls.length === 0) {
+        if (state.group.actor.queue.length > 0 && await this.#safePoint(state)) continue;
+        return this.#finish(state, modelResult.message, modelResult.finishReason);
+      }
+      let completion: Message | undefined;
+      for (const part of calls) {
+        const result = await this.#processTool({ id: part.callId, name: part.name, args: part.args }, state);
+        if (result.complete !== undefined) completion = result.complete;
+      }
+      if (completion) {
+        await this.#safePoint(state);
+        return this.#finish(state, completion, "tool", true);
+      }
+    }
+  }
+
+  async #finish(state: ExecutionState, output: Message, finishReason: FinishReason, append = false): Promise<AgentRunResult> {
+    const stage = await this.#hooks("onOutput", output, state);
+    if (!isMessage(stage.value) || stage.value.role !== "assistant") throw executionFailure("onOutput", "value_invalid", "onOutput did not return an assistant message", state.retryCount + 1);
+    if (append) await this.#appendMessages(state, [stage.value]);
+    else if (!jsonEqual(stage.value, output)) await this.#replaceMessage(state, output.id, stage.value);
+    state.finishReason = finishReason;
+    return { output: stage.value, usage: structuredClone(state.usage), finishReason, status: "done", instance: state.instance, executionId: state.executionId };
+  }
+
+  async #callModel(state: ExecutionState, input: ModelInput): Promise<ModelResult> {
+    const modelName = state.spec.model;
+    const model = modelName === undefined ? undefined : this.#bindings.models[modelName];
+    if (!model) throw runtimeFailure(`No model is bound for ${state.agent}`);
+    state.step += 1;
+    const step = state.step;
+    await this.#observed("step.start", state, { step });
+    let active = true;
+    try {
+      const response = await model.generate(structuredClone(input), {
+        ...this.#executionContext(state),
+        step,
+        onTextDelta: (delta) => {
+          if (!active || typeof delta !== "string") return;
+          void this.#observed("step.textDelta", state, { step, delta });
+        },
+      });
+      active = false;
+      const normalized = normalizeModelResponse(response, id());
+      if (!normalized.value) {
+        const failure = executionFailure("onModelResult", "value_invalid", normalized.issue ?? "invalid model response", state.retryCount + 1);
+        await this.#observed("step.error", state, { step, codes: failure.codes, error: failure.message });
+        throw failure;
+      }
+      await this.#observed("step.done", state, { step, finishReason: normalized.value.finishReason });
+      return normalized.value;
+    } catch (error) {
+      active = false;
+      if (error instanceof GoondanExecutionError && error.where === "onModelResult") throw error;
+      const failure = state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted
+        ? abortFailure(error)
+        : error instanceof GoondanExecutionError
+        ? error
+        : new GoondanExecutionError({
+          where: "model",
+          codes: modelCodes(error),
+          message: reason(error),
+          attempt: state.retryCount + 1,
+        }, { cause: error });
+      await this.#observed("step.error", state, { step, codes: failure.codes, error: failure.message });
+      throw failure;
+    }
+  }
+
+  async #modelInput(state: ExecutionState): Promise<ModelInput> {
+    const system = [];
+    const tools = (await this.#tools(state)).map((entry) => entry.definition);
+    const declarations = Array.isArray(state.spec.systemMessage) ? state.spec.systemMessage : state.spec.systemMessage ? [state.spec.systemMessage] : [];
+    for (const [index, block] of declarations.entries()) {
+      let text: string;
+      try {
+        text = block.text ?? (block.template ? this.#renderer.render(block.template, {
+          params: structuredClone(state.spec.params ?? {}),
+          tools: toJson(tools) ?? [],
+          agent: { name: state.agent },
+          model: state.spec.model ?? "",
+          input: toJson(state.input) ?? [],
+          inputText: inputTextOf(state.input),
+        }) : "");
+      } catch (error) {
+        throw executionFailure("onModelInput", "runtime_error", reason(error), state.retryCount + 1, undefined, error);
+      }
+      system.push({ text, source: `system:${String(index)}`, ...(block.cache === true ? { cache: true } : {}) });
+    }
+    return { system, messages: cloneMessages(state.conversation), tools, options: {} };
+  }
+
+  async #processTool(original: ToolCall, state: ExecutionState): Promise<{ complete?: Message }> {
+    const callStage = await this.#hooks("onToolCall", original, state, original.id);
+    const call = isToolCall(callStage.value) ? callStage.value : original;
+    if (callStage.result !== undefined) {
+      const normalized = normalizeToolReturn(callStage.result, call);
+      if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", state.retryCount + 1, call);
+      const accepted = await this.#acceptToolResult(normalized.value, state, call);
+      return accepted.complete === undefined ? {} : { complete: accepted.complete };
+    }
+    const entries = await this.#tools(state);
+    const entry = entries.find((item) => item.name === call.name);
+    if (!entry) return this.#executeTool(call, state, undefined, callStage.execution);
+    const reasons = [...callStage.approvals];
+    if (entry.approval) reasons.push(approvalReason(entry.name));
+    if (reasons.length > 0) {
+      await this.#createOperation(state, call, reasons, callStage.execution);
+      return {};
+    }
+    return this.#executeTool(call, state, entry, callStage.execution);
+  }
+
+  async #executeTool(call: ToolCall, state: ExecutionState, entry: ToolEntry | undefined, execution?: Record<string, Json>): Promise<{ complete?: Message }> {
+    while (true) {
+      let started = false;
+      try {
+        if (!entry) throw executionFailure("tool", "tool_unavailable", `Tool ${call.name} is not available`, state.retryCount + 1, call);
+        await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args });
+        started = true;
+        const returned = entry.agent
+          ? { content: (await this.#callAgent(state, entry.agent, call.args, "tool", this.#executionContext(state).signal)).content }
+          : await entry.host?.execute(call.args, this.#toolContext(state, call, execution));
+        const normalized = normalizeToolReturn(returned, call);
+        if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", state.retryCount + 1);
+        const accepted = await this.#acceptToolResult(normalized.value, state, call);
+        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: accepted.result });
+        return accepted.complete === undefined ? {} : { complete: accepted.complete };
+      } catch (error) {
+        const failure = state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted ? abortFailure(error)
+          : error instanceof GoondanExecutionError && (error.where === "onToolResult" || error.where === "tool" || error.codes.includes("aborted"))
+          ? error : executionFailure("tool", "tool_error", reason(error), state.retryCount + 1, call, error);
+        if (started) await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, codes: failure.codes, error: failure.message });
+        if (failure.where === "onToolResult" || failure.codes.includes("aborted")) throw failure;
+        const handled = await this.#handleError(failure, state);
+        if (!handled || state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw failure;
+        await this.#waitRetry(handled.afterMs, state);
+        state.retryCount += 1;
+      }
+    }
+  }
+
+  async #acceptToolResult(result: ToolResult, state: ExecutionState, call: ToolCall): Promise<{ complete?: Message; result: ToolResult }> {
+    const stage = await this.#hooks("onToolResult", result, state, call.id);
+    if (!isToolResult(stage.value)) throw executionFailure("onToolResult", "value_invalid", "onToolResult did not return a tool result", state.retryCount + 1);
+    const accepted = stage.value;
+    const message: Message = {
+      id: id(),
+      role: "tool",
+      source: "tool",
+      content: [{ type: "tool.result", callId: accepted.callId, content: accepted.content, ...(accepted.isError === undefined ? {} : { isError: accepted.isError }) }],
     };
-    const system = blocks.map((block, index) => {
-      const text = typeof block.text === "string" ? block.text : this.#render(block.template ?? "", variables, "modelInput", "runtime_error");
-      // Only a block that declared `cache: true` carries the hint; the field is absent otherwise.
-      const made: Block = { text, source: `system:${String(index)}` };
-      if (block.cache === true) made.cache = true;
-      return made;
-    });
-    return { system, messages: structuredClone(state.conversation), tools, options: {} };
+    if (accepted.keep !== undefined) message.keep = accepted.keep;
+    if (accepted.meta !== undefined) message.meta = accepted.meta;
+    await this.#appendMessages(state, [message]);
+    const complete = stage.complete ?? state.completion;
+    return complete === undefined ? { result: accepted } : { complete, result: accepted };
   }
 
-  async #modelInput(state: TurnState): Promise<ModelInput> {
-    const value = (await this.#pipeline("modelInput", this.#baseModelInput(state), state)).value;
-    if (!isModelInput(value)) throw new GoondanExecutionError({ where: "modelInput", codes: ["value_invalid"], message: "the modelInput value is not a model input" });
+  async #handleError(error: GoondanExecutionError, state: ExecutionState): Promise<{ target: "model" | "tool"; afterMs?: number } | undefined> {
+    if (error.codes.includes("aborted")) return undefined;
+    const stage = await this.#hooks("onError", detail(error, state.retryCount + 1), state, error.toolCall?.id);
+    if (!stage.retry) return undefined;
+    if ((error.where === "model" && stage.retry.target !== "model") || (error.where === "tool" && stage.retry.target !== "tool")) return undefined;
+    return stage.retry;
+  }
+
+  async #waitRetry(afterMs: number | undefined, state: ExecutionState): Promise<void> {
+    if (afterMs === undefined || afterMs <= 0) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, afterMs);
+      AbortSignal.any([state.group.turn.controller.signal, state.group.controller.signal])
+        .addEventListener("abort", () => { clearTimeout(timer); reject(abortFailure()); }, { once: true });
+    });
+  }
+
+  async #hooks(name: ValueName, initial: unknown, state: ExecutionState, callId?: string): Promise<HookStageResult> {
+    let current = structuredClone(initial);
+    const result: HookStageResult = { value: current, approvals: [] };
+    for (const spec of state.spec.hooks?.[name] ?? []) {
+      const identifier = inlineHookIdentifier(spec, this.loaded.directory) ?? name;
+      if (spec.mode === "async") {
+        this.#scheduleHook(name, spec, identifier, current, state);
+        continue;
+      }
+      const before = current;
+      try {
+        const applied = await this.#withTimeout(spec, state, async (signal) => {
+          if (spec.when) {
+            const condition = await this.#function(spec.when.fn, current, state, `${name}.when`, signal, { stage: name, source: identifier });
+            if (condition !== true && condition !== false) throw new Error("hook when did not return a boolean");
+            if (!condition) return { skipped: true, value: current };
+          }
+          const invoked = await this.#invokeHook(name, spec, identifier, current, state, signal);
+          return { skipped: false, value: invoked };
+        });
+        if (applied.skipped) { await this.#observed("hook.skipped", state, { value: name, hook: identifier }); continue; }
+        const control = controlResult(name, applied.value, callId);
+        if (control && isControlIssue(control)) throw new Error(control.issue);
+        if (control) {
+          if (control.kind === "append") {
+            if (name === "onModelInput" && isModelInput(current)) {
+              current = { ...current, messages: [...current.messages, ...appendMessages(current.messages, control.messages)] };
+            } else if (isMessageArray(current)) current = [...current, ...appendMessages(current, control.messages)];
+          }
+          else if (control.kind === "call") { current = control.call; result.execution = control.execution; }
+          else if (control.kind === "approval") result.approvals.push(control.reason);
+          else if (control.kind === "result") { result.result = control.result; await this.#observed("hook.applied", state, { value: name, hook: identifier }); break; }
+          else if (control.kind === "retry") {
+            if (name === "onModelResult" && state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw new Error("retry limit reached");
+            result.retry = control;
+            await this.#observed("hook.applied", state, { value: name, hook: identifier });
+            break;
+          }
+          else { result.complete = control.output; await this.#observed("hook.applied", state, { value: name, hook: identifier }); break; }
+        } else if (applied.value !== null && applied.value !== undefined) {
+          current = this.#applyHookValue(name, spec, identifier, current, applied.value);
+        }
+        const issue = stageValueIssue(name, current, callId);
+        if (issue) throw new Error(issue);
+        result.value = current;
+        await this.#observed("hook.applied", state, { value: name, hook: identifier });
+      } catch (error) {
+        if (state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted) throw abortFailure(error);
+        await this.#observed("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
+        if (spec.optional === true) { current = before; result.value = before; continue; }
+        throw executionFailure(name, "hook_error", reason(error), state.retryCount + 1, undefined, error);
+      }
+    }
+    result.value = current;
+    return result;
+  }
+
+  #applyHookValue(name: ValueName, spec: InlineHookSpec, identifier: string, current: unknown, value: unknown): unknown {
+    const augmentation = name === "onPrompt" || name === "onStep" || name === "onModelInput";
+    if (augmentation && ((spec.fn !== undefined && spec.role !== undefined) || spec.agent !== undefined || spec.template !== undefined)) {
+      const message = this.#hookMessage(value, spec.role ?? "user", identifier);
+      if (name === "onModelInput" && isModelInput(current)) return { ...current, messages: [...current.messages, ...appendMessages(current.messages, [message])] };
+      if (isMessageArray(current)) return [...current, ...appendMessages(current, [message])];
+    }
+    if (name === "onOutput" && (spec.agent !== undefined || spec.template !== undefined) && isMessage(current)) {
+      const content = isMessage(value) ? value.content : [{ type: "text", text: typeof value === "string" ? value : jsonText(toJson(value) ?? null) }];
+      return { id: current.id, role: "assistant", content, source: identifier };
+    }
     return value;
   }
 
-  /**
-   * The effective `tools` list of one agent run, in declaration order. The exposed name of a host
-   * tool is its binding key, not the name its implementation carries, and it decides the definition
-   * the model receives, the settings that apply and the implementation a call runs.
-   */
-  #tools(state: TurnState): ToolEntry[] {
-    const hostTools = this.#bindings.tools ?? {};
-    const extensionTools = new Map<string, Tool>();
-    for (const instance of state.extensions.values()) {
-      for (const tool of instance.tools ?? []) if (!extensionTools.has(tool.name)) extensionTools.set(tool.name, tool);
+  #hookMessage(value: unknown, role: "user" | "system", source: string): Message {
+    if (isMessage(value)) return { id: id(), role, content: structuredClone(value.content), source };
+    if (typeof value === "string") return { id: id(), role, content: [{ type: "text", text: value }], source };
+    const json = toJson(value);
+    if (json === undefined) throw new Error("hook result is not JSON");
+    return { id: id(), role, content: [{ type: "text", text: jsonText(json) }], source };
+  }
+
+  #asyncHookMessage(value: unknown, role: "user" | "system", source: string): Message {
+    if (isMessage(value)) return { id: id(), role, content: structuredClone(value.content), source };
+    if (typeof value === "string") return { id: id(), role, content: [{ type: "text", text: value }], source };
+    const json = toJson(value);
+    if (json === undefined) throw new Error("hook result is not JSON");
+    return { id: id(), role, content: [{ type: "json", value: json }], source };
+  }
+
+  async #invokeHook(name: ValueName, spec: InlineHookSpec, identifier: string, value: unknown, state: ExecutionState, signal: AbortSignal): Promise<unknown> {
+    if (spec.extension) {
+      const hook = state.extensions.get(spec.extension)?.hooks?.[name];
+      if (!hook) throw new Error(`extension ${spec.extension} does not provide ${name}`);
+      const invocation = { active: true, allowComplete: name === "onToolResult" };
+      try {
+        return await hook(structuredClone(value), this.#hookContext(state, identifier, signal, name, invocation));
+      } finally {
+        invocation.active = false;
+      }
     }
+    if (spec.fn) {
+      const returned = await this.#function(spec.fn, value, state, name, signal, { stage: name, source: identifier });
+      if (returned !== undefined && returned !== null && toJson(returned) === undefined) {
+        throw new Error("hook result is not JSON");
+      }
+      return returned;
+    }
+    if (spec.agent) {
+      const names = Array.isArray(spec.agent) ? spec.agent : [spec.agent];
+      const settled = await Promise.allSettled(names.map((agent) => this.#callAgent(state, agent, value, "hook", signal)));
+      if (signal.aborted) throw abortFailure(signal.reason);
+      const failed = settled.find((item) => item.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      const outputs = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
+      if (Array.isArray(spec.agent)) return outputs.map((message) => textOf(message.content)).join("\n");
+      return outputs[0];
+    }
+    if (spec.template) return this.#renderer.render(spec.template, this.#templateVariables(state, value));
+    throw new Error("hook has no implementation");
+  }
+
+  async #withTimeout<T>(spec: InlineHookSpec, state: ExecutionState, body: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const executionSignal = AbortSignal.any([state.group.turn.controller.signal, state.group.controller.signal]);
+    if (spec.timeout === undefined) return body(executionSignal);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error("hook timeout")); }, spec.timeout);
+      executionSignal.addEventListener("abort", () => { if (timer) clearTimeout(timer); controller.abort(); reject(abortFailure()); }, { once: true });
+    });
+    try { return await Promise.race([body(controller.signal), timeout]); }
+    finally { if (timer) clearTimeout(timer); }
+  }
+
+  #scheduleHook(name: ValueName, spec: InlineHookSpec, identifier: string, value: unknown, state: ExecutionState): void {
+    if (state.pendingHooks.has(identifier)) return;
+    const controller = new AbortController();
+    const detachedState = this.#asyncState(state, controller);
+    this.#detachedControllers.add(controller);
+    state.group.turn.session.controllers.add(controller);
+    const task: AsyncHookTask = {
+      sessionId: state.group.turn.session.sessionId,
+      settled: false,
+      promise: Promise.resolve(),
+      controller,
+    };
+    const promise = (async () => {
+      try {
+        if (spec.when) {
+          const condition = await this.#function(spec.when.fn, value, detachedState, `${name}.when`, controller.signal, { stage: name, source: identifier });
+          if (condition === false) { await this.#observed("hook.skipped", state, { value: name, hook: identifier }); return; }
+          if (condition !== true) throw new Error("hook when did not return a boolean");
+        }
+        const output = await this.#invokeHook(name, spec, identifier, value, detachedState, controller.signal);
+        if (output !== undefined && output !== null) task.message = this.#asyncHookMessage(output, spec.role ?? "user", identifier);
+        await this.#observed("hook.applied", state, { value: name, hook: identifier });
+      } catch (error) {
+        await this.#observed("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
+      } finally {
+        task.settled = true;
+        this.#detachedControllers.delete(controller);
+        state.group.turn.session.controllers.delete(controller);
+      }
+    })();
+    task.promise = promise;
+    state.pendingHooks.set(identifier, task);
+    this.#track(promise);
+  }
+
+  #asyncState(state: ExecutionState, controller: AbortController): ExecutionState {
+    const turn: ActiveTurn = {
+      session: state.group.turn.session,
+      turnId: state.turnId,
+      controller,
+      deferred: new Deferred<TurnResult>(),
+      actors: new Map(),
+      executions: new Map(),
+      functions: new Map(),
+      waits: new Map(),
+      runs: [],
+      outputs: [],
+      outputOrder: 0,
+      activity: 0,
+      closing: false,
+    };
+    const actor: Actor = { agent: state.agent, instance: state.instance, stateful: true, queue: [] };
+    const group: ExecutionGroup = {
+      turn,
+      actor,
+      executionId: state.executionId,
+      requests: [],
+      routeRequested: false,
+      singleOutputRequested: false,
+      controller,
+      deferred: new Deferred<AgentRunResult>(),
+    };
+    return {
+      ...state,
+      group,
+      input: cloneMessages(state.input),
+      startInput: cloneMessages(state.startInput),
+      conversation: cloneMessages(state.conversation),
+      usage: zeroUsage(),
+    };
+  }
+
+  async #drainAsync(state: ExecutionState): Promise<void> {
+    const messages: Message[] = [];
+    for (const [identifier, task] of state.pendingHooks) {
+      if (!task.settled) break;
+      if (task.message) messages.push(task.message);
+      state.pendingHooks.delete(identifier);
+    }
+    if (messages.length > 0) await this.#appendMessages(state, appendMessages(state.conversation, messages));
+  }
+
+  #pending(instance: string): Map<string, AsyncHookTask> {
+    const found = this.#pendingByInstance.get(instance);
+    if (found) return found;
+    const created = new Map<string, AsyncHookTask>();
+    this.#pendingByInstance.set(instance, created);
+    return created;
+  }
+
+  #executionContext(state: ExecutionState, signal?: AbortSignal): ExecutionContext {
+    const activeSignal = signal ?? AbortSignal.any([state.group.turn.controller.signal, state.group.controller.signal]);
+    const context: ExecutionContext = {
+      agent: state.agent,
+      sessionId: state.group.turn.session.sessionId,
+      turnId: state.turnId,
+      instance: state.instance,
+      executionId: state.executionId,
+      signal: activeSignal,
+      log: this.#bindings.logger ?? noLog,
+    };
+    if (state.parentExecutionId !== undefined) context.parentExecutionId = state.parentExecutionId;
+    if (state.operationId !== undefined) context.operationId = state.operationId;
+    return context;
+  }
+
+  #hookContext(
+    state: ExecutionState,
+    source: string,
+    signal: AbortSignal,
+    stage: ValueName,
+    invocation?: { active: boolean; allowComplete: boolean },
+  ): HookContext {
+    const context: HookContext = {
+      ...this.#executionContext(state, signal),
+      retryCount: state.retryCount,
+      input: cloneMessages(state.input),
+      conversation: cloneMessages(state.conversation),
+      agents: { run: async (name, value) => this.#callAgent(state, name, value, "hook", signal) },
+      model: { run: async (messages) => this.#runHookModel(state, messages, signal) },
+      render: async (template, variables) => this.#renderer.render(template, variables),
+      message: {
+        user: (text, extra) => this.#message("user", text, source, extra),
+        system: (text, extra) => this.#message("system", text, source, extra),
+      },
+      append: (...messages) => ({ append: cloneMessages(messages) }),
+      execution: {
+        complete: (message) => {
+          if (!invocation?.active || !invocation.allowComplete) {
+            throw new Error("execution.complete is available while a synchronous onToolResult extension hook runs");
+          }
+          if (!isMessage(message) || message.role !== "assistant") throw new Error("execution.complete needs an assistant message");
+          if (state.completion !== undefined) throw new Error("this agent run already scheduled a message");
+          state.completion = structuredClone(message);
+        },
+      },
+    };
+    if (stage === "onInput" || stage === "onPrompt") context.inputKind = state.inputKind;
+    if (state.step > 0) context.step = state.step;
+    return context;
+  }
+
+  #message(role: "user" | "system", text: string, source: string, extra?: { key?: string; keep?: boolean; meta?: Record<string, Json> }): Message {
+    const message: Message = { id: id(), role, content: [{ type: "text", text }], source };
+    if (extra?.key !== undefined) message.key = extra.key;
+    if (extra?.keep !== undefined) message.keep = extra.keep;
+    if (extra?.meta !== undefined) message.meta = structuredClone(extra.meta);
+    return message;
+  }
+
+  async #runHookModel(state: ExecutionState, messages: Message[], signal: AbortSignal): Promise<ModelResult> {
+    const modelName = state.spec.model;
+    const model = modelName === undefined ? undefined : this.#bindings.models[modelName];
+    if (!model) throw runtimeFailure(`No model is bound for ${state.agent}`);
+    const base = await this.#modelInput(state);
+    const response = await model.generate({ ...base, messages: cloneMessages(messages), options: {} }, {
+      ...this.#executionContext(state, signal), step: state.step, onTextDelta() {},
+    });
+    const normalized = normalizeModelResponse(response, id());
+    if (!normalized.value) throw new Error(normalized.issue ?? "invalid model response");
+    addUsage(state.usage, normalized.value.usage);
+    return normalized.value;
+  }
+
+  async #function(
+    name: string,
+    value: unknown,
+    state: ExecutionState,
+    location: string,
+    signal: AbortSignal = state.group.turn.controller.signal,
+    hook?: { stage: ValueName; source: string },
+  ): Promise<unknown> {
+    const fn: GoondanFunction | undefined = this.#bindings.functions?.[name];
+    if (!fn) throw new Error(`Function ${name} is not bound`);
+    const context = {
+      ...this.#executionContext(state, signal),
+      location,
+      value: toJson(value) ?? null,
+      input: cloneMessages(state.input),
+      conversation: cloneMessages(state.conversation),
+    };
+    if (!hook) return fn(structuredClone(value), context);
+    return fn(structuredClone(value), { ...context, ...this.#hookContext(state, hook.source, signal, hook.stage) });
+  }
+
+  #templateVariables(state: ExecutionState, value: unknown): Record<string, Json> {
+    return {
+      input: toJson(state.input) ?? null,
+      inputText: inputTextOf(state.input),
+      text: toJson(value) ?? null,
+      params: structuredClone(state.spec.params ?? {}),
+    };
+  }
+
+  async #callAgent(state: ExecutionState, target: string, value: unknown, kind: "tool" | "hook", signal?: AbortSignal): Promise<Message> {
+    if (!Object.hasOwn(this.loaded.config.agents, target)) throw new Error(`Unknown agent: ${target}`);
+    if (signal?.aborted) throw abortFailure(signal.reason);
+    const json = toJson(value);
+    if (json === undefined) throw new Error("agent input is not JSON");
+    const messages = this.#rawMessages(json, target);
+    const request: InputRequest = {
+      target,
+      messages,
+      origin: kind,
+      kind,
+      parentExecutionId: state.executionId,
+      followsRoutes: false,
+      preserveMessages: isMessageArray(json),
+      waiter: new Deferred<Message>(),
+    };
+    const actor = this.#actor(state.group.turn, target);
+    const targetExecution = actor.running?.executionId;
+    if (targetExecution && this.#wouldCycle(state.group.turn.session, state.executionId, targetExecution)) throw new Error("agent execution wait cycle");
+    const group = this.#enqueue(state.group.turn, request);
+    if (!group || !request.waiter) throw new Error("agent execution did not start");
+    if (this.#wouldCycle(state.group.turn.session, state.executionId, group.executionId)) {
+      const index = actor.queue.indexOf(request);
+      if (index >= 0) {
+        actor.queue.splice(index, 1);
+        this.#releaseRequest(request);
+      }
+      throw new Error("agent execution wait cycle");
+    }
+    const edges = state.group.turn.session.waits.get(state.executionId) ?? new Set<string>();
+    edges.add(group.executionId);
+    state.group.turn.session.waits.set(state.executionId, edges);
+    const cancelled = new Promise<Message>((_resolve, reject) => {
+      signal?.addEventListener("abort", () => {
+        const queued = actor.queue.indexOf(request);
+        if (queued >= 0) {
+          actor.queue.splice(queued, 1);
+          this.#releaseRequest(request);
+        }
+        const exclusive = actor.running === group && group.requests.length === 1 && actor.queue.length === 0
+          && !group.routeRequested && !group.singleOutputRequested;
+        if (exclusive) group.controller.abort(abortFailure(signal.reason));
+        reject(abortFailure(signal.reason));
+      }, { once: true });
+    });
+    try { return signal ? await Promise.race([request.waiter.promise, cancelled]) : await request.waiter.promise; }
+    finally { edges.delete(group.executionId); }
+  }
+
+  #releaseRequest(request: InputRequest): void {
+    if (!request.reserved || request.turn === undefined) return;
+    request.reserved = undefined;
+    request.turn.activity -= 1;
+    void this.#maybeClose(request.turn);
+  }
+
+  #wouldCycle(session: SessionRuntime, from: string, to: string): boolean {
+    if (from === to) return true;
+    const seen = new Set<string>();
+    const visit = (node: string): boolean => {
+      if (node === from) return true;
+      if (seen.has(node)) return false;
+      seen.add(node);
+      for (const next of session.waits.get(node) ?? []) if (visit(next)) return true;
+      return false;
+    };
+    return visit(to);
+  }
+
+  #toolContext(state: ExecutionState, call: ToolCall, execution?: Record<string, Json>): ToolContext {
+    return {
+      ...this.#executionContext(state),
+      input: cloneMessages(state.input),
+      conversation: cloneMessages(state.conversation),
+      toolCall: structuredClone(call),
+      execution: structuredClone(execution ?? {}),
+      agents: { run: async (name, value) => this.#callAgent(state, name, value, "tool", this.#executionContext(state).signal) },
+    };
+  }
+
+  async #tools(state: ExecutionState): Promise<ToolEntry[]> {
+    const extensionTools = new Map<string, Tool>();
+    for (const instance of state.extensions.values()) for (const tool of instance.tools ?? []) extensionTools.set(tool.name, tool);
     const entries: ToolEntry[] = [];
-    for (const use of state.agentSpec.tools ?? []) {
-      const resolved = toolEntry(use);
+    for (const declared of state.spec.tools ?? []) {
+      const resolved = toolEntry(declared);
       if (!resolved) continue;
-      if (resolved.agent) { entries.push(this.#agentTool(resolved.name, state)); continue; }
-      const tool = Object.hasOwn(hostTools, resolved.name) ? hostTools[resolved.name] : extensionTools.get(resolved.name);
-      if (!tool) throw new Error(`Unknown tool: ${resolved.name}`);
-      const hint = typeof use === "object" && typeof use.hint === "string" && use.hint !== "" ? `\n${use.hint}` : "";
-      entries.push({
-        name: resolved.name,
-        definition: { name: resolved.name, description: tool.description + hint, input: tool.input },
-        // The implementation keeps its own receiver, so a class based tool keeps its prototype.
-        execute: (input, ctx) => tool.execute(input, ctx),
-      });
+      const use = typeof declared === "string" ? undefined : declared;
+      const hint = use?.hint ? `\n${use.hint}` : "";
+      if (resolved.agent) {
+        const target = this.loaded.config.agents[resolved.name];
+        entries.push({
+          name: resolved.name,
+          definition: { name: resolved.name, description: `${target?.description ?? `Run ${resolved.name}`}${hint}`, input: { type: "object" } },
+          approval: use?.approval === "required",
+          agent: resolved.name,
+        });
+      } else {
+        const tool = this.#bindings.tools?.[resolved.name] ?? extensionTools.get(resolved.name);
+        if (!tool) continue;
+        entries.push({
+          name: resolved.name,
+          definition: { name: resolved.name, description: `${tool.description}${hint}`, input: tool.input },
+          approval: use?.approval === "required",
+          host: tool,
+        });
+      }
     }
     return entries;
   }
 
-  /** One `tools` entry that exposes an agent of the same configuration; a call runs only that agent. */
-  #agentTool(target: string, state: TurnState): ToolEntry {
-    const spec = this.#agent(target);
-    return {
-      name: target,
-      definition: { name: target, description: spec.description ?? `Run ${target}`, input: { type: "object" } },
-      execute: async (input, ctx) => {
-        // 대상은 부모 실행에서 파생한 세션에서 route를 따르지 않고 실행합니다.
-        const result = await this.#runAgent(target, this.#toMessages(input, target), { sessionId: `${ctx.sessionId}#${ctx.turnId}#${target}`, signal: ctx.signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool"));
-        return { callId: ctx.toolCall.id, name: target, args: input, content: result.output.content };
-      },
-    };
-  }
-
-  /** The approval reason the `tools` entry of one exposed name adds, if it declares one. */
-  #approvalReasons(spec: AgentSpec, name: string): string[] {
-    for (const use of spec.tools ?? []) {
-      const resolved = toolEntry(use);
-      if (!resolved || resolved.name !== name) continue;
-      return typeof use === "object" && use.approval === "required" ? [approvalReason(name)] : [];
+  async #extensions(agent: string, spec: AgentSpec, sessionId: string, instanceId: string, cache: boolean): Promise<Map<string, ExtensionInstance>> {
+    const key = scopeKey(sessionId, agent);
+    if (cache) {
+      const found = this.#instances.get(key);
+      if (found) return found;
     }
-    return [];
-  }
-  #model(spec: AgentSpec) { const model = spec.model ? this.#bindings.models[spec.model] : undefined; if (!model) throw new Error(`Unknown model: ${String(spec.model)}`); return model; }
-
-  /**
-   * Decides what one requested call becomes once its `toolCall` hooks ran: a supplied tool result, a
-   * failure for a call the agent cannot make, an approval operation or a tool run.
-   */
-  async #executeTool(original: ToolCall, state: TurnState, remainingCalls: ToolCall[]): Promise<Message | undefined> {
-    const stage = await this.#pipeline("toolCall", original, state, original.id);
-    // A hook that supplied a tool result skips the availability check and any approval.
-    if (stage.result) { await this.#appendToolResult(stage.result, state, original.id); return state.completion; }
-    if (!isToolCall(stage.value)) throw new GoondanExecutionError({ where: "toolCall", codes: ["value_invalid"], message: "the toolCall value is not a tool call" });
-    return await this.#dispatchTool(stage.value, stage.execution, remainingCalls, stage.approvals, state);
-  }
-
-  /**
-   * Processes the call a finished `toolCall` stage produced: the availability check, an approval
-   * operation or the tool run. A `target: tool` retry starts again from here and never runs the
-   * `toolCall` hooks a second time.
-   */
-  async #dispatchTool(call: ToolCall, execution: Record<string, Json> | undefined, remainingCalls: ToolCall[], approvals: string[], state: TurnState): Promise<Message | undefined> {
-    state.retryTool = { call, execution, remainingCalls, approvals };
-    // Only an exposed name of the effective tools list can run or become an approval operation.
-    const entry = this.#tools(state).find((candidate) => candidate.name === call.name);
-    if (!entry) throw new GoondanExecutionError({ where: "tool", codes: ["tool_unavailable"], message: `Tool ${call.name} is not available to ${state.agent}`, toolCall: call });
-    const reasons = [...approvals, ...this.#approvalReasons(state.agentSpec, call.name)];
-    if (reasons.length > 0) {
-      await this.#createOperation(call, execution, reasons, state);
-      state.retryTool = undefined;
-      return state.completion;
+    const instances = new Map<string, ExtensionInstance>();
+    try {
+      for (const name of enabledExtensions(spec)) {
+        const definition = this.#bindings.extensions?.[name];
+        if (!definition) continue;
+        const use = spec.extensions?.[name];
+        let options: Json = use?.options ?? {};
+        if (definition.options) options = (await definition.options.validate(options)) ?? options;
+        const ports: Record<string, unknown> = {};
+        for (const port of definition.requires ?? []) if (this.#bindings.ports && Object.hasOwn(this.#bindings.ports, port)) ports[port] = this.#bindings.ports[port];
+        const created = await definition.create({ options, ports, agent: { name: agent, spec }, log: this.#bindings.logger ?? noLog });
+        instances.set(name, created);
+      }
+      const provided = new Map<string, ProvidedExtension>();
+      for (const [name, instance] of instances) provided.set(name, { stages: Object.keys(instance.hooks ?? {}), tools: (instance.tools ?? []).map((tool) => tool.name) });
+      raiseIssues(instanceIssues(agent, spec, this.#bindings, provided));
+    } catch (error) {
+      await this.#dispose(instances);
+      throw error;
     }
-    const ended = await this.#runTool(entry, call, execution, state);
-    state.retryTool = undefined;
-    return ended;
+    if (cache) this.#instances.set(key, instances);
+    void instanceId;
+    return instances;
   }
 
-  /**
-   * Turns one call into an approval operation: the host captures its context, the runtime stores the
-   * operation and the pending tool result, announces the operation and asks the host for a decision.
-   */
-  async #createOperation(call: ToolCall, execution: Record<string, Json> | undefined, reasons: string[], state: TurnState): Promise<void> {
-    const operationId = this.#id();
-    const request: ApprovalRequest = {
-      operationId, sessionId: state.sessionId, turnId: state.turnId, agent: state.agent,
-      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
-      rootTurnId: state.rootTurnId,
-      toolCall: structuredClone(call), reasons: [...reasons],
-    };
-    // A failed capture stores neither the operation nor the pending tool result.
-    const context = await this.#captureContext(request, call);
-    const operation = newOperation({
-      operationId, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
-      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
-      rootTurnId: state.rootTurnId, toolCall: call, reasons, execution, context, now: this.#now(),
+  async #dispose(instances: ReadonlyMap<string, ExtensionInstance>): Promise<void> {
+    for (const instance of instances.values()) try { await instance.dispose?.(); } catch { /* 정리 실패는 실행 결과를 바꾸지 않습니다. */ }
+  }
+
+  async #appendMessages(state: ExecutionState, messages: readonly Message[]): Promise<void> {
+    if (messages.length === 0) return;
+    const events = messages.map((message) => this.#event(state.group.turn.session.sessionId, "conversation.message.appended", { message }, this.#scope(state)));
+    await this.#append(state.group.turn.session, events);
+    state.conversation.push(...cloneMessages(messages));
+  }
+
+  async #replaceMessage(state: ExecutionState, messageId: string, message: Message): Promise<void> {
+    await this.#append(state.group.turn.session, [this.#event(state.group.turn.session.sessionId, "conversation.message.replaced", { messageId, message }, this.#scope(state))]);
+    const index = state.conversation.findIndex((item) => item.id === messageId);
+    if (index >= 0) state.conversation[index] = structuredClone(message);
+  }
+
+  async #replaceConversation(state: ExecutionState, next: Message[]): Promise<void> {
+    if (jsonEqual(state.conversation, next)) return;
+    const events = this.#conversationDiff(state, state.conversation, next);
+    await this.#append(state.group.turn.session, events);
+    state.conversation = cloneMessages(next);
+  }
+
+  #conversationDiff(state: ExecutionState, before: readonly Message[], after: readonly Message[]): NewJournalEvent[] {
+    const event = (type: string, data: unknown): NewJournalEvent => this.#event(state.group.turn.session.sessionId, type, data, this.#scope(state));
+    const suffix = before.length >= after.length && jsonEqual(before.slice(before.length - after.length), after);
+    if (suffix) return [event("conversation.truncated", { keepLast: after.length })];
+    const beforeIds = before.map((message) => message.id);
+    const afterIds = after.map((message) => message.id);
+    if (jsonEqual(beforeIds, afterIds)) return after.flatMap((message, index) => jsonEqual(message, before[index]) ? [] : [event("conversation.message.replaced", { messageId: message.id, message })]);
+    const prefix = jsonEqual(beforeIds, afterIds.slice(0, beforeIds.length));
+    if (prefix) {
+      const events: NewJournalEvent[] = [];
+      before.forEach((message, index) => { if (!jsonEqual(message, after[index])) events.push(event("conversation.message.replaced", { messageId: message.id, message: after[index] })); });
+      after.slice(before.length).forEach((message) => events.push(event("conversation.message.appended", { message })));
+      return events;
+    }
+    return [
+      ...before.map((message) => event("conversation.message.removed", { messageId: message.id })),
+      ...after.map((message) => event("conversation.message.appended", { message })),
+    ];
+  }
+
+  async #routeFrom(
+    turn: ActiveTurn,
+    source: string,
+    output: Message,
+    instance: string,
+    finishReason: FinishReason,
+    input: Message[],
+  ): Promise<void> {
+    const routes = this.loaded.config.routes;
+    if (!routes) return;
+    const candidates: Array<{ route: RouteSpec; index: number }> = [];
+    const matching: Array<{ route: RouteSpec; index: number }> = [];
+    for (const [index, route] of routes.entries()) {
+      if (!sameEndpoint(route.from, source)) continue;
+      candidates.push({ route, index });
+      if (!await this.#routeMatches(route, output, input, turn)) continue;
+      matching.push({ route, index });
+    }
+    if (candidates.length > 0 && matching.length === 0) throw routeFailure(`no route matched ${source}`);
+    await Promise.all(matching.map(async ({ route, index }) => {
+      const messages: Message[] = typeof route.to === "string" && route.to !== "$output"
+        ? [{ id: id(), role: "user", content: structuredClone(output.content), source: route.to, meta: { from: source, instance } }]
+        : [structuredClone(output)];
+      await this.#routeTarget(turn, route.to, messages, index, source, instance, finishReason, true);
+    }));
+    this.#scheduleReady(turn);
+  }
+
+  async #routeTarget(
+    turn: ActiveTurn,
+    target: RouteEndpoint,
+    messages: Message[],
+    routeIndex: number,
+    source: string,
+    sourceInstance: string | undefined,
+    finishReason: FinishReason,
+    deferRouteStart = false,
+    preserveMessages = false,
+  ): Promise<void> {
+    if (target === "$output") {
+      for (const message of messages) turn.outputs.push({ route: routeIndex, order: turn.outputOrder++, message: structuredClone(message), finishReason });
+      return;
+    }
+    if (typeof target === "string") {
+      const routed = sourceInstance === undefined && source !== "$input"
+        ? messages.map((message) => ({ ...structuredClone(message), meta: { from: source } }))
+        : cloneMessages(messages);
+      this.#enqueue(turn, {
+        target,
+        messages: routed,
+        origin: "route",
+        kind: "turn",
+        routeIndex,
+        routeSource: source,
+        followsRoutes: true,
+        preserveMessages,
+      }, deferRouteStart);
+      return;
+    }
+    const task = this.#runRouteFunction(turn, target.fn, messages, routeIndex, sourceInstance)
+      .catch((error: unknown) => { this.#failTurn(turn, error); });
+    this.#track(task);
+  }
+
+  async #runRouteFunction(turn: ActiveTurn, fnName: string, input: Message[], routeIndex: number, _sourceInstance?: string): Promise<void> {
+    const fn = this.#bindings.functions?.[fnName];
+    if (!fn) throw routeFailure(`Function ${fnName} is not bound`);
+    turn.activity += 1;
+    const functionKey = `@fn:${fnName}`;
+    turn.functions.set(functionKey, (turn.functions.get(functionKey) ?? 0) + 1);
+    try {
+      let output: Message[] | undefined;
+      try {
+        const returned = await fn(cloneMessages(input), { sessionId: turn.session.sessionId, turnId: turn.turnId, route: routeIndex, signal: turn.controller.signal, log: this.#bindings.logger ?? noLog });
+        if (returned !== undefined && returned !== null) {
+          if (!isMessageArray(returned)) throw new Error("route function did not return messages");
+          output = returned;
+        }
+        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { route: routeIndex, fn: fnName, status: "done", input, ...(output === undefined ? {} : { output }) }, { turnId: turn.turnId })]);
+      } catch (error) {
+        const failure = routeFailure(reason(error), error);
+        await this.#append(turn.session, [this.#event(turn.session.sessionId, "route.function", { route: routeIndex, fn: fnName, status: "error", input, error: detail(failure, 1) }, { turnId: turn.turnId })]);
+        this.#failTurn(turn, failure);
+        throw failure;
+      }
+      if (!output) return;
+      const routes = this.loaded.config.routes ?? [];
+      const matching: Array<{ route: RouteSpec; index: number }> = [];
+      let candidateCount = 0;
+      for (const [index, route] of routes.entries()) {
+        if (!sameEndpoint(route.from, functionKey)) continue;
+        candidateCount += 1;
+        if (await this.#routeMatches(route, output, input, turn)) matching.push({ route, index });
+      }
+      if (candidateCount > 0 && matching.length === 0) throw routeFailure(`no route matched ${fnName}`);
+      await Promise.all(matching.map((item) => this.#routeTarget(turn, item.route.to, cloneMessages(output), item.index, fnName, undefined, "stop", true)));
+    } finally {
+      const remaining = (turn.functions.get(functionKey) ?? 1) - 1;
+      if (remaining === 0) turn.functions.delete(functionKey); else turn.functions.set(functionKey, remaining);
+      this.#scheduleReady(turn);
+      await this.#activityDone(turn);
+    }
+  }
+
+  async #routeMatches(route: RouteSpec, output: Message | Message[] | null, input: Message[], turn: ActiveTurn): Promise<boolean> {
+    if (!route.when) return true;
+    const text = output === null
+      ? inputTextOf(input)
+      : Array.isArray(output)
+      ? output.map((message) => textOf(message.content)).join("")
+      : textOf(output.content);
+    if ("output" in route.when) {
+      if (typeof route.when.output === "string") return text === route.when.output;
+      try {
+        const parsed: unknown = JSON.parse(text);
+        if (!isRecord(parsed)) return false;
+        return Object.entries(route.when.output).every(([key, value]) => Object.hasOwn(parsed, key) && jsonEqual(parsed[key], value));
+      } catch { return false; }
+    }
+    const fn = this.#bindings.functions?.[route.when.fn];
+    if (!fn) throw routeFailure(`Function ${route.when.fn} is not bound`);
+    try {
+      const value = await fn({ output, text, input }, { sessionId: turn.session.sessionId, turnId: turn.turnId, route: this.loaded.config.routes?.indexOf(route) ?? -1, signal: turn.controller.signal, log: this.#bindings.logger ?? noLog });
+      if (value !== true && value !== false) throw new Error("route condition did not return a boolean");
+      return value;
+    } catch (error) { throw routeFailure(reason(error), error); }
+  }
+
+  async #activityDone(turn: ActiveTurn): Promise<void> {
+    turn.activity -= 1;
+    await this.#maybeClose(turn);
+  }
+
+  async #maybeClose(turn: ActiveTurn): Promise<void> {
+    if (turn.closing || turn.activity > 0) return;
+    if ([...turn.actors.values()].some((actor) => actor.running?.turn === turn || actor.queue.some((request) => request.turn === turn))) return;
+    turn.closing = true;
+    await turn.session.mutex.run(async () => {
+      if (turn.session.turn !== turn) return;
+      try {
+        if (turn.failed !== undefined || turn.controller.signal.aborted) await this.#closeFailedTurn(turn);
+        else await this.#closeSuccessfulTurn(turn);
+      } catch (error) {
+        const failure = turn.session.leaseFailure ?? this.#asExecutionError(error);
+        turn.deferred.reject(failure);
+      } finally {
+        turn.session.turn = undefined;
+        if ((this.#sessionWork.get(turn.session.sessionId) ?? 0) === 0) {
+          await this.#releaseLease(turn.session);
+        }
+      }
     });
-    await this.#operationStore.save(operation);
-    // The pending tool result is the runtime's own value, so the toolResult hooks never see it. The
-    // JSON part and the `meta` carry equal but separate values, so neither can change the other.
-    const message: Message = {
-      id: this.#id(), role: "tool", source: "tool",
-      content: [{ type: "tool.result", callId: call.id, content: [{ type: "json", value: pendingToolContent(operationId) }] }],
-      meta: pendingToolContent(operationId),
-    };
-    state.conversation.push(message); await this.#append(state, [message]);
-    state.storedCalls.add(call.id);
-    await this.#emit("humanApproval.created", state, { operationId, tool: call.name, callId: call.id, reasons: [...reasons] });
-    const host = this.#bindings.host;
-    if (!host?.requestApproval) return;
-    // A failed request leaves the operation pending, so recovery asks for the decision again.
-    try { await host.requestApproval({ ...request, toolCall: structuredClone(call), reasons: [...reasons] }); }
-    catch (error) { throw new GoondanExecutionError({ where: "tool", codes: ["runtime_error"], message: reason(error), toolCall: call }, { cause: error }); }
   }
 
-  /** The operation context the host captured, or `undefined` when the host captures none. */
-  async #captureContext(request: ApprovalRequest, call: ToolCall): Promise<Record<string, Json> | undefined> {
-    const host = this.#bindings.host;
-    if (!host?.captureOperationContext) return undefined;
-    let captured: unknown;
-    try { captured = await host.captureOperationContext(request); }
-    catch (error) { throw new GoondanExecutionError({ where: "tool", codes: ["runtime_error"], message: reason(error), toolCall: call }, { cause: error }); }
-    if (captured === undefined || captured === null) return undefined;
-    let value: Json | undefined;
-    try { value = isObject(captured) ? this.#json(captured, "the captured operation context") : undefined; }
-    catch { value = undefined; }
-    if (!isJsonObject(value)) throw new GoondanExecutionError({ where: "tool", codes: ["runtime_error"], message: "captureOperationContext did not return a JSON object", toolCall: call });
+  async #closeSuccessfulTurn(turn: ActiveTurn): Promise<void> {
+    turn.outputs.sort((left, right) => left.route - right.route || left.order - right.order);
+    const outputs = turn.outputs.map((entry) => entry.message);
+    const runs = flattenRuns(turn.runs);
+    const result: TurnResult = { turnId: turn.turnId, outputs, usage: totalUsage(runs), status: "done", runs };
+    if (outputs.length > 0) {
+      result.output = outputs.map((message) => textOf(message.content)).join("\n\n");
+      const reasons = new Set(turn.outputs.map((entry) => entry.finishReason));
+      result.finishReason = reasons.size === 1 ? turn.outputs[0]?.finishReason ?? "other" : "other";
+    }
+    await this.#append(turn.session, [this.#event(turn.session.sessionId, "turn.done", { result }, { turnId: turn.turnId })]);
+    turn.deferred.resolve(result);
+  }
+
+  async #closeFailedTurn(turn: ActiveTurn): Promise<void> {
+    const signalReason = turn.controller.signal.reason;
+    const failure = turn.controller.signal.aborted
+      ? signalReason instanceof GoondanExecutionError ? signalReason : abortFailure(turn.failed)
+      : this.#asExecutionError(turn.failed);
+    await this.#append(turn.session, [this.#event(turn.session.sessionId, "turn.error", {
+      status: failure.codes.includes("aborted") ? "aborted" : "failed",
+      error: detail(failure, 1),
+    }, { turnId: turn.turnId })]);
+    turn.deferred.reject(turn.failed instanceof GoondanConfigError ? turn.failed : failure);
+  }
+
+  #failTurn(turn: ActiveTurn, error: unknown): void {
+    if (turn.failed !== undefined) return;
+    turn.failed = error;
+    for (const actor of turn.actors.values()) {
+      const retained: InputRequest[] = [];
+      for (const request of actor.queue) {
+        if (request.turn !== turn) { retained.push(request); continue; }
+        request.waiter?.reject(error);
+        this.#releaseRequest(request);
+      }
+      actor.queue = retained;
+    }
+    for (const group of turn.executions.values()) if (group.state?.executionId !== this.#executionIdOf(error)) group.controller.abort(error);
+  }
+
+  #executionIdOf(_error: unknown): string | undefined { return undefined; }
+
+  #asExecutionError(error: unknown, where: "model" | "tool" | "runtime" = "runtime", codes: string[] = ["runtime_error"], toolCall?: ToolCall): GoondanExecutionError {
+    if (error instanceof GoondanExecutionError) return error;
+    return new GoondanExecutionError({ where, codes, message: reason(error), attempt: 1, toolCall }, { cause: error });
+  }
+
+  async #observed(type: ObservationalEvent["type"], state: ExecutionState, data: Record<string, unknown>): Promise<void> {
+    const event: ObservationalEvent = {
+      type,
+      sessionId: state.group.turn.session.sessionId,
+      turnId: state.turnId,
+      agent: state.agent,
+      instance: state.instance,
+      executionId: state.executionId,
+      at: Date.now(),
+      data,
+      observational: true,
+    };
+    if (state.parentExecutionId !== undefined) event.parentExecutionId = state.parentExecutionId;
+    if (state.operationId !== undefined) event.operationId = state.operationId;
+    await this.#emit(event, state.extensions);
+  }
+
+  async #emit(event: RuntimeEvent, extensions?: ReadonlyMap<string, ExtensionInstance>): Promise<void> {
+    try { await this.#bindings.host?.emit?.(structuredClone(event)); } catch { /* 관측 수신자 실패는 실행을 바꾸지 않습니다. */ }
+    const targets = extensions ?? (event.instance ? this.#instances.get(scopeKey(event.sessionId, event.agent ?? "")) : undefined);
+    if (!targets) return;
+    for (const instance of targets.values()) {
+      const receiver = instance.on?.[event.type];
+      try { await receiver?.(structuredClone(event)); } catch { /* 관측 수신자 실패는 실행을 바꾸지 않습니다. */ }
+    }
+  }
+
+  #track(task: Promise<void>): void {
+    this.#tasks.add(task);
+    void task.then(
+      () => this.#tasks.delete(task),
+      () => this.#tasks.delete(task),
+    );
+  }
+
+  #beginSessionWork(sessionId: string): void {
+    this.#sessionWork.set(sessionId, (this.#sessionWork.get(sessionId) ?? 0) + 1);
+  }
+
+  #endSessionWork(sessionId: string): void {
+    const remaining = (this.#sessionWork.get(sessionId) ?? 1) - 1;
+    if (remaining === 0) this.#sessionWork.delete(sessionId);
+    else this.#sessionWork.set(sessionId, remaining);
+  }
+
+  async #releaseIdleLease(session: SessionRuntime): Promise<void> {
+    await session.mutex.run(async () => {
+      if (session.turn || (this.#sessionWork.get(session.sessionId) ?? 0) > 0) return;
+      await this.#releaseLease(session);
+    });
+  }
+
+  // 승인 작업 메서드는 아래 절에서 저널 전이와 완료 입력 전달을 구현합니다.
+  async #createOperation(state: ExecutionState, call: ToolCall, reasons: string[], execution?: Record<string, Json>): Promise<void> {
+    const operation = newOperation({
+      operationId: id(), agent: state.agent, sessionId: state.group.turn.session.sessionId,
+      turnId: state.turnId, instance: state.instance, executionId: state.executionId,
+      parentExecutionId: state.parentExecutionId, toolCall: call, reasons, execution, now: Date.now(),
+    });
+    const pending: ToolResult = {
+      callId: call.id, name: call.name, args: structuredClone(call.args),
+      content: [{ type: "json", value: pendingToolContent(operation.operationId) }],
+      meta: pendingToolContent(operation.operationId),
+    };
+    const message: Message = {
+      id: id(), role: "tool", source: "tool",
+      content: [{ type: "tool.result", callId: call.id, content: pending.content }],
+      meta: pending.meta,
+    };
+    await this.#append(state.group.turn.session, [
+      this.#operationEvent(operation, "operation.created", { operation }),
+      this.#event(operation.sessionId, "conversation.message.appended", { message }, this.#scope(state)),
+    ]);
+    state.conversation.push(message);
+  }
+
+  #operationEvent(operation: PendingOperation, type: string, data: unknown): NewJournalEvent {
+    return this.#event(operation.sessionId, type, data, {
+      turnId: operation.turnId, agent: operation.agent, instance: operation.instance,
+      executionId: operation.executionId, operationId: operation.operationId,
+      parentExecutionId: operation.parentExecutionId,
+    });
+  }
+
+  async #listOperations(sessionId?: string): Promise<PendingOperation[]> {
+    if (sessionId !== undefined) {
+      const events: JournalEvent[] = [];
+      for await (const event of this.#store.scan({ sessionId })) events.push(event);
+      return structuredClone(fold(sessionId, events).operations);
+    }
+    const bySession = new Map<string, JournalEvent[]>();
+    for await (const event of this.#store.scan()) {
+      const list = bySession.get(event.sessionId) ?? [];
+      list.push(event);
+      bySession.set(event.sessionId, list);
+    }
+    const operations: PendingOperation[] = [];
+    for (const [key, events] of bySession) operations.push(...fold(key, events).operations);
+    return structuredClone(operations.sort((left, right) => left.createdAt - right.createdAt || compareText(left.sessionId, right.sessionId)));
+  }
+
+  async #decideOperation(sessionId: string, operationId: string, value: OperationDecision): Promise<PendingOperation> {
+    if (this.#closed) throw runtimeFailure("The runtime is closed");
+    const issue = decisionIssue(value);
+    if (issue) throw operationFailure(issue);
+    const session = this.#session(sessionId);
+    return session.mutex.run(async () => {
+      await this.#load(session);
+      const ownLease = !session.lease;
+      if (ownLease) this.#installLease(session, await this.#waitLease(sessionId));
+      try {
+        await this.#refresh(session);
+        const operation = session.state.operations.find((item) => item.operationId === operationId);
+        if (!operation) throw operationFailure("operation does not exist");
+        if (operation.status !== "pending") return structuredClone(operation);
+        const patchProblem = patchIssue(value, operation);
+        if (patchProblem) throw operationFailure(patchProblem);
+        let resolved: ToolCall | undefined;
+        if (value.inputPatch !== undefined) {
+          resolved = patchedCall(operation.toolCall, value.inputPatch);
+          if (!resolved || !await this.#validOperationCall(operation, resolved)) throw operationFailure("operation inputPatch does not satisfy the tool schema");
+        }
+        const data: Record<string, unknown> = { updatedAt: Date.now() };
+        if (value.inputPatch !== undefined && resolved !== undefined) { data.inputPatch = value.inputPatch; data.resolvedToolCall = resolved; }
+        const type = value.decision === "approved" ? "operation.approved" : value.decision === "rejected" ? "operation.rejected" : "operation.cancelled";
+        await this.#append(session, [this.#operationEvent(operation, type, data)]);
+        const updated = session.state.operations.find((item) => item.operationId === operationId);
+        if (!updated) throw operationFailure("operation disappeared");
+        if (updated.status === "approved") this.#track(this.#executeOperation(structuredClone(updated)));
+        else this.#track(this.#deliverOperation(structuredClone(updated)));
+        return structuredClone(updated);
+      } finally {
+        if (ownLease) await this.#releaseLease(session);
+      }
+    });
+  }
+
+  async #refresh(session: SessionRuntime): Promise<void> {
+    await session.appendMutex.run(async () => {
+      const events: JournalEvent[] = [];
+      for await (const event of this.#store.scan({ sessionId: session.sessionId })) events.push(event);
+      session.events = events;
+      session.state = fold(session.sessionId, events);
+    });
+  }
+
+  async #validOperationCall(operation: PendingOperation, call: ToolCall): Promise<boolean> {
+    const spec = this.loaded.config.agents[operation.agent];
+    if (!spec) return false;
+    const fake = await this.#operationState(operation, spec);
+    try {
+      const entry = (await this.#tools(fake)).find((item) => item.name === call.name);
+      return entry !== undefined && validateJsonValue(entry.definition.input, call.args).length === 0;
+    } finally { if (spec.stateful === false) await this.#dispose(fake.extensions); }
+  }
+
+  async #operationState(operation: PendingOperation, spec: AgentSpec, controller = new AbortController()): Promise<ExecutionState> {
+    const turn: ActiveTurn = {
+      session: this.#session(operation.sessionId), turnId: operation.turnId, controller,
+      deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+    };
+    const actor: Actor = { agent: operation.agent, instance: spec.stateful === false ? id() : operation.instance, stateful: spec.stateful !== false, queue: [] };
+    const group: ExecutionGroup = { turn, actor, executionId: operation.executionId, requests: [], routeRequested: false, singleOutputRequested: false, controller, deferred: new Deferred<AgentRunResult>() };
+    const extensions = await this.#extensions(operation.agent, spec, operation.sessionId, actor.instance, spec.stateful !== false);
+    const conversation = spec.stateful === false ? [] : cloneMessages(turn.session.state.conversations
+      .find((item) => item.agent === operation.agent && item.instance === operation.instance)?.messages ?? []);
+    const state: ExecutionState = {
+      group, agent: operation.agent, spec, instance: actor.instance, executionId: operation.executionId,
+      turnId: operation.turnId, operationId: operation.operationId, input: [], startInput: [], conversation, inputKind: "start",
+      step: 0, retryCount: 0, usage: zeroUsage(), extensions, pendingHooks: this.#pending(actor.instance),
+      runNode: { record: { agent: operation.agent, instance: actor.instance, executionId: operation.executionId, turnId: operation.turnId, operationId: operation.operationId, kind: "tool", usage: zeroUsage(), status: "failed" }, children: [] },
+    };
+    return state;
+  }
+
+  async #executeOperation(operation: PendingOperation): Promise<void> {
+    const controller = new AbortController();
+    this.#detachedControllers.add(controller);
+    this.#beginSessionWork(operation.sessionId);
+    const session = this.#session(operation.sessionId);
+    session.controllers.add(controller);
+    try {
+      await session.mutex.run(async () => {
+        if (controller.signal.aborted || this.#closed) throw abortFailure(controller.signal.reason);
+        await this.#load(session);
+        if (!session.lease) this.#installLease(session, await this.#waitLease(operation.sessionId, controller.signal));
+      });
+      if (controller.signal.aborted || this.#closed) return;
+      await this.#refresh(session);
+      if (controller.signal.aborted || this.#closed) return;
+      const current = session.state.operations.find((item) => item.operationId === operation.operationId);
+      if (!current || current.status !== "approved") return;
+      const call = effectiveCall(current);
+      const spec = this.loaded.config.agents[current.agent];
+      if (!spec || !await this.#validOperationCall(current, call)) {
+        if (controller.signal.aborted || this.#closed) return;
+        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: validationFailedMessage, errorCode: "validation_failed" })]);
+        const failed = session.state.operations.find((item) => item.operationId === current.operationId);
+        if (failed && !controller.signal.aborted && !this.#closed) this.#track(this.#deliverOperation(structuredClone(failed)));
+        return;
+      }
+      if (controller.signal.aborted || this.#closed) return;
+      await this.#append(session, [this.#operationEvent(current, "operation.execution.started", { updatedAt: Date.now() })]);
+      if (controller.signal.aborted || this.#closed) return;
+      const state = await this.#operationState(current, spec, controller);
+      state.input = [];
+      const entry = (await this.#tools(state)).find((item) => item.name === call.name);
+      if (!entry) throw new Error(validationFailedMessage);
+      await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args });
+      try {
+        const returned = entry.agent
+          ? { content: (await this.#callOperationAgent(current, entry.agent, call.args, controller.signal)).content }
+          : await entry.host?.execute(call.args, { ...this.#toolContext(state, call, current.execution), input: { type: "operation_execution", operationId: current.operationId } });
+        if (controller.signal.aborted || this.#closed) return;
+        const normalized = normalizeToolReturn(returned, call);
+        if (!normalized.value) throw new Error(normalized.issue ?? "invalid tool result");
+        const stage = await this.#hooks("onToolResult", normalized.value, state, call.id);
+        if (!isToolResult(stage.value)) throw new Error("onToolResult did not return a tool result");
+        if (controller.signal.aborted || this.#closed) return;
+        await this.#append(session, [this.#operationEvent(current, "operation.completed", { updatedAt: Date.now(), result: stage.value })]);
+        await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: stage.value });
+      } catch (error) {
+        if (controller.signal.aborted || this.#closed) return;
+        await this.#append(session, [this.#operationEvent(current, "operation.failed", { updatedAt: Date.now(), error: reason(error), errorCode: "execution_failed" })]);
+        await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, codes: ["tool_error"], error: reason(error) });
+      } finally { if (spec.stateful === false) await this.#dispose(state.extensions); }
+      const ended = session.state.operations.find((item) => item.operationId === current.operationId);
+      if (ended && !controller.signal.aborted && !this.#closed) this.#track(this.#deliverOperation(structuredClone(ended)));
+    } finally {
+      this.#detachedControllers.delete(controller);
+      session.controllers.delete(controller);
+      this.#endSessionWork(operation.sessionId);
+      await this.#releaseIdleLease(session);
+    }
+  }
+
+  async #callOperationAgent(operation: PendingOperation, target: string, value: Json, signal: AbortSignal): Promise<Message> {
+    const session = this.#session(operation.sessionId);
+    let turn = session.turn;
+    if (!turn) {
+      turn = {
+        session, turnId: operation.turnId, controller: new AbortController(), deferred: new Deferred<TurnResult>(),
+        actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+      };
+      signal.addEventListener("abort", () => turn?.controller.abort(abortFailure(signal.reason)), { once: true });
+    }
+    const waiter = new Deferred<Message>();
+    const request: InputRequest = { target, messages: this.#rawMessages(value, target), origin: "operation", kind: "tool", operationId: operation.operationId, followsRoutes: false, waiter };
+    const group = this.#enqueue(turn, request);
+    if (!group) throw new Error("operation agent did not start");
+    const cancelled = new Promise<Message>((_resolve, reject) => {
+      signal.addEventListener("abort", () => {
+        const queued = group.actor.queue.indexOf(request);
+        if (queued >= 0) group.actor.queue.splice(queued, 1);
+        if (group.requests.length === 1 && group.actor.queue.length === 0 && !group.routeRequested && !group.singleOutputRequested) {
+          group.controller.abort(abortFailure(signal.reason));
+        }
+        reject(abortFailure(signal.reason));
+      }, { once: true });
+    });
+    return Promise.race([waiter.promise, cancelled]);
+  }
+
+  #completionValue(operation: PendingOperation): Record<string, unknown> {
+    const value: Record<string, unknown> = {
+      type: "operation_completion", deliveryId: operation.deliveryId, operationId: operation.operationId,
+      sessionId: operation.sessionId, agent: operation.agent, turnId: operation.turnId,
+      instance: operation.instance, executionId: operation.executionId, status: operation.status,
+      toolCall: operation.toolCall,
+    };
+    if (operation.result !== undefined) value.result = operation.result;
+    if (operation.error !== undefined) value.error = operation.error;
+    if (operation.errorCode !== undefined) value.errorCode = operation.errorCode;
     return value;
   }
 
-  /** Records a conditional transition; a closed runtime leaves every stored operation as it is. */
-  async #transition(operation: PendingOperation, from: OperationStatus[], update: OperationUpdate): Promise<PendingOperation | undefined> {
-    if (this.#closed) return undefined;
-    return await this.#operationStore.transition(operation.sessionId, operation.operationId, from, { ...update, updatedAt: this.#now() });
-  }
-
-  /** Records that an approved operation did not pass its pre-run validation and delivers the failure. */
-  async #failValidation(operation: PendingOperation, message: string): Promise<void> {
-    const failed = await this.#transition(operation, ["approved"], { status: "failed", error: message, errorCode: "validation_failed" });
-    if (failed) this.#startDelivery(failed);
-  }
-
-  /** Starts an approved operation's execution as background work; one execution per operation. */
-  #startOperation(operation: PendingOperation): void {
-    if (this.#closed || this.#operationExecutions.has(operation.operationId)) return;
-    const execution = this.#executeOperation(operation).finally(() => { this.#operationExecutions.delete(operation.operationId); });
-    this.#operationExecutions.set(operation.operationId, execution);
-    this.#track(execution);
-  }
-
-  /** 승인 작업의 에이전트를 찾고 선언되지 않은 이름이면 검증 실패로 기록합니다. */
-  async #executeOperation(operation: PendingOperation): Promise<void> {
-    const current = await this.#operationStore.get(operation.sessionId, operation.operationId);
-    if (!current || current.status !== "approved") return;
-    const spec = this.loaded.config.agents[current.agent];
-    if (!spec) { await this.#failValidation(current, `Unknown agent: ${current.agent}`); return; }
-    await this.#runOperation(current, current.agent, spec);
-  }
-
-  /**
-   * Runs an approved operation in the runtime that owns its agent, detached from the conversation.
-   * Everything the tool needs is resolved before the operation becomes `running`, so a failure of the
-   * preparation is a validation failure and never reaches the tool.
-   */
-  async #runOperation(operation: PendingOperation, agent: string, spec: AgentSpec): Promise<void> {
-    const scope: RunScope = { host: null, foreground: false };
-    const registration = this.#register(scope);
-    const stateful = spec.stateful !== false;
-    let state: TurnState | undefined;
-    try {
-      const call = effectiveCall(operation);
-      let entry: ToolEntry | undefined;
-      try {
-        const instance = operation.instance;
-        const conversation = stateful ? await this.#store.load(operation.sessionId, agent) : [];
-        const extensions = await this.#extensions(agent, spec, operation.sessionId, instance, stateful);
-        state = this.#state(agent, instance, spec, [], operation.sessionId, operation.turnId, {
-          parentInstance: operation.parentInstance,
-          parentTurnId: operation.parentTurnId,
-          rootTurnId: operation.rootTurnId,
-        }, conversation, registration.signal, scope, extensions, []);
-        state.operationInput = { type: "operation_execution", operationId: operation.operationId };
-        // An operation execution is not an agent run, so `execution.complete` cannot end one.
-        state.operation = true;
-        entry = this.#tools(state).find((candidate) => candidate.name === call.name);
-      } catch (error) { await this.#failValidation(operation, reason(error)); return; }
-      if (!state || !entry) { await this.#failValidation(operation, `Tool ${call.name} is not available to ${operation.agent}`); return; }
-      const host = this.#bindings.host;
-      if (host?.validateOperation) {
-        let valid: unknown;
-        try { valid = await host.validateOperation(structuredClone(operation)); }
-        catch (error) { await this.#failValidation(operation, reason(error)); return; }
-        if (valid !== true) { await this.#failValidation(operation, validationFailedMessage); return; }
-      }
-      const running = await this.#transition(operation, ["approved"], { status: "running" });
-      // An operation cancelled before this transition never runs its tool.
-      if (!running) return;
-      await this.#runOperationTool(running, state, entry, call);
-    } finally {
-      registration.release();
-      if (!stateful && state) {
-        state.asyncController.abort();
-        await disposeAll(state.extensions);
-        state.pending.clear();
-      }
-    }
-  }
-
-  /** Runs a `running` operation's tool and its `toolResult` stage, then records what it produced. */
-  async #runOperationTool(operation: PendingOperation, state: TurnState, entry: ToolEntry, call: ToolCall): Promise<void> {
-    const data: Record<string, Json> = { tool: call.name, callId: call.id, args: call.args, operationId: operation.operationId };
-    try {
-      await this.#emit("tool.start", state, { ...data });
-      const raw = await entry.execute(call.args, {
-        input: state.operationInput ?? state.input, conversation: structuredClone(state.conversation), agent: operation.agent,
-        sessionId: operation.sessionId, turnId: operation.turnId, toolCall: call,
-        execution: operation.execution ?? {}, signal: state.signal,
-        // An approved operation's execution has its own lifetime, so its sub-runs record nothing.
-        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${operation.sessionId}#${operation.turnId}#${name}`, signal: state.signal, foreground: false, lineage: this.#childLineage(state) }, state.scope, detachedSink("tool")) },
-      });
-      const result = this.#toolResult(await this.#pipeline("toolResult", this.#checkToolResult(raw, call.id), state, call.id));
-      await this.#emit("tool.done", state, { ...data, result: this.#json(result, "toolResult") });
-      const completed = await this.#transition(operation, ["running"], { status: "completed", result });
-      if (completed) this.#startDelivery(completed);
-    } catch (error) {
-      const message = reason(error);
-      await this.#emit("tool.error", state, { ...data, error: message, codes: ["tool_error"] });
-      const failed = await this.#transition(operation, ["running"], { status: "failed", error: message, errorCode: "execution_failed" });
-      if (failed) this.#startDelivery(failed);
-    }
-  }
-
-  /**
-   * Starts the single completion delivery of a terminal operation as background work. A decision, a
-   * cancellation and an execution never wait for it.
-   */
-  #startDelivery(operation: PendingOperation): void {
-    if (this.#closed || !isTerminalStatus(operation.status) || operation.deliveryStatus === "delivered") return;
-    if (this.#deliveries.has(operation.operationId)) return;
-    const work = this.#deliverOperation(operation).finally(() => { this.#deliveries.delete(operation.operationId); });
-    this.#deliveries.set(operation.operationId, work);
-    this.#track(work);
-  }
-
-  /**
-   * Delivers one completion input. A failure only puts the delivery back to `pending`, leaving the
-   * outcome of the operation untouched, and is never reported to the request that started it.
-   */
   async #deliverOperation(operation: PendingOperation): Promise<void> {
-    if (this.#closed || !isTerminalStatus(operation.status)) return;
-    const claimed = await this.#operationStore.claimDelivery(operation.sessionId, operation.operationId, this.#now());
-    if (!claimed || !isTerminalStatus(claimed.status)) return;
-    const completion = completionInput(claimed, claimed.status);
+    if (!isTerminalStatus(operation.status)) return;
+    const controller = new AbortController();
+    this.#detachedControllers.add(controller);
+    this.#beginSessionWork(operation.sessionId);
+    const session = this.#session(operation.sessionId);
+    session.controllers.add(controller);
     try {
-      const host = this.#bindings.host;
-      if (host?.deliverOperationCompletion) await host.deliverOperationCompletion(completion);
-      else await this.#deliverByTurn(claimed, completion);
-      await this.#transition(claimed, [claimed.status], { deliveryStatus: "delivered", deliveredAt: this.#now() });
-    } catch (error) {
-      this.#bindings.logger?.warn(`The completion delivery of the operation ${claimed.operationId} failed`, { error: reason(error) });
-      if (this.#closed) return;
-      await this.#operationStore.releaseDelivery(claimed.sessionId, claimed.operationId, claimed.deliveryId, this.#now());
+      await session.mutex.run(async () => {
+        if (controller.signal.aborted || this.#closed) return;
+        await this.#load(session);
+        if (!session.lease) this.#installLease(session, await this.#waitLease(operation.sessionId, controller.signal));
+        if (controller.signal.aborted || this.#closed) return;
+        await this.#refresh(session);
+        if (controller.signal.aborted || this.#closed) return;
+        let current = session.state.operations.find((item) => item.operationId === operation.operationId);
+        if (!current) {
+          await this.#orphaned(operation);
+          return;
+        }
+        if (current.deliveryStatus !== "pending") return;
+        await this.#append(session, [this.#operationEvent(current, "operation.delivery.claimed", { updatedAt: Date.now() })]);
+        if (controller.signal.aborted || this.#closed) return;
+        current = session.state.operations.find((item) => item.operationId === operation.operationId);
+        if (!current) return;
+        const inputId = id();
+        let turn = session.turn;
+        if (!turn) {
+          turn = {
+            session, turnId: id(), controller: new AbortController(), deferred: new Deferred<TurnResult>(), actors: new Map(), executions: new Map(), functions: new Map(), waits: new Map(), runs: [], outputs: [], outputOrder: 0, activity: 0, closing: false,
+          };
+          session.turn = turn;
+          controller.signal.addEventListener("abort", () => turn?.controller.abort(abortFailure(controller.signal.reason)), { once: true });
+          await this.#append(session, [
+            this.#event(session.sessionId, "turn.start", {}, { turnId: turn.turnId }),
+            this.#event(session.sessionId, "input.received", { input: this.#completionValue(current) }, { turnId: turn.turnId, inputId, operationId: current.operationId }),
+          ]);
+        } else await this.#append(session, [this.#event(session.sessionId, "input.received", { input: this.#completionValue(current) }, { turnId: turn.turnId, inputId, operationId: current.operationId })]);
+        if (controller.signal.aborted || this.#closed) return;
+        const message: Message = { id: id(), role: "user", source: current.agent, content: [{ type: "json", value: toJson(this.#completionValue(current)) ?? null }], meta: { operationId: current.operationId } };
+        this.#enqueue(turn, { target: current.agent, messages: [message], origin: "operation", kind: "turn", operationId: current.operationId, followsRoutes: false });
+        await this.#append(session, [this.#operationEvent(current, "operation.delivery.finished", { updatedAt: Date.now(), outcome: "delivered", deliveredAt: Date.now() })]);
+        queueMicrotask(() => { if (turn) void this.#maybeClose(turn); });
+      });
+    } finally {
+      this.#detachedControllers.delete(controller);
+      session.controllers.delete(controller);
+      this.#endSessionWork(operation.sessionId);
+      await this.#releaseIdleLease(session);
     }
   }
 
-  /** Delivers a completion by running the operation's agent once the conversation has no other turn. */
-  async #deliverByTurn(operation: PendingOperation, completion: OperationCompletion): Promise<void> {
-    await this.#enqueueRun(this.#json(completion, "the operation completion"), { sessionId: operation.sessionId, agent: operation.agent }, {
-      parentInstance: operation.instance,
-      parentTurnId: operation.turnId,
-      rootTurnId: operation.rootTurnId,
+  async #orphaned(operation: PendingOperation): Promise<void> {
+    const event: ObservationalEvent = {
+      type: "operation.completion.orphaned", sessionId: operation.sessionId, operationId: operation.operationId,
+      at: Date.now(), data: { operationId: operation.operationId, deliveryId: operation.deliveryId }, observational: true,
+    };
+    await this.#emit(event);
+  }
+
+  async #deleteSession(sessionId: string): Promise<void> {
+    if (this.#closed) throw runtimeFailure("The runtime is closed");
+    const session = this.#session(sessionId);
+    await session.mutex.run(async () => {
+      await this.#load(session);
+      if (session.turn || (this.#sessionWork.get(sessionId) ?? 0) > 0
+        || session.state.operations.some((operation) => operation.status === "running" || operation.deliveryStatus === "delivering")) {
+        throw runtimeFailure("the session has active work");
+      }
+      const lease = await this.#store.acquireLease(sessionId, id());
+      if (!lease) throw runtimeFailure("the session lease is held");
+      try {
+        await this.#refresh(session);
+        if (session.state.turns.some((turn) => turn.status === "running") || session.state.operations.some((operation) => operation.status === "running" || operation.deliveryStatus === "delivering")) throw runtimeFailure("the session has active work");
+        const pending: Promise<void>[] = [];
+        for (const tasks of this.#pendingByInstance.values()) {
+          for (const task of tasks.values()) {
+            if (task.sessionId !== sessionId) continue;
+            task.controller.abort(abortFailure());
+            pending.push(task.promise);
+          }
+        }
+        await Promise.allSettled(pending);
+        for (const [instance, tasks] of this.#pendingByInstance) {
+          for (const [identifier, task] of tasks) if (task.sessionId === sessionId) tasks.delete(identifier);
+          if (tasks.size === 0) this.#pendingByInstance.delete(instance);
+        }
+        for (const [key, instances] of this.#instances) {
+          if (!key.startsWith(`[${JSON.stringify(sessionId)},`)) continue;
+          await this.#dispose(instances);
+          this.#instances.delete(key);
+        }
+        await this.#store.deleteSession(sessionId, { token: lease.token });
+        session.events = [];
+        session.state = fold(sessionId, []);
+        session.recovered = false;
+      } finally { await lease.release(); }
     });
   }
-
-  /**
-   * Runs one tool of an agent run and stores its result through the `toolResult` stage. Every attempt
-   * announces `tool.start` and then exactly one of `tool.done` and `tool.error`, so a failed form
-   * check and a failed required `toolResult` hook are announced with their own codes as well.
-   */
-  async #runTool(entry: ToolEntry, call: ToolCall, execution: Record<string, Json> | undefined, state: TurnState): Promise<Message | undefined> {
-    // An execution that was told to stop starts no further tool.
-    if (state.signal.aborted) throw abortFailure();
-    const data: Record<string, Json> = { tool: call.name, callId: call.id, args: call.args };
-    await this.#emit("tool.start", state, { ...data });
-    let result: ToolResult;
-    try {
-      result = await entry.execute(call.args, {
-        input: state.input, conversation: structuredClone(state.conversation), agent: state.agent,
-        sessionId: state.sessionId, turnId: state.turnId, toolCall: call,
-        execution: execution ?? {}, signal: state.signal,
-        agents: { run: (name, value) => this.#runAgent(name, this.#toMessages(value, name), { sessionId: `${state.sessionId}#${state.turnId}#${name}`, signal: state.signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "tool")) },
-      });
-      // A result that arrives after the abort was signalled is not used.
-      if (state.signal.aborted) throw abortFailure();
-    } catch (error) {
-      // A configuration error of an extension preparation never becomes a tool failure, but the
-      // attempt still ends, so it announces the tool.error its tool.start expects.
-      if (isGoondanConfigError(error)) { await this.#emit("tool.error", state, { ...data, error: reason(error), codes: error.issues.map((issue) => issue.code) }); throw error; }
-      // An agent tool whose target run was stopped stays an abort instead of becoming a tool failure.
-      const carried = carriesAbort(error);
-      const aborted = carried || state.signal.aborted;
-      const message = reason(error);
-      await this.#emit("tool.error", state, { ...data, error: message, codes: aborted ? ["aborted"] : ["tool_error"] });
-      if (carried) throw error;
-      throw aborted ? abortFailure(error) : new GoondanExecutionError({ where: "tool", codes: ["tool_error"], message, toolCall: call }, { cause: error });
-    }
-    let finalResult: ToolResult;
-    try {
-      finalResult = await this.#appendToolResult(this.#checkToolResult(result, call.id), state, call.id);
-    } catch (error) {
-      // A configuration error of an extension preparation never becomes a tool result failure, but
-      // the attempt still ends, so it announces the tool.error its tool.start expects.
-      if (isGoondanConfigError(error)) { await this.#emit("tool.error", state, { ...data, error: reason(error), codes: error.issues.map((issue) => issue.code) }); throw error; }
-      // The successful tool is never run again, so the failure keeps the location it happened at.
-      const failure = error instanceof GoondanExecutionError
-        ? error
-        : new GoondanExecutionError({ where: "toolResult", codes: ["hook_error"], message: reason(error) }, { cause: error });
-      await this.#emit("tool.error", state, { ...data, error: failure.message, codes: [...failure.codes] });
-      throw failure;
-    }
-    await this.#emit("tool.done", state, { ...data, result: this.#json(finalResult, "toolResult") });
-    if (state.completion) return state.completion;
-    return undefined;
-  }
-
-  /** Checks the form a tool implementation returned before the `toolResult` hooks see it. */
-  #checkToolResult(result: ToolResult, callId: string): ToolResult {
-    const issue = stageValueIssue("toolResult", result, callId);
-    if (issue) throw new GoondanExecutionError({ where: "toolResult", codes: ["value_invalid"], message: issue });
-    return result;
-  }
-
-  #toolResult(stage: StageRun): ToolResult {
-    if (!isToolResult(stage.value)) throw new GoondanExecutionError({ where: "toolResult", codes: ["value_invalid"], message: "the toolResult value is not a tool result" });
-    return stage.value;
-  }
-
-  /** Runs the `toolResult` stage and stores the tool result message it produced. */
-  async #appendToolResult(result: ToolResult, state: TurnState, callId: string): Promise<ToolResult> {
-    const transformed = this.#toolResult(await this.#pipeline("toolResult", result, state, callId));
-    const part: Part = transformed.isError === undefined
-      ? { type: "tool.result", callId: transformed.callId, content: transformed.content }
-      : { type: "tool.result", callId: transformed.callId, content: transformed.content, isError: transformed.isError };
-    const message: Message = { id: this.#id(), role: "tool", source: "tool", content: [part] };
-    if (transformed.keep !== undefined) message.keep = transformed.keep;
-    if (transformed.meta !== undefined) message.meta = transformed.meta;
-    state.conversation.push(message); await this.#append(state, [message]);
-    state.storedCalls.add(callId);
-    return transformed;
-  }
-
-  /**
-   * Runs the hooks of one value processing stage in declaration order. The result of a synchronous
-   * hook becomes the current value of the next one, and a `{result}` or `{retry}` control result
-   * leaves the remaining hooks of the stage unrun.
-   */
-  async #pipeline(name: ValueName, initial: PipelineValue, state: TurnState, callId?: string): Promise<StageRun> {
-    const run: StageRun = { value: initial, approvals: [] };
-    for (const spec of state.agentSpec.hooks?.[name] ?? []) {
-      // An execution that was told to stop starts no further hook.
-      if (state.signal.aborted) throw abortFailure();
-      const identifier = inlineHookIdentifier(spec, this.loaded.directory) ?? name;
-      if (spec.mode === "async") { await this.#schedule(name, spec, state, identifier, run.value); continue; }
-      try {
-        const received = await this.#received(name, spec, state, run.value);
-        if (spec.when) {
-          const decision = await this.#callFunction(spec.when.fn, received);
-          if (typeof decision !== "boolean") throw new Error(`The hook condition ${spec.when.fn} must return true or false`);
-          if (!decision) { await this.#emit("hook.skipped", state, { value: name, hook: identifier }); continue; }
-        }
-        const result = await this.#invoke(name, spec, state, identifier, received, false, this.#conversationOf(name, state, run.value));
-        // A result that arrives after the abort was signalled is not used.
-        if (state.signal.aborted) throw abortFailure();
-        this.#applyResult(name, run, result, state, callId);
-        await this.#emit("hook.applied", state, { value: name, hook: identifier });
-      } catch (error) {
-        // A configuration error of an extension preparation is never a hook failure.
-        if (isGoondanConfigError(error)) throw error;
-        // An abort is never swallowed by an optional hook and never announced as a hook failure.
-        if (state.signal.aborted) throw abortFailure(error);
-        await this.#emit("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
-        // Only an inline hook that declares `agent` is optional without saying so.
-        if (!(spec.optional ?? spec.agent !== undefined)) throw new GoondanExecutionError({ where: name, codes: ["hook_error"], message: reason(error) }, { cause: error });
-      }
-      if (run.result !== undefined || run.retry !== undefined) return run;
-    }
-    return run;
-  }
-
-  /** The value one hook receives, following its `using`. Every hook gets a copy. */
-  async #received(name: ValueName, spec: InlineHookSpec, state: TurnState, current: PipelineValue): Promise<Json> {
-    if (spec.using === "input") return this.#json(state.input, name);
-    // Inside the conversation stage `using: conversation` sees the appends of the earlier hooks.
-    if (spec.using === "conversation") return this.#json(name === "conversation" ? current : state.conversation, name);
-    if (isObject(spec.using)) return await this.#callFunction(spec.using.fn, this.#json(current, name));
-    return this.#json(current, name);
-  }
-
-  /** The conversation a hook context carries: the stage's current value inside the conversation stage. */
-  #conversationOf(name: ValueName, state: TurnState, current: PipelineValue): Message[] {
-    return structuredClone(name === "conversation" && isMessageArray(current) ? current : state.conversation);
-  }
-
-  /** Applies one synchronous hook result to the stage, or reports why the result is not usable. */
-  #applyResult(name: ValueName, run: StageRun, result: HookResult, state: TurnState, callId: string | undefined): void {
-    // A result that is null or absent leaves the current value unchanged.
-    if (result === undefined || result === null) return;
-    // A hook result is a JSON value; anything else fails the hook.
-    const value = this.#json(result, "the hook result");
-    const control = controlResult(name, value, callId);
-    if (control !== undefined) {
-      if (isControlIssue(control)) throw new Error(control.issue);
-      this.#applyControl(name, run, control, state);
-      return;
-    }
-    const issue = stageValueIssue(name, value, callId);
-    if (issue) throw new Error(issue);
-    run.value = value;
-  }
-
-  #applyControl(name: ValueName, run: StageRun, control: ControlResult, state: TurnState): void {
-    if (control.kind === "append") { run.value = this.#applyAppend(name, run.value, control.messages); return; }
-    // A later `execution` replaces the value an earlier hook attached.
-    if (control.kind === "call") { run.value = control.call; if (control.execution !== undefined) run.execution = control.execution; return; }
-    if (control.kind === "approval") { run.approvals.push(control.reason); return; }
-    if (control.kind === "result") { run.result = control.result; return; }
-    // A modelResult hook that asks for a retry beyond the limit fails.
-    if (name === "modelResult" && state.retryCount >= this.#retryLimit()) throw new Error("this agent run already reached its retry limit");
-    run.retry = control.afterMs === undefined ? { target: control.target } : { target: control.target, afterMs: control.afterMs };
-  }
-
-  #applyAppend(name: ValueName, current: PipelineValue, messages: Message[]): PipelineValue {
-    if (name === "conversation" && isMessageArray(current)) return [...current, ...appendMessages(current, messages)];
-    if (name === "modelInput" && isModelInput(current)) return { ...current, messages: [...current.messages, ...appendMessages(current.messages, messages)] };
-    throw new Error(`an append result is not allowed for the ${name} value`);
-  }
-
-  /** Schedules an asynchronous conversation hook, which never holds up the stage it belongs to. */
-  async #schedule(name: ValueName, spec: InlineHookSpec, state: TurnState, identifier: string, current: PipelineValue): Promise<void> {
-    let received: Json;
-    try {
-      received = await this.#received(name, spec, state, current);
-      if (spec.when) {
-        const decision = await this.#callFunction(spec.when.fn, received);
-        if (typeof decision !== "boolean") throw new Error(`The hook condition ${spec.when.fn} must return true or false`);
-        if (!decision) { await this.#emit("hook.skipped", state, { value: name, hook: identifier }); return; }
-      }
-    } catch (error) {
-      await this.#emit("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
-      return;
-    }
-    // One task per identifier and execution scope: a repeat while one is pending is not scheduled.
-    if (state.pending.has(identifier)) return;
-    // The task keeps the conversation of the moment it was scheduled, with the earlier hooks applied.
-    const conversation = this.#conversationOf(name, state, current);
-    const task: AsyncHookTask = { settled: false, promise: Promise.resolve() };
-    task.promise = (async (): Promise<void> => {
-      try {
-        const result = await this.#invoke(name, spec, state, identifier, received, true, conversation);
-        if (state.asyncController.signal.aborted) return;
-        if (result !== undefined && result !== null) {
-          const control = controlResult("conversation", this.#json(result, "the hook result"));
-          if (control === undefined || isControlIssue(control) || control.kind !== "append") throw new Error("an asynchronous hook returns an append result, null or nothing");
-          task.messages = control.messages;
-        }
-        await this.#emit("hook.applied", state, { value: name, hook: identifier });
-      } catch (error) {
-        task.messages = undefined;
-        if (!state.asyncController.signal.aborted) await this.#emit("hook.failed", state, { value: name, hook: identifier, error: reason(error) });
-      } finally { task.settled = true; }
-    })();
-    state.pending.set(identifier, task);
-    this.#track(task.promise);
-  }
-
-  /**
-   * Runs one hook body, honouring its `timeout`. The body is told to stop when the limit elapses or
-   * the execution is aborted, and the result it returns afterwards is not used.
-   */
-  async #invoke(name: ValueName, spec: InlineHookSpec, state: TurnState, identifier: string, received: Json, asynchronous: boolean, conversation: Message[]): Promise<HookResult> {
-    const controller = new AbortController();
-    const parent = asynchronous ? state.asyncController.signal : state.signal;
-    const stop = (): void => { controller.abort(); };
-    if (parent.aborted) controller.abort(); else parent.addEventListener("abort", stop, { once: true });
-    const active = { value: true };
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const body = this.#body(name, spec, state, identifier, controller.signal, asynchronous, conversation, active);
-      const timeout = spec.timeout;
-      if (timeout === undefined) return await body(received);
-      return await new Promise<HookResult>((resolve, reject) => {
-        timer = setTimeout(() => { controller.abort(); reject(new Error(`The hook did not finish within ${String(timeout)}ms`)); }, timeout);
-        body(received).then(resolve, reject);
-      });
-    } finally {
-      active.value = false;
-      if (timer !== undefined) clearTimeout(timer);
-      parent.removeEventListener("abort", stop);
-    }
-  }
-
-  /** The body of one hook: an extension's stage function, or the inline `fn`, `agent`, `template` chain. */
-  #body(name: ValueName, spec: InlineHookSpec, state: TurnState, identifier: string, signal: AbortSignal, asynchronous: boolean, conversation: Message[], active: { value: boolean }): (received: Json) => Promise<HookResult> {
-    if (spec.extension) {
-      const hook = state.extensions.get(spec.extension)?.hooks?.[name];
-      if (!hook) throw new Error(`The ${spec.extension} extension provides no ${name} hook`);
-      const context = this.#hookContext(state, identifier, name, asynchronous, signal, conversation, active);
-      return async (received) => await hook(received, context);
-    }
-    return async (received) => {
-      let value: Json = received;
-      if (spec.fn) {
-        value = await this.#callFunction(spec.fn, value);
-        // A function that answered with nothing ends the hook without a result.
-        if (value === null) return undefined;
-      }
-      if (spec.agent) {
-        const names = Array.isArray(spec.agent) ? spec.agent : [spec.agent];
-        // Every agent starts in declaration order and the hook waits for all of them, failing when one did.
-        const sink = this.#sink(state, "hook", asynchronous);
-        const settled = await Promise.allSettled(names.map((target) => this.#runAgent(target, this.#toMessages(value, target), { sessionId: this.#derivedSession(state, target), signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, sink)));
-        const outputs: string[] = [];
-        for (const outcome of settled) {
-          if (outcome.status === "rejected") continue;
-          outputs.push(textOf(outcome.value.output.content));
-        }
-        const rejected = settled.find((outcome) => outcome.status === "rejected");
-        if (rejected?.status === "rejected") throw rejected.reason instanceof Error ? rejected.reason : new Error(reason(rejected.reason));
-        value = outputs.join("\n");
-      }
-      if (spec.template) value = this.#renderer.render(spec.template, { text: value, input: this.#json(state.input, "input"), inputText: inputTextOf(state.input), params: state.agentSpec.params ?? {} });
-      // The inline result becomes a message only at the stages that take one; elsewhere it is the result.
-      if (name !== "conversation" && name !== "modelInput" && name !== "output") return value;
-      const text = typeof value === "string" ? value : jsonText(value);
-      if (name === "output") return this.#message(identifier, "assistant", text, state.turnId, ++state.messageNumber);
-      return { append: [this.#message(identifier, spec.role ?? "user", text, state.turnId, ++state.messageNumber)] };
-    };
-  }
-
-  #derivedSession(state: TurnState, target: string): string { return `${state.sessionId}#${state.turnId}#${target}`; }
-
-  #hookContext(state: TurnState, source: string, phase: ValueName, asynchronous: boolean, signal: AbortSignal, conversation: Message[], active: { value: boolean }): HookContext {
-    const make = (role: "user" | "system", text: string, extra?: MessageExtra): Message => {
-      const message = this.#message(source, role, text, state.turnId, ++state.messageNumber);
-      if (extra?.key !== undefined) message.key = extra.key;
-      if (extra?.keep !== undefined) message.keep = extra.keep;
-      if (extra?.meta !== undefined) message.meta = extra.meta;
-      return message;
-    };
-    return {
-      execution: { complete: (output) => { this.#complete(state, output, phase, asynchronous, active); } },
-      agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
-      step: state.step || undefined, retryCount: state.retryCount,
-      input: structuredClone(state.input), conversation, signal,
-      agents: { run: async (name, value) => await this.#runAgent(name, this.#toMessages(value, name), { sessionId: this.#derivedSession(state, name), signal, foreground: false, lineage: this.#childLineage(state) }, { host: state.scope.host, foreground: false }, this.#sink(state, "hook", asynchronous)) },
-      model: { run: async (messages) => await this.#runModel(state, messages, signal, asynchronous) },
-      render: async (template, variables) => this.#renderer.render(template, variables),
-      message: { user: (text, extra) => make("user", text, extra), system: (text, extra) => make("system", text, extra) },
-      append: (...items) => ({ append: items }),
-      log: this.#bindings.logger ?? noLog,
-    };
-  }
-
-  /** Schedules the final assistant message of the current agent run; see `execution.complete`. */
-  #complete(state: TurnState, output: Message, phase: ValueName, asynchronous: boolean, active: { value: boolean }): void {
-    if (asynchronous || phase !== "toolResult") throw new Error("execution.complete belongs to a synchronous toolResult hook");
-    if (!active.value) throw new Error("execution.complete cannot be called once the hook has returned");
-    if (!isMessage(output) || output.role !== "assistant") throw new Error("execution.complete requires an assistant message");
-    if (state.completion) throw new Error("this agent run already scheduled a message");
-    // An approved operation's execution is not an agent run, so a correct call has no effect.
-    if (state.operation) return;
-    state.completion = structuredClone(output);
-  }
-
-  /**
-   * One model call from a hook: no stage hooks, nothing stored and no tool call executed. A call a
-   * synchronous hook made records a `model` entry in the turn; a failed call records zero usage.
-   */
-  async #runModel(state: TurnState, messages: Message[], signal: AbortSignal, asynchronous: boolean): Promise<ModelResult> {
-    if (!isMessageArray(messages)) throw new Error("model.run requires an array of messages");
-    const sink = this.#sink(state, "model", asynchronous);
-    const base = this.#baseModelInput(state);
-    const input: ModelInput = { system: base.system, messages: structuredClone(messages), tools: base.tools, options: {} };
-    let result: ModelResult;
-    try {
-      // The call carries the number of the last model call the run started, and announces no text chunk.
-      result = this.#modelResult(await this.#model(state.agentSpec).generate(structuredClone(input), { agent: state.agent, sessionId: state.sessionId, turnId: state.turnId, step: state.step, signal, onTextDelta() { /* 훅의 모델 호출은 텍스트 델타를 알리지 않습니다. */ } }));
-    } catch (error) {
-      recordModelCall(sink, state.agent, state.instance, state.turnId, {
-        parentInstance: state.parentInstance,
-        parentTurnId: state.parentTurnId,
-        rootTurnId: state.rootTurnId,
-      });
-      throw error;
-    }
-    const usage = zeroUsage();
-    addUsage(usage, result.usage);
-    recordModelCall(sink, state.agent, state.instance, state.turnId, {
-      parentInstance: state.parentInstance,
-      parentTurnId: state.parentTurnId,
-      rootTurnId: state.rootTurnId,
-    }, { usage, finishReason: result.finishReason });
-    return result;
-  }
-  /** Appends messages unless the run was aborted; an aborted run stores nothing more. */
-  async #append(state: TurnState, messages: Message[]): Promise<void> { if (state.signal.aborted || messages.length === 0 || state.agentSpec.stateful === false) return; await this.#store.append(state.sessionId, state.agent, messages); }
-  async #replace(state: TurnState): Promise<void> { if (state.signal.aborted || state.agentSpec.stateful === false) return; await this.#store.replace(state.sessionId, state.agent, state.conversation); }
-  /**
-   * Applies the results of the asynchronous hooks that have finished, in the order they were
-   * scheduled. A task that is still running stays in the map and is looked at again at the next
-   * safe conversation point. The runtime never waits for one.
-   */
-  async #drainPending(state: TurnState): Promise<void> {
-    for (const [identifier, task] of [...state.pending]) {
-      if (!task.settled) continue;
-      state.pending.delete(identifier);
-      const messages = task.messages;
-      if (!messages || messages.length === 0) continue;
-      const added = appendMessages(state.conversation, messages);
-      if (added.length === 0) continue;
-      state.conversation.push(...added);
-      await this.#append(state, added);
-    }
-  }
-  /** 호스트가 보낸 실행 중 입력을 해당 흐름 실행의 대화에 추가합니다. */
-  async #drainSteering(state: TurnState): Promise<void> {
-    const host = state.scope.host;
-    if (!state.scope.foreground || host === null) return;
-    const queue = this.#queuedInput.get(host);
-    if (!queue?.length) return;
-    const accepted = queue.filter((item) => item.agent === undefined || item.agent === state.agent);
-    const remaining = queue.filter((item) => item.agent !== undefined && item.agent !== state.agent);
-    if (remaining.length === 0) this.#queuedInput.delete(host); else this.#queuedInput.set(host, remaining);
-    const messages = accepted.map((item) => this.#message("user", "user", typeof item.value === "string" ? item.value : jsonText(item.value), state.turnId, ++state.messageNumber));
-    state.conversation.push(...messages);
-    await this.#append(state, messages);
-  }
-  /**
-   * Calls a host function with a copy of one JSON value. A function that returns nothing returned
-   * `null`, and a value that is not JSON fails the call.
-   */
-  async #callFunction(name: string, value: Json): Promise<Json> {
-    const fn: GoondanFunction | undefined = this.#bindings.functions?.[name];
-    if (!fn) throw new Error(`Unknown function: ${name}`);
-    return this.#json(await fn(this.#json(value, name)), `the result of the function ${name}`);
-  }
-  /**
-   * Announces one event of a run. Deliveries of the same run are chained, so every receiver sees the
-   * events in the order they happened even when a `step.textDelta` delivery is not awaited.
-   */
-  async #emit(name: RuntimeEventName, state: TurnState, data: Record<string, Json>): Promise<void> {
-    const event: RuntimeEvent = {
-      name, agent: state.agent, sessionId: state.sessionId, turnId: state.turnId,
-      instance: state.instance, parentInstance: state.parentInstance, parentTurnId: state.parentTurnId,
-      rootTurnId: state.rootTurnId, at: Date.now(), data,
-    };
-    const delivery = state.emitting.then(() => this.#deliver(event, state.extensions));
-    state.emitting = delivery;
-    await delivery;
-  }
-  /**
-   * Delivers one event to the host of the runtime the host created and then to the extension
-   * instances of the run's scope, in creation order. A receiver failure is ignored.
-   */
-  async #deliver(event: RuntimeEvent, extensions: ReadonlyMap<string, ExtensionInstance>): Promise<void> {
-    const host = this.#bindings.host;
-    if (host?.emit) { try { await host.emit(event); } catch { /* A failed receiver never stops the run. */ } }
-    for (const instance of extensions.values()) {
-      const handler = instance.on?.[event.name];
-      if (!handler) continue;
-      try { await handler(event); } catch { /* A failed receiver never stops the run. */ }
-    }
-  }
-  #message(source: string, role: "user" | "system" | "assistant", text: string, turnId: string, number: number): Message { return { id: `${turnId}:${String(number)}:${this.#id()}`, role, source, content: [{ type: "text", text }] }; }
-  #messageWithParts(source: string, content: Part[]): Message { return { id: this.#id(), role: "user", source, content: structuredClone(content) }; }
-  #toMessages(input: RunInput, source: string): Message[] {
-    if (isMessageArray(input)) return structuredClone(input);
-    if (isPartArray(input)) return [this.#messageWithParts(source, input)];
-    const value = this.#json(input, "run input");
-    if (typeof value === "string") return [this.#messageWithParts(source, [{ type: "text", text: value }])];
-    return [this.#messageWithParts(source, [{ type: "json", value }])];
-  }
-  #hostSession(sessionId: string): void {
-    if (sessionId.includes("#")) throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "A host sessionId cannot contain #" });
-  }
-  #steerFailure(message: string): GoondanExecutionError {
-    return new GoondanExecutionError({ where: "runtime", codes: ["steer_invalid"], message });
-  }
-  #markForeground(state: TurnState): void {
-    const sessionId = state.scope.host;
-    if (!state.scope.foreground || sessionId === null) return;
-    const agents = this.#foregroundAgents.get(sessionId) ?? new Map<string, number>();
-    agents.set(state.agent, (agents.get(state.agent) ?? 0) + 1);
-    this.#foregroundAgents.set(sessionId, agents);
-  }
-  #unmarkForeground(state: TurnState): void {
-    const sessionId = state.scope.host;
-    if (!state.scope.foreground || sessionId === null) return;
-    const agents = this.#foregroundAgents.get(sessionId); if (!agents) return;
-    const count = (agents.get(state.agent) ?? 1) - 1;
-    if (count === 0) agents.delete(state.agent); else agents.set(state.agent, count);
-    if (agents.size === 0) this.#foregroundAgents.delete(sessionId);
-  }
-  async #deleteSession(sessionId: string): Promise<void> {
-    this.#hostSession(sessionId);
-    if (this.#closed) throw closedFailure();
-    if ((this.#turnCounts.get(sessionId) ?? 0) > 0) throw new GoondanExecutionError({ where: "runtime", codes: ["runtime_error"], message: "The session has a running or queued turn" });
-    for (const [key, instances] of [...this.#instances]) {
-      const parsed: unknown = JSON.parse(key);
-      if (!Array.isArray(parsed) || typeof parsed[0] !== "string") continue;
-      if (parsed[0] !== sessionId && !parsed[0].startsWith(`${sessionId}#`)) continue;
-      await disposeAll(instances); this.#instances.delete(key); this.#pendingHooks.delete(key);
-    }
-    for (const [key, controller] of [...this.#asyncControllers]) {
-      const parsed: unknown = JSON.parse(key);
-      if (!Array.isArray(parsed) || typeof parsed[0] !== "string") continue;
-      if (parsed[0] !== sessionId && !parsed[0].startsWith(`${sessionId}#`)) continue;
-      controller.abort();
-      this.#asyncControllers.delete(key);
-      this.#pendingHooks.delete(key);
-    }
-    this.#queuedInput.delete(sessionId);
-    await this.#store.deleteSession(sessionId);
-  }
-  #id(): string { return globalThis.crypto.randomUUID(); }
-  #now(): number { return Date.now(); }
-  /** The declared agent of this configuration; an inherited object key never names one. */
-  #agent(name: string): AgentSpec {
-    const spec = Object.hasOwn(this.loaded.config.agents, name) ? this.loaded.config.agents[name] : undefined;
-    if (!spec) throw new Error(`Unknown agent: ${name}`);
-    return spec;
-  }
-  /** Narrows a host value to JSON. An object member that is `undefined` is left out, as in JSON. */
-  #json(value: unknown, at: string): Json { if (value === undefined) return null; if (value === null || typeof value === "string" || typeof value === "boolean") return value; if (typeof value === "number" && Number.isFinite(value)) return value; if (Array.isArray(value)) return value.map((item) => this.#json(item, at)); if (isObject(value)) { const result: Record<string, Json> = {}; for (const [key, child] of Object.entries(value)) { if (child === undefined) continue; result[key] = this.#json(child, at); } return result; } throw new Error(`${at} is not JSON serializable`); }
-  #jsonRecord(value: Record<string, unknown>): Record<string, Json> { const result: Record<string, Json> = {}; for (const [key, child] of Object.entries(value)) result[key] = this.#json(child, key); return result; }
 }
 
-/**
- * `loadConfig` 결과나 구성 문서에서 군단 객체를 만듭니다. 스키마, 참조, 바인딩 검증을 먼저
- * 수행하므로 유효하지 않은 구성으로 실행 엔진을 시작하지 않습니다.
- */
-export function createGoondan(config: LoadedConfig | unknown, bindings: RuntimeBindings): Goondan { return new Goondan(config, bindings); }
+export function createGoondan(config: LoadedConfig | unknown, bindings: RuntimeBindings): Goondan {
+  return new Goondan(config, bindings);
+}

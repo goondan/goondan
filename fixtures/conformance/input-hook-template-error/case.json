@@ -1,6 +1,9 @@
 {
-  "description": "input 단계의 template 인라인 훅은 문자열을 반환하므로 메시지 배열 검사를 통과하지 못해 hook_error가 된다.",
-  "spec": ["입력", "인라인 훅", "훅 실패"],
-  "bindings": {"models": {"m": {"responses": []}}},
-  "steps": [{"run": {"sessionId": "s", "input": "원본"}}]
+  "description": "동기 onInput 훅은 template 실행 요소를 사용할 수 없으므로 로드 단계에서 구성 오류가 된다.",
+  "spec": [
+    "입력",
+    "인라인 훅",
+    "훅 실패"
+  ],
+  "steps": []
 }

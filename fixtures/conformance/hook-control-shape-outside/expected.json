@@ -2,8 +2,10 @@
   "steps": [
     {
       "error": {
-        "where": "input",
-        "codes": ["hook_error"],
+        "where": "onInput",
+        "codes": [
+          "hook_error"
+        ],
         "attempt": 1
       }
     }

@@ -2,8 +2,8 @@ agents:
   main:
     model: m
     hooks:
-      modelInput:
+      onStep:
         - agent: helper
-          using: input
+          optional: true
   helper:
     model: h

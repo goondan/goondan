@@ -9,12 +9,16 @@
           "agent": "main",
           "sessionId": "c1",
           "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "executionId": "<execution:1>",
           "step": 1
         },
         {
           "agent": "main",
           "sessionId": "c1",
           "turnId": "<turn:1>",
+          "instance": "c1/main",
+          "executionId": "<execution:1>",
           "step": 2
         }
       ]
@@ -29,7 +33,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

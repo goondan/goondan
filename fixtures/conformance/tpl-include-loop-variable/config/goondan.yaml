@@ -4,6 +4,6 @@ agents:
     params:
       list: [a, b]
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

@@ -1,3 +1,11 @@
 {
-  "steps": [{"error": {"where": "input", "codes": ["hook_error"], "attempt": 1}}]
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.oneOf",
+        "path": "/agents/main/hooks/onInput/0"
+      }
+    ]
+  }
 }

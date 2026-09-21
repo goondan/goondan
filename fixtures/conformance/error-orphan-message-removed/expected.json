@@ -29,7 +29,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       },
@@ -44,7 +47,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           },
           {
             "role": "user",
@@ -54,7 +60,10 @@
                 "type": "text",
                 "text": "다시"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       }
@@ -69,7 +78,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",
@@ -79,7 +91,10 @@
               "type": "text",
               "text": "다시"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

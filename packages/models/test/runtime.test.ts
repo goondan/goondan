@@ -42,8 +42,8 @@ describe("@goondan/models with the core runtime", () => {
       name: "lookup",
       description: "Look up a number",
       input: { type: "object", properties: { q: { type: "number" } } },
-      execute(input, ctx) {
-        return { callId: ctx.toolCall.id, name: "lookup", args: input, content: [{ type: "text", text: "forty-two" }] };
+      execute() {
+        return [{ type: "text", text: "forty-two" }];
       },
     };
     const config: LoadedConfig = {
@@ -67,11 +67,11 @@ describe("@goondan/models with the core runtime", () => {
       content: [thinking, { type: "text", text: "Checking." }, { type: "tool_use", id: "toolu_1", name: "lookup", input: { q: 1 } }],
     });
     expect(toolTurn).toEqual({ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [{ type: "text", text: "forty-two" }] }] });
-    expect(events.filter((event) => event.name === "step.textDelta").map((event) => event.data)).toEqual([
+    expect(events.filter((event) => event.type === "step.textDelta").map((event) => event.data)).toEqual([
       { step: 1, delta: "Checking." },
       { step: 2, delta: "Done." },
     ]);
-    expect(result.output.content).toEqual([{ type: "text", text: "Done." }]);
+    expect(result.outputs[0]?.content).toEqual([{ type: "text", text: "Done." }]);
     expect(result.usage).toEqual({ input: 30, output: 8, cacheRead: 2, cacheWrite: 0 });
   });
 });

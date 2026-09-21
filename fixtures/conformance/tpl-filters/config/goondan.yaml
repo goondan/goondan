@@ -12,6 +12,6 @@ agents:
       arr: [x, y]
       obj: {k: 1}
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

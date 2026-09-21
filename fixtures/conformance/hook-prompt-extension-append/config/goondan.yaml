@@ -1,0 +1,9 @@
+agents:
+  main:
+    model: m
+    extensions:
+      context: {}
+    hooks:
+      onPrompt:
+        - name: prompt-context
+          extension: context

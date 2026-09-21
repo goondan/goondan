@@ -1,7 +1,7 @@
 {
-  "description": "동기 toolResult 확장 훅이 예약한 메시지가 있으면 모델을 다시 호출하지 않고 그 메시지를 output 단계에 통과시키며, 결과를 대화 끝에 저장하고 실행의 finishReason은 tool이다.",
+  "description": "동기 onToolResult 확장 훅의 complete 결과는 모델을 다시 호출하지 않고 예약한 메시지로 실행을 끝내며, 결과를 대화 끝에 저장하고 실행의 finishReason은 tool이다.",
   "spec": [
-    "`execution.complete`",
+    "제어 결과",
     "단계 값과 대화 저장"
   ],
   "bindings": {
@@ -33,17 +33,11 @@
         ]
       }
     },
-    "functions": {
-      "polish": {
-        "op": "textSuffix",
-        "suffix": "!"
-      }
-    },
     "extensions": {
       "memo": {
         "instance": {
           "hooks": {
-            "toolResult": {
+            "onToolResult": {
               "op": "complete",
               "message": {
                 "id": "done-1",

@@ -1,7 +1,0 @@
-agents:
-  main:
-    model: m
-    hooks:
-      input:
-        - fn: boom
-routes: [main]

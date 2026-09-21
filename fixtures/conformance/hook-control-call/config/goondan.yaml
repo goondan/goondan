@@ -3,7 +3,7 @@ agents:
     model: m
     tools: [lookup]
     hooks:
-      toolCall:
+      onToolCall:
         - name: p1
           extension: policy
         - name: p2

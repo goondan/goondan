@@ -15,77 +15,6 @@
     }
   ],
   "observations": {
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "요청"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "where": "model",
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ],
     "conversations": {
       "c1/main": [
         {
@@ -96,7 +25,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

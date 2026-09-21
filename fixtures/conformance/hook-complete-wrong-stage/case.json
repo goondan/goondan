@@ -1,7 +1,7 @@
 {
   "description": "다른 단계의 훅 컨텍스트로는 메시지를 예약할 수 없으므로 호출이 오류를 던지고, 선택 훅이면 hook.failed를 알린 뒤 다음 훅을 계속한다.",
   "spec": [
-    "`execution.complete`",
+    "제어 결과",
     "훅 실패"
   ],
   "bindings": {
@@ -22,7 +22,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelResult": {
+            "onModelResult": {
               "op": "complete",
               "message": {
                 "id": "done-1",

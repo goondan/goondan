@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "conversation",
+        "where": "onStep",
         "codes": [
           "hook_error"
         ],
@@ -21,7 +21,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

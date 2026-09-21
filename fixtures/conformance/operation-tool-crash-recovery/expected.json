@@ -1,0 +1,23 @@
+{
+  "steps": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "operationHistory": {
+      "<op:crash-1>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "failed/pending",
+        "failed/delivering",
+        "failed/delivered"
+      ]
+    }
+  }
+}

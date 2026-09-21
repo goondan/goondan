@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "최종본"
-            }
-          ]
-        },
+        "output": "최종본",
         "outputs": [
           {
             "role": "assistant",
@@ -46,13 +37,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/first",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "second",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 2,
@@ -63,9 +52,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/second",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           }
         ]
       }
@@ -82,7 +69,10 @@
               "type": "text",
               "text": "원문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -107,7 +97,8 @@
           ],
           "meta": {
             "from": "first",
-            "instance": "c1/first"
+            "instance": "c1/first",
+            "kind": "start"
           }
         },
         {

@@ -2,10 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: ctx
           fn: makeObject
-          using: input
-      output:
-        - name: wrapUp
-          fn: makeOut
+          role: user

@@ -2,9 +2,8 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: pipe
           agent: helper
-          using: conversation
   helper:
     model: h

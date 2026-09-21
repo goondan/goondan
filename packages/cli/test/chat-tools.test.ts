@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Json, Tool, ToolContext, ToolResult } from '@goondan/core';
+import type { Json, Part, Tool, ToolContext, ToolResultValue } from '@goondan/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createLocalTools } from '../src/chat/tools.ts';
 
@@ -20,19 +20,36 @@ function context(name: string, input: Json, signal = new AbortController().signa
     agent: 'main',
     sessionId: 'session-1',
     turnId: 'turn-1',
+    instance: 'instance-1',
+    executionId: 'execution-1',
     toolCall: { id: `call-${name}`, name, args: input },
     execution: {},
     signal,
+    log: { info() {}, warn() {}, error() {} },
     agents: { run: async () => { throw new Error('unused'); } },
   };
 }
 
-async function execute(tool: Tool | undefined, input: Json, signal?: AbortSignal): Promise<ToolResult> {
+async function execute(tool: Tool | undefined, input: Json, signal?: AbortSignal): Promise<ToolResultValue> {
   if (!tool) throw new Error('Expected tool to be registered');
-  return Promise.resolve(tool.execute(input, context(tool.name, input, signal)));
+  const returned: unknown = await Promise.resolve(tool.execute(input, context(tool.name, input, signal)));
+  if (typeof returned !== 'object' || returned === null || Array.isArray(returned)
+    || !('content' in returned) || !Array.isArray(returned.content) || !returned.content.every(isPart)) {
+    throw new Error('Expected a tool result value');
+  }
+  return {
+    content: returned.content,
+    ...('isError' in returned && returned.isError === true ? { isError: true } : {}),
+  };
 }
 
-function text(result: ToolResult): string {
+function isPart(value: unknown): value is Part {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && 'type' in value && value.type === 'text'
+    && 'text' in value && typeof value.text === 'string';
+}
+
+function text(result: ToolResultValue): string {
   const part = result.content[0];
   if (!part || part.type !== 'text') throw new Error('Expected text tool result');
   return part.text;

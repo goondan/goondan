@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "goondan",
-          "content": [
-            {
-              "type": "text",
-              "text": "A\n\nC"
-            }
-          ]
-        },
+        "output": "A\n\nC",
         "outputs": [
           {
             "role": "assistant",
@@ -56,13 +47,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/a",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "c",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 2,
@@ -73,9 +62,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/c",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           }
         ]
       }
@@ -106,7 +93,10 @@
                   "type": "text",
                   "text": "시작"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ]
         }
@@ -134,7 +124,10 @@
                   "type": "text",
                   "text": "시작"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ]
         }
@@ -162,7 +155,10 @@
                   "type": "text",
                   "text": "시작"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ]
         }
@@ -178,7 +174,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -203,7 +202,8 @@
           ],
           "meta": {
             "from": "a",
-            "instance": "c1/a"
+            "instance": "c1/a",
+            "kind": "start"
           }
         },
         {

@@ -262,6 +262,11 @@ export function validateRootProperty(name: string, value: unknown, at: readonly 
   return toIssues(check(configSchema, asSchema(properties[name]), value, [...at]));
 }
 
+/** 호스트 도구가 선언한 JSON Schema로 호출 인수를 검사합니다. */
+export function validateJsonValue(schema: Record<string, Json>, value: unknown): ConfigIssue[] {
+  return toIssues(check(schema, schema, value, []));
+}
+
 /** Lists every schema location that uses a keyword outside the supported set. */
 export function unsupportedSchemaKeywords(schema: unknown, at = "#"): string[] {
   if (typeof schema === "boolean") return [];

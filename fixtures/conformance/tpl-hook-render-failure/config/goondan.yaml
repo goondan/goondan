@@ -4,6 +4,6 @@ agents:
     params:
       flag: true
     hooks:
-      conversation:
+      onStep:
         - name: note
           template: templates/note.md

@@ -5,7 +5,7 @@ agents:
       memo:
         enabled: false
     hooks:
-      modelInput:
+      onModelInput:
         - extension: memo
-      output:
+      onOutput:
         - extension: memo

@@ -6,6 +6,6 @@ agents:
       empty: []
       outer: [[p, q], [r]]
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

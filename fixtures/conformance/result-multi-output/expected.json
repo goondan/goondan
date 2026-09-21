@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "goondan",
-          "content": [
-            {
-              "type": "text",
-              "text": "왼쪽\n\n오른쪽"
-            }
-          ]
-        },
+        "output": "왼쪽\n\n오른쪽",
         "outputs": [
           {
             "role": "assistant",
@@ -50,13 +41,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/split",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "left",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -67,13 +56,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/left",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           },
           {
             "agent": "right",
-            "turnId": "<turn:3>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -84,25 +71,14 @@
             "finishReason": "length",
             "status": "done",
             "instance": "c1/right",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:3>"
           }
         ]
       }
     },
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "goondan",
-          "content": [
-            {
-              "type": "text",
-              "text": "왼쪽2\n\n오른쪽2"
-            }
-          ]
-        },
+        "output": "왼쪽2\n\n오른쪽2",
         "finishReason": "stop",
         "status": "done"
       }
@@ -119,7 +95,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -144,7 +123,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c1/split"
+            "instance": "c1/split",
+            "kind": "start"
           }
         },
         {
@@ -170,7 +150,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c1/split"
+            "instance": "c1/split",
+            "kind": "start"
           }
         },
         {
@@ -193,7 +174,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -218,7 +202,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c2/split"
+            "instance": "c2/split",
+            "kind": "start"
           }
         },
         {
@@ -244,7 +229,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c2/split"
+            "instance": "c2/split",
+            "kind": "start"
           }
         },
         {

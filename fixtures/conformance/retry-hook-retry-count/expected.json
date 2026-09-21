@@ -1,16 +1,17 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "hookContexts": [
       {
         "extension": "policy",
-        "stage": "modelInput",
+        "stage": "onModelInput",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
         "input": [
           {
             "role": "user",
@@ -20,7 +21,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -32,17 +36,23 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 0
       },
       {
         "extension": "policy",
-        "stage": "modelResult",
+        "stage": "onModelResult",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
+        "step": 1,
         "input": [
           {
             "role": "user",
@@ -52,7 +62,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -64,17 +77,23 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 0
       },
       {
         "extension": "policy",
-        "stage": "modelInput",
+        "stage": "onModelInput",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
+        "step": 1,
         "input": [
           {
             "role": "user",
@@ -84,7 +103,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -96,17 +118,23 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 1
       },
       {
         "extension": "policy",
-        "stage": "modelResult",
+        "stage": "onModelResult",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
+        "step": 2,
         "input": [
           {
             "role": "user",
@@ -116,7 +144,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -128,7 +159,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 1

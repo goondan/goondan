@@ -8,8 +8,6 @@ import pytest
 
 from conformance.bindings import (
     CaseState,
-    RecordingConversationStore,
-    RecordingOperationStore,
     RuntimeBindings,
     project_event,
     project_operation,
@@ -44,7 +42,7 @@ from conformance.runner import (
 from conformance.values import json_equal, merge_values
 
 from goondan import GoondanConfigError
-from goondan.store import InMemoryConversationStore, InMemoryOperationStore
+from goondan.store import InMemoryStore
 
 
 def minimal_case(**overrides):
@@ -249,8 +247,7 @@ def test_check_case_accepts_a_case_that_follows_the_format():
     case = minimal_case(
         bindings={"models": {"m": {"responses": [{"text": "hi", "usage": {"input": 1}}]}},
                   "tools": {"lookup": {"results": [{"text": "found"}]}},
-                  "functions": {"f": {"op": "chain", "ops": [{"op": "text"}, {"op": "constant", "value": 1}]}},
-                  "host": {"validateOperation": True}},
+                  "functions": {"f": {"op": "chain", "ops": [{"op": "text"}, {"op": "constant", "value": 1}]}}},
         steps=[{"run": {"sessionId": "c1", "input": "hi"}}],
     )
     check_case(case, {"steps": [{"result": {"status": "done"}}], "observations": {"toolCalls": []}})
@@ -277,7 +274,7 @@ def test_check_case_accepts_a_run_model_operation_whose_messages_are_no_array():
     """§훅 컨텍스트와 호스트 함수: `model.run` gets the value unchanged, so any JSON may be passed."""
 
     def case_with(hook):
-        return minimal_case(bindings={"extensions": {"memo": {"instance": {"hooks": {"modelInput": hook}}}}})
+        return minimal_case(bindings={"extensions": {"memo": {"instance": {"hooks": {"onModelInput": hook}}}}})
 
     check_case(case_with({"op": "runModel", "messages": "문자열"}), {"steps": []})
     with pytest.raises(CaseFormatError) as error:
@@ -325,12 +322,13 @@ def test_check_case_rejects_a_step_with_two_actions():
     assert any("exactly one" in problem for problem in error.value.problems)
 
 
-def test_check_case_accepts_steer_agent_and_session_deletion():
+def test_check_case_accepts_journal_lease_and_session_deletion():
     steps = [
-        {"steer": {"sessionId": "c1", "value": "추가", "agent": "main"}},
+        {"acquireLease": {"sessionId": "c1", "owner": "runner", "lease": "a"}},
+        {"renewLease": {"lease": "a"}},
         {"deleteSession": {"sessionId": "c1"}},
     ]
-    check_case(minimal_case(steps=steps), {"steps": [{}, {}]})
+    check_case(minimal_case(steps=steps), {"steps": [{}, {}, {}]})
 
 
 def test_check_case_rejects_a_model_response_with_two_actions():
@@ -362,16 +360,16 @@ async def test_value_operations_produce_the_documented_results():
     assert math.isnan(await run_op({"op": "nonJson"}, None))
 
 
-async def test_the_result_operation_builds_a_control_result_from_the_tool_call():
+async def test_the_result_operation_builds_a_runtime_normalizable_control_result():
     call = {"id": "c-1", "name": "lookup", "args": {"q": 1}}
     built = await run_op({"op": "result", "content": [{"type": "text", "text": "r"}], "isError": True}, call)
-    assert built == {"result": {"callId": "c-1", "name": "lookup", "args": {"q": 1},
-                                "content": [{"type": "text", "text": "r"}], "isError": True}}
+    assert built == {"result": {"content": [{"type": "text", "text": "r"}], "isError": True}}
 
 
-async def test_the_result_operation_fails_without_a_tool_call():
-    with pytest.raises(ScriptError):
-        await run_op({"op": "result", "content": []}, {"name": "lookup"})
+async def test_the_result_operation_does_not_copy_runtime_fields():
+    assert await run_op({"op": "result", "content": []}, {"name": "lookup"}) == {
+        "result": {"content": []}
+    }
 
 
 async def test_the_throw_and_text_operations_raise_a_script_error():
@@ -450,20 +448,17 @@ def test_releasing_the_reserved_gate_is_an_error():
 # -- observations -----------------------------------------------------------------------
 
 
-def test_project_event_keeps_the_required_data_keys_without_the_error_text():
-    event = {"name": "turn.error", "agent": "main", "sessionId": "c1", "turnId": "t1", "at": 1,
-             "instance": "c1/main", "parentInstance": None, "parentTurnId": None, "rootTurnId": "root-1",
-             "data": {"where": "model", "codes": ["model_error"], "error": "boom", "extra": 1}}
-    assert project_event(event) == {"name": "turn.error", "agent": "main", "sessionId": "c1", "turnId": "t1",
-                                    "instance": "c1/main", "parentInstance": None,
-                                    "parentTurnId": None, "rootTurnId": "root-1",
-                                    "data": {"where": "model", "codes": ["model_error"]}}
+def test_project_event_keeps_the_v3_envelope_without_storage_metadata():
+    event = {"seq": 1, "version": 1, "type": "turn.error", "sessionId": "c1", "turnId": "t1", "at": 1,
+             "executionId": "e1", "writeId": "w1", "data": {"status": "failed", "error": {"codes": ["model_error"]}}}
+    assert project_event(event) == {"seq": 1, "version": 1, "type": "turn.error", "sessionId": "c1",
+                                    "turnId": "t1", "executionId": "e1",
+                                    "data": {"status": "failed", "error": {"codes": ["model_error"]}}}
 
 
 def test_project_event_keeps_the_operation_identifier_of_an_approved_execution():
-    event = {"name": "tool.done", "agent": "main", "sessionId": "c1", "turnId": "t1", "at": 1,
-             "data": {"tool": "danger", "callId": "c-1", "args": {}, "result": {}, "operationId": "op-1"}}
-    assert project_event(event)["data"]["operationId"] == "op-1"
+    event = {"type": "agent.done", "sessionId": "c1", "turnId": "t1", "operationId": "op-1", "data": {}}
+    assert project_event(event)["operationId"] == "op-1"
 
 
 def test_project_operation_drops_the_times():
@@ -471,39 +466,8 @@ def test_project_operation_drops_the_times():
     assert project_operation(operation) == {"operationId": "op-1", "status": "pending"}
 
 
-async def test_the_operation_store_numbers_repeated_call_identifiers():
-    store = RecordingOperationStore()
-    for index in range(2):
-        await store.save({"sessionId": "c1", "operationId": f"op-{index}", "toolCall": {"id": "danger-1"},
-                          "status": "pending", "deliveryStatus": "pending"})
-    assert store.aliases() == {"op-0": "<op:danger-1>", "op-1": "<op:danger-1#2>"}
-
-
-async def test_the_operation_store_records_every_accepted_state_change_once():
-    store = RecordingOperationStore()
-    await store.save({"sessionId": "c1", "operationId": "op-1", "toolCall": {"id": "danger-1"},
-                      "deliveryId": "operation:op-1:completion", "status": "pending", "deliveryStatus": "pending"})
-    await store.transition("c1", "op-1", ["pending"], {"status": "approved"})
-    await store.transition("c1", "op-1", ["pending"], {"status": "running"})
-    await store.transition("c1", "op-1", ["approved"], {"status": "completed"})
-    await store.claim_delivery("c1", "op-1", 10)
-    await store.release_delivery("c1", "op-1", "operation:op-1:completion", 11)
-    await store.claim_delivery("c1", "op-1", 12)
-    await store.transition("c1", "op-1", ["completed"], {"deliveryStatus": "delivered", "deliveredAt": 13})
-    await store.transition("c1", "op-1", ["completed"], {"deliveryStatus": "delivered", "deliveredAt": 14})
-    assert store.observation_history(store.aliases()) == {
-        "<op:danger-1>": ["pending/pending", "approved/pending", "completed/pending", "completed/delivering",
-                          "completed/pending", "completed/delivering", "completed/delivered"],
-    }
-
-
-def test_the_runner_stores_are_the_stores_the_host_ships():
-    """The runner store only records, so the runtime sees the host's own store protocol."""
-    assert isinstance(RecordingOperationStore(), InMemoryOperationStore)
-    assert isinstance(RecordingConversationStore(), InMemoryConversationStore)
-    for name in vars(InMemoryOperationStore):
-        if not name.startswith("_"):
-            assert hasattr(RecordingOperationStore(), name)
+def test_the_runner_store_is_the_store_the_host_ships():
+    assert isinstance(make_bindings({}).store, InMemoryStore)
 
 
 # -- invariants -------------------------------------------------------------------------
@@ -643,17 +607,17 @@ async def test_a_scripted_function_records_its_argument():
 
 async def test_an_extension_script_logs_its_options_creation_events_and_disposal():
     state = make_bindings({"extensions": {"memory": {
-        "definition": {"requires": ["note"], "hooks": ["modelInput"], "tools": [], "validateOptions": {"op": "identity"}},
-        "instance": {"hooks": {"modelInput": {"op": "append", "messages": [{"role": "user", "text": "remember"}]}},
+        "definition": {"requires": ["note"], "hooks": ["onModelInput"], "tools": [], "validateOptions": {"op": "identity"}},
+        "instance": {"hooks": {"onModelInput": {"op": "append", "messages": [{"role": "user", "text": "remember"}]}},
                      "events": ["turn.done"]},
     }}})
     definition = RuntimeBindings(state, "runtime-1").extensions["memory"]
-    assert definition.requires == ("note",) and definition.hooks == ("modelInput",) and definition.tools == ()
+    assert definition.requires == ("note",) and definition.hooks == ("onModelInput",) and definition.tools == ()
     assert await definition.validate_options({"prefix": "a"}) == {"prefix": "a"}
     instance = definition.create(options={"prefix": "a"}, ports={"note": "n"},
                                  agent={"name": "main", "path": "main", "spec": {}}, log=object())
     context = FakeHookContext()
-    assert await instance.hooks["modelInput"]({"messages": []}, context) == {"append": context.appended}
+    assert await instance.hooks["onModelInput"]({"messages": []}, context) == {"append": context.appended}
     await instance.on["turn.done"]({"name": "turn.done"})
     await instance.dispose()
     assert state.observations.extension_log == [
@@ -663,8 +627,8 @@ async def test_an_extension_script_logs_its_options_creation_events_and_disposal
         {"action": "event", "instance": 1, "name": "turn.done"},
         {"action": "dispose", "instance": 1},
     ]
-    assert state.observations.hook_calls == [{"extension": "memory", "stage": "modelInput", "value": {"messages": []}}]
-    assert state.observations.hook_contexts == [{"extension": "memory", "stage": "modelInput", "agent": "main",
+    assert state.observations.hook_calls == [{"extension": "memory", "stage": "onModelInput", "value": {"messages": []}}]
+    assert state.observations.hook_contexts == [{"extension": "memory", "stage": "onModelInput", "agent": "main",
                                                  "sessionId": "c1", "turnId": "t1", "input": "hi",
                                                  "conversation": [], "retryCount": 0}]
 
@@ -678,7 +642,7 @@ async def test_an_extension_that_declares_a_creation_error_fails_to_create():
 
 
 async def test_the_complete_operation_uses_the_tool_result_content_when_asked():
-    state = make_bindings({"extensions": {"finish": {"instance": {"hooks": {"toolResult": {
+    state = make_bindings({"extensions": {"finish": {"instance": {"hooks": {"onToolResult": {
         "op": "complete", "tool": "done", "useResultContent": True,
         "message": {"role": "assistant", "source": "tool", "content": []},
     }}}}}})
@@ -686,50 +650,19 @@ async def test_the_complete_operation_uses_the_tool_result_content_when_asked():
     instance = definition.create(options={}, ports={}, agent={"name": "main", "path": "main", "spec": {}}, log=None)
     context = FakeHookContext()
     result = {"callId": "c-1", "name": "done", "args": {}, "content": [{"type": "text", "text": "bye"}]}
-    assert await instance.hooks["toolResult"](result, context) is None
+    assert await instance.hooks["onToolResult"](result, context) is None
     assert context.execution.output["content"] == [{"type": "text", "text": "bye"}]
-    assert await instance.hooks["toolResult"]({"name": "other", "content": []}, context) is None
-
-
-async def test_only_the_host_callbacks_a_case_lists_are_provided():
-    state = make_bindings({"host": {"validateOperation": True, "requestApproval": {"op": "constant", "value": None}}})
-    host = RuntimeBindings(state, "runtime-1").host
-    assert hasattr(host, "validate_operation") and hasattr(host, "request_approval")
-    assert not hasattr(host, "deliver_operation_completion")
-    assert await host.validate_operation({"operationId": "op-1", "createdAt": 1}) is True
-    assert await host.request_approval({"tool": "danger"}) is None
-    assert state.observations.host_calls == [{"callback": "validateOperation", "value": {"operationId": "op-1"}},
-                                             {"callback": "requestApproval", "value": {"tool": "danger"}}]
-
-
-async def test_the_input_patch_callback_receives_both_arguments_as_one_value():
-    state = make_bindings({"host": {"validateOperationInputPatch": True}})
-    host = RuntimeBindings(state, "runtime-1").host
-    assert await host.validate_operation_input_patch({"operationId": "op-1", "updatedAt": 2}, {"env": "staging"}) is True
-    assert state.observations.host_calls == [{"callback": "validateOperationInputPatch",
-                                              "value": {"operation": {"operationId": "op-1"}, "inputPatch": {"env": "staging"}}}]
+    assert await instance.hooks["onToolResult"]({"name": "other", "content": []}, context) is None
 
 
 async def test_the_event_sink_projects_the_event_and_checks_its_time():
     state = make_bindings({})
     receive = RuntimeBindings(state, "runtime-1").emit()
-    await receive({"name": "turn.start", "agent": "main", "sessionId": "c1", "turnId": "t1", "at": "now",
-                   "instance": "c1/main", "parentInstance": None, "parentTurnId": None, "rootTurnId": "root-1",
-                   "data": {"input": "hi"}})
-    assert state.observations.events == [{"name": "turn.start", "agent": "main", "sessionId": "c1",
-                                          "turnId": "t1", "instance": "c1/main", "parentInstance": None,
-                                          "parentTurnId": None, "rootTurnId": "root-1", "data": {"input": "hi"}}]
+    await receive({"type": "turn.start", "version": 1, "sessionId": "c1", "turnId": "t1", "at": "now",
+                   "data": {}})
+    assert state.observations.events == [{"type": "turn.start", "version": 1, "sessionId": "c1",
+                                          "turnId": "t1", "data": {}}]
     assert state.problems == ["the event 'turn.start' must have a number 'at'"]
-
-
-async def test_the_conversation_store_keeps_every_scope_apart():
-    state = make_bindings({})
-    store = state.conversation_store
-    await store.append("a:b", "c", [{"id": "m-1", "role": "user", "content": []}])
-    await store.append("a", "b:c", [{"id": "m-2", "role": "user", "content": []}])
-    await store.replace("a", "b:c", [{"id": "m-3", "role": "user", "content": []}])
-    assert list(store.observation()) == ["a:b/c", "a/b:c"]
-    assert store.observation()["a/b:c"] == [{"id": "m-3", "role": "user", "content": []}]
 
 
 def test_library_problems_reports_an_entry_that_is_not_a_case(tmp_path):
@@ -764,11 +697,12 @@ class FakeRuntime:
     """A runtime with only the members a test needs, so a missing one can be checked."""
 
     def __init__(self, operations=()):
-        self.operations = list(operations)
+        records = list(operations)
+        class Operations:
+            async def list(self, session_id=None):
+                return [item for item in records if session_id is None or item.get("sessionId") == session_id]
+        self.operations = Operations()
         self.closed = False
-
-    async def list_operations(self, session_id=None):
-        return list(self.operations)
 
     async def close(self):
         self.closed = True
@@ -784,9 +718,9 @@ def make_runner(tmp_path, runtime, **case):
 def test_a_host_api_the_runtime_does_not_have_fails_as_unsupported(tmp_path):
     runner = make_runner(tmp_path, FakeRuntime())
     with pytest.raises(UnsupportedFeature) as found:
-        runner.method("steer")
-    assert str(found.value) == "unsupported by Python runner: runtime steer()"
-    assert runner.state.unsupported == ["runtime steer()"]
+        runner.method("abort")
+    assert str(found.value) == "unsupported by Python runner: runtime abort()"
+    assert runner.state.unsupported == ["runtime abort()"]
     assert runner.method("close") is not None
 
 
@@ -800,14 +734,14 @@ async def test_the_observations_are_built_before_the_runtimes_are_closed(tmp_pat
     document = runner.build_document()
     assert runtime.closed is True
     assert document["observations"]["extensionLog"] == [{"action": "create", "instance": 1}]
-    assert document["observations"]["operations"] == [{"sessionId": "c1", "operationId": "op-1"}]
+    assert document["observations"]["operations"] == []
 
 
 async def test_the_operation_alias_of_a_step_is_read_from_the_operation_store(tmp_path):
-    runner = make_runner(tmp_path, FakeRuntime())
-    await runner.state.operation_store.save({"sessionId": "c9", "operationId": "op-1", "status": "pending",
-                                             "deliveryStatus": "pending", "toolCall": {"id": "danger-1"}})
-    assert runner.operation_arguments({"operation": "<op:danger-1>"}, "steps/0") == ("c9", "op-1")
-    assert runner.operation_arguments({"operation": "other", "sessionId": "c1"}, "steps/0") == ("c1", "other")
+    runtime = FakeRuntime([{"sessionId": "c9", "operationId": "op-1", "status": "pending",
+                           "deliveryStatus": "pending", "toolCall": {"id": "danger-1"}}])
+    runner = make_runner(tmp_path, runtime)
+    assert await runner.operation_arguments({"operation": "<op:danger-1>"}, "steps/0") == ("c9", "op-1")
+    assert await runner.operation_arguments({"operation": "other", "sessionId": "c1"}, "steps/0") == ("c1", "other")
     with pytest.raises(CaseFailure):
-        runner.operation_arguments({"operation": "<op:missing>"}, "steps/0")
+        await runner.operation_arguments({"operation": "<op:missing>"}, "steps/0")

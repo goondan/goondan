@@ -83,8 +83,6 @@ function agentBindingIssues(name: string, spec: AgentSpec, bindings: RuntimeBind
     for (const [index, hook] of entries.entries()) {
       const location: PointerSegment[] = [...at, "hooks", stage, index];
       issues.push(...functionIssues(hook.fn, bindings, [...location, "fn"]));
-      const using = hook.using;
-      if (using !== undefined && typeof using !== "string") issues.push(...functionIssues(using.fn, bindings, [...location, "using", "fn"]));
       if (hook.when) issues.push(...functionIssues(hook.when.fn, bindings, [...location, "when", "fn"]));
       if (typeof hook.extension !== "string") continue;
       const declared = definitionOf(bindings, hook.extension)?.hooks;
@@ -105,6 +103,8 @@ export function bindingIssues(config: GoondanConfig, bindings: RuntimeBindings, 
   }
   for (const [index, route] of (config.routes ?? []).entries()) {
     const at: PointerSegment[] = [...base, "routes", index];
+    if (typeof route.from !== "string") issues.push(...functionIssues(route.from.fn, bindings, [...at, "from", "fn"]));
+    if (typeof route.to !== "string") issues.push(...functionIssues(route.to.fn, bindings, [...at, "to", "fn"]));
     if (route.when && "fn" in route.when) issues.push(...functionIssues(route.when.fn, bindings, [...at, "when", "fn"]));
   }
   return issues;

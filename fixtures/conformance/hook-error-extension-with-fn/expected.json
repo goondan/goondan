@@ -3,8 +3,12 @@
     "phase": "load",
     "issues": [
       {
+        "code": "schema.oneOf",
+        "path": "/agents/main/hooks/onOutput/0"
+      },
+      {
         "code": "schema.false",
-        "path": "/agents/main/hooks/output/0/fn"
+        "path": "/agents/main/hooks/onOutput/0/fn"
       }
     ]
   }

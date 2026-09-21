@@ -100,23 +100,19 @@ def _compose_file(
     if not isinstance(document, dict):
         _fail("load.not_object", (), f"{path} must contain a YAML object")
 
-    for field in ("extends", "resources"):
-        if field in document:
-            found = _schema.validate_definition(field, document[field], [field])
-            if found:
-                raise GoondanConfigError([issue(item["code"], item["segments"], f"{path}: {item['message']}") for item in found])
+    if "resources" in document:
+        found = _schema.validate_definition("resources", document["resources"], ["resources"])
+        if found:
+            raise GoondanConfigError([issue(item["code"], item["segments"], f"{path}: {item['message']}") for item in found])
 
     directory = os.path.dirname(os.path.realpath(path))
     merged: dict[str, Any] = {}
     next_stack = (*stack, key)
     next_paths = (*stack_paths, path)
-    if "extends" in document:
-        child = _target_of(_absolute(document["extends"], directory), ["extends"], directories=True, origin=path)
-        merged = _merge(merged, _compose_file(child, graph, next_stack, next_paths, ["extends"]))
     for index, entry in enumerate(document.get("resources", [])):
         child = _target_of(_absolute(entry, directory), ["resources", index], directories=True, origin=path)
         merged = _merge(merged, _compose_file(child, graph, next_stack, next_paths, ["resources", index]))
-    own = {key_: value for key_, value in document.items() if key_ not in ("extends", "resources")}
+    own = {key_: value for key_, value in document.items() if key_ != "resources"}
     return _merge(merged, _absolute_declared_paths(own, directory))
 
 
@@ -281,6 +277,14 @@ def _normalized_routes(routes: Any) -> Any:
     return result
 
 
+def _endpoint_key(endpoint: Any) -> str | None:
+    if isinstance(endpoint, str):
+        return endpoint
+    if isinstance(endpoint, Mapping) and set(endpoint) == {"fn"} and isinstance(endpoint.get("fn"), str):
+        return f"fn:{endpoint['fn']}"
+    return None
+
+
 # --- reference phase -----------------------------------------------------------------------
 
 
@@ -315,21 +319,22 @@ def _route_issues(document: Mapping[str, Any], agents: Mapping[str, Any]) -> lis
         if not isinstance(route, Mapping):
             continue
         source, target = route.get("from"), route.get("to")
+        source_key, target_key = _endpoint_key(source), _endpoint_key(target)
         path_index = max(index - 1, 0) if serial else index
-        if source == "$output":
+        if source_key == "$output":
             issues.append(issue("routes.reserved", ["routes", path_index] if serial else ["routes", index, "from"], "a route cannot start at $output"))
             continue
-        if target == "$input":
+        if target_key == "$input":
             issues.append(issue("routes.reserved", ["routes", path_index] if serial else ["routes", index, "to"], "a route cannot end at $input"))
             continue
-        if source == "$input" and target == "$output":
+        if source_key == "$input" and target_key == "$output":
             issues.append(issue("routes.reserved", ["routes", path_index], "a route cannot connect $input directly to $output"))
             continue
         valid = True
-        if source != "$input" and source not in agents:
+        if source_key is not None and not source_key.startswith("fn:") and source_key != "$input" and source_key not in agents:
             issues.append(issue("reference.agent", ["routes", path_index] if serial else ["routes", index, "from"], f"must name an agent or $input, not {source!r}"))
             valid = False
-        if target != "$output" and target not in agents:
+        if target_key is not None and not target_key.startswith("fn:") and target_key != "$output" and target_key not in agents:
             issues.append(issue("reference.agent", ["routes", path_index] if serial else ["routes", index, "to"], f"must name an agent or $output, not {target!r}"))
             valid = False
         if valid:
@@ -354,31 +359,27 @@ def _reaches(edges: Mapping[str, list[str]], start: str, goal: str) -> bool:
 
 def _route_structure_issues(known: list[tuple[int, Mapping[str, Any]]], agents: Mapping[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
-    outgoing = {str(route["from"]) for _, route in known if route["from"] != "$input"}
-    if not any(route["from"] == "$input" for _, route in known):
+    endpoints = [(index, route, _endpoint_key(route["from"]), _endpoint_key(route["to"])) for index, route in known]
+    if not any(source == "$input" for _, _, source, _ in endpoints):
         issues.append(issue("routes.no_input", ["routes"], "routes must include an entry from $input"))
-    if not any(route["to"] == "$output" for _, route in known):
-        issues.append(issue("routes.no_output", ["routes"], "routes must include an exit to $output"))
-    for index, route in known:
-        target = route["to"]
-        if target != "$output" and target not in outgoing:
-            issues.append(issue("routes.no_route", ["routes", index, "to"], f"names the agent {target!r}, which has no route of its own"))
 
     edges: dict[str, list[str]] = {}
-    for _, route in known:
-        if route["to"] != "$output":
-            edges.setdefault(str(route["from"]), []).append(str(route["to"]))
-    for index, route in known:
-        source = str(route["from"])
+    for _, _, source, target in endpoints:
+        if source is not None and target is not None and target != "$output":
+            edges.setdefault(source, []).append(target)
+    for index, _, source, _ in endpoints:
+        if source is None:
+            continue
         if source not in {"$input", "$output"} and not _reaches(edges, "$input", source):
             issues.append(issue("routes.unreachable", ["routes", index, "from"], f"the agent {source!r} is not reachable from $input"))
 
-    unconditional = [(index, route) for index, route in known if route["to"] != "$output" and "when" not in route]
+    unconditional = [(index, route, _endpoint_key(route["from"]), _endpoint_key(route["to"])) for index, route in known if _endpoint_key(route["to"]) != "$output" and "when" not in route]
     unconditional_edges: dict[str, list[str]] = {}
-    for _, route in unconditional:
-        unconditional_edges.setdefault(str(route["from"]), []).append(str(route["to"]))
-    for index, route in unconditional:
-        if _reaches(unconditional_edges, str(route["to"]), str(route["from"])):
+    for _, _, source, target in unconditional:
+        if source is not None and target is not None:
+            unconditional_edges.setdefault(source, []).append(target)
+    for index, _, source, target in unconditional:
+        if source is not None and target is not None and _reaches(unconditional_edges, target, source):
             issues.append(issue("routes.cycle", ["routes", index], "belongs to a cycle of routes that have no when"))
 
     wait_edges: dict[str, list[str]] = {}
@@ -395,6 +396,9 @@ def _route_structure_issues(known: list[tuple[int, Mapping[str, Any]]], agents: 
     if any(_reaches(wait_edges, target, source) for source, targets in wait_edges.items() for target in targets):
         issues.append(issue("routes.wait_cycle", ["routes"], "stateful agent wait relationships form a cycle"))
     return issues
+
+
+__all__ = ["load_config", "validate_config"]
 
 
 def _agent_reference_issues(agents: Mapping[str, Any], directory: str | None = None) -> list[Issue]:
@@ -423,7 +427,7 @@ def _agent_reference_issues(agents: Mapping[str, Any], directory: str | None = N
                     for position, target in enumerate(targets):
                         if target not in agents:
                             issues.append(issue("reference.agent", [*at, "agent", position], f"must name an agent declared in this configuration, not {target!r}"))
-                if phase == "conversation" and hook.get("mode") == "async":
+                if hook.get("mode") == "async":
                     identifier = hook_identifier(hook, directory)
                     if identifier in identifiers:
                         issues.append(issue("reference.duplicate_hook", at, f"repeats the asynchronous hook identifier {identifier!r}"))
@@ -544,10 +548,9 @@ def _function_references(agent: Mapping[str, Any], name: str) -> list[tuple[list
             at: list[Segment] = ["agents", name, "hooks", phase, index]
             if "fn" in hook:
                 found.append(([*at, "fn"], hook["fn"]))
-            for key in ("using", "when"):
-                value = hook.get(key)
-                if isinstance(value, Mapping) and "fn" in value:
-                    found.append(([*at, key, "fn"], value["fn"]))
+            value = hook.get("when")
+            if isinstance(value, Mapping) and "fn" in value:
+                found.append(([*at, "when", "fn"], value["fn"]))
     return found
 
 
@@ -559,6 +562,10 @@ def _route_function_references(routes: Any) -> list[tuple[list[Segment], Any]]:
         if not isinstance(route, Mapping):
             continue
         at: list[Segment] = ["routes", index]
+        for key in ("from", "to"):
+            endpoint = route.get(key)
+            if isinstance(endpoint, Mapping) and "fn" in endpoint:
+                found.append(([*at, key, "fn"], endpoint["fn"]))
         when = route.get("when")
         if isinstance(when, Mapping) and "fn" in when:
             found.append(([*at, "when", "fn"], when["fn"]))

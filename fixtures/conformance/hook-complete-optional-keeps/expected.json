@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "memo",
-          "content": [
-            {
-              "type": "text",
-              "text": "마무리"
-            }
-          ]
-        },
+        "output": "마무리",
         "finishReason": "tool",
         "status": "done"
       }
@@ -28,7 +19,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -69,143 +63,6 @@
           ]
         }
       ]
-    },
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "안녕"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "finishReason": "tool"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "tool.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "tool": "lookup",
-          "callId": "c-1",
-          "args": {}
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "hook.failed",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "value": "toolResult",
-          "hook": "done"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "tool.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "tool": "lookup",
-          "callId": "c-1",
-          "args": {},
-          "result": {
-            "callId": "c-1",
-            "name": "lookup",
-            "args": {},
-            "content": [
-              {
-                "type": "text",
-                "text": "결과"
-              }
-            ]
-          }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "output": {
-            "role": "assistant",
-            "source": "memo",
-            "content": [
-              {
-                "type": "text",
-                "text": "마무리"
-              }
-            ]
-          },
-          "steps": 1,
-          "usage": {
-            "input": 5,
-            "output": 1,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ]
+    }
   }
 }

@@ -2,8 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: snap
           fn: snapFn
           mode: async
-          using: conversation

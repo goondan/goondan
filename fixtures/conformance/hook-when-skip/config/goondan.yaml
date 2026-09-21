@@ -2,9 +2,9 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: note
           fn: makeNote
+          role: user
           when:
             fn: shouldRun
-          using: input

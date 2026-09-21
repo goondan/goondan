@@ -1,8 +1,8 @@
 {
-  "description": "append 제어 결과는 현재 메시지 목록 끝에 메시지를 추가하고 같은 단계의 다음 훅을 계속 실행하며, 훅 컨텍스트가 만든 메시지의 source는 훅 식별자이고 지정한 key와 keep과 meta만 갖는다.",
+  "description": "role을 선언한 fn 훅은 현재 메시지 목록 끝에 메시지를 보강하고 같은 단계의 다음 훅을 계속 실행하며, 추가한 메시지의 source는 훅 식별자다.",
   "spec": [
     "제어 결과",
-    "훅 컨텍스트와 호스트 함수"
+    "실행 컨텍스트와 호스트 함수"
   ],
   "bindings": {
     "models": {
@@ -19,39 +19,17 @@
       }
     },
     "functions": {
+      "rule": {
+        "op": "constant",
+        "value": "규칙"
+      },
       "mark": {
         "op": "constant",
         "value": "다음"
-      }
-    },
-    "extensions": {
-      "memo": {
-        "instance": {
-          "hooks": {
-            "conversation": {
-              "op": "append",
-              "messages": [
-                {
-                  "role": "system",
-                  "text": "규칙"
-                }
-              ]
-            },
-            "modelInput": {
-              "op": "append",
-              "messages": [
-                {
-                  "role": "user",
-                  "text": "추가",
-                  "keep": true,
-                  "meta": {
-                    "tag": "x"
-                  }
-                }
-              ]
-            }
-          }
-        }
+      },
+      "add": {
+        "op": "constant",
+        "value": "추가"
       }
     }
   },

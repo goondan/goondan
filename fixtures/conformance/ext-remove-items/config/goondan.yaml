@@ -10,11 +10,11 @@ agents:
       audit: {}
       memory: {}
     hooks:
-      modelInput:
+      onModelInput:
         - name: trim
           fn: trimContext
         - fn: other
-      output:
+      onOutput:
         - extension: audit
   helper:
     model: m
@@ -24,4 +24,4 @@ agents:
       tools: [publish, helper, ghost]
       extensions: [audit]
       hooks:
-        modelInput: [trim]
+        onModelInput: [trim]

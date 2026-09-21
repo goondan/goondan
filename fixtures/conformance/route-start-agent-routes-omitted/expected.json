@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "B"
-            }
-          ]
-        },
+        "output": "B",
         "outputs": [
           {
             "role": "assistant",
@@ -46,9 +37,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/b",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           }
         ]
       }
@@ -65,7 +54,10 @@
               "type": "text",
               "text": "질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

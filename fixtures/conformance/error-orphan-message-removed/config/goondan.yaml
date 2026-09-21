@@ -4,6 +4,6 @@ agents:
     tools:
       - fail
     hooks:
-      conversation:
+      onStep:
         - name: tap
           fn: tap

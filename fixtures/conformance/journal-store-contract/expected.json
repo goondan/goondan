@@ -1,0 +1,99 @@
+{
+  "steps": [
+    {
+      "result": {
+        "token": 1,
+        "expiresAt": null
+      }
+    },
+    {
+      "result": null
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "c1",
+          "turnId": "<turn:1>",
+          "data": {}
+        }
+      ]
+    },
+    {},
+    {
+      "result": {
+        "token": 2,
+        "expiresAt": null
+      }
+    },
+    {
+      "result": true
+    },
+    {
+      "error": {
+        "storeError": "StoreConflictError"
+      }
+    },
+    {
+      "error": {
+        "storeError": "StoreConflictError"
+      }
+    },
+    {},
+    {
+      "result": 0
+    },
+    {
+      "result": {
+        "token": 3,
+        "expiresAt": null
+      }
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "c1",
+          "turnId": "<turn:2>",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "c1",
+          "turnId": "<turn:2>",
+          "data": {}
+        }
+      ]
+    }
+  ],
+  "observations": {
+    "journalStates": {
+      "c1": {
+        "version": 1,
+        "sessionId": "c1",
+        "head": 1,
+        "conversations": [],
+        "operations": [],
+        "turns": [
+          {
+            "turnId": "<turn:2>",
+            "sessionId": "c1",
+            "status": "running",
+            "inputs": []
+          }
+        ],
+        "executions": []
+      }
+    }
+  }
+}

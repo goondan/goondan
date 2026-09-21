@@ -1,20 +1,16 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
-    "toolCalls": [
-
-    ],
+    "toolCalls": [],
     "functionCalls": [
       {
         "fn": "giveResult",
         "value": {
           "id": "g-1",
           "name": "ghost",
-          "args": {
-          }
+          "args": {}
         }
       }
     ],
@@ -28,7 +24,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -38,8 +37,7 @@
               "type": "tool.call",
               "callId": "g-1",
               "name": "ghost",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

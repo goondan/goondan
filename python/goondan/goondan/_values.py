@@ -20,13 +20,15 @@ USAGE_KEYS = ("input", "output", "cacheRead", "cacheWrite")
 MESSAGE_KEYS = ("id", "role", "content", "source", "key", "keep", "meta")
 
 # §제어 결과: the keys that make a hook result a control result, and the stages that read them.
-CONTROL_KEYS = ("append", "call", "approval", "result", "retry")
+CONTROL_KEYS = ("append", "call", "approval", "result", "retry", "complete")
 STAGE_CONTROLS: dict[str, tuple[str, ...]] = {
-    "conversation": ("append",),
-    "modelInput": ("append",),
-    "toolCall": ("call", "approval", "result"),
-    "modelResult": ("retry",),
-    "error": ("retry",),
+    "onPrompt": ("append",),
+    "onStep": ("append",),
+    "onModelInput": ("append",),
+    "onToolCall": ("call", "approval", "result"),
+    "onModelResult": ("retry",),
+    "onToolResult": ("complete",),
+    "onError": ("retry",),
 }
 
 
@@ -161,25 +163,25 @@ def is_tool_result(value: Any) -> bool:
 
 def stage_error(stage: str, value: Any, call_id: str | None = None) -> str | None:
     """§단계 값과 대화 저장: what is wrong with a value of `stage`, or `None` when it fits."""
-    if stage == "input":
+    if stage == "onInput":
         return None if is_message_array(value) else "must be an array of messages"
-    if stage == "error":
+    if stage == "onError":
         return None if is_json(value) else "must be a JSON value"
-    if stage == "conversation":
+    if stage in ("onPrompt", "onStep"):
         return None if is_message_array(value) else "must be an array of messages"
-    if stage == "modelInput":
+    if stage == "onModelInput":
         return None if is_model_input(value) else "must be a model input with system, messages, tools and options"
-    if stage == "modelResult":
+    if stage == "onModelResult":
         return None if is_model_result(value) else "must be a model result with an assistant message and a finishReason"
-    if stage == "toolCall":
+    if stage == "onToolCall":
         if not is_tool_call(value):
             return "must be a tool call with id, name and args"
         return None if call_id is None or value["id"] == call_id else f"must keep the call id {call_id!r}"
-    if stage == "toolResult":
+    if stage == "onToolResult":
         if not is_tool_result(value):
             return "must be a tool result with callId, name, args and content"
         return None if call_id is None or value["callId"] == call_id else f"must keep the call id {call_id!r}"
-    if stage == "output":
+    if stage == "onOutput":
         return None if is_message(value, "assistant") else "must be an assistant message"
     return f"is not a value stage: {stage!r}"
 
@@ -215,7 +217,7 @@ def control_result(stage: str, value: Any, call_id: str | None = None) -> Contro
     if chosen == "call":
         if not keys <= {"call", "execution"}:
             raise ValueError("a call result carries only the call and execution keys")
-        found = stage_error("toolCall", value["call"], call_id)
+        found = stage_error("onToolCall", value["call"], call_id)
         if found:
             raise ValueError(f"call {found}")
         if "execution" in value and not _object(value["execution"]):
@@ -231,15 +233,18 @@ def control_result(stage: str, value: Any, call_id: str | None = None) -> Contro
     if chosen == "result":
         if keys != {"result"}:
             raise ValueError("a result control carries only the result key")
-        found = stage_error("toolResult", value["result"], call_id)
-        if found:
-            raise ValueError(f"result {found}")
+        if not is_json(value["result"]):
+            raise ValueError("result must be JSON")
         return Control("result", copy.deepcopy(value["result"]))
+    if chosen == "complete":
+        if keys != {"complete"} or not is_message(value["complete"], "assistant"):
+            raise ValueError("complete must contain one assistant message")
+        return Control("complete", copy.deepcopy(value["complete"]))
     if not keys <= {"retry", "target", "afterMs"}:
         raise ValueError("a retry result carries only the retry, target and afterMs keys")
     if value["retry"] is not True:
         raise ValueError("retry must be true")
-    targets = ("model",) if stage == "modelResult" else ("model", "tool")
+    targets = ("model",) if stage == "onModelResult" else ("model", "tool")
     if value.get("target") not in targets:
         raise ValueError(f"target must be one of {', '.join(targets)}")
     after = value.get("afterMs")

@@ -95,8 +95,11 @@ export function context(options: { signal?: AbortSignal; onTextDelta?: (delta: s
     agent: "main",
     sessionId: "c",
     turnId: "t",
+    instance: "c/main",
+    executionId: "e",
     step: 1,
     signal: options.signal ?? new AbortController().signal,
+    log: { info() {}, warn() {}, error() {} },
     onTextDelta: options.onTextDelta ?? ((): void => undefined),
   };
 }

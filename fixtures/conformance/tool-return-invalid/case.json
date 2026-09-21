@@ -1,0 +1,58 @@
+{
+  "description": "content 키가 있는 잘못된 결과 객체는 일반 데이터가 아니라 value_invalid 실행 오류가 된다.",
+  "spec": [
+    "도구 반환값 정규화",
+    "실행 오류"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            "bad"
+          ]
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "bad-1",
+                "name": "bad",
+                "args": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tools": {
+      "bad": {
+        "results": [
+          {
+            "result": {
+              "content": "배열 아님"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "bad-tool",
+        "input": "실행"
+      }
+    }
+  ]
+}

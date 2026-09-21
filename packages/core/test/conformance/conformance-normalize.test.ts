@@ -112,11 +112,11 @@ describe("normalizeDocument", () => {
           {
             result: {
               output: { id: "m-1", role: "assistant", content: [{ type: "text", text: "/tmp/case/config/a.md" }] },
-              runs: [{ turnId: "turn-9", rootTurnId: "root-7" }],
+              runs: [{ turnId: "turn-9", executionId: "execution-7", inputId: "input-3" }],
             },
           },
         ],
-        [["operations", [{ operationId: "op-1", deliveryId: "operation:op-1:completion", turnId: "turn-9", parentTurnId: "turn-9", rootTurnId: "root-7" }]]],
+        [["operations", [{ operationId: "op-1", deliveryId: "operation:op-1:completion", turnId: "turn-9", parentExecutionId: "execution-7", inputId: "input-3" }]]],
       ),
       { casePaths: ["/tmp/case"], operationAliases: new Map([["op-1", "<op:danger-1>"]]) },
     );
@@ -124,14 +124,14 @@ describe("normalizeDocument", () => {
       {
         result: {
           output: { role: "assistant", content: [{ type: "text", text: "<case>/config/a.md" }] },
-          runs: [{ turnId: "<turn:1>", rootTurnId: "<root:1>" }],
+          runs: [{ turnId: "<turn:1>", executionId: "<execution:1>", inputId: "<input:1>" }],
         },
       },
     ]);
     expect(result.document.observations.get("operations")).toEqual([
       {
         operationId: "<op:danger-1>", deliveryId: "operation:<op:danger-1>:completion",
-        turnId: "<turn:1>", parentTurnId: "<turn:1>", rootTurnId: "<root:1>",
+        turnId: "<turn:1>", parentExecutionId: "<execution:1>", inputId: "<input:1>",
       },
     ]);
   });

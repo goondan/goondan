@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "C"
-            }
-          ]
-        },
+        "output": "C",
         "outputs": [
           {
             "role": "assistant",
@@ -46,13 +37,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/b",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "c",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -63,9 +52,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/c",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           }
         ]
       }
@@ -82,7 +69,10 @@
               "type": "text",
               "text": "중간부터"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -107,7 +97,8 @@
           ],
           "meta": {
             "from": "b",
-            "instance": "c1/b"
+            "instance": "c1/b",
+            "kind": "start"
           }
         },
         {

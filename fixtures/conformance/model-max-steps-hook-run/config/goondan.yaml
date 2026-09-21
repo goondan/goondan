@@ -4,5 +4,5 @@ agents:
     extensions:
       probe: {}
     hooks:
-      conversation:
+      onStep:
         - extension: probe

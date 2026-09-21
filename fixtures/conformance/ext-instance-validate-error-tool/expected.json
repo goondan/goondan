@@ -33,7 +33,10 @@
               "type": "text",
               "text": "부탁"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

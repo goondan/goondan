@@ -1,4 +1,4 @@
-extends: base.yaml
+resources: [base.yaml]
 agents:
   zeta:
     model: m

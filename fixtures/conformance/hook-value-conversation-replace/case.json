@@ -29,7 +29,7 @@
       "compact": {
         "instance": {
           "hooks": {
-            "conversation": {
+            "onStep": {
               "op": "sequence",
               "items": [
                 {

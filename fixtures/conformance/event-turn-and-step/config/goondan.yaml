@@ -1,4 +1,0 @@
-agents:
-  main:
-    model: m
-routes: [main]

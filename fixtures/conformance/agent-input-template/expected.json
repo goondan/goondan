@@ -14,7 +14,10 @@
               "type": "text",
               "text": "[안녕]\n"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -36,7 +39,10 @@
               "type": "text",
               "text": "[군단]\n"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "받음"
-            }
-          ]
-        },
+        "output": "받음",
         "outputs": [
           {
             "role": "assistant",
@@ -46,7 +37,10 @@
               "type": "text",
               "text": "원문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -91,7 +85,8 @@
           ],
           "meta": {
             "from": "first",
-            "instance": "c1/first"
+            "instance": "c1/first",
+            "kind": "start"
           }
         },
         {

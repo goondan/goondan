@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "schema.type",
-        "path": "/agents/main/remove/hooks/modelInput/0"
+        "path": "/agents/main/remove/hooks/onModelInput/0"
       }
     ]
   }

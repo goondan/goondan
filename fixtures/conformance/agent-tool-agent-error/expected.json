@@ -18,181 +18,6 @@
     }
   ],
   "observations": {
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "부탁해"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "finishReason": "tool"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "tool.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "tool": "worker",
-          "callId": "w-1",
-          "args": {
-            "task": "x"
-          }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.start",
-        "agent": "worker",
-        "sessionId": "c1#<turn:1>#worker",
-        "turnId": "<turn:2>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "worker",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "{\"task\":\"x\"}"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1#<turn:1>#worker/worker",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "worker",
-        "sessionId": "c1#<turn:1>#worker",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1#<turn:1>#worker/worker",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.error",
-        "agent": "worker",
-        "sessionId": "c1#<turn:1>#worker",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1,
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1#<turn:1>#worker/worker",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.error",
-        "agent": "worker",
-        "sessionId": "c1#<turn:1>#worker",
-        "turnId": "<turn:2>",
-        "data": {
-          "where": "model",
-          "codes": [
-            "model_error"
-          ]
-        },
-        "instance": "c1#<turn:1>#worker/worker",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "tool.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "tool": "worker",
-          "callId": "w-1",
-          "args": {
-            "task": "x"
-          },
-          "codes": [
-            "tool_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "where": "tool",
-          "codes": [
-            "tool_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ],
     "conversations": {
       "c1/main": [
         {
@@ -203,7 +28,10 @@
               "type": "text",
               "text": "부탁해"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -220,7 +48,7 @@
           ]
         }
       ],
-      "c1#<turn:1>#worker/worker": [
+      "c1/worker": [
         {
           "role": "user",
           "source": "worker",
@@ -229,7 +57,10 @@
               "type": "text",
               "text": "{\"task\":\"x\"}"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

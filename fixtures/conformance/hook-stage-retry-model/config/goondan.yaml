@@ -2,9 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - fn: hConversation
-          using: input
-      modelResult:
+      onModelResult:
         - fn: retryOnce
-          using: input

@@ -1,39 +1,32 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "toolCalls": [
       {
         "tool": "a",
-        "args": {
-        }
+        "args": {}
       },
       {
         "tool": "b",
-        "args": {
-        }
+        "args": {}
       },
       {
         "tool": "b",
-        "args": {
-        }
+        "args": {}
       },
       {
         "tool": "c",
-        "args": {
-        }
+        "args": {}
       },
       {
         "tool": "c",
-        "args": {
-        }
+        "args": {}
       },
       {
         "tool": "d",
-        "args": {
-        }
+        "args": {}
       }
     ],
     "conversations": {
@@ -46,7 +39,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -56,29 +52,25 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "a",
-              "args": {
-              }
+              "args": {}
             },
             {
               "type": "tool.call",
               "callId": "c-2",
               "name": "b",
-              "args": {
-              }
+              "args": {}
             },
             {
               "type": "tool.call",
               "callId": "c-3",
               "name": "c",
-              "args": {
-              }
+              "args": {}
             },
             {
               "type": "tool.call",
               "callId": "c-4",
               "name": "d",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

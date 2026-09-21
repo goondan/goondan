@@ -1,11 +1,14 @@
 from .config import load_config, validate_config
 from .runtime import Goondan, create_goondan
-from .store import InMemoryConversationStore, InMemoryOperationStore
+from .fold import FOLD_VERSION, FoldError, UnsupportedJournalVersionError, fold
+from .store import (
+    InMemoryStore,
+    Store,
+    StoreConflictError,
+    StoreError,
+    StoreInputError,
+)
 from .types import (
-    Append,
-    Completion,
-    ConversationStore,
-    ExecutionHandle,
     Extension,
     ExtensionDefinition,
     GoondanAbortError,
@@ -16,17 +19,16 @@ from .types import (
     HookContext,
     ModelContext,
     NoLog,
-    OperationStore,
     Tool,
     define_extension,
     define_tool,
 )
 
 __all__ = [
-    "Append", "Completion", "ConversationStore", "ExecutionHandle", "Extension",
-    "ExtensionDefinition", "HookContext", "ModelContext", "NoLog",
-    "InMemoryOperationStore", "InMemoryConversationStore",
+    "Extension", "ExtensionDefinition", "HookContext", "ModelContext", "NoLog",
+    "InMemoryStore", "Store", "StoreConflictError", "StoreError", "StoreInputError",
+    "FOLD_VERSION", "FoldError", "UnsupportedJournalVersionError", "fold",
     "GoondanAbortError", "GoondanConfig", "GoondanConfigError", "GoondanError",
-    "GoondanExecutionError", "Goondan", "OperationStore", "Tool",
+    "GoondanExecutionError", "Goondan", "Tool",
     "create_goondan", "define_extension", "define_tool", "load_config", "validate_config",
 ]

@@ -2,6 +2,6 @@ agents:
   frag:
     model: f
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

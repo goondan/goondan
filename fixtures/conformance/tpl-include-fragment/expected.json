@@ -8,7 +8,15 @@
         {
           "role": "user",
           "source": "main",
-          "content": [{"type": "text", "text": "요청"}]
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",
@@ -35,8 +43,17 @@
         {
           "role": "user",
           "source": "frag",
-          "content": [{"type": "text", "text": "완료"}],
-          "meta": {"from": "main", "instance": "c1/main"}
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ],
+          "meta": {
+            "from": "main",
+            "instance": "c1/main",
+            "kind": "start"
+          }
         },
         {
           "role": "user",

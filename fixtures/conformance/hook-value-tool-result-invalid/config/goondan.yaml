@@ -3,5 +3,5 @@ agents:
     model: m
     tools: [lookup]
     hooks:
-      toolResult:
+      onToolResult:
         - fn: touch

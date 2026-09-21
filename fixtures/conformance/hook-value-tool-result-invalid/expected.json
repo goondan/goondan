@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "toolResult",
+        "where": "onToolResult",
         "codes": [
           "value_invalid"
         ],
@@ -22,7 +22,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "완료"
-            }
-          ]
-        },
+        "output": "완료",
         "usage": {
           "input": 10,
           "output": 3,
@@ -26,21 +17,19 @@
             "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
-              "input": 2,
-              "output": 1,
+              "input": 5,
+              "output": 2,
               "cacheRead": 0,
               "cacheWrite": 0
             },
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "helper",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "hook",
             "usage": {
               "input": 5,
@@ -50,209 +39,15 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#helper/helper",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
-          },
-          {
-            "agent": "main",
-            "turnId": "<turn:1>",
-            "kind": "model",
-            "usage": {
-              "input": 3,
-              "output": 1,
-              "cacheRead": 0,
-              "cacheWrite": 0
-            },
-            "finishReason": "stop",
-            "status": "done",
-            "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "instance": "c1/helper",
+            "executionId": "<execution:2>",
+            "parentExecutionId": "<execution:1>"
           }
         ]
       }
     }
   ],
   "observations": {
-    "events": [
-      {
-        "name": "turn.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "main",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "질문"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.start",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "input": [
-            {
-              "role": "user",
-              "source": "helper",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "도움 요청"
-                }
-              ]
-            }
-          ]
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "step": 1,
-          "finishReason": "stop"
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.done",
-        "agent": "helper",
-        "sessionId": "c1#<turn:1>#helper",
-        "turnId": "<turn:2>",
-        "data": {
-          "output": {
-            "role": "assistant",
-            "source": "model",
-            "content": [
-              {
-                "type": "text",
-                "text": "도왔다"
-              }
-            ]
-          },
-          "steps": 1,
-          "usage": {
-            "input": 5,
-            "output": 1,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        "instance": "c1#<turn:1>#helper/helper",
-        "parentInstance": "c1/main",
-        "parentTurnId": "<turn:1>",
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "hook.applied",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "value": "modelInput",
-          "hook": "probe"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.start",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "step.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "step": 1,
-          "finishReason": "stop"
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      },
-      {
-        "name": "turn.done",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "output": {
-            "role": "assistant",
-            "source": "model",
-            "content": [
-              {
-                "type": "text",
-                "text": "완료"
-              }
-            ]
-          },
-          "steps": 1,
-          "usage": {
-            "input": 2,
-            "output": 1,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ],
     "conversations": {
       "c1/main": [
         {
@@ -263,7 +58,10 @@
               "type": "text",
               "text": "질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -276,7 +74,7 @@
           ]
         }
       ],
-      "c1#<turn:1>#helper/helper": [
+      "c1/helper": [
         {
           "role": "user",
           "source": "helper",
@@ -285,7 +83,10 @@
               "type": "text",
               "text": "도움 요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

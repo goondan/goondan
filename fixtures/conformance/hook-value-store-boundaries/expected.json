@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "polish",
-          "content": [
-            {
-              "type": "text",
-              "text": "완료 (정리)"
-            }
-          ]
-        },
+        "output": "완료 (정리)\n",
         "outputs": [
           {
             "role": "assistant",
@@ -19,7 +10,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "완료 (정리)"
+                "text": "완료 (정리)\n"
               }
             ]
           }
@@ -46,9 +37,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           }
         ]
       }
@@ -68,7 +57,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "user",
@@ -96,7 +88,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -104,7 +99,7 @@
           "content": [
             {
               "type": "text",
-              "text": "완료 (정리)"
+              "text": "완료 (정리)\n"
             }
           ]
         }

@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "input",
+        "where": "onInput",
         "codes": [
           "value_invalid"
         ],

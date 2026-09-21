@@ -34,13 +34,9 @@
   "bindings": {
     "models": {
       "m": {
-        "responses": [
-
-        ]
+        "responses": []
       }
     }
   },
-  "steps": [
-
-  ]
+  "steps": []
 }

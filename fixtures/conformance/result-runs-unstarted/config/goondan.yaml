@@ -4,7 +4,7 @@ agents:
     extensions:
       probe: {}
     hooks:
-      output:
+      onOutput:
         - name: probe
           extension: probe
           optional: true

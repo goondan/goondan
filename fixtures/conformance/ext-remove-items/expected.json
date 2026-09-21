@@ -1,7 +1,5 @@
 {
-  "steps": [
-
-  ],
+  "steps": [],
   "observations": {
     "effectiveConfig": {
       "version": 1,
@@ -20,13 +18,11 @@
             }
           ],
           "extensions": {
-            "audit": {
-            },
-            "memory": {
-            }
+            "audit": {},
+            "memory": {}
           },
           "hooks": {
-            "modelInput": [
+            "onModelInput": [
               {
                 "name": "trim",
                 "fn": "trimContext"
@@ -35,7 +31,7 @@
                 "fn": "other"
               }
             ],
-            "output": [
+            "onOutput": [
               {
                 "extension": "audit"
               }
@@ -51,18 +47,15 @@
             "search"
           ],
           "extensions": {
-            "memory": {
-            }
+            "memory": {}
           },
           "hooks": {
-            "modelInput": [
+            "onModelInput": [
               {
                 "fn": "other"
               }
             ],
-            "output": [
-
-            ]
+            "onOutput": []
           }
         }
       }

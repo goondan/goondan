@@ -5,6 +5,6 @@ agents:
       here: 1
       nul: null
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

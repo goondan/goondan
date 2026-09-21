@@ -1,11 +1,5 @@
 {
-  "error": {
-    "phase": "load",
-    "issues": [
-      {
-        "code": "schema.const",
-        "path": "/agents/main/hooks/conversation/0/mode"
-      }
-    ]
-  }
+  "steps": [
+    {}
+  ]
 }

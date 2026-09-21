@@ -11,8 +11,7 @@
     "toolCalls": [
       {
         "tool": "echo",
-        "args": {
-        }
+        "args": {}
       }
     ],
     "conversations": {
@@ -25,7 +24,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -35,8 +37,7 @@
               "type": "tool.call",
               "callId": "e-1",
               "name": "echo",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

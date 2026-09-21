@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "modelResult",
+        "where": "onModelResult",
         "codes": [
           "hook_error"
         ],
@@ -11,16 +11,7 @@
     },
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "둘"
-            }
-          ]
-        },
+        "output": "둘",
         "finishReason": "stop",
         "status": "done"
       }
@@ -37,7 +28,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ],
       "c1/lenient": [
@@ -49,7 +43,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

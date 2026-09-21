@@ -67,8 +67,8 @@ describe("the schema keyword interpreter", () => {
   });
 
   it("reports a duplicate hook agent at the repeated array position", () => {
-    expect(validateSchema(agents({ model: "m", hooks: { conversation: [{ agent: ["helper", "helper"] }] } })))
-      .toMatchObject([{ code: "schema.uniqueItems", path: "/agents/main/hooks/conversation/0/agent/1" }]);
+    expect(validateSchema(agents({ model: "m", hooks: { onPrompt: [{ agent: ["helper", "helper"] }] } })))
+      .toMatchObject([{ code: "schema.uniqueItems", path: "/agents/main/hooks/onPrompt/0/agent/1" }]);
   });
 
   it("keeps route conditions in exactly one supported form", () => {
@@ -93,10 +93,13 @@ describe("the schema keyword interpreter", () => {
       .toMatchObject([{ code: "schema.false", path: "/agents/main/tools/0/hint" }]);
     expect(validateSchema(agents({ model: "m", tools: [{ tool: "a", approval: "optional" }] })))
       .toMatchObject([{ code: "schema.const", path: "/agents/main/tools/0/approval" }]);
-    expect(validateSchema(agents({ model: "m", hooks: { output: [{}] } })))
-      .toMatchObject([{ code: "schema.anyOf", path: "/agents/main/hooks/output/0" }]);
-    expect(validateSchema(agents({ model: "m", hooks: { output: [{ extension: "e", fn: "f" }] } })))
-      .toMatchObject([{ code: "schema.false", path: "/agents/main/hooks/output/0/fn" }]);
+    expect(validateSchema(agents({ model: "m", hooks: { onOutput: [{}] } })))
+      .toMatchObject([{ code: "schema.oneOf", path: "/agents/main/hooks/onOutput/0" }]);
+    expect(validateSchema(agents({ model: "m", hooks: { onOutput: [{ extension: "e", fn: "f" }] } })))
+      .toMatchObject([
+        { code: "schema.oneOf", path: "/agents/main/hooks/onOutput/0" },
+        { code: "schema.false", path: "/agents/main/hooks/onOutput/0/fn" },
+      ]);
     expect(validateSchema(agents({ model: "m", remove: { hooks: { nowhere: ["x"] } } })))
       .toMatchObject([{ code: "schema.propertyNames", path: "/agents/main/remove/hooks/nowhere" }]);
   });

@@ -7,10 +7,6 @@
         "path": "/routes"
       },
       {
-        "code": "routes.no_output",
-        "path": "/routes"
-      },
-      {
         "code": "reference.agent",
         "path": "/routes/0"
       }

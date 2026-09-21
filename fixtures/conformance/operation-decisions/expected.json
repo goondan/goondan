@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "operationHistory": {
+      "<op:p-approved>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending",
+        "completed/pending",
+        "completed/delivering",
+        "completed/delivered"
+      ],
+      "<op:p-rejected>": [
+        "pending/pending",
+        "rejected/pending",
+        "rejected/delivering",
+        "rejected/delivered"
+      ],
+      "<op:p-cancelled>": [
+        "pending/pending",
+        "cancelled/pending",
+        "cancelled/delivering",
+        "cancelled/delivered"
+      ]
+    }
+  }
+}

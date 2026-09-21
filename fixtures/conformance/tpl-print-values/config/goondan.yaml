@@ -8,6 +8,6 @@ agents:
       obj: {a: 1}
       n: null
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

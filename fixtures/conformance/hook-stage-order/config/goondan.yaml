@@ -3,27 +3,19 @@ agents:
     model: m
     tools: [lookup]
     hooks:
-      input:
+      onInput:
         - fn: hInput
-          using: input
-      conversation:
+      onStep:
         - fn: hConversation
-          using: input
-      modelInput:
+      onModelInput:
         - fn: hModelInput
-          using: input
-      modelResult:
+      onModelResult:
         - fn: hModelResult
-          using: input
-      toolCall:
+      onToolCall:
         - fn: hToolCall
-          using: input
-      toolResult:
+      onToolResult:
         - fn: hToolResult
-          using: input
-      output:
+      onOutput:
         - fn: hOutput
-          using: input
-      error:
+      onError:
         - fn: hError
-          using: input

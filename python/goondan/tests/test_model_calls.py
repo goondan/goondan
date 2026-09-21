@@ -49,7 +49,7 @@ class Host:
         self.events.append(event)
 
     def names(self, name: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["name"] == name]
+        return [event for event in self.events if event["type"] == name]
 
 
 # --- the model call ----------------------------------------------------------------------------
@@ -108,7 +108,7 @@ async def test_a_plain_callable_model_still_runs_and_a_model_without_either_form
     runtime = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": callable_model})
     try:
         result = await runtime.run("hello", session_id="c1")
-        assert result["output"]["content"][0]["text"] == "plain" and len(calls) == 1
+        assert result["output"] == "plain" and len(calls) == 1
     finally:
         await runtime.close()
 
@@ -165,7 +165,7 @@ async def test_the_runtime_fills_a_missing_message_id_and_source_before_it_check
     model = Model({"message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}, "finishReason": "stop"})
     runtime = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": model})
     try:
-        output = (await runtime.run("hello", session_id="c1"))["output"]
+        output = (await runtime.run("hello", session_id="c1"))["outputs"][0]
         assert output["source"] == "model" and isinstance(output["id"], str) and output["id"]
     finally:
         await runtime.close()
@@ -188,10 +188,10 @@ async def test_a_model_run_result_is_filled_and_checked_the_same_way():
             seen.append(str(failure))
         return None
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"input": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onInput": [{"extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": model},
-        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"input": hook}), hooks=["input"])},
+        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"onInput": hook}), hooks=["onInput"])},
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -209,7 +209,7 @@ async def test_a_usage_value_that_is_not_a_token_count_makes_the_result_invalid(
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("modelResult", ["value_invalid"])
+        assert (failure.value.where, failure.value.codes) == ("onModelResult", ["value_invalid"])
     finally:
         await runtime.close()
 
@@ -267,10 +267,10 @@ async def test_the_runtime_hands_the_options_a_hook_set_to_the_model_unchanged()
         return {**value, "options": copy.deepcopy(filled)}
 
     model = Model(answer())
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"modelInput": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onModelInput": [{"extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": model},
-        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"modelInput": hook}), hooks=["modelInput"])},
+        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"onModelInput": hook}), hooks=["onModelInput"])},
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -289,7 +289,7 @@ async def test_text_chunks_are_reported_in_order_between_step_start_and_step_don
     runtime = create_goondan(config={"agents": {"main": {"model": "m"}}}, models={"m": model}, host=host)
     try:
         await runtime.run("hello", session_id="c1")
-        names = [event["name"] for event in host.events if event["name"].startswith("step.")]
+        names = [event["type"] for event in host.events if event["type"].startswith("step.")]
         assert names == ["step.start", "step.textDelta", "step.textDelta", "step.done"]
         assert [event["data"] for event in host.names("step.textDelta")] == [{"step": 1, "delta": "a"}, {"step": 1, "delta": "b"}]
     finally:
@@ -318,9 +318,15 @@ async def test_chunks_delivered_after_the_call_returned_are_not_reported():
 
 
 @pytest.mark.asyncio
-async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_does_not_count():
+async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_counts_usage_on_the_current_run():
     host = Host()
-    model = Model(answer("first"), answer("second"), deltas=["chunk"])
+    first = answer("first")
+    first["usage"] = {"input": 2}
+    second = answer("second")
+    second["usage"] = {"output": 3}
+    own = answer("own")
+    own["usage"] = {"cacheRead": 5}
+    model = Model(first, second, own, deltas=["chunk"])
     seen: list[ModelContext] = []
 
     def hook_model(stage: str):
@@ -332,20 +338,25 @@ async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_does_n
 
     from goondan import Extension, define_extension
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"modelInput": [{"name": "early", "extension": "ext"}], "output": [{"name": "late", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onModelInput": [{"name": "early", "extension": "ext"}], "onOutput": [{"name": "late", "extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": model}, host=host,
-        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"modelInput": hook_model("modelInput"), "output": hook_model("output")}))},
+        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"onModelInput": hook_model("onModelInput"), "onOutput": hook_model("onOutput")}))},
     )
     try:
         result = await runtime.run("hello", session_id="c1")
         # §모델 호출: model.run uses the last started call number and never increases it.
         assert [ctx.step for ctx in seen] == [0, 1]
         assert {ctx.agent for ctx in seen} == {"main"} and {ctx.session_id for ctx in seen} == {"c1"}
+        assert len({ctx.execution_id for ctx in model.contexts}) == 1
+        assert len({ctx.instance for ctx in model.contexts}) == 1
         assert [event["data"]["step"] for event in host.names("step.start")] == [1]
         # §텍스트 조각: only the run's own call reports its chunks.
         assert [event["data"]["delta"] for event in host.names("step.textDelta")] == ["chunk"]
-        assert result["output"]["content"][0]["text"] in {"first", "second"}
+        assert result["output"] == "second"
+        assert len(result["runs"]) == 1
+        assert result["runs"][0]["usage"] == {"input": 2, "output": 3, "cacheRead": 5, "cacheWrite": 0}
+        assert result["usage"] == result["runs"][0]["usage"]
     finally:
         await runtime.close()
 
@@ -364,7 +375,7 @@ async def test_a_run_that_reached_the_model_call_limit_fails_without_another_cal
     host = Host()
     errors: list[Any] = []
     model = Model(tool_call("echo", "c-1"), tool_call("echo", "c-2"), answer())
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"error": [{"name": "seen", "fn": "seen"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onError": [{"name": "seen", "fn": "seen"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": model}, host=host, max_steps=2,
         tools={"echo": define_tool(name="echo", description="echo", input={}, execute=lambda value, ctx: value)},
@@ -375,7 +386,7 @@ async def test_a_run_that_reached_the_model_call_limit_fails_without_another_cal
             await runtime.run("hello", session_id="c1")
         assert (failure.value.where, failure.value.codes) == ("runtime", ["runtime_error"])
         assert len(model.inputs) == 2 and errors == []
-        assert [event["name"] for event in host.events if event["name"] == "step.start"] == ["step.start"] * 2
+        assert [event["type"] for event in host.events if event["type"] == "step.start"] == ["step.start"] * 2
     finally:
         await runtime.close()
 
@@ -383,7 +394,7 @@ async def test_a_run_that_reached_the_model_call_limit_fails_without_another_cal
 @pytest.mark.asyncio
 async def test_the_model_call_limit_counts_retried_calls():
     model = Model(answer("first"), answer("second"), answer("third"))
-    config = {"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"name": "again", "fn": "again"}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onModelResult": [{"name": "again", "fn": "again"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": model}, max_steps=2, max_retries=5,
         functions={"again": lambda value: {"retry": True, "target": "model"}},
@@ -426,7 +437,7 @@ async def test_an_input_fn_that_fails_or_returns_a_non_json_value_fails_the_run_
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run({"text": "hi"}, session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("input", codes)
+        assert (failure.value.where, failure.value.codes) == ("onInput", codes)
     finally:
         await runtime.close()
 
@@ -461,7 +472,7 @@ async def test_a_failing_input_template_fails_the_run_at_input(tmp_path: Path):
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run({"present": "hi"}, session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("input", ["runtime_error"])
+        assert (failure.value.where, failure.value.codes) == ("onInput", ["runtime_error"])
     finally:
         await runtime.close()
 
@@ -559,6 +570,6 @@ async def test_a_failing_system_block_template_fails_the_run_at_model_input(tmp_
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hi", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("modelInput", ["runtime_error"])
+        assert (failure.value.where, failure.value.codes) == ("onModelInput", ["runtime_error"])
     finally:
         await runtime.close()

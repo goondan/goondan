@@ -1,35 +1,10 @@
 {
   "steps": [
-    {
-      "parallel": [
-        [
-          {
-            "error": {
-              "where": "runtime",
-              "codes": [
-                "aborted"
-              ],
-              "attempt": 1
-            }
-          }
-        ],
-        [
-          {},
-          {
-            "error": {
-              "where": "runtime",
-              "codes": [
-                "aborted"
-              ],
-              "attempt": 1
-            }
-          }
-        ],
-        [
-          {},
-          {}
-        ]
-      ]
-    }
+    {"result": {"sessionId": "s", "turnId": "<turn:1>", "inputId": "<input:1>"}},
+    {},
+    {"result": {"sessionId": "s", "turnId": "<turn:1>", "inputId": "<input:2>"}},
+    {},
+    {"error": {"where": "runtime", "codes": ["aborted"], "attempt": 1}},
+    {"error": {"where": "runtime", "codes": ["aborted"], "attempt": 1}}
   ]
 }

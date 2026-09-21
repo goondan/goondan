@@ -12,6 +12,10 @@ def issues(error: pytest.ExceptionInfo[GoondanConfigError]) -> list[tuple[str, s
     return [(item["code"], item["path"]) for item in error.value.issues]
 
 
+async def run_result(awaitable: Any) -> dict[str, Any]:
+    return await (await awaitable).result
+
+
 class EchoModel:
     def __init__(self, gates: dict[str, asyncio.Event] | None = None) -> None:
         self.gates = gates or {}
@@ -102,7 +106,7 @@ async def test_parallel_branches_start_together_and_outputs_follow_route_order()
         "agents": {name: {"model": "m"} for name in ("split", "left", "right")},
         "routes": routes(("$input", "split"), ("split", "left"), ("split", "right"), ("left", "$output"), ("right", "$output")),
     }
-    turn = asyncio.create_task(create_goondan(config=config, models={"m": model}).run("x", session_id="s"))
+    turn = asyncio.create_task(run_result(create_goondan(config=config, models={"m": model}).run("x", session_id="s")))
     while not {"left", "right"} <= set(model.started):
         await asyncio.sleep(0)
     right.set()
@@ -120,7 +124,7 @@ async def test_stateful_fan_in_runs_once_in_route_order_with_route_metadata():
         "agents": {name: {"model": "m"} for name in ("split", "a", "b", "join")},
         "routes": routes(("$input", "split"), ("split", "a"), ("split", "b"), ("a", "join"), ("b", "join"), ("join", "$output")),
     }
-    result = await create_goondan(config=config, models={"m": model}).run("x", session_id="s")
+    result = await run_result(create_goondan(config=config, models={"m": model}).run("x", session_id="s"))
     assert [run["agent"] for run in result["runs"]].count("join") == 1
     joined = [message for message in model.inputs["join"] if message["role"] == "user"]
     assert [message["meta"]["from"] for message in joined[-2:]] == ["a", "b"]
@@ -134,7 +138,7 @@ async def test_initial_inputs_are_all_registered_before_stateful_start_checks():
         "agents": {name: {"model": "m"} for name in ("x", "y")},
         "routes": routes(("$input", "x"), ("$input", "y"), ("y", "x"), ("x", "$output")),
     }
-    await create_goondan(config, models={"m": model}).run("host", session_id="s")
+    await run_result(create_goondan(config, models={"m": model}).run("host", session_id="s"))
     assert model.started == ["y", "x"]
     inputs = [message["content"][0]["text"] for message in model.inputs["x"] if message["role"] == "user"]
     assert inputs == ["host", "y:host"]
@@ -172,7 +176,7 @@ async def test_fan_in_runs_on_input_for_each_arrival_and_on_prompt_once_for_the_
         "routes": routes(("$input", "split"), ("split", "a"), ("split", "b"), ("a", "join"), ("b", "join"), ("join", "$output")),
     }
 
-    await create_goondan(config, models={"m": model}, functions={"on_input": on_input, "on_prompt": on_prompt}).run("host", session_id="fan-in-hooks")
+    await run_result(create_goondan(config, models={"m": model}, functions={"on_input": on_input, "on_prompt": on_prompt}).run("host", session_id="fan-in-hooks"))
 
     assert seen_inputs == [["a:split:host"], ["b:split:host"]]
     assert seen_prompts == [["a:split:host", "b:split:host"]]
@@ -186,7 +190,7 @@ async def test_stateless_fan_in_runs_for_each_arrival_without_storing_conversati
         "routes": routes(("$input", "split"), ("split", "a"), ("split", "b"), ("a", "join"), ("b", "join"), ("join", "$output")),
     }
     goondan = create_goondan(config=config, models={"m": model})
-    result = await goondan.run("x", session_id="s")
+    result = await (await goondan.run("x", session_id="s")).result
     joins = [run for run in result["runs"] if run["agent"] == "join"]
     assert len(joins) == 2 and joins[0]["instance"] != joins[1]["instance"]
     assert ("s", "join") not in goondan._conversation_projection.conversations
@@ -207,7 +211,7 @@ async def test_when_function_and_output_conditions_use_message_values():
         ],
     }
     goondan = create_goondan(config=config, models={"m": model}, functions={"input_ok": lambda value: seen.append(value) or True})
-    await goondan.run({"kind": "x"}, session_id="s")
+    await (await goondan.run({"kind": "x"}, session_id="s")).result
     assert seen[0]["output"] is None and seen[0]["text"] == '{"kind":"x"}'
     assert seen[0]["input"][0]["content"][0]["type"] == "json"
 
@@ -228,7 +232,7 @@ async def test_later_route_conditions_keep_the_initial_turn_input():
             {"from": "b", "to": "$output"},
         ],
     }
-    await create_goondan(config, models={"m": Model()}, functions={"inspect": lambda value: seen.append(value) or True}).run("host", session_id="s")
+    await run_result(create_goondan(config, models={"m": Model()}, functions={"inspect": lambda value: seen.append(value) or True}).run("host", session_id="s"))
     assert seen[0]["input"][0]["source"] == "a"
     assert seen[0]["input"][0]["content"] == [{"type": "text", "text": "host"}]
 
@@ -238,11 +242,11 @@ async def test_no_matching_route_and_non_boolean_condition_fail():
     config = {"agents": {"a": {"model": "m"}}, "routes": [{"from": "$input", "to": "a", "when": {"fn": "bad"}}, {"from": "a", "to": "$output"}]}
     no_match = create_goondan(config=config, models={"m": EchoModel()}, functions={"bad": lambda value: False})
     with pytest.raises(GoondanExecutionError) as no_match_error:
-        await no_match.run("x", session_id="s")
+        await (await no_match.run("x", session_id="s")).result
     assert no_match_error.value.codes == ["route_error"]
     invalid = create_goondan(config=config, models={"m": EchoModel()}, functions={"bad": lambda value: "true"})
     with pytest.raises(GoondanExecutionError) as error:
-        await invalid.run("x", session_id="s")
+        await (await invalid.run("x", session_id="s")).result
     assert error.value.codes == ["route_error"]
 
 
@@ -267,7 +271,7 @@ async def test_function_route_passes_one_message_array_and_records_the_call():
             {"from": "a", "to": "$output"},
         ],
     }
-    result = await create_goondan(config, models={"m": model}, functions={"shape": shape}, store=store).run("host", session_id="function")
+    result = await run_result(create_goondan(config, models={"m": model}, functions={"shape": shape}, store=store).run("host", session_id="function"))
 
     assert len(calls) == 1 and calls[0][0]["content"][0]["text"] == "host"
     assert calls[0][0]["source"] == "input" and "meta" not in calls[0][0]
@@ -288,17 +292,17 @@ async def test_function_route_emits_each_returned_message_or_can_end_without_out
         {"from": "$input", "to": {"fn": "shape"}},
         {"from": {"fn": "shape"}, "to": "$output"},
     ]
-    emitted = await create_goondan(
+    emitted = await run_result(create_goondan(
         {"agents": {"a": {"model": "m"}}, "routes": routes_with_output},
         models={"m": EchoModel()}, functions={"shape": lambda value: messages},
-    ).run("host", session_id="emitted")
+    ).run("host", session_id="emitted"))
     assert [item["content"][0]["text"] for item in emitted["outputs"]] == ["one", "two"]
     assert emitted["output"] == "one\n\ntwo"
 
-    ended = await create_goondan(
+    ended = await run_result(create_goondan(
         {"agents": {"a": {"model": "m"}}, "routes": routes_with_output},
         models={"m": EchoModel()}, functions={"shape": lambda value: None},
-    ).run("host", session_id="ended")
+    ).run("host", session_id="ended"))
     assert ended["outputs"] == [] and "output" not in ended
 
 
@@ -329,7 +333,7 @@ async def test_parallel_function_routes_run_together_and_stateful_fan_in_waits_f
     }
 
     result = await asyncio.wait_for(
-        create_goondan(config, models={"m": model}, functions={"slow": slow, "fast": fast}).run("host", session_id="parallel-functions"),
+        run_result(create_goondan(config, models={"m": model}, functions={"slow": slow, "fast": fast}).run("host", session_id="parallel-functions")),
         1,
     )
 
@@ -351,7 +355,7 @@ async def test_output_object_condition_rejects_non_rfc_json():
         ],
     }
     with pytest.raises(GoondanExecutionError) as failure:
-        await create_goondan(config, models={"m": model}).run("x", session_id="s")
+        await run_result(create_goondan(config, models={"m": model}).run("x", session_id="s"))
     assert (failure.value.where, failure.value.codes) == ("runtime", ["route_error"])
 
 
@@ -360,7 +364,7 @@ async def test_agent_runs_one_name_and_start_agent_continues_routes():
     model = EchoModel()
     config = {"agents": {"a": {"model": "m"}, "b": {"model": "m"}}, "routes": routes(("$input", "a"), ("a", "b"), ("b", "$output"))}
     goondan = create_goondan(config=config, models={"m": model})
-    single = await goondan.run("x", session_id="single", agent="a")
-    continued = await goondan.run("x", session_id="continued", start_agent="a")
+    single = await (await goondan.run("x", session_id="single", agent="a")).result
+    continued = await (await goondan.run("x", session_id="continued", start_agent="a")).result
     assert [run["agent"] for run in single["runs"]] == ["a"]
     assert [run["agent"] for run in continued["runs"]] == ["a", "b"]

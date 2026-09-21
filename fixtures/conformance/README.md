@@ -125,7 +125,8 @@
 
 | 동작 | 값 | 반환값 |
 |---|---|---|
-| `run` | `{sessionId,input,agent?,startAgent?}` | 턴 결과다. 두 번째 `run`도 같은 입력 경로를 사용한다. |
+| `run` | `{sessionId?,input,meta?,agent?,startAgent?,awaitResult?,handle?}` | 기본값은 턴 결과다. `awaitResult:false`이면 필수 `handle` 별칭에 실행 핸들을 보관하고 `{sessionId,turnId,inputId}`를 반환한다. |
+| `awaitRun` | `{handle}` | 별칭으로 보관한 실행 핸들의 턴 결과다. |
 | `decide` | `{operation,value,sessionId?}` | `operations.decide`가 반환한 작업이다. |
 | `list` | `{sessionId?}` | `operations.list`가 반환한 작업 배열이다. |
 | `abort` | `{sessionId}` | 불리언이다. |
@@ -159,9 +160,9 @@
 
 ### 실행 단계의 기대 결과
 
-각 기대 단계는 `{}`, `{"result":값}`, `{"error":오류}`, `{"parallel":[[...],...]}` 가운데 하나다. `run` 결과는 `turnId`, 선택적인 `output`, `outputs`, `usage`, 선택적인 `finishReason`, `status`, `runs`를 투영한다. `runs`에는 `executionId`와 선택적인 `parentExecutionId` 또는 `operationId`를 포함한다. 훅 컨텍스트의 `model.run`은 별도 실행 기록을 만들지 않고 호출한 실행의 사용량에 합산한다.
+각 기대 단계는 `{}`, `{"result":값}`, `{"error":오류}`, `{"parallel":[[...],...]}` 가운데 하나다. 결과를 기다리는 `run`과 `awaitRun`은 `turnId`, 선택적인 `output`, `outputs`, `usage`, 선택적인 `finishReason`, `status`, `runs`를 투영한다. `awaitResult:false`인 `run`은 핸들의 `sessionId`, `turnId`, `inputId`를 투영한다. 생략한 세션 식별자는 `<generated-session>`으로 표시한다. `runs`에는 `executionId`와 선택적인 `parentExecutionId` 또는 `operationId`를 포함한다. 훅 컨텍스트의 `model.run`은 별도 실행 기록을 만들지 않고 호출한 실행의 사용량에 합산한다.
 
-실행 오류는 `where`, `codes`, `attempt`, 선택적인 `toolCall`, `message`를 비교한다. 저장소 직접 실행 단계의 계약 오류는 `{"storeError":"StoreConflictError|StoreInputError"}`로 비교한다. `message`는 기대 값에 적은 경우에만 비교한다. 실행 오류 코드의 닫힌 집합은 `model_error`, `tool_error`, `tool_unavailable`, `hook_error`, `value_invalid`, `route_error`, `operation_invalid`, `runtime_error`, `aborted`다.
+실행 오류는 `where`, `codes`, `attempt`, 선택적인 `toolCall`, `message`를 비교한다. 저장소 직접 실행 단계의 계약 오류는 `{"storeError":"StoreConflictError|StoreInputError"}`로 비교한다. `message`는 기대 값에 적은 경우에만 비교한다. 실행 오류 코드의 닫힌 집합은 `input_invalid`, `model_error`, `tool_error`, `tool_unavailable`, `hook_error`, `value_invalid`, `route_error`, `operation_invalid`, `runtime_error`, `aborted`다.
 
 ### 관측
 

@@ -8,6 +8,10 @@ from goondan import GoondanExecutionError, create_goondan
 from goondan.store import InMemoryStore, StoreConflictError
 
 
+async def run_result(awaitable):
+    return await (await awaitable).result
+
+
 class ExpiringLease:
     def __init__(self, lease, *, lifetime_ms=40, renews=True):
         self._lease = lease
@@ -145,7 +149,7 @@ async def test_runtime_renews_a_finite_lease_before_it_expires():
         }
 
     runtime = create_goondan({"agents": {"main": {"model": "m"}}}, models={"m": model}, store=store)
-    turn = asyncio.create_task(runtime.run("start", session_id="renewed"))
+    turn = asyncio.create_task(run_result(runtime.run("start", session_id="renewed")))
     await started.wait()
     assert store.last_lease is not None
     await asyncio.wait_for(store.last_lease.renewed.wait(), 1)
@@ -164,7 +168,7 @@ async def test_runtime_fails_a_turn_when_lease_renewal_is_lost():
         await asyncio.Event().wait()
 
     runtime = create_goondan({"agents": {"main": {"model": "m"}}}, models={"m": model}, store=store)
-    turn = asyncio.create_task(runtime.run("start", session_id="lost"))
+    turn = asyncio.create_task(run_result(runtime.run("start", session_id="lost")))
     await started.wait()
     with pytest.raises(GoondanExecutionError) as failure:
         await asyncio.wait_for(turn, 1)

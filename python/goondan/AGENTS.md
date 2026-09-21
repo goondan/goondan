@@ -27,7 +27,7 @@
 
 군단 객체는 에이전트를 선언 이름으로 식별합니다. `stateful: true`인 에이전트는 세션과 에이전트 이름의 조합마다 대화와 확장 인스턴스를 유지합니다. `stateful: false`인 에이전트는 실행마다 빈 대화와 새 확장 인스턴스를 사용하며 실행 기록은 같은 세션 저널에 남깁니다.
 
-호스트 API는 `run(value, session_id=..., agent=..., start_agent=...)`, `abort`, `idle`, `close`, `sessions.delete`, `operations.list`, `operations.decide`입니다. 진행 중인 세션에 추가로 호출한 `run`은 대상 stateful 인스턴스의 입력 대기열에 합류합니다. `agent`와 `start_agent`는 함께 지정할 수 없습니다.
+호스트 API는 `run(value, session_id=None, meta=None, agent=..., start_agent=...)`, `abort`, `idle`, `close`, `sessions.delete`, `operations.list`, `operations.decide`입니다. `run`은 수락된 입력의 `session_id`, `turn_id`, `input_id`와 턴 결과 awaitable인 `result`를 가진 핸들을 반환합니다. 진행 중인 세션에 추가로 호출한 `run`은 대상 stateful 인스턴스의 입력 대기열에 합류합니다. `agent`와 `start_agent`는 함께 지정할 수 없습니다.
 
 `session_id`, `turn_id`, `instance`, `execution_id`, `input_id`는 각각 다른 범위를 나타냅니다. 하위 실행의 직접 원인은 `parent_execution_id`, 승인 작업에서 시작한 실행의 원인은 `operation_id`입니다. 직렬화되는 필드는 camelCase를 유지합니다.
 

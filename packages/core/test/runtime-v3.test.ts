@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   createGoondan, defineExtension, fold, MemoryStore,
   type HookContext, type JournalEvent, type Message, type Model, type ModelResponse,
-  type RuntimeEvent, type StoreLease, type Tool,
+  type RunHandle, type RuntimeEvent, type StoreLease, type Tool, type TurnResult,
 } from "../src/index.ts";
+
+async function runResult(run: Promise<RunHandle>): Promise<TurnResult> {
+  return (await run).result;
+}
 
 function response(text: string): ModelResponse {
   return { message: { role: "assistant", content: [{ type: "text", text }] }, finishReason: "stop" };
@@ -53,6 +57,36 @@ class ExpiringStore extends MemoryStore {
 }
 
 describe("v3 runtime", () => {
+  it("returns a non-thenable handle whose result can be awaited repeatedly", async () => {
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, {
+      models: { m: { generate: async () => response("done") } },
+    });
+
+    const handle = await runtime.run("hi");
+    expect(Reflect.get(handle, "then")).toBeUndefined();
+    expect(handle.sessionId).not.toBe("");
+    expect(handle.turnId).not.toBe("");
+    expect(handle.inputId).not.toBe("");
+    const [first, second] = await Promise.all([handle.result, handle.result]);
+    expect(second).toBe(first);
+    expect(first.turnId).toBe(handle.turnId);
+    await runtime.close();
+  });
+
+  it("rejects a non-JSON input before it creates a journal entry", async () => {
+    const store = new MemoryStore();
+    const runtime = createGoondan({ agents: { main: { model: "m" } } }, {
+      models: { m: { generate: async () => response("unused") } }, store,
+    });
+
+    await expect(Reflect.apply(runtime.run, runtime, [new Date(), { sessionId: "unused" }])).rejects.toMatchObject({
+      where: "runtime",
+      codes: ["input_invalid"],
+    });
+    expect(await store.head("unused")).toBe(0);
+    await runtime.close();
+  });
+
   it("fills runtime-owned model message fields and emits stored envelopes unchanged", async () => {
     const store = new MemoryStore();
     const events: RuntimeEvent[] = [];
@@ -62,7 +96,7 @@ describe("v3 runtime", () => {
       models: { m: model }, store, host: { emit: (event) => { events.push(event); } },
     });
 
-    const result = await runtime.run("hi", { sessionId: "s" });
+    const result = await runResult(runtime.run("hi", { sessionId: "s" }));
     const stored = await journal(store, "s");
 
     expect(result.output).toBe("hello");
@@ -80,7 +114,7 @@ describe("v3 runtime", () => {
       routes: [{ from: "$input", to: "main" }],
     }, { models: { m: { generate: async () => response("branch end") } } });
 
-    const result = await runtime.run("hi", { sessionId: "s" });
+    const result = await runResult(runtime.run("hi", { sessionId: "s" }));
 
     expect(result.outputs).toEqual([]);
     expect(result).not.toHaveProperty("output");
@@ -93,7 +127,7 @@ describe("v3 runtime", () => {
       models: { m: { generate: async () => response("implicit") } },
     });
 
-    const result = await runtime.run("hi", { sessionId: "implicit", startAgent: "main" });
+    const result = await runResult(runtime.run("hi", { sessionId: "implicit", startAgent: "main" }));
 
     expect(result.output).toBe("implicit");
     expect(result.outputs).toHaveLength(1);
@@ -118,8 +152,8 @@ describe("v3 runtime", () => {
       host: { emit: (event) => { events.push(event); } },
     });
 
-    await expect(runtime.run("first", { sessionId: "repair" })).rejects.toMatchObject({ where: "tool", codes: ["tool_unavailable"] });
-    const result = await runtime.run("second", { sessionId: "repair" });
+    await expect(runResult(runtime.run("first", { sessionId: "repair" }))).rejects.toMatchObject({ where: "tool", codes: ["tool_unavailable"] });
+    const result = await runResult(runtime.run("second", { sessionId: "repair" }));
     const removed = (await journal(store, "repair")).filter((event) => event.type === "conversation.message.removed");
 
     expect(result.output).toBe("recovered");
@@ -146,7 +180,7 @@ describe("v3 runtime", () => {
       joined: { generate: async (input) => { joinedCalls += 1; received = input.messages; return response("joined"); } },
     } });
 
-    const result = await runtime.run("go", { sessionId: "s" });
+    const result = await runResult(runtime.run("go", { sessionId: "s" }));
 
     expect(joinedCalls).toBe(1);
     expect(received.slice(-2).map(text)).toEqual(["A", "B"]);
@@ -189,7 +223,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const waiting = runtime.run("go", { sessionId: "stateless-route" });
+    const waiting = runResult(runtime.run("go", { sessionId: "stateless-route" }));
     await firstWorker;
     expect(workerCalls).toBe(1);
     releaseSlow();
@@ -236,9 +270,9 @@ describe("v3 runtime", () => {
       hooks: { onInput: [{ extension: "observe" }], onPrompt: [{ extension: "observe" }] },
     } } }, { models: { m: model }, tools: { wait }, extensions: { observe: extension } });
 
-    const first = runtime.run("first", { sessionId: "s" });
+    const first = runResult(runtime.run("first", { sessionId: "s" }));
     await started;
-    const second = runtime.run("second", { sessionId: "s" });
+    const second = runResult(runtime.run("second", { sessionId: "s" }));
     releaseTool();
     const [left, right] = await Promise.all([first, second]);
 
@@ -255,8 +289,8 @@ describe("v3 runtime", () => {
       models: { m: { generate: async (input) => { received.push(input.messages); return response("same answer"); } } },
     });
 
-    await runtime.run("same input", { sessionId: "repeated-input" });
-    await runtime.run("same input", { sessionId: "repeated-input" });
+    await runResult(runtime.run("same input", { sessionId: "repeated-input" }));
+    await runResult(runtime.run("same input", { sessionId: "repeated-input" }));
 
     expect(received[1]?.filter((message) => text(message) === "same input")).toHaveLength(2);
     await runtime.close();
@@ -275,7 +309,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const result = await runtime.run("go", { sessionId: "s" });
+    const result = await runResult(runtime.run("go", { sessionId: "s" }));
     const state = fold("s", await journal(store, "s"));
 
     expect(result.outputs).toEqual([one, two]);
@@ -302,7 +336,7 @@ describe("v3 runtime", () => {
       },
     });
 
-    const result = await runtime.run({ route: "go" }, { sessionId: "route-conditions" });
+    const result = await runResult(runtime.run({ route: "go" }, { sessionId: "route-conditions" }));
 
     expect(result.output).toBe("answer");
     expect(inputCondition).toMatchObject({ output: null, text: "{\"route\":\"go\"}" });
@@ -340,7 +374,7 @@ describe("v3 runtime", () => {
       model: "m", tools: [{ tool: "write", approval: "required" }],
     } } }, { models: { m: model }, tools: { write }, store });
 
-    await runtime.run("start", { sessionId: "s" });
+    await runResult(runtime.run("start", { sessionId: "s" }));
     const pending = await runtime.operations.list("s");
     expect(pending).toHaveLength(1);
     const operation = pending[0];
@@ -382,12 +416,12 @@ describe("v3 runtime", () => {
       store,
     });
 
-    await runtime.run("start", { sessionId: "operation-close" });
+    await runResult(runtime.run("start", { sessionId: "operation-close" }));
     const operation = (await runtime.operations.list("operation-close"))[0];
     if (!operation) throw new Error("승인 작업이 생성되지 않았습니다.");
     await runtime.operations.decide("operation-close", operation.operationId, { decision: "approved" });
     await toolStarted;
-    const concurrent = await runtime.run("while operation runs", { sessionId: "operation-close" });
+    const concurrent = await runResult(runtime.run("while operation runs", { sessionId: "operation-close" }));
     expect(concurrent.output).toBe("approval pending");
     await expect(runtime.sessions.delete("operation-close")).rejects.toMatchObject({ where: "runtime", codes: ["runtime_error"] });
     expect(cancelled).toBe(false);
@@ -410,7 +444,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const waiting = runtime.run("go", { sessionId: "s", signal: controller.signal });
+    const waiting = runResult(runtime.run("go", { sessionId: "s", signal: controller.signal }));
     await modelStarted;
     controller.abort();
     await expect(waiting).rejects.toMatchObject({ codes: ["aborted"] });
@@ -431,7 +465,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const waiting = runtime.run("cancel me", { sessionId: "lease-wait", signal: controller.signal });
+    const waiting = runResult(runtime.run("cancel me", { sessionId: "lease-wait", signal: controller.signal }));
     controller.abort();
     await expect(waiting).rejects.toMatchObject({ codes: ["aborted"] });
     expect(await store.head("lease-wait")).toBe(0);
@@ -455,10 +489,10 @@ describe("v3 runtime", () => {
       functions: { later: async () => { await released; return "async context"; } },
     });
 
-    await runtime.run("first", { sessionId: "s" });
+    await runResult(runtime.run("first", { sessionId: "s" }));
     release();
     await runtime.idle();
-    await runtime.run("second", { sessionId: "s" });
+    await runResult(runtime.run("second", { sessionId: "s" }));
 
     expect(seen[1]).toContain("async context");
     await runtime.close();
@@ -485,7 +519,7 @@ describe("v3 runtime", () => {
       } },
     });
 
-    await runtime.run("first", { sessionId: "hook-function-context" });
+    await runResult(runtime.run("first", { sessionId: "hook-function-context" }));
 
     expect(receivedHookContext).toBe(true);
     await runtime.close();
@@ -505,7 +539,7 @@ describe("v3 runtime", () => {
       maxRetries: 0,
     });
 
-    const result = await runtime.run("first", { sessionId: "optional-retry" });
+    const result = await runResult(runtime.run("first", { sessionId: "optional-retry" }));
 
     expect(result.output).toBe("answer");
     expect(afterRetry).toBe(1);
@@ -532,7 +566,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    await runtime.run("first", { sessionId: "delete-me" });
+    await runResult(runtime.run("first", { sessionId: "delete-me" }));
     await hookStarted;
     await runtime.sessions.delete("delete-me");
 
@@ -562,7 +596,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    await runtime.run("first", { sessionId: "delete-stateless" });
+    await runResult(runtime.run("first", { sessionId: "delete-stateless" }));
     await hookStarted;
     await runtime.sessions.delete("delete-stateless");
 
@@ -584,7 +618,7 @@ describe("v3 runtime", () => {
       models: { m: model }, tools: { self }, maxRetries: 0,
     });
 
-    await expect(runtime.run("go", { sessionId: "s" })).rejects.toMatchObject({ where: "tool", codes: ["tool_error"] });
+    await expect(runResult(runtime.run("go", { sessionId: "s" }))).rejects.toMatchObject({ where: "tool", codes: ["tool_error"] });
     await runtime.close();
   });
 
@@ -613,9 +647,9 @@ describe("v3 runtime", () => {
       } },
     }, extensions: { followup: extension } });
 
-    const first = await runtime.run("first", { sessionId: "shared-queue", agent: "main" });
+    const first = await runResult(runtime.run("first", { sessionId: "shared-queue", agent: "main" }));
     await started;
-    const secondWaiting = runtime.run("from host", { sessionId: "shared-queue", agent: "helper" });
+    const secondWaiting = runResult(runtime.run("from host", { sessionId: "shared-queue", agent: "helper" }));
     releaseHelper();
     const second = await secondWaiting;
     await runtime.idle();
@@ -637,7 +671,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const waiting = runtime.run("hold", { sessionId: "renew-success" });
+    const waiting = runResult(runtime.run("hold", { sessionId: "renew-success" }));
     await started;
     const renewed = store.nextRenewal();
     await renewed;
@@ -663,7 +697,7 @@ describe("v3 runtime", () => {
       store,
     });
 
-    const waiting = runtime.run("hold", { sessionId: "renew-failure" });
+    const waiting = runResult(runtime.run("hold", { sessionId: "renew-failure" }));
     await started;
     store.rejectRenewal = true;
 

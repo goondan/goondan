@@ -225,7 +225,7 @@ export interface Store {
 }
 
 export interface JournalConversation { sessionId: string; agent: string; instance: string; messages: Message[] }
-export interface JournalInput { inputId: string; input: Json; agent?: string; startAgent?: string; operationId?: string }
+export interface JournalInput { inputId: string; input: Json; agent?: string; startAgent?: string; meta?: Record<string, Json>; operationId?: string }
 export interface JournalTurn { turnId: string; sessionId: string; status: "running" | "completed" | "failed" | "aborted"; inputs: JournalInput[]; result?: TurnResult; error?: TurnError }
 export type RunKind = "turn" | "tool" | "hook";
 export interface JournalExecution {
@@ -290,7 +290,13 @@ export interface TurnResult {
   runs: AgentRunRecord[];
 }
 export type RunInput = Json | Part[] | Message[];
-export interface RunOptions { sessionId: string; agent?: string; startAgent?: string; signal?: AbortSignal }
+export interface RunOptions { sessionId?: string; meta?: Record<string, Json>; agent?: string; startAgent?: string; signal?: AbortSignal }
+export interface RunHandle {
+  sessionId: string;
+  turnId: string;
+  inputId: string;
+  result: Promise<TurnResult>;
+}
 
 export type ObservationalEventName =
   | "step.start" | "step.done" | "step.error" | "step.textDelta"

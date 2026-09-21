@@ -47,6 +47,8 @@ from .types import (
     Json,
     ModelContext,
     NoLog,
+    RunHandle,
+    RunResult,
     Tool,
     ValueName,
     _message,
@@ -458,7 +460,7 @@ class Goondan:
         self._scopes: dict[str, _Scope] = {}
         self._runs: dict[str, set[_Run]] = {}
         self._detached: set[_Run] = set()
-        self._steering: dict[str, list[tuple[str | None, Json, str | None]]] = {}
+        self._steering: dict[str, list[tuple[str | None, Json, str | None, dict[str, Json] | None]]] = {}
         self._turn_locks: dict[str, asyncio.Lock] = {}
         self._turn_counts: dict[str, int] = {}
         self._turn_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -505,6 +507,17 @@ class Goondan:
         if not isinstance(session_id, str):
             raise GoondanExecutionError("runtime", ["runtime_error"], "session_id must be a string")
 
+    def _validate_host_input(self, value: Any, meta: Any) -> None:
+        if not is_json(value):
+            raise GoondanExecutionError("runtime", ["input_invalid"], "run input must be a JSON value")
+        if meta is None:
+            return
+        if not isinstance(meta, dict) or not is_json(meta):
+            raise GoondanExecutionError("runtime", ["input_invalid"], "run meta must be a JSON object")
+        reserved = next((key for key in meta if key in {"kind", "from", "instance", "operationId"}), None)
+        if reserved is not None:
+            raise GoondanExecutionError("runtime", ["input_invalid"], f"run meta uses the reserved key {reserved}")
+
     def abort(self, session_id: str) -> bool:
         """§실행 중단: session_id에서 진행 중인 턴을 중단한다.
 
@@ -532,6 +545,7 @@ class Goondan:
     def _background_tasks(self) -> list[asyncio.Task[Any]]:
         tasks = [task for task in self._delivery_tasks if not task.done()]
         tasks.extend(task for task in self._internal_turns if not task.done())
+        tasks.extend(task for task in self._turn_tasks.values() if not task.done())
         for session in self._agent_sessions.values():
             tasks.extend(task for task in session.pending.values() if not task.done())
         return list(dict.fromkeys(tasks))
@@ -1145,16 +1159,16 @@ class Goondan:
         """대기열 입력마다 onInput을 적용하고 한 묶음으로 onPrompt를 실행합니다."""
         host = state.session_id
         queued = self._root._steering.get(host, [])
-        values = [(value, operation_id) for target, value, operation_id in queued if target is None or target == state.agent_name]
+        values = [(value, operation_id, call_meta) for target, value, operation_id, call_meta in queued if target is None or target == state.agent_name]
         if host is not None:
-            self._root._steering[host] = [(target, value, operation_id) for target, value, operation_id in queued if target is not None and target != state.agent_name]
+            self._root._steering[host] = [(target, value, operation_id, call_meta) for target, value, operation_id, call_meta in queued if target is not None and target != state.agent_name]
             if not self._root._steering[host]:
                 self._root._steering.pop(host, None)
         if not values: return False
         state.input_kind = "steer"
         bundled: list[dict[str, Any]] = []
-        for value, operation_id in values:
-            messages = self._turn_input(state.agent_name, value, kind="steer", operation_id=operation_id)
+        for value, operation_id, call_meta in values:
+            messages = self._turn_input(state.agent_name, value, kind="steer", operation_id=operation_id, call_meta=call_meta)
             state.agent_input = messages
             transformed = (await self._pipeline("onInput", messages, state, persist=False)).value
             bundled.extend(await self._input_messages(state.agent_name, transformed))
@@ -1168,7 +1182,7 @@ class Goondan:
         """현재 인스턴스가 안전 지점에서 처리할 입력이 있는지 확인합니다."""
         return any(
             target is None or target == state.agent_name
-            for target, _, _ in self._root._steering.get(state.session_id, [])
+            for target, _, _, _ in self._root._steering.get(state.session_id, [])
         )
 
     async def _safe_point(self, state: _RunState) -> bool:
@@ -1299,17 +1313,30 @@ class Goondan:
         if found: raise GoondanError(f"the model result {found}")
         return result
 
-    def _turn_input(self, agent_name: str, value: Json, *, kind: str = "start", operation_id: str | None = None) -> list[dict[str, Any]]:
+    def _turn_input(
+        self,
+        agent_name: str,
+        value: Json,
+        *,
+        kind: str = "start",
+        operation_id: str | None = None,
+        call_meta: Mapping[str, Json] | None = None,
+    ) -> list[dict[str, Any]]:
         """§입력: 호스트 값을 턴 입력 메시지 배열로 바꾼다."""
         if is_message_array(value):
-            return copy.deepcopy(value)
+            messages = copy.deepcopy(value)
+            for message in messages:
+                current = message.get("meta")
+                if call_meta is not None or isinstance(current, Mapping):
+                    message["meta"] = {**copy.deepcopy(dict(call_meta or {})), **copy.deepcopy(dict(current or {}))}
+            return messages
         if isinstance(value, list) and value and all(is_part(item) for item in value):
             content = copy.deepcopy(value)
         elif isinstance(value, str):
             content = [{"type": "text", "text": value}]
         else:
             content = [{"type": "json", "value": copy.deepcopy(value)}]
-        meta: dict[str, Any] = {"kind": kind}
+        meta: dict[str, Any] = {**copy.deepcopy(dict(call_meta or {})), "kind": kind}
         if operation_id is not None:
             meta["operationId"] = operation_id
         return [{"id": uuid.uuid4().hex, "role": "user", "source": agent_name, "content": content, "meta": meta}]
@@ -1408,7 +1435,7 @@ class Goondan:
             else:
                 self._add_wait_edge(lineage.parent_execution_id, active.execution_id)
                 active.requests += 1
-                self._steering.setdefault(session_id, []).append((agent_name, copy.deepcopy(value), None))
+                self._steering.setdefault(session_id, []).append((agent_name, copy.deepcopy(value), None, None))
         if predecessor is not None:
             try:
                 await asyncio.shield(predecessor)
@@ -1922,12 +1949,27 @@ class Goondan:
 
     # --- turns and routes ---------------------------------------------------------------------
 
-    async def run(self, value: Json, *, session_id: str, start_agent: str | None = None, agent: str | None = None) -> dict[str, Any]:
-        """입력을 수락하고 열린 턴이 있으면 그 턴의 안전 지점에 합류시킵니다."""
+    async def run(
+        self,
+        value: Json,
+        *,
+        session_id: str | None = None,
+        meta: dict[str, Json] | None = None,
+        start_agent: str | None = None,
+        agent: str | None = None,
+    ) -> RunHandle:
+        """입력을 저널에 수락하고 턴 식별자와 결과 awaitable을 반환합니다."""
+        if session_id is None:
+            session_id = uuid.uuid4().hex
         self._check_host_session_id(session_id)
         self._require_open()
+        self._validate_host_input(value, meta)
         if agent is not None and start_agent is not None:
             raise _route_error("a turn names either agent or start_agent")
+        requested = agent if agent is not None else start_agent
+        if requested is not None and requested not in self.config["agents"]:
+            raise _route_error(f"unknown agent {requested!r}")
+        call_meta = copy.deepcopy(dict(meta)) if meta is not None else None
         accept = self._turn_locks.setdefault(session_id, asyncio.Lock())
         async with accept:
             task = self._turn_tasks.get(session_id)
@@ -1937,13 +1979,14 @@ class Goondan:
                 data: dict[str, Any] = {"input": copy.deepcopy(value)}
                 if agent is not None: data["agent"] = agent
                 if start_agent is not None: data["startAgent"] = start_agent
+                if call_meta is not None: data["meta"] = copy.deepcopy(call_meta)
                 await self._journal(None, [{"version": 1, "type": "input.received", "sessionId": session_id, "turnId": lineage.turn_id, "inputId": input_id, "data": data}])
                 foreground = [run for run in self._runs.get(session_id, set()) if run.foreground and not run.aborted]
                 targets = [agent or start_agent] if agent is not None or start_agent is not None else [run.agent for run in foreground]
                 if not targets:
                     targets = [None]
                 for target in dict.fromkeys(targets):
-                    self._steering.setdefault(session_id, []).append((target, copy.deepcopy(value), None))
+                    self._steering.setdefault(session_id, []).append((target, copy.deepcopy(value), None, copy.deepcopy(call_meta)))
             else:
                 lineage = _Lineage(None, None, uuid.uuid4().hex)
                 await self._open_journal(session_id)
@@ -1951,16 +1994,18 @@ class Goondan:
                 data = {"input": copy.deepcopy(value)}
                 if agent is not None: data["agent"] = agent
                 if start_agent is not None: data["startAgent"] = start_agent
+                if call_meta is not None: data["meta"] = copy.deepcopy(call_meta)
                 await self._journal(None, [
                     {"version": 1, "type": "turn.start", "sessionId": session_id, "turnId": lineage.turn_id, "data": {}},
                     {"version": 1, "type": "input.received", "sessionId": session_id, "turnId": lineage.turn_id, "inputId": input_id, "data": data},
                 ])
-                task = asyncio.create_task(self._execute_open_turn(value, session_id=session_id, start_agent=start_agent, agent=agent, lineage=lineage))
+                task = asyncio.create_task(self._execute_open_turn(value, session_id=session_id, meta=call_meta, start_agent=start_agent, agent=agent, lineage=lineage))
                 self._turn_tasks[session_id] = task
                 self._turn_lineages[session_id] = lineage
-        return await asyncio.shield(task)
+                task.add_done_callback(_consume_task_result)
+        return RunHandle(session_id, lineage.turn_id, input_id, RunResult(task))
 
-    async def _execute_open_turn(self, value: Json, *, session_id: str, start_agent: str | None, agent: str | None, lineage: _Lineage) -> dict[str, Any]:
+    async def _execute_open_turn(self, value: Json, *, session_id: str, meta: Mapping[str, Json] | None, start_agent: str | None, agent: str | None, lineage: _Lineage) -> dict[str, Any]:
         self._turn_counts[session_id] = self._turn_counts.get(session_id, 0) + 1
         try:
             scope = _Scope(session_id, True)
@@ -1968,10 +2013,10 @@ class Goondan:
             if agent is not None:
                 if agent not in self.config["agents"]:
                     raise _route_error(f"unknown agent {agent!r}")
-                result = await self._run_agent(agent, self._turn_input(agent, value, operation_id=lineage.operation_id), session_id, lineage=lineage, scope=scope, records=records, kind="turn")
+                result = await self._run_agent(agent, self._turn_input(agent, value, operation_id=lineage.operation_id, call_meta=meta), session_id, lineage=lineage, scope=scope, records=records, kind="turn")
                 outputs = [(result["output"], result["finishReason"])]
             else:
-                outputs = await self._run_routes(value, session_id, start_agent, scope, records, lineage)
+                outputs = await self._run_routes(value, session_id, start_agent, scope, records, lineage, meta)
             turn_result = self._turn_result(lineage.turn_id, outputs, records)
             accept = self._turn_locks[session_id]
             async with accept:
@@ -2056,7 +2101,16 @@ class Goondan:
                     stack.append(target)
         return False
 
-    async def _run_routes(self, value: Json, session_id: str, start_agent: str | None, scope: _Scope, records: list[_RunRecord], lineage: _Lineage) -> list[tuple[dict[str, Any], str]]:
+    async def _run_routes(
+        self,
+        value: Json,
+        session_id: str,
+        start_agent: str | None,
+        scope: _Scope,
+        records: list[_RunRecord],
+        lineage: _Lineage,
+        call_meta: Mapping[str, Json] | None,
+    ) -> list[tuple[dict[str, Any], str]]:
         if start_agent is not None and start_agent not in self.config["agents"]:
             raise _route_error(f"unknown start agent {start_agent!r}")
         routes = self._effective_routes(start_agent)
@@ -2068,17 +2122,25 @@ class Goondan:
         routed_outputs: list[tuple[int, int, dict[str, Any], str]] = []
         sequence = 0
 
-        def entry_messages(source_name: str) -> list[dict[str, Any]]:
+        def entry_messages() -> list[dict[str, Any]]:
             """$input이 함수 노드와 조건에 전달하는 호스트 입력 메시지입니다."""
             if is_message_array(value):
-                return copy.deepcopy(value)
+                messages = copy.deepcopy(value)
+                for message in messages:
+                    current = message.get("meta")
+                    if call_meta is not None or isinstance(current, Mapping):
+                        message["meta"] = {**copy.deepcopy(dict(call_meta or {})), **copy.deepcopy(dict(current or {}))}
+                return messages
             if isinstance(value, list) and value and all(is_part(item) for item in value):
                 content = copy.deepcopy(value)
             elif isinstance(value, str):
                 content = [{"type": "text", "text": value}]
             else:
                 content = [{"type": "json", "value": copy.deepcopy(value)}]
-            return [{"id": uuid.uuid4().hex, "role": "user", "source": source_name, "content": content}]
+            message: dict[str, Any] = {"id": uuid.uuid4().hex, "role": "user", "content": content}
+            if call_meta is not None:
+                message["meta"] = copy.deepcopy(dict(call_meta))
+            return [message]
 
         def launch(name: str, messages: list[dict[str, Any]], initial_input: list[dict[str, Any]], requests: list[list[dict[str, Any]]] | None = None) -> None:
             task = asyncio.create_task(self._run_agent(name, messages, session_id, lineage=lineage, scope=scope, records=records, kind="turn", input_requests=requests))
@@ -2147,7 +2209,13 @@ class Goondan:
         def routed_messages(source: str, result: Mapping[str, Any] | None, condition_input: list[dict[str, Any]], target: str) -> list[dict[str, Any]]:
             if result is None:
                 if source == "$input" and not target.startswith("fn:"):
-                    return self._turn_input(target, value)
+                    return self._turn_input(target, value, call_meta=call_meta)
+                if source == "$input":
+                    messages = entry_messages()
+                    if not is_message_array(value):
+                        for message in messages:
+                            message["source"] = "input"
+                    return messages
                 return copy.deepcopy(condition_input)
             function_output = result.get("functionOutput")
             if isinstance(function_output, list):
@@ -2174,7 +2242,7 @@ class Goondan:
                 condition_input = initial_input
                 if condition_input is None:
                     if source == "$input":
-                        condition_input = entry_messages("input")
+                        condition_input = entry_messages()
                     else:
                         condition_input = self._turn_input(target if target != "$output" else next(iter(self.config["agents"])), value)
                 function_output = result.get("functionOutput") if result is not None else None
@@ -2213,7 +2281,7 @@ class Goondan:
             if start_agent is None:
                 await route_from("$input", None, None)
             else:
-                initial_input = self._turn_input(start_agent, value)
+                initial_input = self._turn_input(start_agent, value, call_meta=call_meta)
                 pending.setdefault(start_agent, []).append((-1, 0, initial_input, copy.deepcopy(initial_input)))
                 launch_ready()
             while active:
@@ -2638,7 +2706,7 @@ class Goondan:
                     "operationId": operation_id,
                     "data": {"input": copy.deepcopy(dict(completion)), "agent": agent_name},
                 }])
-                self._steering.setdefault(session_id, []).append((agent_name, copy.deepcopy(dict(completion)), operation_id))
+                self._steering.setdefault(session_id, []).append((agent_name, copy.deepcopy(dict(completion)), operation_id, None))
                 return
             lineage = _Lineage(None, operation_id, uuid.uuid4().hex)
             await self._journal(None, [
@@ -2653,7 +2721,7 @@ class Goondan:
                     "data": {"input": copy.deepcopy(dict(completion)), "agent": agent_name},
                 },
             ])
-            task = asyncio.create_task(self._execute_open_turn(dict(completion), session_id=session_id, start_agent=None, agent=agent_name, lineage=lineage))
+            task = asyncio.create_task(self._execute_open_turn(dict(completion), session_id=session_id, meta=None, start_agent=None, agent=agent_name, lineage=lineage))
             self._turn_tasks[session_id] = task
             self._turn_lineages[session_id] = lineage
             self._internal_turns.add(task)

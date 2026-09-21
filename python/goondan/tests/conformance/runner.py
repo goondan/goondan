@@ -228,6 +228,7 @@ class CaseRunner:
         self.directory: str | None = None
         self.leases: dict[str, Any] = {}
         self.deleted_sessions: set[str] = set()
+        self.run_handles: dict[str, Any] = {}
 
     # -- host API access -----------------------------------------------------------------
 
@@ -365,12 +366,36 @@ class CaseRunner:
             await self.close_runtime(len(self.runtimes) - 1)
             return NO_RESULT
         if action == "run":
-            options: dict[str, Any] = {"session_id": argument["sessionId"]}
+            options: dict[str, Any] = {}
+            if "sessionId" in argument:
+                options["session_id"] = argument["sessionId"]
+            if "meta" in argument:
+                options["meta"] = argument["meta"]
             if "agent" in argument:
                 options["agent"] = argument["agent"]
             if "startAgent" in argument:
                 options["start_agent"] = argument["startAgent"]
-            result = await resolve(self.call(self.method("run"), "run", options, argument["input"]))
+            run = await resolve(self.call(self.method("run"), "run", options, argument["input"]))
+            if argument.get("awaitResult", True) is False:
+                alias = argument["handle"]
+                if alias in self.run_handles:
+                    raise CaseFailure(f"the run handle alias {alias!r} is already in use")
+                self.run_handles[alias] = run
+                identifiers = (getattr(run, "session_id", None), getattr(run, "turn_id", None), getattr(run, "input_id", None))
+                if any(not isinstance(value, str) or not value for value in identifiers):
+                    raise CaseFailure("run did not return non-empty session_id, turn_id and input_id members")
+                return {
+                    "sessionId": "<generated-session>" if "sessionId" not in argument else identifiers[0],
+                    "turnId": identifiers[1],
+                    "inputId": identifiers[2],
+                }
+            result = await resolve(getattr(run, "result"))
+            return {key: snapshot(result[key]) for key in RESULT_KEYS if key in result} if isinstance(result, Mapping) else snapshot(result)
+        if action == "awaitRun":
+            alias = argument["handle"]
+            if alias not in self.run_handles:
+                raise CaseFailure(f"the case has no run handle named {alias!r}")
+            result = await resolve(getattr(self.run_handles[alias], "result"))
             return {key: snapshot(result[key]) for key in RESULT_KEYS if key in result} if isinstance(result, Mapping) else snapshot(result)
         if action == "decide":
             session_id, operation_id = await self.operation_arguments(argument, label)
@@ -724,7 +749,7 @@ class CaseRunner:
         if "result" in expected:
             if "result" not in actual:
                 return [Difference(format_pointer((*base, "result")), expected["result"], ABSENT)]
-            if "run" in step and isinstance(expected["result"], Mapping):
+            if ("run" in step or "awaitRun" in step) and isinstance(expected["result"], Mapping):
                 return diff_listed_keys(expected["result"], actual["result"], (*base, "result"))
             return diff_values(expected["result"], actual["result"], (*base, "result"))
         return []

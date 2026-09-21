@@ -1,0 +1,47 @@
+{
+  "description": "완성된 메시지의 메타는 호출 메타보다 우선하며 에이전트 출력을 따라 다음 route 입력으로 자동 전파되지 않는다.",
+  "spec": [
+    "입력",
+    "입력 대기열과 턴",
+    "route 진행"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "first": {"model": "firstModel"},
+        "second": {"model": "secondModel"}
+      },
+      "routes": [
+        {"from": "$input", "to": "first", "when": {"fn": "choose"}},
+        {"from": "first", "to": "second"},
+        {"from": "second", "to": "$output"}
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "firstModel": {"responses": [{"text": "첫 출력"}]},
+      "secondModel": {"responses": [{"text": "둘째 출력"}]}
+    },
+    "functions": {
+      "choose": {"op": "equals", "path": "/input/0/meta/channel", "value": "mobile"}
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "meta-boundary",
+        "input": [
+          {
+            "id": "host-message",
+            "role": "user",
+            "source": "host",
+            "content": [{"type": "text", "text": "완성 메시지"}],
+            "meta": {"channel": "mobile", "messageOnly": true}
+          }
+        ],
+        "meta": {"channel": "web", "requestType": "chat"}
+      }
+    }
+  ]
+}

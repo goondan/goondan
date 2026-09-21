@@ -34,7 +34,7 @@ async def test_only_configured_tools_can_execute(target):
     )
     try:
         with pytest.raises(GoondanError, match="not available"):
-            await runtime.run("input", session_id="configured-tools")
+            await (await runtime.run("input", session_id="configured-tools")).result
         assert executed == []
     finally: await runtime.close()
 
@@ -59,7 +59,7 @@ async def _v2_approval_saves_and_executes_the_hook_transformed_call():
         extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"onToolCall": approve}))}, host=Host(),
     )
     try:
-        await runtime.run("input", session_id="approval")
+        await (await runtime.run("input", session_id="approval")).result
         await asyncio.sleep(0)
         operation = (await runtime.operations.list("approval"))[0]
         assert operation["toolCall"]["name"] == "publish"
@@ -90,7 +90,7 @@ async def test_async_hooks_bind_their_own_implementation():
         extensions={name: define_extension(name=name, create=lambda name=name, **kwargs: Extension(hooks={"onStep": implementation(name)})) for name in ["first", "second"]},
     )
     try:
-        await runtime.run("input", session_id="async-hooks")
+        await (await runtime.run("input", session_id="async-hooks")).result
         assert called == ["first", "second"]
     finally: await runtime.close()
 
@@ -112,11 +112,11 @@ async def test_async_context_survives_until_next_turn():
         extensions={"memory": define_extension(name="memory", create=lambda **kwargs: Extension(hooks={"onStep": hook}))},
     )
     try:
-        await runtime.run("first", session_id="onStep")
+        await (await runtime.run("first", session_id="onStep")).result
         await asyncio.sleep(0)
         release.set()
         await asyncio.sleep(0)
-        await runtime.run("second", session_id="onStep")
+        await (await runtime.run("second", session_id="onStep")).result
         texts = [p.get("text") for m in captured[-1]["messages"] for p in m["content"]]
         assert "late context" in texts
         assert any(m.get("source") == "memory" for m in await store.load("onStep", "main"))
@@ -149,7 +149,7 @@ async def test_model_failure_retries_only_for_the_model_target_without_duplicate
         models={"m": model}, functions={"retry_model": lambda value: {"retry": True, "target": "model"}},
     )
     try:
-        await runtime.run("input", session_id="model-retry")
+        await (await runtime.run("input", session_id="model-retry")).result
         assert calls == [1, 1]
     finally: await runtime.close()
 
@@ -165,7 +165,7 @@ async def test_routed_turn_aggregates_usage_and_preserves_terminal_finish_reason
         models={"first": first, "final": final},
     )
     try:
-        result = await runtime.run("input", session_id="route-metadata")
+        result = await (await runtime.run("input", session_id="route-metadata")).result
         assert result["finishReason"] == "length"
         assert result["usage"] == {"input": 6, "output": 8, "cacheRead": 10, "cacheWrite": 12}
     finally: await runtime.close()
@@ -183,7 +183,7 @@ async def test_model_result_retry_counts_raw_model_usage():
         models={"m": model}, functions={"retry_first": lambda value: {"retry": True, "target": "model"} if generations == 1 else value},
     )
     try:
-        result = await runtime.run("input", session_id="retry-usage")
+        result = await (await runtime.run("input", session_id="retry-usage")).result
         assert result["usage"]["input"] == 3
     finally: await runtime.close()
 
@@ -207,7 +207,7 @@ async def test_agent_tool_conversations_follow_the_target_stateful_instance(appr
     runtime = create_goondan(config={"agents": {"main": {"model": "main", "tools": [tool_use]}, "worker": {"model": "worker"}}}, models={"main": main, "worker": worker}, host=Host())
     try:
         for index in range(2):
-            await runtime.run(f"turn {index}", session_id="parent")
+            await (await runtime.run(f"turn {index}", session_id="parent")).result
             if approval:
                 operation = (await runtime.operations.list("parent"))[-1]
                 await runtime.operations.decide("parent", operation["operationId"], {"decision": "approved"})
@@ -235,7 +235,7 @@ async def test_parallel_branch_result_preserves_aggregate_metadata():
         models={"split": model("split", 1), "left": model("left", 2), "right": model("right", 3, "length")},
     )
     try:
-        result = await runtime.run("input", session_id="parallel-branch")
+        result = await (await runtime.run("input", session_id="parallel-branch")).result
         assert result["usage"]["input"] == 6
         assert result["finishReason"] == "other"
     finally: await runtime.close()

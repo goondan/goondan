@@ -251,7 +251,7 @@ async def test_an_instance_that_does_not_provide_a_hooked_stage_fails_the_turn()
         models={"m": noop_model}, extensions={"memo": memo},
     )
     with pytest.raises(GoondanConfigError) as error:
-        await runtime.run("input", session_id="instance")
+        await (await runtime.run("input", session_id="instance")).result
     assert issues_of(error) == [("binding.extension_hook", "/agents/a/hooks/onModelInput/0/extension")]
 
 

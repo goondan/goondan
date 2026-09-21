@@ -1,5 +1,5 @@
 {
-  "description": "군단 객체를 닫으면 같은 턴에 합류한 모든 run 호출이 턴의 aborted 실행 오류로 함께 실패한다.",
+  "description": "군단 객체를 닫으면 같은 턴에 수락된 모든 run 핸들의 result가 aborted 실행 오류로 함께 실패한다.",
   "spec": [
     "세션",
     "군단 객체 종료와 작업",
@@ -9,47 +9,33 @@
     "models": {
       "m": {
         "responses": [
-          {
-            "await": "active",
-            "then": {
-              "text": "끝"
-            }
-          }
+          {"await": "active", "then": {"text": "끝"}}
         ]
       }
     }
   },
   "steps": [
     {
-      "parallel": [
-        [
-          {
-            "run": {
-              "sessionId": "s",
-              "input": "첫째"
-            }
-          }
-        ],
-        [
-          {
-            "reach": "active"
-          },
-          {
-            "run": {
-              "sessionId": "s",
-              "input": "둘째"
-            }
-          }
-        ],
-        [
-          {
-            "reach": "active"
-          },
-          {
-            "close": {}
-          }
-        ]
-      ]
-    }
+      "run": {
+        "sessionId": "s",
+        "input": "첫째",
+        "awaitResult": false,
+        "handle": "first"
+      },
+      "settle": false
+    },
+    {"reach": "active", "settle": false},
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "둘째",
+        "awaitResult": false,
+        "handle": "second"
+      },
+      "settle": false
+    },
+    {"close": {}},
+    {"awaitRun": {"handle": "first"}},
+    {"awaitRun": {"handle": "second"}}
   ]
 }

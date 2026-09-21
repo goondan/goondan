@@ -163,7 +163,7 @@ async def test_a_turn_input_reaches_the_model_with_every_digit():
         models={"scripted": ScriptedModel([[{"type": "text", "text": "ok"}]])}, _conversation_projection=store,
     )
     try:
-        await runtime.run({"n": 1e16, "half": 1.5e16}, session_id="c1")
+        await (await runtime.run({"n": 1e16, "half": 1.5e16}, session_id="c1")).result
         first = (await store.load("c1", "main"))[0]
         assert first["content"] == [{"type": "text", "text": '{"n":10000000000000000,"half":15000000000000000}'}]
     finally:
@@ -245,7 +245,7 @@ async def test_native_turn_hooks_tool_storage_and_templates(tmp_path: Path):
         extensions={"marks": define_extension(name="marks", hooks=["onStep"], create=create_marks)},
         _conversation_projection=store,
     )
-    result = await runtime.run({"text": "hello"}, session_id="conv")
+    result = await (await runtime.run({"text": "hello"}, session_id="conv")).result
     assert result["output"] == "POLISHED=done"
     assert model.inputs[0]["system"][0]["text"] == "Agent worker / ko\n"
     assert model.inputs[0]["messages"][-1]["content"][0]["text"] == 'NOTE={"text":"hello","normalized":true}\n'
@@ -277,7 +277,7 @@ async def _v2_async_approval_continues_then_delivers_completion_after_restart_on
     lookup = define_tool(name="lookup", description="lookup", input={}, execute=lambda value, _: lookups.append(value) or value)
 
     first_runtime = create_goondan(config=config, models={"scripted": model}, tools={"write": tool, "lookup": lookup}, _conversation_projection=conversations, _operation_projection=approvals)
-    initial = await first_runtime.run("start", session_id="restart")
+    initial = await (await first_runtime.run("start", session_id="restart")).result
     assert initial["status"] == "done"
     assert initial["output"] == "continued while pending"
     assert executions == []
@@ -329,7 +329,7 @@ async def test_terminal_approval_without_execution_is_delivered(tmp_path: Path, 
     model = ScriptedModel([[{"type": "tool.call", "callId": "write-1", "name": "write", "args": {"text": "blocked"}}], [{"type": "text", "text": "pending acknowledged"}], [{"type": "text", "text": "terminal acknowledged"}]])
     executions = []
     runtime = create_goondan(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=lambda value, _: executions.append(value))})
-    await runtime.run("start", session_id=expected)
+    await (await runtime.run("start", session_id=expected)).result
     operation = (await runtime.operations.list(expected))[0]
     if action == "decide":
         terminal = await runtime.operations.decide(expected, operation["operationId"], {"decision": "rejected"})
@@ -367,7 +367,7 @@ async def test_completion_waits_for_active_turn_safe_boundary(tmp_path: Path):
 
     executions = []
     runtime = create_goondan(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=lambda value, _: executions.append(value) or value)})
-    active = asyncio.create_task(runtime.run("start", session_id="active"))
+    active = await runtime.run("start", session_id="active")
     await second_started.wait()
     operation = (await runtime.operations.list("active"))[0]
     approved = await runtime.operations.decide("active", operation["operationId"], {"decision": "approved"})
@@ -378,7 +378,7 @@ async def test_completion_waits_for_active_turn_safe_boundary(tmp_path: Path):
     assert executions == [{"text": "once"}]
     assert len(inputs) == 2
     release_second.set()
-    await active
+    await active.result
     await runtime.idle()
     assert len(inputs) == 3
     assert operation["operationId"] in inputs[-1]["messages"][-1]["content"][0]["text"]
@@ -393,7 +393,7 @@ async def test_approved_operation_failure_is_delivered(tmp_path: Path):
         raise RuntimeError("write failed")
 
     runtime = create_goondan(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=fail)})
-    await runtime.run("start", session_id="failed")
+    await (await runtime.run("start", session_id="failed")).result
     operation = (await runtime.operations.list("failed"))[0]
     await runtime.operations.decide("failed", operation["operationId"], {"decision": "approved"})
     await runtime.idle()
@@ -415,7 +415,7 @@ async def _v2_recovery_reregisters_approval_and_validated_patch_preserves_origin
             requests.append(request)
 
     first = create_goondan(config=config, models={"scripted": model}, tools={"write": define_tool(name="write", description="write", input={}, execute=lambda value, context: value)}, _operation_projection=operations, host=RequestHost())
-    await first.run("start", session_id="patch")
+    await (await first.run("start", session_id="patch")).result
     pending = (await first.operations.list("patch"))[0]
     restarted = create_goondan(
         config=config,
@@ -470,7 +470,7 @@ async def test_surface_start_agent_follows_multistep_routes_and_carries_conversa
         return True
     runtime = create_goondan(config=config, models={"slack": model("slack", "unused"), "api": model("api", "handoff"), "finish": model("finish", "done")}, functions={"has_output": has_output})
 
-    result = await runtime.run("request", session_id="route", start_agent="api")
+    result = await (await runtime.run("request", session_id="route", start_agent="api")).result
 
     assert result["output"] == "done"
     assert [message["content"][0]["text"] for message in seen["finish"]] == ["handoff"]
@@ -487,7 +487,7 @@ async def test_a_route_branch_with_no_outgoing_candidates_may_finish_without_out
         "routes": [{"from": "$input", "to": "main"}],
     }
     runtime = create_goondan(config=config, models={"m": model})
-    result = await runtime.run("request", session_id="route-1")
+    result = await (await runtime.run("request", session_id="route-1")).result
     assert result["outputs"] == [] and "output" not in result
     await runtime.close()
 

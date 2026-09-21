@@ -1,0 +1,52 @@
+{
+  "steps": [
+    {"result": {"output": "둘째 출력", "status": "done"}}
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "choose",
+        "value": {
+          "output": null,
+          "text": "완성 메시지",
+          "input": [
+            {
+              "role": "user",
+              "source": "host",
+              "content": [{"type": "text", "text": "완성 메시지"}],
+              "meta": {"channel": "mobile", "messageOnly": true, "requestType": "chat"}
+            }
+          ]
+        }
+      }
+    ],
+    "conversations": {
+      "meta-boundary/first": [
+        {
+          "role": "user",
+          "source": "host",
+          "content": [{"type": "text", "text": "완성 메시지"}],
+          "meta": {"channel": "mobile", "messageOnly": true, "requestType": "chat"}
+        },
+        {
+          "role": "assistant",
+          "content": [{"type": "text", "text": "첫 출력"}],
+          "source": "model"
+        }
+      ],
+      "meta-boundary/second": [
+        {
+          "role": "user",
+          "source": "second",
+          "content": [{"type": "text", "text": "첫 출력"}],
+          "meta": {"from": "first", "instance": "meta-boundary/first", "kind": "start"}
+        },
+        {
+          "role": "assistant",
+          "content": [{"type": "text", "text": "둘째 출력"}],
+          "source": "model"
+        }
+      ]
+    }
+  }
+}

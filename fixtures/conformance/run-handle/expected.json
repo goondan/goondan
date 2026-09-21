@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {"result": {"sessionId": "<generated-session>", "turnId": "<turn:1>", "inputId": "<input:1>"}},
+    {},
+    {},
+    {"result": {"turnId": "<turn:1>", "output": "지연 완료", "status": "done"}},
+    {"result": {"sessionId": "idle-session", "turnId": "<turn:2>", "inputId": "<input:2>"}},
+    {"result": {"turnId": "<turn:2>", "output": "idle 완료", "status": "done"}}
+  ]
+}

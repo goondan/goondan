@@ -1,0 +1,49 @@
+{
+  "description": "같은 턴에 합류한 두 run은 각 입력 식별자를 즉시 받고 같은 turnId와 턴 결과를 공유한다.",
+  "spec": [
+    "입력 대기열과 턴",
+    "실행 핸들"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {"model": "m"}
+      },
+      "routes": ["main"]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {"await": "model", "then": {"text": "첫 응답"}},
+          {"text": "합류 완료"}
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "joined",
+        "input": "첫 입력",
+        "awaitResult": false,
+        "handle": "first"
+      },
+      "settle": false
+    },
+    {"reach": "model", "settle": false},
+    {
+      "run": {
+        "sessionId": "joined",
+        "input": "둘째 입력",
+        "awaitResult": false,
+        "handle": "second"
+      },
+      "settle": false
+    },
+    {"release": "model"},
+    {"awaitRun": {"handle": "first"}},
+    {"awaitRun": {"handle": "second"}}
+  ]
+}

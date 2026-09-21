@@ -39,7 +39,7 @@ CONFIG_ERROR_CODES = frozenset(
 )
 
 EXECUTION_ERROR_CODES = frozenset(
-    ("model_error", "tool_error", "tool_unavailable", "hook_error", "value_invalid", "route_error",
+    ("input_invalid", "model_error", "tool_error", "tool_unavailable", "hook_error", "value_invalid", "route_error",
      "operation_invalid", "runtime_error", "aborted")
 )
 
@@ -71,7 +71,7 @@ HOOK_OPS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 STEP_ACTIONS = (
-    "run", "decide", "list", "abort", "deleteSession", "restart", "close", "release", "reach",
+    "run", "awaitRun", "decide", "list", "abort", "deleteSession", "restart", "close", "release", "reach",
     "acquireLease", "renewLease", "releaseLease", "appendJournal", "scanJournal", "headJournal",
     "appendOperationTransition", "deleteStoreSession", "parallel",
 )
@@ -380,7 +380,8 @@ class _Check:
         if not self.mapping(argument, at):
             return
         shapes = {
-            "run": (("sessionId", "input", "agent", "startAgent"), ("sessionId", "input")),
+            "run": (("sessionId", "input", "meta", "agent", "startAgent", "awaitResult", "handle"), ("input",)),
+            "awaitRun": (("handle",), ("handle",)),
             "decide": (("operation", "value", "sessionId"), ("operation", "value")),
             "list": (("sessionId",), ()),
             "abort": (("sessionId",), ("sessionId",)),
@@ -401,6 +402,20 @@ class _Check:
         for key in ("sessionId", "operation", "status", "agent", "startAgent", "owner", "lease", "writeId"):
             if key in argument:
                 self.text(argument[key], f"{at}/{key}")
+        if action == "run":
+            if "handle" in argument:
+                self.text(argument["handle"], f"{at}/handle")
+            if "meta" in argument:
+                self.mapping(argument["meta"], f"{at}/meta")
+            if "awaitResult" in argument:
+                self.boolean(argument["awaitResult"], f"{at}/awaitResult")
+            awaits = argument.get("awaitResult", True)
+            if awaits is False and "handle" not in argument:
+                self.add(at, "a run that does not await its result requires 'handle'")
+            if awaits is not False and "handle" in argument:
+                self.add(f"{at}/handle", "is only allowed when awaitResult is false")
+        if action == "awaitRun":
+            self.text(argument.get("handle"), f"{at}/handle")
         if action == "appendOperationTransition" and argument.get("status") not in (
             "approved", "running", "rejected", "delivering"
         ):

@@ -1,0 +1,38 @@
+{
+  "description": "호출 메타의 예약 키와 닫힌 군단 객체는 턴 결과가 아니라 run 수락 오류로 보고된다.",
+  "spec": [
+    "입력 대기열과 턴",
+    "실행 핸들",
+    "실행 오류",
+    "군단 객체 종료와 작업"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {"model": "m"}
+      },
+      "routes": ["main"]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {"responses": []}
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "invalid-meta",
+        "input": "거부",
+        "meta": {"kind": "host"}
+      }
+    },
+    {"close": {}},
+    {
+      "run": {
+        "sessionId": "closed",
+        "input": "거부"
+      }
+    }
+  ]
+}

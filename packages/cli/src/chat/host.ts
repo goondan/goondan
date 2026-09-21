@@ -135,7 +135,8 @@ export class ChatHost {
 
   async #run(input: RunInput, options: { agent?: string }): Promise<ChatTurnResult> {
     try {
-      const result = await this.#goondan.run(input, { sessionId: this.#sessionId, agent: options.agent });
+      const run = await this.#goondan.run(input, { sessionId: this.#sessionId, agent: options.agent });
+      const result = await run.result;
       return { kind: 'completed', text: renderOutputs(result.outputs, !this.#streamed), streamed: this.#streamed };
     } catch (error) {
       if (this.#interrupted) throw new DOMException('Chat turn interrupted', 'AbortError');

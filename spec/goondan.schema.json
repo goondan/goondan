@@ -1365,6 +1365,9 @@
         },
         "startAgent": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "meta": {
+          "$ref": "#/$defs/callMeta"
         }
       },
       "additionalProperties": false,
@@ -1373,6 +1376,14 @@
           "agent",
           "startAgent"
         ]
+      }
+    },
+    "callMeta": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": ["kind", "from", "instance", "operationId"]
+        }
       }
     },
     "turnDoneData": {
@@ -1588,6 +1599,7 @@
         "input": true,
         "agent": {"$ref": "#/$defs/nonEmptyString"},
         "startAgent": {"$ref": "#/$defs/nonEmptyString"},
+        "meta": {"$ref": "#/$defs/callMeta"},
         "operationId": {"$ref": "#/$defs/nonEmptyString"}
       },
       "additionalProperties": false,

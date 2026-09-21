@@ -58,7 +58,8 @@ describe("@goondan/models with the core runtime", () => {
       host: { emit(event) { events.push(event); } },
     });
 
-    const result = await runtime.run("What is q?", { sessionId: "e2e" });
+    const run = await runtime.run("What is q?", { sessionId: "e2e" });
+    const result = await run.result;
 
     expect(requests).toHaveLength(2);
     const [, assistant, toolTurn] = messagesOf(requests[1]?.body);

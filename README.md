@@ -324,7 +324,7 @@ routes:
 
 객체 필드는 키별로 병합하고 배열은 뒤의 값으로 전체 교체합니다. `inherit`로 같은 군단의 에이전트 설정을 물려받고, `remove.extensions`, `remove.tools`, `remove.hooks`로 항목을 제거할 수 있습니다. 확장을 `enabled: false`로 설정하면 해당 확장과 그 훅을 제외합니다.
 
-`resources`는 YAML 파일이나 구성 디렉터리를 배열 순서대로 합성하고 현재 파일의 값을 마지막에 적용합니다. 환경별 값은 `variants/<이름>.yaml`에 두고 구성 로딩 시 선택합니다.
+`resources`는 YAML 파일이나 구성 디렉터리를 배열 순서대로 합성하고 현재 파일의 값을 마지막에 적용합니다.
 
 ```yaml
 resources:
@@ -444,7 +444,7 @@ TypeScript는 `@goondan/core`, Python은 `goondan` 패키지에서 공개 API를
 
 | 하는 일 | TypeScript | Python |
 |---|---|---|
-| 디렉터리나 파일에서 구성 읽기 | `await loadConfig(path, {variants})`, `loadConfigSync(path, {variants})` | `load_config(path, variants)` |
+| 디렉터리나 파일에서 구성 읽기 | `await loadConfig(path)`, `loadConfigSync(path)` | `load_config(path)` |
 | 파일을 읽지 않고 구성 문서 검사 | `validateConfig(document)` | `validate_config(document)` |
 | 군단 객체 생성 | `createGoondan(config, bindings)` | `create_goondan(config=config, **bindings)` |
 
@@ -461,7 +461,6 @@ TypeScript는 `@goondan/core`, Python은 `goondan` 패키지에서 공개 API를
 | 호스트 기능 | `host` | `host` | 이벤트 수신 기능을 담습니다. |
 | 이벤트 수신 | `host.emit` | `emit` 또는 `host.emit` | 모든 실행 이벤트를 받습니다. |
 | 로거 | `logger` | `logger` | 확장 인스턴스가 `log`로 받습니다. |
-| 모델 호출 상한 | `maxSteps` | `max_steps` | 에이전트 실행 하나에 적용하는 선택 값입니다. 생략하면 상한이 없습니다. |
 | 재시도 한도 | `maxRetries` | `max_retries` | 에이전트 실행별 재시도 상한이며 기본값은 `3`입니다. |
 | 구성 디렉터리 | `directory` | `directory` | 파일에서 읽지 않은 구성 문서의 기준 디렉터리입니다. |
 
@@ -632,13 +631,12 @@ TypeScript 에이전트는 호스트의 Node 프로세스 안에서, Python 에�
 ## CLI 사용
 
 ```bash
-pnpm gdn validate .
 pnpm gdn config .
 pnpm gdn run . --bindings ./bindings.ts --input "Goondan을 설명해 주세요."
 pnpm gdn chat --config . --bindings ./bindings.ts
 ```
 
-`validate`는 구성의 읽기·스키마·참조 검사를 수행하고 구성 이름과 성공 여부만 출력합니다. `config`는 같은 검사를 거쳐 파일 합성·상속·제거를 마친 유효 구성을 출력합니다. `--variant <이름>`은 여러 번 지정할 수 있으며 지정 순서대로 합성합니다.
+`config`는 읽기·스키마·참조 검사를 거쳐 파일 합성·상속·제거를 마친 유효 구성을 출력합니다.
 
 `run`은 `--input`의 값을 JSON으로 해석할 수 있으면 JSON 값으로, 그렇지 않으면 원문 문자열로 실행합니다. `--input-file <경로>`도 같은 규칙을 적용하고, 두 옵션을 모두 생략하면 표준 입력을 읽습니다. `--session-id <ID>`로 세션을, `--agent <이름>`으로 단독 실행할 에이전트를 지정합니다. `--bindings` 모듈은 `bindings` 또는 default export로 `RuntimeBindings`를 제공해야 합니다.
 

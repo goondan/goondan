@@ -222,7 +222,6 @@ export class Goondan {
 
   constructor(input: LoadedConfig | unknown, bindings: RuntimeBindings) {
     if (bindings.maxRetries !== undefined && (!Number.isInteger(bindings.maxRetries) || bindings.maxRetries < 0)) throw new TypeError("maxRetries must be an integer of 0 or more");
-    if (bindings.maxSteps !== undefined && (!Number.isInteger(bindings.maxSteps) || bindings.maxSteps < 1)) throw new TypeError("maxSteps must be an integer of 1 or more");
     const loaded = prepareRuntimeConfig(input, bindings.directory);
     raiseIssues(bindingIssues(loaded.config, bindings));
     this.loaded = loaded;
@@ -551,8 +550,7 @@ export class Goondan {
     const matching: Array<{ route: RouteSpec; index: number; messages: Message[] }> = [];
     for (const [index, route] of routes.entries()) {
       if (!sameEndpoint(route.from, "$input")) continue;
-      const source = typeof route.to === "string" && route.to !== "$output" ? route.to : "input";
-      const messages = this.#rawMessages(input, source);
+      const messages = this.#rawMessages(input, "input");
       if (await this.#routeMatches(route, null, messages, turn)) matching.push({ route, index, messages });
     }
     if (matching.length === 0) throw routeFailure("no route matched $input");
@@ -921,9 +919,6 @@ export class Goondan {
   async #modelLoop(state: ExecutionState): Promise<AgentRunResult> {
     while (true) {
       await this.#safePoint(state);
-      if (this.#bindings.maxSteps !== undefined && state.step >= this.#bindings.maxSteps) {
-        throw executionFailure("runtime", "runtime_error", "maxSteps reached", state.retryCount + 1);
-      }
       const stepStage = await this.#hooks("onStep", cloneMessages(state.conversation), state);
       if (!isMessageArray(stepStage.value)) throw executionFailure("onStep", "value_invalid", "onStep did not return messages", state.retryCount + 1);
       await this.#replaceConversation(state, stepStage.value);

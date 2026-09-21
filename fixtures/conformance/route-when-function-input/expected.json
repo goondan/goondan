@@ -13,7 +13,7 @@
           "input": [
             {
               "role": "user",
-              "source": "main",
+              "source": "input",
               "content": [
                 {
                   "type": "text",
@@ -32,7 +32,7 @@
           "input": [
             {
               "role": "user",
-              "source": "main",
+              "source": "input",
               "content": [
                 {
                   "type": "json",

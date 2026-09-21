@@ -1,7 +1,7 @@
 {
   "description": "extends와 resources가 디렉터리를 가리키면 그 안의 goondan.yaml을 읽고, 확장자 검사는 대소문자를 구분하지 않는다.",
   "spec": [
-    "파일 합성, variant와 경로 기준",
+    "파일 합성과 경로 기준",
     "합성 순서와 리소스 그래프"
   ],
   "bindings": {

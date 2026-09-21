@@ -1,8 +1,0 @@
-name: conformance-variant
-agents:
-  main:
-    model: m
-    params:
-      tone: base
-      topic: base
-routes: [main]

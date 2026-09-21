@@ -264,7 +264,6 @@ export interface RuntimeBindings {
   store?: Store;
   host?: RuntimeHost;
   logger?: Logger;
-  maxSteps?: number;
   maxRetries?: number;
   directory?: string;
 }

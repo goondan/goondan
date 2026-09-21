@@ -432,12 +432,9 @@ class _ToolContext(Mapping[str, Any]):
 
 
 class Goondan:
-    def __init__(self, *, config: Mapping[str, Any], models: Mapping[str, Any], tools: Mapping[str, Tool] | None = None, functions: Mapping[str, Callable[..., Any]] | None = None, extensions: Mapping[str, ExtensionDefinition] | None = None, store: Store | None = None, ports: Mapping[str, Any] | None = None, host: Any = None, emit: Callable[..., Any] | None = None, logger: Any = None, max_retries: int = 3, max_steps: int | None = None, directory: str | Path | None = None, _conversation_projection: Any = None, _operation_projection: Any = None):
+    def __init__(self, *, config: Mapping[str, Any], models: Mapping[str, Any], tools: Mapping[str, Tool] | None = None, functions: Mapping[str, Callable[..., Any]] | None = None, extensions: Mapping[str, ExtensionDefinition] | None = None, store: Store | None = None, ports: Mapping[str, Any] | None = None, host: Any = None, emit: Callable[..., Any] | None = None, logger: Any = None, max_retries: int = 3, directory: str | Path | None = None, _conversation_projection: Any = None, _operation_projection: Any = None):
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be an integer that is 0 or more")
-        # §모델 호출: the model call limit of one agent run, or no limit at all.
-        if max_steps is not None and (isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1):
-            raise ValueError("max_steps must be an integer that is 1 or more")
         self.config = prepare_config(config, directory)
         self.models, self.tools, self.functions, self.extensions = dict(models), dict(tools or {}), dict(functions or {}), dict(extensions or {})
         self.store, self.ports, self.host = store or InMemoryStore(), dict(ports or {}), host
@@ -447,7 +444,7 @@ class Goondan:
         self.emit = emit if emit is not None else getattr(host, "emit", None)
         # §확장 인스턴스: the logger every extension instance receives as `log`.
         self.logger = logger if logger is not None else NoLog()
-        self.max_retries, self.max_steps = max_retries, max_steps
+        self.max_retries = max_retries
         self._operation_projection = _operation_projection or _OperationProjection()
         self.directory = self.config.directory
         self._agent_sessions: dict[tuple[str, str], _AgentSession] = {}
@@ -1598,11 +1595,6 @@ class Goondan:
         usage = state.record.usage
         while True:
             if state.step:
-                # §모델 호출: a run that reached the limit calls no model and processes
-                # neither the safe conversation point nor the modelInput stage. §단계 실행
-                # 순서: this failure does not go through the error stage.
-                if self.max_steps is not None and state.step >= self.max_steps:
-                    raise GoondanExecutionError("runtime", ["runtime_error"], f"the agent run reached the model call limit of {self.max_steps}", state.retry_count + 1)
                 await self._safe_point(state)
             state.conversation = (await self._pipeline("onStep", state.conversation, state)).value
             model_input = {"system": self._system(state.agent_name, session, state.agent_input), "messages": copy.deepcopy(state.conversation), "tools": self._tool_definitions(state.agent_name, session), "options": {}}
@@ -2182,8 +2174,7 @@ class Goondan:
                 condition_input = initial_input
                 if condition_input is None:
                     if source == "$input":
-                        condition_source = target if target != "$output" and not target.startswith("fn:") else "input"
-                        condition_input = entry_messages(condition_source)
+                        condition_input = entry_messages("input")
                     else:
                         condition_input = self._turn_input(target if target != "$output" else next(iter(self.config["agents"])), value)
                 function_output = result.get("functionOutput") if result is not None else None

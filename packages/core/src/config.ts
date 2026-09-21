@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { composeConfig, type ComposeOptions } from "./compose.ts";
+import { composeConfig } from "./compose.ts";
 import { buildEffective, composedDocument, schemaIssues } from "./effective.ts";
 import { raiseIssues } from "./errors.ts";
 import { isRecord, toJsonRecord } from "./json.ts";
@@ -43,8 +43,8 @@ function prepare(raw: unknown, options: PrepareOptions): LoadedConfig {
   return { directory: options.directory ?? process.cwd(), config: effective.config, templates };
 }
 
-function loadEntry(input: string, composeOptions: ComposeOptions): LoadedConfig {
-  const composed = composeConfig(input, composeOptions);
+function loadEntry(input: string): LoadedConfig {
+  const composed = composeConfig(input);
   return prepare(composed.document, {
     directory: composed.directory,
     readFiles: true,
@@ -52,12 +52,12 @@ function loadEntry(input: string, composeOptions: ComposeOptions): LoadedConfig 
 }
 
 /** Reads a configuration from disk and applies the read, schema and reference phases. */
-export function loadConfigSync(input: string, composeOptions: ComposeOptions = {}): LoadedConfig {
-  return loadEntry(resolve(input), composeOptions);
+export function loadConfigSync(input: string): LoadedConfig {
+  return loadEntry(resolve(input));
 }
 
-export async function loadConfig(input: string, composeOptions: ComposeOptions = {}): Promise<LoadedConfig> {
-  return loadConfigSync(input, composeOptions);
+export async function loadConfig(input: string): Promise<LoadedConfig> {
+  return loadConfigSync(input);
 }
 
 /** Applies the schema and reference phases to a configuration document, reading no files. */

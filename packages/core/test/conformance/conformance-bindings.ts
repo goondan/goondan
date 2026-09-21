@@ -300,7 +300,6 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
 
   bindings["host"] = buildHost(scripts);
   if (scripts.bindings.maxRetries) bindings["maxRetries"] = scripts.bindings.maxRetries.value;
-  if (scripts.bindings.maxSteps) bindings["maxSteps"] = scripts.bindings.maxSteps.value;
   return bindings;
 }
 

@@ -1,14 +1,11 @@
 {
-  "description": "진입 파일과 variant 파일은 모두 부분 구성일 수 있으며 필수 필드는 합성을 마친 구성 문서에만 적용한다. 진입 파일에 name만 있고 variant가 agents를 제공해도 유효한 구성이다.",
+  "description": "진입 파일과 리소스 파일은 모두 부분 구성일 수 있으며 필수 필드는 합성을 마친 구성 문서에만 적용한다. 진입 파일에 name만 있고 리소스 파일이 agents를 제공해도 유효한 구성이다.",
   "spec": [
     "최상위 구성",
-    "variant"
+    "합성 순서와 리소스 그래프"
   ],
   "config": {
-    "path": "config",
-    "variants": [
-      "add"
-    ]
+    "path": "config"
   },
   "bindings": {
     "models": {

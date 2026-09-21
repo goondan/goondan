@@ -12,7 +12,7 @@
 |---|---|---|
 | `case.json` | 예 | 구성 위치, 바인딩 스크립트와 실행 단계다. |
 | `expected.json` | 예 | 정규화한 기대 결과다. |
-| `config/` | 구성 파일을 읽는 사례 | 진입 파일, variant, 템플릿과 리소스 파일이다. |
+| `config/` | 구성 파일을 읽는 사례 | 진입 파일, 템플릿과 리소스 파일이다. |
 
 기본 진입 경로는 `config`다. 사례가 읽는 모든 파일은 사례 디렉터리 안에 둔다.
 
@@ -46,14 +46,14 @@
 
 | 방식 | 키 | 러너의 처리 |
 |---|---|---|
-| 파일 | `path`, 선택적인 `variants` | `loadConfig` 또는 `load_config`로 읽은 뒤 군단 객체를 만든다. |
+| 파일 | `path` | `loadConfig` 또는 `load_config`로 읽은 뒤 군단 객체를 만든다. |
 | 문서 | `document`, 선택적인 `directory` | `validateConfig` 또는 `validate_config`로 검사한 뒤 같은 문서와 디렉터리로 군단 객체를 만든다. |
 
 `path`와 `document`는 함께 쓸 수 없다. 경로는 사례 디렉터리를 기준으로 한 절대 경로로 바꾸어 전달한다.
 
 ### 바인딩
 
-`bindings`는 `models`, `tools`, `functions`, `extensions`, `ports`, `maxRetries`, `maxSteps`를 선택적으로 가진다. 러너는 사례마다 기록 기능을 더한 메모리 저널 저장소 하나를 `store`로 주입한다. 저장소는 `append`, `scan`, `head`, `watch`, `acquireLease`, `deleteSession`을 제공한다. 실행 이벤트 수신 함수도 주입한다. 사례는 실제 네트워크, 환경 변수와 사례 밖의 파일을 사용하지 않는다.
+`bindings`는 `models`, `tools`, `functions`, `extensions`, `ports`, `maxRetries`를 선택적으로 가진다. 러너는 사례마다 기록 기능을 더한 메모리 저널 저장소 하나를 `store`로 주입한다. 저장소는 `append`, `scan`, `head`, `watch`, `acquireLease`, `deleteSession`을 제공한다. 실행 이벤트 수신 함수도 주입한다. 사례는 실제 네트워크, 환경 변수와 사례 밖의 파일을 사용하지 않는다.
 
 ### 모델 스크립트
 

@@ -9,20 +9,18 @@ import { parseChatOptions, runChat } from './chat/command.js';
 import { renderOutputs } from './chat/host.js';
 import { parseRunInput } from './run-input.js';
 
-interface Options { command: string; directory: string; bindings: string; input?: string; inputFile?: string; sessionId: string; agent?: string; variants: string[] }
+interface Options { command: string; directory: string; bindings: string; input?: string; inputFile?: string; sessionId: string; agent?: string }
 
 function usage(): string {
   return [
     'Usage:',
     '  gdn run [CONFIG_PATH] --bindings <MODULE> [--input <JSON_OR_TEXT>] [--input-file <PATH>]',
-    '          [--session-id <ID>] [--agent <AGENT>] [--variant <NAME>]',
+    '          [--session-id <ID>] [--agent <AGENT>]',
     '  gdn chat [--cwd <PATH>] [--provider <anthropic|openai>] [--model <MODEL>] [--base-url <URL>]',
     '           [--session <ID>] [--state-dir <PATH>] [--config <PATH>] [--bindings <MODULE>] [--final-only]',
-    '  gdn validate [CONFIG_PATH] [--variant <NAME>]',
-    '  gdn config [CONFIG_PATH] [--variant <NAME>]',
+    '  gdn config [CONFIG_PATH]',
     '',
     'The bindings module exports `bindings` or a default RuntimeBindings object.',
-    '`--variant` may be repeated and applies in the given order.',
     '`gdn run` reads the input from standard input when neither --input nor --input-file is given.',
     '`gdn chat` uses `/agent <AGENT> <INPUT>` to target an agent.',
     '`gdn chat` manages approvals with `/operations`, `/approve`, `/reject`, and `/cancel`.',
@@ -32,7 +30,7 @@ function usage(): string {
 function parse(argv: string[]): Options {
   const command = argv.shift() ?? 'help';
   let directory = '.'; let bindings = 'goondan.bindings.js'; let input: string | undefined; let inputFile: string | undefined;
-  let sessionId = `cli:${Date.now().toString(36)}`; let agent: string | undefined; const variants: string[] = [];
+  let sessionId = `cli:${Date.now().toString(36)}`; let agent: string | undefined;
   if (argv[0] && !argv[0].startsWith('-')) directory = argv.shift() ?? '.';
   while (argv.length > 0) {
     const flag = argv.shift(); const value = argv.shift();
@@ -42,10 +40,9 @@ function parse(argv: string[]): Options {
     else if (flag === '--input-file') inputFile = value;
     else if (flag === '--session-id') sessionId = value;
     else if (flag === '--agent') agent = value;
-    else if (flag === '--variant') variants.push(value);
     else throw new Error(`Unknown option: ${flag}`);
   }
-  return { command, directory, bindings, input, inputFile, sessionId, agent, variants };
+  return { command, directory, bindings, input, inputFile, sessionId, agent };
 }
 
 function isBindings(value: unknown): value is RuntimeBindings {
@@ -62,11 +59,10 @@ async function main(): Promise<void> {
   }
   const options = parse(argv);
   if (options.command === 'help' || options.command === '--help' || options.command === '-h') { console.log(usage()); return; }
+  if (options.command !== 'config' && options.command !== 'run') throw new Error(`Unknown command: ${options.command}\n${usage()}`);
   const absolute = resolve(options.directory);
-  const loaded = await loadConfig(absolute, { variants: options.variants });
-  if (options.command === 'validate') { console.log(`Valid config: ${loaded.config.name}`); return; }
+  const loaded = await loadConfig(absolute);
   if (options.command === 'config') { process.stdout.write(stringify(loaded.config)); return; }
-  if (options.command !== 'run') throw new Error(`Unknown command: ${options.command}\n${usage()}`);
   const module = await import(pathToFileURL(resolve(options.bindings)).href);
   const candidate: unknown = module.bindings ?? module.default;
   if (!isBindings(candidate)) throw new Error(`Bindings module must export RuntimeBindings: ${options.bindings}`);

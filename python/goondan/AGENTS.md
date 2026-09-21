@@ -13,7 +13,7 @@
 | `_yaml.py` | YAML 해석 규칙, 중복 키·앵커·별칭 판정 |
 | `_schema.py` | `goondan.schema.json` 해석기, 스키마 검사와 오류 정렬 |
 | `_values.py` | 단계 값 형식, 메시지 보강, 제어 결과와 도구 반환값 정규화 |
-| `config.py` | YAML 로딩, `resources` 합성, variant, 상속과 제거, 참조·바인딩 검사 |
+| `config.py` | YAML 로딩, `resources` 합성, 상속과 제거, 참조·바인딩 검사 |
 | `template.py` | 구성 로딩 시 읽은 맵만 쓰는 렌더러와 정적 include 해석 |
 | `store.py` | `Store` 프로토콜의 오류와 `InMemoryStore` |
 | `fold.py` | 버전이 붙은 저널 이벤트를 상태 뷰로 재생하는 순수 `fold` |

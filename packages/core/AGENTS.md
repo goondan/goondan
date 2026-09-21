@@ -9,7 +9,7 @@
 | 모듈 | 소유 범위 |
 |---|---|
 | `yaml.ts` | YAML 해석 규칙과 `load.yaml`, `load.not_object` 판정 |
-| `compose.ts` | `resources` 합성, variant, 리소스 그래프와 `mergeValues` |
+| `compose.ts` | `resources` 합성, 리소스 그래프와 `mergeValues` |
 | `schema.ts` | `goondan.schema.json` 해석기와 스키마 단계 검사 |
 | `effective.ts` | 합성 문서와 유효 구성, 상속과 제거, 참조 단계 검사 |
 | `binding.ts` | 바인딩 단계 검사와 확장 인스턴스를 만든 뒤의 재검사 |
@@ -39,7 +39,7 @@
 
 ## 불변 규칙
 
-- 구성 디렉터리는 `goondan.yaml`, `templates`, `variants`를 기준으로 구성합니다. 파일 합성은 `resources`만 사용하며 템플릿은 선언했거나 정적으로 include한 파일만 읽습니다.
+- 구성 디렉터리는 `goondan.yaml`과 `templates`를 기준으로 구성합니다. 파일 합성은 `resources`만 사용하며 템플릿은 선언했거나 정적으로 include한 파일만 읽습니다.
 - 훅은 받은 값의 복사본을 처리하고 결과를 반환합니다. `onPrompt` 결과와 `onStep`의 대화 변경은 저널에 기록하고, `onModelInput` 변경은 해당 모델 호출에만 적용합니다.
 - 훅 하나에는 `extension`, `fn`, `agent`, `template` 가운데 실행 요소 하나만 둡니다. `optional`의 기본값은 `false`이며 실행할 수 없는 단계·요소 조합은 로드 오류입니다.
 - stateful 확장 인스턴스는 세션과 에이전트 이름의 조합마다 하나씩 생성합니다. stateless 확장 인스턴스는 실행마다 만들고 실행이 끝나면 정리합니다.

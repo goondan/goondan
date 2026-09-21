@@ -276,8 +276,6 @@ class CaseRunner:
         bindings = self.state.bindings
         if "maxRetries" in bindings:
             options["max_retries"] = bindings["maxRetries"]
-        if "maxSteps" in bindings:
-            options["max_steps"] = bindings["maxSteps"]
         runtime = self.call(create_goondan, "create_goondan", options)
         self.runtimes.append((runtime, binding))
 
@@ -294,7 +292,7 @@ class CaseRunner:
         else:
             entry = str((self.case_dir / spec.get("path", "config")).resolve())
             try:
-                self.loaded = load_config(entry, variants=list(spec.get("variants", [])))
+                self.loaded = load_config(entry)
             except GoondanConfigError as error:
                 self.config_error = ("load", error)
                 return

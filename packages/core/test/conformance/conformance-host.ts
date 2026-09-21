@@ -44,9 +44,9 @@ export async function callMethodAsync(owner: unknown, name: string, args: unknow
   return isPromiseLike(result) ? await result : result;
 }
 
-export async function loadConfig(path: string, variants: readonly string[]): Promise<unknown> {
+export async function loadConfig(path: string): Promise<unknown> {
   const load = requireFunction(core, "loadConfig", "loadConfig");
-  const result = Reflect.apply(load, undefined, [path, { variants: [...variants] }]);
+  const result = Reflect.apply(load, undefined, [path]);
   return isPromiseLike(result) ? await result : result;
 }
 

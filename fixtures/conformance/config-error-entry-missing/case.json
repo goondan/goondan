@@ -1,7 +1,7 @@
 {
   "description": "진입 경로가 디렉터리인데 그 안에 goondan.yaml이 없으면 빈 path의 load.not_found 구성 오류다.",
   "spec": [
-    "파일 합성, variant와 경로 기준",
+    "파일 합성과 경로 기준",
     "읽기 오류",
     "오류 코드"
   ],

@@ -1,7 +1,7 @@
 {
   "description": "훅 컨텍스트의 agents.run에 선언되지 않은 이름을 전달하면 호출이 실패하고, 훅이 그 오류를 처리하지 않으면 필수 훅이 실패해 그 단계의 hook_error로 실행이 실패한다.",
   "spec": [
-    "훅 컨텍스트와 호스트 함수",
+    "실행 컨텍스트와 호스트 함수",
     "훅 실패"
   ],
   "bindings": {
@@ -14,7 +14,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "runAgent",
               "name": "ghost",
               "input": "부탁"

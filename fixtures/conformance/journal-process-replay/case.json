@@ -1,0 +1,51 @@
+{
+  "description": "새 군단 객체는 같은 메모리 저널을 재생하여 stateful 대화를 복원하고 다음 실행의 모델 입력에 이어 붙인다.",
+  "spec": [
+    "fold",
+    "실행 범위",
+    "복구"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "첫 응답"
+          },
+          {
+            "text": "둘째 응답"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "replay",
+        "input": "첫 입력"
+      }
+    },
+    {
+      "restart": {}
+    },
+    {
+      "run": {
+        "sessionId": "replay",
+        "input": "둘째 입력"
+      }
+    }
+  ]
+}

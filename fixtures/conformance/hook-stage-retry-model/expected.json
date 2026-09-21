@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "둘"
-            }
-          ]
-        },
+        "output": "둘",
         "usage": {
           "input": 3,
           "output": 2,
@@ -34,9 +25,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           }
         ]
       }
@@ -55,12 +44,35 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       },
       {
         "fn": "retryOnce",
+        "value": {
+          "message": {
+            "role": "assistant",
+            "source": "model",
+            "content": [
+              {
+                "type": "text",
+                "text": "첫"
+              }
+            ]
+          },
+          "usage": {
+            "input": 1,
+            "output": 1
+          },
+          "finishReason": "stop"
+        }
+      },
+      {
+        "fn": "hConversation",
         "value": [
           {
             "role": "user",
@@ -70,24 +82,32 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       },
       {
         "fn": "retryOnce",
-        "value": [
-          {
-            "role": "user",
-            "source": "main",
+        "value": {
+          "message": {
+            "role": "assistant",
+            "source": "model",
             "content": [
               {
                 "type": "text",
-                "text": "안녕"
+                "text": "둘"
               }
             ]
-          }
-        ]
+          },
+          "usage": {
+            "input": 2,
+            "output": 1
+          },
+          "finishReason": "stop"
+        }
       }
     ],
     "conversations": {
@@ -100,7 +120,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

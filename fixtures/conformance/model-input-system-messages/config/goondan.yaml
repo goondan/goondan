@@ -6,9 +6,9 @@ agents:
     extensions:
       seed: {}
     hooks:
-      conversation:
+      onStep:
         - extension: seed
-      modelInput:
+      onModelInput:
         - name: note
           fn: opsText
           role: system

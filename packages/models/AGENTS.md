@@ -15,6 +15,7 @@
 4. 요청 변환 함수 `buildAnthropicRequest`와 `buildOpenAIChatRequest`는 `generate`가 보낼 본문을 그대로 반환하며 HTTP 요청을 보내지 않습니다.
 5. Goondan 부분으로 표현할 수 없는 Anthropic 응답 블록은 결과 메시지의 `meta.anthropic.content`에 기록하고, 부분이 바뀌지 않은 assistant 메시지를 보낼 때 그대로 다시 보냅니다.
 6. 테스트는 `vitest.config.ts`에서 `@goondan/core`를 코어 소스로 연결하므로 코어를 먼저 빌드하지 않아도 런타임 연동 테스트를 실행할 수 있습니다. 타입 검사는 `tsconfig.test.json`으로 테스트 코드까지 확인합니다.
+7. 어댑터는 작성용 모델 응답을 반환할 수 있으며, 메시지의 `id`와 `source`는 코어 런타임이 정규화합니다.
 
 ## 불변 규칙
 

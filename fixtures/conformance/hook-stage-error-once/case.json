@@ -17,10 +17,7 @@
     },
     "functions": {
       "recordError": {
-        "op": "constant",
-        "value": {
-          "note": "무시"
-        }
+        "op": "identity"
       }
     }
   },

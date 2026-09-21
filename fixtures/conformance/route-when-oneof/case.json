@@ -1,5 +1,8 @@
 {
   "description": "route when은 fn과 output 가운데 하나만 선언해야 하므로 둘을 함께 쓰면 schema.oneOf 구성 오류다.",
-  "spec": ["route 조건", "오류 코드"],
+  "spec": [
+    "route 조건",
+    "오류 코드"
+  ],
   "steps": []
 }

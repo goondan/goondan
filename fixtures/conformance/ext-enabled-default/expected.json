@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "extensionLog": [
@@ -9,20 +8,17 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "memo": {
-              }
+              "memo": {}
             },
             "hooks": {
-              "modelInput": [
+              "onModelInput": [
                 {
                   "extension": "memo"
                 }
@@ -35,9 +31,7 @@
     "modelInputs": {
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -47,7 +41,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "user",
@@ -60,11 +57,8 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ]
     }

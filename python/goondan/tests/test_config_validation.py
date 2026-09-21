@@ -41,21 +41,21 @@ def test_the_specification_inheritance_example():
             "model": "main",
             "tools": ["search", "write"],
             "extensions": {"audit": {}, "memory": {}},
-            "hooks": {"modelInput": [{"name": "trim-context", "fn": "trimContext"}], "output": [{"extension": "audit"}]},
+            "hooks": {"onModelInput": [{"name": "trim-context", "fn": "trimContext"}], "onOutput": [{"extension": "audit"}]},
         },
-        "reader": {"inherit": "base", "remove": {"tools": ["write"], "extensions": ["audit"], "hooks": {"modelInput": ["trim-context"]}}},
+        "reader": {"inherit": "base", "remove": {"tools": ["write"], "extensions": ["audit"], "hooks": {"onModelInput": ["trim-context"]}}},
     }})
     assert config["agents"]["reader"] == {
         "model": "main",
         "tools": ["search"],
         "extensions": {"memory": {}},
-        "hooks": {"modelInput": [], "output": []},
+        "hooks": {"onModelInput": [], "onOutput": []},
     }
     assert config["agents"]["base"]["tools"] == ["search", "write"]
 
 
 def test_remove_never_creates_keys_that_were_absent():
-    config = validate_config({"agents": {"a": {"model": "m", "remove": {"tools": [], "extensions": [], "hooks": {"output": ["x"]}}}}})
+    config = validate_config({"agents": {"a": {"model": "m", "remove": {"tools": [], "extensions": [], "hooks": {"onOutput": ["x"]}}}}})
     assert config["agents"]["a"] == {"model": "m"}
 
 
@@ -70,43 +70,43 @@ def test_hook_identifiers_follow_the_declared_field_order():
             "model": "main",
             "extensions": {"memory": {}},
             "hooks": {
-                "input": [{"agent": ["x", "y"]}],
-                "output": [{"agent": "helper"}],
-                "modelInput": [{"name": "ctx", "extension": "memory"}],
+                "onPrompt": [{"agent": ["x", "y"]}],
+                "onOutput": [{"agent": "helper"}],
+                "onModelInput": [{"name": "ctx", "extension": "memory"}],
             },
         },
         "x": {"model": "main"}, "y": {"model": "main"}, "helper": {"model": "main"},
-        "child": {"inherit": "base", "remove": {"hooks": {"input": ["x+y"], "output": ["helper"], "modelInput": ["memory"]}}},
+        "child": {"inherit": "base", "remove": {"hooks": {"onPrompt": ["x+y"], "onOutput": ["helper"], "onModelInput": ["memory"]}}},
     }})
     child = config["agents"]["child"]["hooks"]
-    assert child["input"] == [] and child["output"] == []
-    assert child["modelInput"] == [{"name": "ctx", "extension": "memory"}]
+    assert child["onPrompt"] == [] and child["onOutput"] == []
+    assert child["onModelInput"] == [{"name": "ctx", "extension": "memory"}]
 
 
 def test_a_template_hook_identifier_is_relative_to_the_config_directory(tmp_path: Path):
     write(tmp_path, "shared/note.md", "note\n")
-    write(tmp_path, "shared/base.yaml", "agents:\n  base:\n    model: m\n    hooks:\n      output: [{template: note.md}]\n")
-    write(tmp_path, "goondan.yaml", "resources: [shared/base.yaml]\nagents:\n  child: {inherit: base, remove: {hooks: {output: [shared/note.md]}}}\n")
+    write(tmp_path, "shared/base.yaml", "agents:\n  base:\n    model: m\n    hooks:\n      onOutput: [{template: note.md}]\n")
+    write(tmp_path, "goondan.yaml", "resources: [shared/base.yaml]\nagents:\n  child: {inherit: base, remove: {hooks: {onOutput: [shared/note.md]}}}\n")
     config = load_config(tmp_path)
-    assert config["agents"]["base"]["hooks"]["output"] == [{"template": str(tmp_path / "shared" / "note.md")}]
-    assert config["agents"]["child"]["hooks"]["output"] == []
+    assert config["agents"]["base"]["hooks"]["onOutput"] == [{"template": str(tmp_path / "shared" / "note.md")}]
+    assert config["agents"]["child"]["hooks"]["onOutput"] == []
 
 
 def test_a_child_that_re_enables_an_extension_keeps_the_parents_hooks():
     config = validate_config({"agents": {
-        "base": {"model": "main", "extensions": {"memo": {"enabled": False}}, "hooks": {"modelInput": [{"extension": "memo"}]}},
+        "base": {"model": "main", "extensions": {"memo": {"enabled": False}}, "hooks": {"onModelInput": [{"extension": "memo"}]}},
         "child": {"inherit": "base", "extensions": {"memo": {"enabled": True}}},
     }})
-    assert config["agents"]["base"]["hooks"]["modelInput"] == []
-    assert config["agents"]["child"]["hooks"]["modelInput"] == [{"extension": "memo"}]
+    assert config["agents"]["base"]["hooks"]["onModelInput"] == []
+    assert config["agents"]["child"]["hooks"]["onModelInput"] == [{"extension": "memo"}]
 
 
 def test_a_removed_extension_does_not_come_back():
     config = validate_config({"agents": {
-        "base": {"model": "main", "extensions": {"memo": {}}, "hooks": {"modelInput": [{"extension": "memo"}]}},
+        "base": {"model": "main", "extensions": {"memo": {}}, "hooks": {"onModelInput": [{"extension": "memo"}]}},
         "child": {"inherit": "base", "remove": {"extensions": ["memo"]}, "extensions": {"memo": {}}},
     }})
-    assert config["agents"]["child"]["hooks"]["modelInput"] == []
+    assert config["agents"]["child"]["hooks"]["onModelInput"] == []
 
 
 def test_inheritance_cycles_are_reported_once_at_the_first_declared_member():
@@ -142,25 +142,25 @@ def test_duplicate_tool_names_are_reported_at_each_later_entry():
 
 def test_unknown_hook_extensions_and_agents_are_reported():
     with pytest.raises(GoondanConfigError) as error:
-        validate_config({"agents": {"a": {"model": "m", "hooks": {"output": [{"extension": "gone"}, {"agent": ["a", "nope"]}]}}}})
+        validate_config({"agents": {"a": {"model": "m", "hooks": {"onOutput": [{"extension": "gone"}, {"agent": ["a", "nope"]}]}}}})
     assert issues_of(error) == [
-        ("reference.extension", "/agents/a/hooks/output/0/extension"),
-        ("reference.agent", "/agents/a/hooks/output/1/agent/1"),
+        ("reference.extension", "/agents/a/hooks/onOutput/0/extension"),
+        ("reference.agent", "/agents/a/hooks/onOutput/1/agent/1"),
     ]
 
 
 def test_hooks_of_disabled_extensions_are_not_reference_errors():
-    validate_config({"agents": {"a": {"model": "m", "extensions": {"memo": {"enabled": False}}, "hooks": {"output": [{"extension": "memo"}]}}}})
+    validate_config({"agents": {"a": {"model": "m", "extensions": {"memo": {"enabled": False}}, "hooks": {"onOutput": [{"extension": "memo"}]}}}})
 
 
 def test_duplicate_async_conversation_hooks_are_rejected():
     with pytest.raises(GoondanConfigError) as error:
-        validate_config({"agents": {"a": {"model": "m", "hooks": {"conversation": [
+        validate_config({"agents": {"a": {"model": "m", "hooks": {"onStep": [
             {"fn": "note", "mode": "async"},
             {"fn": "note", "mode": "async"},
             {"fn": "note"},
         ]}}}})
-    assert issues_of(error) == [("reference.duplicate_hook", "/agents/a/hooks/conversation/1")]
+    assert issues_of(error) == [("reference.duplicate_hook", "/agents/a/hooks/onStep/1")]
 
 
 def test_route_references_use_the_composed_document_position():
@@ -168,7 +168,6 @@ def test_route_references_use_the_composed_document_position():
         validate_config({"agents": {"a": {"model": "m"}}, "routes": [{"from": "$input", "to": "gone"}]})
     assert issues_of(error) == [
         ("routes.no_input", "/routes"),
-        ("routes.no_output", "/routes"),
         ("reference.agent", "/routes/0/to"),
     ]
 
@@ -178,12 +177,9 @@ def test_route_references_use_the_composed_document_position():
     [
         (["gone"], [
             ("routes.no_input", "/routes"),
-            ("routes.no_output", "/routes"),
             ("reference.agent", "/routes/0"),
         ]),
         (["a", "gone"], [
-            ("routes.no_output", "/routes"),
-            ("routes.no_route", "/routes/0/to"),
             ("reference.agent", "/routes/1"),
         ]),
     ],
@@ -201,15 +197,15 @@ def test_every_missing_binding_is_reported_together():
     with pytest.raises(GoondanConfigError) as error:
         create_goondan(
             config={
-                "agents": {"a": {"model": "gone", "input": {"fn": "shape"}, "tools": ["search"], "hooks": {"output": [{"fn": "polish"}, {"name": "gate", "fn": "gate", "when": {"fn": "ready"}}]}}},
+                "agents": {"a": {"model": "gone", "input": {"fn": "shape"}, "tools": ["search"], "hooks": {"onOutput": [{"fn": "polish"}, {"name": "gate", "fn": "gate", "when": {"fn": "ready"}}]}}},
                 "routes": [{"from": "$input", "to": "a"}, {"from": "a", "to": "$output", "when": {"fn": "done"}}],
             },
             models={},
         )
     assert issues_of(error) == [
-        ("binding.function", "/agents/a/hooks/output/0/fn"),
-        ("binding.function", "/agents/a/hooks/output/1/fn"),
-        ("binding.function", "/agents/a/hooks/output/1/when/fn"),
+        ("binding.function", "/agents/a/hooks/onOutput/0/fn"),
+        ("binding.function", "/agents/a/hooks/onOutput/1/fn"),
+        ("binding.function", "/agents/a/hooks/onOutput/1/when/fn"),
         ("binding.function", "/agents/a/input/fn"),
         ("binding.model", "/agents/a/model"),
         ("binding.tool", "/agents/a/tools/0"),
@@ -218,16 +214,16 @@ def test_every_missing_binding_is_reported_together():
 
 
 def test_declared_extension_stages_ports_and_tools_are_checked():
-    memo = define_extension(name="memo", create=lambda **_: Extension(), hooks=["modelInput"], tools=["recall"], requires=["db"])
+    memo = define_extension(name="memo", create=lambda **_: Extension(), hooks=["onModelInput"], tools=["recall"], requires=["db"])
     with pytest.raises(GoondanConfigError) as error:
         create_goondan(
-            config={"agents": {"a": {"model": "m", "extensions": {"memo": {}, "unknown": {}}, "hooks": {"output": [{"extension": "memo"}]}}}},
+            config={"agents": {"a": {"model": "m", "extensions": {"memo": {}, "unknown": {}}, "hooks": {"onOutput": [{"extension": "memo"}]}}}},
             models={"m": noop_model}, extensions={"memo": memo},
         )
     assert issues_of(error) == [
         ("binding.port", "/agents/a/extensions/memo"),
         ("binding.extension", "/agents/a/extensions/unknown"),
-        ("binding.extension_hook", "/agents/a/hooks/output/0/extension"),
+        ("binding.extension_hook", "/agents/a/hooks/onOutput/0/extension"),
     ]
 
 
@@ -249,14 +245,14 @@ def test_an_extension_without_a_declared_tool_list_defers_the_tool_check():
 
 @pytest.mark.asyncio
 async def test_an_instance_that_does_not_provide_a_hooked_stage_fails_the_turn():
-    memo = define_extension(name="memo", create=lambda **_: Extension(hooks={"output": lambda value, ctx: value}))
+    memo = define_extension(name="memo", create=lambda **_: Extension(hooks={"onOutput": lambda value, ctx: value}))
     runtime = create_goondan(
-        config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "hooks": {"modelInput": [{"extension": "memo"}]}}}},
+        config={"agents": {"a": {"model": "m", "extensions": {"memo": {}}, "hooks": {"onModelInput": [{"extension": "memo"}]}}}},
         models={"m": noop_model}, extensions={"memo": memo},
     )
     with pytest.raises(GoondanConfigError) as error:
         await runtime.run("input", session_id="instance")
-    assert issues_of(error) == [("binding.extension_hook", "/agents/a/hooks/modelInput/0/extension")]
+    assert issues_of(error) == [("binding.extension_hook", "/agents/a/hooks/onModelInput/0/extension")]
 
 
 # --- issue order and duplicates -------------------------------------------------------------

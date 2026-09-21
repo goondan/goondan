@@ -2,6 +2,6 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - agent: [helper, helper]
   helper: {model: h}

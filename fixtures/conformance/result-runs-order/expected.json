@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "도움"
-            }
-          ]
-        },
+        "output": "도움",
         "usage": {
           "input": 1132,
           "output": 2,
@@ -34,13 +25,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "worker",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "tool",
             "usage": {
               "input": 100,
@@ -50,14 +39,13 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#worker/worker",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
+            "instance": "c1/worker",
+            "executionId": "<execution:2>",
+            "parentExecutionId": "<execution:1>"
           },
           {
             "agent": "reviewer",
-            "turnId": "<turn:3>",
+            "turnId": "<turn:1>",
             "kind": "hook",
             "usage": {
               "input": 10,
@@ -67,14 +55,13 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#reviewer/reviewer",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
+            "instance": "c1/reviewer",
+            "executionId": "<execution:3>",
+            "parentExecutionId": "<execution:1>"
           },
           {
             "agent": "checker",
-            "turnId": "<turn:4>",
+            "turnId": "<turn:1>",
             "kind": "hook",
             "usage": {
               "input": 20,
@@ -84,14 +71,13 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#checker/checker",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
+            "instance": "c1/checker",
+            "executionId": "<execution:4>",
+            "parentExecutionId": "<execution:1>"
           },
           {
             "agent": "helper",
-            "turnId": "<turn:5>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1000,
@@ -102,9 +88,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/helper",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:5>"
           }
         ]
       }

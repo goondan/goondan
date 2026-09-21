@@ -21,7 +21,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

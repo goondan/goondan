@@ -1,3 +1,11 @@
 {
-  "error": {"phase": "load", "issues": [{"code": "routes.reserved", "path": "/routes/0"}]}
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "routes.reserved",
+        "path": "/routes/0"
+      }
+    ]
+  }
 }

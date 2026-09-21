@@ -121,11 +121,11 @@ describe("YAML 1.2 core reading", () => {
 });
 
 describe("file composition", () => {
-  it("merges extends, resources and the current file in that order", () => {
+  it("merges resources and the current file in that order", () => {
     const root = workspace({
       "base.yaml": "name: base\nagents:\n  a: {model: m, params: {x: 1, y: 2}}\n",
       "extra.yaml": "agents:\n  b: {model: m}\n",
-      "goondan.yaml": "extends: ./base.yaml\nresources: [./extra.yaml]\nname: app\nagents:\n  a: {params: {y: 3}}\n",
+      "goondan.yaml": "resources: [./base.yaml, ./extra.yaml]\nname: app\nagents:\n  a: {params: {y: 3}}\n",
     });
     const loaded = loadConfigSync(root);
     expect(loaded.config.name).toBe("app");
@@ -137,7 +137,7 @@ describe("file composition", () => {
   it("keeps the earlier key order and appends new keys", () => {
     const root = workspace({
       "base.yaml": "agents:\n  a: {model: m}\n",
-      "goondan.yaml": "extends: ./base.yaml\nagents:\n  b: {model: m}\n  a: {description: later}\n",
+      "goondan.yaml": "resources: [./base.yaml]\nagents:\n  b: {model: m}\n  a: {description: later}\n",
     });
     const loaded = loadConfigSync(root);
     expect(Object.keys(loaded.config.agents)).toEqual(["a", "b"]);
@@ -167,10 +167,10 @@ describe("file composition", () => {
     expect(issuesOf(() => loadConfigSync(duplicate))).toMatchObject([{ code: "load.duplicate_resource", path: "/resources/1" }]);
 
     const cycle = workspace({
-      "goondan.yaml": "extends: ./other.yaml\n",
-      "other.yaml": "extends: ./goondan.yaml\n",
+      "goondan.yaml": "resources: [./other.yaml]\n",
+      "other.yaml": "resources: [./goondan.yaml]\n",
     });
-    expect(issuesOf(() => loadConfigSync(cycle))).toMatchObject([{ code: "load.resource_cycle", path: "/extends" }]);
+    expect(issuesOf(() => loadConfigSync(cycle))).toMatchObject([{ code: "load.resource_cycle", path: "/resources/0" }]);
   });
 
   it("treats a link and its target as the same file", () => {
@@ -183,11 +183,11 @@ describe("file composition", () => {
   });
 
   it("rejects a reference that is not a YAML file", () => {
-    const root = workspace({ "notes.txt": "x", "goondan.yaml": "extends: ./notes.txt\nagents:\n  a: {model: m}\n" });
-    expect(issuesOf(() => loadConfigSync(root))).toMatchObject([{ code: "load.not_yaml", path: "/extends" }]);
+    const root = workspace({ "notes.txt": "x", "goondan.yaml": "resources: [./notes.txt]\nagents:\n  a: {model: m}\n" });
+    expect(issuesOf(() => loadConfigSync(root))).toMatchObject([{ code: "load.not_yaml", path: "/resources/0" }]);
   });
 
-  it("checks each file's extends and resources against the schema", () => {
+  it("checks each file's resources against the schema", () => {
     const root = workspace({ "goondan.yaml": "resources: [3]\nagents:\n  a: {model: m}\n" });
     expect(issuesOf(() => loadConfigSync(root))).toMatchObject([{ code: "schema.type", path: "/resources/0" }]);
   });

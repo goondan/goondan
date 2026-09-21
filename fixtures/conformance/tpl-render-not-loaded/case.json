@@ -13,7 +13,7 @@
       "memo": {
         "instance": {
           "hooks": {
-              "conversation": {
+            "onStep": {
               "op": "render",
               "template": "goondan.yaml",
               "variables": {}

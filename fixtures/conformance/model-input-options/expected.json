@@ -16,7 +16,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [],
@@ -37,7 +40,7 @@
     "hookCalls": [
       {
         "extension": "opts",
-        "stage": "modelInput",
+        "stage": "onModelInput",
         "value": {
           "system": [],
           "messages": [
@@ -49,7 +52,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [],

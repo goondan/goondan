@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "검토2"
-            }
-          ]
-        },
+        "output": "검토2",
         "outputs": [
           {
             "role": "assistant",
@@ -46,13 +37,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/writer",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "reviewer",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 2,
@@ -63,13 +52,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/reviewer",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           },
           {
             "agent": "writer",
-            "turnId": "<turn:3>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -80,13 +67,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/writer",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:3>"
           },
           {
             "agent": "reviewer",
-            "turnId": "<turn:4>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 2,
@@ -97,9 +82,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/reviewer",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:4>"
           }
         ]
       }
@@ -116,7 +99,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -139,7 +125,8 @@
           ],
           "meta": {
             "from": "reviewer",
-            "instance": "c1/reviewer"
+            "instance": "c1/reviewer",
+            "kind": "start"
           }
         },
         {
@@ -165,7 +152,8 @@
           ],
           "meta": {
             "from": "writer",
-            "instance": "c1/writer"
+            "instance": "c1/writer",
+            "kind": "start"
           }
         },
         {
@@ -189,7 +177,8 @@
           ],
           "meta": {
             "from": "writer",
-            "instance": "c1/writer"
+            "instance": "c1/writer",
+            "kind": "start"
           }
         },
         {

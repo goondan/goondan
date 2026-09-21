@@ -1,0 +1,84 @@
+{
+  "description": "함수 route는 메시지 배열을 후속 route에 전달하고 null이면 갈래를 정상 종료하며 호출 결과를 저널에 기록한다.",
+  "spec": [
+    "route 선언과 검증",
+    "route 조건",
+    "route 진행",
+    "출력 텍스트",
+    "턴 결과"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": {
+            "fn": "normalize"
+          }
+        },
+        {
+          "from": {
+            "fn": "normalize"
+          },
+          "to": "$output",
+          "when": {
+            "output": "정규화"
+          }
+        }
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "normalize": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "constant",
+            "value": [
+              {
+                "id": "route-message",
+                "role": "assistant",
+                "source": "normalize",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "정규화"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "constant",
+            "value": null
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "route-1",
+        "input": "첫 입력"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "route-2",
+        "input": "둘째 입력"
+      }
+    }
+  ]
+}

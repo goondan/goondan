@@ -161,12 +161,11 @@ def _combine(root: Any, kind: str, branches: Sequence[Any], results: Sequence[li
     ]
     if len(compatible) == 1:
         return list(results[compatible[0]])
-    substantive = [
-        index for index in compatible
-        if any(error["code"] not in _SHAPE_CODES for error in results[index])
-    ]
-    if len(substantive) == 1:
-        return list(results[substantive[0]])
+    if len(compatible) > 1:
+        fewest = min(len(results[index]) for index in compatible)
+        closest = [index for index in compatible if len(results[index]) == fewest]
+        if len(closest) == 1:
+            return list(results[closest[0]])
     return [issue(f"schema.{kind}", at, "must be " + " or ".join(_unique(_describe(root, branch) for branch in branches)))]
 
 

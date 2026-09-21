@@ -1,11 +1,38 @@
 {
   "description": "$input route의 문자열 조건은 문자열 입력 텍스트와 비교하고 객체 조건은 JSON 객체 입력에 부분 일치한다.",
-  "spec": ["route 조건", "입력"],
+  "spec": [
+    "route 조건",
+    "입력"
+  ],
   "bindings": {
-    "models": {"m": {"responses": [{"text": "문자열"}, {"text": "객체"}]}}
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "문자열"
+          },
+          {
+            "text": "객체"
+          }
+        ]
+      }
+    }
   },
   "steps": [
-    {"run": {"sessionId": "s1", "input": "go"}},
-    {"run": {"sessionId": "s2", "input": {"kind": "special", "extra": 1}}}
+    {
+      "run": {
+        "sessionId": "s1",
+        "input": "go"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "s2",
+        "input": {
+          "kind": "special",
+          "extra": 1
+        }
+      }
+    }
   ]
 }

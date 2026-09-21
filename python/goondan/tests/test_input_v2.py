@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from goondan import GoondanExecutionError, create_goondan
+from goondan import GoondanConfigError, GoondanExecutionError, create_goondan
 
 
 def answer(text: str = "done", *, content: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -85,7 +85,7 @@ async def test_input_hook_can_replace_the_message_array_before_input_conversion(
         return answer()
 
     goondan = create_goondan(
-        {"agents": {"main": {"model": "m", "hooks": {"input": [{"fn": "replace"}]}}}},
+        {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"fn": "replace"}]}}}},
         models={"m": model},
         functions={"replace": lambda value: [replacement]},
     )
@@ -93,23 +93,19 @@ async def test_input_hook_can_replace_the_message_array_before_input_conversion(
     assert seen == [[{**replacement, "content": [{"type": "text", "text": "7"}]}]]
 
 
-@pytest.mark.asyncio
-async def test_input_inline_agent_is_skipped_and_template_is_a_hook_error(tmp_path: Path):
+def test_on_input_rejects_message_augmentation_elements(tmp_path: Path):
     template = tmp_path / "input.md"
     template.write_text("{{ inputText }}", encoding="utf-8")
-    agent_hook = create_goondan(
-        {"agents": {"main": {"model": "m", "hooks": {"input": [{"agent": "helper"}]}}, "helper": {"model": "m"}}},
-        models={"m": lambda value: answer()},
-    )
-    assert (await agent_hook.run("x", session_id="agent"))["status"] == "done"
-
-    template_hook = create_goondan(
-        {"agents": {"main": {"model": "m", "hooks": {"input": [{"template": str(template)}]}}}},
-        models={"m": lambda value: answer()},
-    )
-    with pytest.raises(GoondanExecutionError) as error:
-        await template_hook.run("x", session_id="template")
-    assert (error.value.where, error.value.codes) == ("input", ["hook_error"])
+    with pytest.raises(GoondanConfigError):
+        create_goondan(
+            {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"agent": "helper"}]}}, "helper": {"model": "m"}}},
+            models={"m": lambda value: answer()},
+        )
+    with pytest.raises(GoondanConfigError):
+        create_goondan(
+            {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"template": str(template)}]}}}},
+            models={"m": lambda value: answer()},
+        )
 
 
 @pytest.mark.asyncio
@@ -133,7 +129,7 @@ async def test_route_preserves_output_content_and_adds_origin_metadata():
     )
     await goondan.run("x", session_id="s")
     assert received[0]["content"] == content
-    assert received[0]["meta"] == {"from": "first", "instance": "s/first"}
+    assert received[0]["meta"] == {"from": "first", "instance": "s/first", "kind": "start"}
 
 
 @pytest.mark.asyncio

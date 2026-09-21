@@ -17,12 +17,12 @@
       "opts": {
         "definition": {
           "hooks": [
-            "modelInput"
+            "onModelInput"
           ]
         },
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "merge",
               "value": {
                 "options": {

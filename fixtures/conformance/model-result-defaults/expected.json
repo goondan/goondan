@@ -14,7 +14,10 @@
               "type": "text",
               "text": "첫 질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -34,7 +37,10 @@
               "type": "text",
               "text": "둘째 질문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

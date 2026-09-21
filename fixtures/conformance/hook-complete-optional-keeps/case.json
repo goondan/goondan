@@ -1,7 +1,7 @@
 {
   "description": "예약은 호출한 시점에 확정되므로 예약한 선택 훅이 그 뒤에 실패해도 예약은 유지되고, 실패한 선택 훅의 결과는 버려 훅을 실행하기 전의 도구 결과가 대화에 저장된다.",
   "spec": [
-    "`execution.complete`",
+    "제어 결과",
     "훅 실패"
   ],
   "bindings": {
@@ -37,7 +37,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "toolResult": {
+            "onToolResult": {
               "op": "chain",
               "ops": [
                 {

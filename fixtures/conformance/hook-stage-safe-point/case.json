@@ -1,25 +1,41 @@
 {
-  "description": "안전한 대화 처리 지점에서는 호스트가 보낸 실행 중 입력을 먼저 대화에 추가한 뒤 완료된 비동기 훅의 결과를 반영한다.",
+  "description": "안전한 대화 처리 지점에서는 완료된 비동기 훅 결과를 먼저 반영하고, 이어서 실행 중에 합류한 입력을 steer 묶음으로 저장한다.",
   "spec": [
     "단계 실행 순서",
-    "비동기 훅"
+    "비동기 훅",
+    "입력 대기열과 턴",
+    "남은 작업 대기"
   ],
   "bindings": {
     "models": {
       "m": {
         "responses": [
           {
-            "text": "답1",
-            "usage": {
-              "input": 1,
-              "output": 1
-            }
+            "toolCalls": [
+              {
+                "callId": "wait-1",
+                "name": "wait",
+                "args": {}
+              }
+            ]
           },
           {
             "text": "답2",
             "usage": {
               "input": 1,
               "output": 1
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "wait": {
+        "results": [
+          {
+            "await": "tool",
+            "then": {
+              "text": "계속"
             }
           }
         ]
@@ -47,27 +63,38 @@
   },
   "steps": [
     {
-      "run": {
-        "sessionId": "c1",
-        "input": "첫"
-      },
-      "settle": false
-    },
-    {
-      "steer": {
-        "sessionId": "c1",
-        "value": "끼어들기"
-      },
-      "settle": false
-    },
-    {
-      "release": "g"
-    },
-    {
-      "run": {
-        "sessionId": "c1",
-        "input": "둘"
-      }
+      "parallel": [
+        [
+          {
+            "run": {
+              "sessionId": "c1",
+              "input": "첫"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "tool"
+          },
+          {
+            "run": {
+              "sessionId": "c1",
+              "input": "끼어들기"
+            }
+          }
+        ],
+        [
+          {
+            "reach": "tool"
+          },
+          {
+            "release": "g"
+          },
+          {
+            "release": "tool"
+          }
+        ]
+      ]
     }
   ]
 }

@@ -5,7 +5,7 @@ agents:
       - tool: publish
         approval: required
     hooks:
-      toolCall:
+      onToolCall:
         - name: gate
           fn: askApproval
         - name: after

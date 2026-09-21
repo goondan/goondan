@@ -1,0 +1,219 @@
+{
+  "steps": [
+    {
+      "result": {
+        "status": "done",
+        "outputs": [
+          {
+            "role": "assistant",
+            "source": "normalize",
+            "content": [
+              {
+                "type": "text",
+                "text": "정규화"
+              }
+            ]
+          }
+        ],
+        "output": "정규화",
+        "runs": []
+      }
+    },
+    {
+      "result": {
+        "status": "done",
+        "outputs": [],
+        "runs": []
+      }
+    }
+  ],
+  "observations": {
+    "journalEvents": [
+      {
+        "seq": 1,
+        "version": 1,
+        "type": "turn.start",
+        "sessionId": "route-1",
+        "turnId": "<turn:1>",
+        "data": {}
+      },
+      {
+        "seq": 2,
+        "version": 1,
+        "type": "input.received",
+        "sessionId": "route-1",
+        "turnId": "<turn:1>",
+        "inputId": "<input:1>",
+        "data": {
+          "input": "첫 입력"
+        }
+      },
+      {
+        "seq": 3,
+        "version": 1,
+        "type": "route.function",
+        "sessionId": "route-1",
+        "turnId": "<turn:1>",
+        "data": {
+          "route": 0,
+          "fn": "normalize",
+          "status": "done",
+          "input": [
+            {
+              "role": "user",
+              "source": "input",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "첫 입력"
+                }
+              ]
+            }
+          ],
+          "output": [
+            {
+              "role": "assistant",
+              "source": "normalize",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "정규화"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "seq": 4,
+        "version": 1,
+        "type": "turn.done",
+        "sessionId": "route-1",
+        "turnId": "<turn:1>",
+        "data": {
+          "result": {
+            "turnId": "<turn:1>",
+            "outputs": [
+              {
+                "role": "assistant",
+                "source": "normalize",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "정규화"
+                  }
+                ]
+              }
+            ],
+            "output": "정규화",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "finishReason": "stop",
+            "status": "done",
+            "runs": []
+          }
+        }
+      },
+      {
+        "seq": 1,
+        "version": 1,
+        "type": "turn.start",
+        "sessionId": "route-2",
+        "turnId": "<turn:2>",
+        "data": {}
+      },
+      {
+        "seq": 2,
+        "version": 1,
+        "type": "input.received",
+        "sessionId": "route-2",
+        "turnId": "<turn:2>",
+        "inputId": "<input:2>",
+        "data": {
+          "input": "둘째 입력"
+        }
+      },
+      {
+        "seq": 3,
+        "version": 1,
+        "type": "route.function",
+        "sessionId": "route-2",
+        "turnId": "<turn:2>",
+        "data": {
+          "route": 0,
+          "fn": "normalize",
+          "status": "done",
+          "input": [
+            {
+              "role": "user",
+              "source": "input",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "둘째 입력"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "seq": 4,
+        "version": 1,
+        "type": "turn.done",
+        "sessionId": "route-2",
+        "turnId": "<turn:2>",
+        "data": {
+          "result": {
+            "turnId": "<turn:2>",
+            "outputs": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "status": "done",
+            "runs": []
+          }
+        }
+      }
+    ],
+    "functionCalls": [
+      {
+        "fn": "normalize",
+        "value": [
+          {
+            "role": "user",
+            "source": "input",
+            "content": [
+              {
+                "type": "text",
+                "text": "첫 입력"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "fn": "normalize",
+        "value": [
+          {
+            "role": "user",
+            "source": "input",
+            "content": [
+              {
+                "type": "text",
+                "text": "둘째 입력"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

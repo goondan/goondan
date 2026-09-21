@@ -1,23 +1,73 @@
 {
-  "steps": [{}],
+  "steps": [
+    {}
+  ],
   "observations": {
-      "conversations": {
-        "s/y": [
-          {
-            "role": "user",
-            "source": "y",
-            "content": [{"type": "text", "text": "원본"}]
-          },
-          {
-            "role": "assistant",
-            "source": "model",
-            "content": [{"type": "text", "text": "Y"}]
+    "conversations": {
+      "s/y": [
+        {
+          "role": "user",
+          "source": "y",
+          "content": [
+            {
+              "type": "text",
+              "text": "원본"
+            }
+          ],
+          "meta": {
+            "kind": "start"
           }
-        ],
-        "s/x": [
-        {"role": "user", "source": "x", "content": [{"type": "text", "text": "원본"}]},
-        {"role": "user", "source": "x", "content": [{"type": "text", "text": "Y"}], "meta": {"from": "y", "instance": "s/y"}},
-        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "X"}]}
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "Y"
+            }
+          ]
+        }
+      ],
+      "s/x": [
+        {
+          "role": "user",
+          "source": "x",
+          "content": [
+            {
+              "type": "text",
+              "text": "원본"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "user",
+          "source": "x",
+          "content": [
+            {
+              "type": "text",
+              "text": "Y"
+            }
+          ],
+          "meta": {
+            "from": "y",
+            "instance": "s/y",
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "X"
+            }
+          ]
+        }
       ]
     }
   }

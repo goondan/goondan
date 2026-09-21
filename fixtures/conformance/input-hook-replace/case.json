@@ -1,11 +1,44 @@
 {
   "description": "input 단계 훅은 턴 입력 메시지 배열을 받아 메시지를 삭제하거나 추가한 새 메시지 배열로 바꿀 수 있다.",
-  "spec": ["입력", "값 처리 단계와 훅"],
+  "spec": [
+    "입력",
+    "값 처리 단계와 훅"
+  ],
   "bindings": {
-    "models": {"m": {"responses": [{"text": "완료"}]}},
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
     "functions": {
-      "replaceInput": {"op": "constant", "value": [{"id": "replacement", "role": "user", "source": "hook", "content": [{"type": "text", "text": "교체"}]}]}
+      "replaceInput": {
+        "op": "constant",
+        "value": [
+          {
+            "id": "replacement",
+            "role": "user",
+            "source": "hook",
+            "content": [
+              {
+                "type": "text",
+                "text": "교체"
+              }
+            ]
+          }
+        ]
+      }
     }
   },
-  "steps": [{"run": {"sessionId": "s", "input": "원본"}}]
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "원본"
+      }
+    }
+  ]
 }

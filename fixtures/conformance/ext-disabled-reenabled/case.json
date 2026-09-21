@@ -22,7 +22,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "append",
               "messages": [
                 {

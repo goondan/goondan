@@ -60,7 +60,7 @@
       "policy": {
         "instance": {
           "hooks": {
-            "error": {
+            "onError": {
               "op": "sequence",
               "items": [
                 {

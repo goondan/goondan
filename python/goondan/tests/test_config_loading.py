@@ -138,14 +138,13 @@ def test_a_byte_order_mark_is_ignored(tmp_path: Path):
 # --- composition ---------------------------------------------------------------------------
 
 
-def test_extends_then_resources_then_own_values_and_key_order(tmp_path: Path):
-    write(tmp_path, "base.yaml", "name: base\nagents:\n  a: {model: first}\n")
+def test_resources_then_own_values_and_key_order(tmp_path: Path):
     write(tmp_path, "extra.yaml", "agents:\n  a: {model: second, tools: [read]}\n")
-    write(tmp_path, "goondan.yaml", "extends: base.yaml\nresources: [extra.yaml]\nagents:\n  b: {model: third}\n  a: {tools: [write]}\n")
+    write(tmp_path, "goondan.yaml", "name: root\nresources: [extra.yaml]\nagents:\n  b: {model: third}\n  a: {tools: [write]}\n")
     config = load_config(tmp_path)
     assert list(config["agents"]) == ["a", "b"]
     assert config["agents"]["a"] == {"model": "second", "tools": ["write"]}
-    assert config["name"] == "base"
+    assert config["name"] == "root"
     assert "routes" not in config
 
 
@@ -156,7 +155,7 @@ def test_an_empty_resource_list_composes_nothing(tmp_path: Path):
 
 def test_null_replaces_instead_of_deleting(tmp_path: Path):
     write(tmp_path, "base.yaml", "agents: {main: {model: m, params: {a: 1, b: 2}}}\n")
-    write(tmp_path, "goondan.yaml", "extends: base.yaml\nagents: {main: {params: {a: null}}}\n")
+    write(tmp_path, "goondan.yaml", "resources: [base.yaml]\nagents: {main: {params: {a: null}}}\n")
     assert load_config(tmp_path)["agents"]["main"]["params"] == {"a": None, "b": 2}
 
 
@@ -215,7 +214,7 @@ def test_the_yaml_suffix_check_ignores_case(tmp_path: Path):
 
 def test_variants_are_separate_resource_graphs(tmp_path: Path):
     write(tmp_path, "goondan.yaml", "name: base\nagents: {main: {model: m}}\n")
-    write(tmp_path, "variants/again.yaml", "extends: ../goondan.yaml\n")
+    write(tmp_path, "variants/again.yaml", "resources: [../goondan.yaml]\n")
     write(tmp_path, "variants/renamed.yaml", "name: renamed\n")
     assert load_config(tmp_path, variants=["renamed", "again"])["name"] == "base"
     assert load_config(tmp_path, variants=["again", "renamed"])["name"] == "renamed"

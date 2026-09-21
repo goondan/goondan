@@ -2,11 +2,11 @@ agents:
   base:
     model: m
     hooks:
-      output:
+      onOutput:
         - fn: f
         - fn: f
   child:
     inherit: base
     remove:
       hooks:
-        output: [f]
+        onOutput: [f]

@@ -2,13 +2,13 @@ agents:
   strict:
     model: m
     hooks:
-      modelResult:
+      onModelResult:
         - name: again
           fn: askRetry
   lenient:
     model: m
     hooks:
-      modelResult:
+      onModelResult:
         - name: again
           fn: askRetry
           optional: true

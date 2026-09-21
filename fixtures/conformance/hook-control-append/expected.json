@@ -13,7 +13,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "system",
@@ -60,7 +63,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "system",
@@ -85,10 +91,6 @@
             {
               "role": "user",
               "source": "mi",
-              "keep": true,
-              "meta": {
-                "tag": "x"
-              },
               "content": [
                 {
                   "type": "text",

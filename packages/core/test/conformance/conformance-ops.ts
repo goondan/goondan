@@ -127,11 +127,7 @@ export async function runOp(op: Op, received: unknown, ctx: OpContext): Promise<
     case "textSuffix":
       return textOf(value) + op.suffix;
     case "result": {
-      if (!isJsonObject(value)) throw new ScriptError("result operation needs a tool call");
-      const id = value["id"];
-      const name = value["name"];
-      if (!isString(id) || !isString(name)) throw new ScriptError("result operation needs a tool call with id and name");
-      const result: JsonObject = { callId: id, name, args: value["args"] ?? null, content: op.content };
+      const result: JsonObject = { content: op.content };
       if (op.isError !== undefined) result["isError"] = op.isError;
       return { result };
     }

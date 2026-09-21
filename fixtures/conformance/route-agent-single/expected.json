@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "A"
-            }
-          ]
-        },
+        "output": "A",
         "outputs": [
           {
             "role": "assistant",
@@ -46,9 +37,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/a",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           }
         ]
       }
@@ -66,7 +55,10 @@
               "type": "text",
               "text": "직접"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

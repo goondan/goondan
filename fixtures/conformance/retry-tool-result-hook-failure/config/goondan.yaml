@@ -6,7 +6,7 @@ agents:
     extensions:
       policy: {}
     hooks:
-      toolResult:
+      onToolResult:
         - extension: policy
-      error:
+      onError:
         - extension: policy

@@ -6,5 +6,5 @@ agents:
     extensions:
       policy: {}
     hooks:
-      error:
+      onError:
         - extension: policy

@@ -14,7 +14,10 @@
               "type": "text",
               "text": "{\"n\":1}"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",
@@ -44,7 +47,10 @@
               "type": "text",
               "text": "{\"n\":true}"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

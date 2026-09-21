@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -41,8 +40,7 @@
           "namespace": "support",
           "depth": 5
         },
-        "ports": {
-        },
+        "ports": {},
         "agent": {
           "name": "child",
           "spec": {

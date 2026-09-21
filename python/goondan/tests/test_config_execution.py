@@ -1,15 +1,16 @@
 import pytest
-from goondan import create_goondan, define_extension, define_tool, Extension, InMemoryConversationStore
+from goondan import create_goondan, define_extension, define_tool, Extension
+from goondan.store import _ConversationProjection as InMemoryConversationStore
 
 
 def test_inherit_override_remove_and_defaults():
     runtime = create_goondan(config={"agents": {
-        "base": {"model": "m", "params": {"a": 1, "b": 2}, "tools": ["read", "write"], "extensions": {"memory": {}, "audit": {}}, "hooks": {"modelInput": [{"extension": "memory"}, {"name": "note", "fn": "note"}, {"extension": "audit"}]}},
-        "child": {"inherit": "base", "params": {"b": 3}, "extensions": {"audit": {"enabled": False}}, "remove": {"tools": ["write"], "extensions": ["memory"], "hooks": {"modelInput": ["note"]}}},
-    }}, models={"m": lambda value: None}, functions={"note": lambda value: value}, extensions={name: define_extension(name=name, create=lambda **kwargs: Extension(hooks={"modelInput": lambda value, ctx: value})) for name in ("memory", "audit")}, tools={name: define_tool(name=name, description=name, input={}, execute=lambda value, ctx: None) for name in ("read", "write")})
+        "base": {"model": "m", "params": {"a": 1, "b": 2}, "tools": ["read", "write"], "extensions": {"memory": {}, "audit": {}}, "hooks": {"onModelInput": [{"extension": "memory"}, {"name": "note", "fn": "note"}, {"extension": "audit"}]}},
+        "child": {"inherit": "base", "params": {"b": 3}, "extensions": {"audit": {"enabled": False}}, "remove": {"tools": ["write"], "extensions": ["memory"], "hooks": {"onModelInput": ["note"]}}},
+    }}, models={"m": lambda value: None}, functions={"note": lambda value: value}, extensions={name: define_extension(name=name, create=lambda **kwargs: Extension(hooks={"onModelInput": lambda value, ctx: value})) for name in ("memory", "audit")}, tools={name: define_tool(name=name, description=name, input={}, execute=lambda value, ctx: None) for name in ("read", "write")})
     assert runtime.config["agents"]["child"]["tools"] == ["read"]
     assert runtime.config["agents"]["child"]["params"] == {"a": 1, "b": 3}
-    assert runtime.config["agents"]["child"]["hooks"]["modelInput"] == []
+    assert runtime.config["agents"]["child"]["hooks"]["onModelInput"] == []
     assert runtime.config["agents"]["base"]["tools"] == ["read", "write"]
     assert "routes" not in runtime.config
 
@@ -36,7 +37,7 @@ async def test_serial_routes():
         assert value["messages"][0]["content"][0]["text"] == "analysis"
         return {"message": {"role": "assistant", "content": [{"type": "text", "text": "edited"}]}, "finishReason": "stop"}
     runtime = create_goondan(config={"agents": {"a": {"model": "a"}, "e": {"inherit": "a", "model": "e"}}, "routes": ["a", "e"]}, models={"a": analyst, "e": editor})
-    assert (await runtime.run("input", session_id="serial"))["output"]["content"][0]["text"] == "edited"
+    assert (await runtime.run("input", session_id="serial"))["output"] == "edited"
 
 
 @pytest.mark.asyncio
@@ -55,10 +56,10 @@ async def test_completion_saves_entire_batch_after_32_steps():
         if calls == 67: ctx.execution.complete({"id": "complete", "role": "assistant", "source": "policy", "content": [{"type": "text", "text": "complete"}]})
         return value
     store = InMemoryConversationStore()
-    runtime = create_goondan(config={"agents": {"main": {"model": "m", "tools": ["work"], "extensions": {"policy": {}}, "hooks": {"toolResult": [{"extension": "policy"}]}}}}, models={"m": model}, tools={"work": define_tool(name="work", description="work", input={}, execute=execute)}, extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"toolResult": complete}))}, conversation_store=store)
+    runtime = create_goondan(config={"agents": {"main": {"model": "m", "tools": ["work"], "extensions": {"policy": {}}, "hooks": {"onToolResult": [{"extension": "policy"}]}}}}, models={"m": model}, tools={"work": define_tool(name="work", description="work", input={}, execute=execute)}, extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"onToolResult": complete}))}, _conversation_projection=store)
     result = await runtime.run("input", session_id="long")
     assert generations == 34 and calls == 68
-    assert result["output"]["content"][0]["text"] == "complete"
+    assert result["output"] == "complete"
     assert len([p for m in await store.load("long", "main") for p in m["content"] if p["type"] == "tool.result"]) == 68
 
 

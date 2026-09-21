@@ -36,7 +36,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "identity"
             }
           }

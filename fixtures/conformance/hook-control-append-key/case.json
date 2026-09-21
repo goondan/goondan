@@ -21,7 +21,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "conversation": {
+            "onStep": {
               "op": "append",
               "messages": [
                 {

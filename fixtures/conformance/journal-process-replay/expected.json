@@ -1,0 +1,59 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "conversations": {
+      "replay/main": [
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫 입력"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫 응답"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘째 입력"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘째 응답"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -13,7 +13,7 @@
       "slow": {
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "await",
               "gate": "never",
               "then": {

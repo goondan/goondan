@@ -13,15 +13,10 @@ from .errors import CaseFormatError
 
 CASE_ID = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 
-STAGES = ("input", "conversation", "modelInput", "modelResult", "toolCall", "toolResult", "output", "error")
-
-HOST_CALLBACKS = {
-    "requestApproval": "request_approval",
-    "captureOperationContext": "capture_operation_context",
-    "validateOperation": "validate_operation",
-    "validateOperationInputPatch": "validate_operation_input_patch",
-    "deliverOperationCompletion": "deliver_operation_completion",
-}
+STAGES = (
+    "onInput", "onPrompt", "onStep", "onModelInput", "onModelResult",
+    "onToolCall", "onToolResult", "onOutput", "onError",
+)
 
 SCHEMA_KEYWORDS = (
     "type", "const", "enum", "required", "additionalProperties", "propertyNames", "minProperties",
@@ -33,8 +28,8 @@ CONFIG_ERROR_CODES = frozenset(
         "load.not_found", "load.not_yaml", "load.yaml", "load.not_object", "load.duplicate_resource",
         "load.resource_cycle", "config.not_json",
         "reference.agent", "reference.inherit", "reference.inherit_cycle", "reference.extension",
-        "reference.duplicate_tool", "reference.duplicate_hook",
-        "routes.reserved", "routes.no_route", "routes.no_input", "routes.no_output",
+        "reference.duplicate_tool",
+        "routes.reserved", "routes.no_input",
         "routes.unreachable", "routes.cycle", "routes.wait_cycle",
         "template.not_found", "template.syntax", "template.unsupported",
         "binding.model", "binding.tool", "binding.duplicate_tool", "binding.function", "binding.extension",
@@ -45,7 +40,7 @@ CONFIG_ERROR_CODES = frozenset(
 
 EXECUTION_ERROR_CODES = frozenset(
     ("model_error", "tool_error", "tool_unavailable", "hook_error", "value_invalid", "route_error",
-     "steer_invalid", "operation_invalid", "runtime_error", "aborted")
+     "operation_invalid", "runtime_error", "aborted")
 )
 
 # operation name -> (required arguments, optional arguments)
@@ -76,18 +71,19 @@ HOOK_OPS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 STEP_ACTIONS = (
-    "run", "decide", "cancel", "list", "recover", "abort", "steer", "deleteSession", "restart", "close",
-    "release", "reach", "parallel",
+    "run", "decide", "list", "abort", "deleteSession", "restart", "close", "release", "reach",
+    "acquireLease", "renewLease", "releaseLease", "appendJournal", "scanJournal", "headJournal",
+    "appendOperationTransition", "deleteStoreSession", "parallel",
 )
 
 MODEL_RESPONSE_ACTIONS = ("text", "toolCalls", "content", "error", "raw", "await")
 MODEL_RESPONSE_EXTRAS = ("finishReason", "usage", "meta", "id", "source", "deltas")
-TOOL_RESULT_ACTIONS = ("text", "json", "content", "error", "raw", "runAgent", "await")
+TOOL_RESULT_ACTIONS = ("text", "json", "content", "error", "value", "result", "runAgent", "await")
 
 OBSERVATION_SECTIONS = (
-    "effectiveConfig", "events", "modelInputs", "modelContexts", "toolCalls", "toolContexts",
-    "functionCalls", "hookCalls", "hookContexts", "hostCalls", "extensionLog", "conversations",
-    "operations", "operationHistory",
+    "effectiveConfig", "events", "journalEvents", "journalStates", "modelInputs", "modelContexts",
+    "toolCalls", "toolContexts", "functionCalls", "functionContexts", "hookCalls", "hookContexts",
+    "extensionLog", "conversations", "operations", "operationHistory",
 )
 
 
@@ -332,7 +328,7 @@ class _Check:
     def bindings(self, value: Any, path: str) -> None:
         if not self.mapping(value, path):
             return
-        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "host", "maxRetries", "maxSteps"))
+        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "maxRetries", "maxSteps"))
         if "models" in value and self.mapping(value["models"], f"{path}/models"):
             for name, script in value["models"].items():
                 at = f"{path}/models/{name}"
@@ -352,14 +348,6 @@ class _Check:
                 self.extension_script(script, f"{path}/extensions/{name}")
         if "ports" in value:
             self.mapping(value["ports"], f"{path}/ports")
-        if "host" in value and self.mapping(value["host"], f"{path}/host"):
-            for name, callback in value["host"].items():
-                at = f"{path}/host/{name}"
-                if name not in HOST_CALLBACKS:
-                    self.add(at, "is not a host callback")
-                    continue
-                if callback is not True:
-                    self.op(callback, at, hooks=False)
 
     # -- steps --------------------------------------------------------------------------
 
@@ -394,20 +382,31 @@ class _Check:
         shapes = {
             "run": (("sessionId", "input", "agent", "startAgent"), ("sessionId", "input")),
             "decide": (("operation", "value", "sessionId"), ("operation", "value")),
-            "cancel": (("operation", "sessionId"), ("operation",)),
             "list": (("sessionId",), ()),
-            "recover": (("sessionId",), ()),
             "abort": (("sessionId",), ("sessionId",)),
-            "steer": (("sessionId", "value", "agent"), ("sessionId", "value")),
             "deleteSession": (("sessionId",), ("sessionId",)),
             "restart": ((), ()),
             "close": ((), ()),
+            "acquireLease": (("sessionId", "owner", "lease"), ("sessionId", "owner", "lease")),
+            "renewLease": (("lease",), ("lease",)),
+            "releaseLease": (("lease",), ("lease",)),
+            "appendJournal": (("events", "lease", "expected", "writeId"), ("events",)),
+            "appendOperationTransition": (("sessionId", "operation", "status"), ("sessionId", "operation", "status")),
+            "scanJournal": (("sessionId", "fromSeq", "limit"), ()),
+            "headJournal": (("sessionId",), ("sessionId",)),
+            "deleteStoreSession": (("sessionId", "lease"), ("sessionId", "lease")),
         }
         allowed, required = shapes[action]
         self.keys(argument, at, allowed, required)
-        for key in ("sessionId", "operation", "agent", "startAgent"):
+        for key in ("sessionId", "operation", "status", "agent", "startAgent", "owner", "lease", "writeId"):
             if key in argument:
                 self.text(argument[key], f"{at}/{key}")
+        if action == "appendOperationTransition" and argument.get("status") not in (
+            "approved", "running", "rejected", "delivering"
+        ):
+            self.add(f"{at}/status", "must be 'approved', 'running', 'rejected' or 'delivering'")
+        if action == "appendJournal":
+            self.array(argument.get("events"), f"{at}/events")
         operation = argument.get("operation")
         if isinstance(operation, str) and not operation.startswith("<op:") and "sessionId" not in argument:
             self.add(at, "an operation that is not an alias needs a sessionId")
@@ -433,6 +432,11 @@ class _Check:
 
     def step_error(self, value: Any, path: str) -> None:
         if not self.mapping(value, path):
+            return
+        if "storeError" in value:
+            self.keys(value, path, ("storeError",))
+            if value["storeError"] not in ("StoreConflictError", "StoreInputError"):
+                self.add(f"{path}/storeError", "must name a store error")
             return
         if "issues" in value:
             self.keys(value, path, ("issues",))

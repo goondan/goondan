@@ -590,10 +590,10 @@ def test_load_config_carries_the_template_sources_and_the_runtime_does_not_read_
 
 def test_a_hook_template_is_read_at_its_own_position(tmp_path: Path):
     write(tmp_path, "templates/note.md", "{{ text | reverse }}")
-    config = {"agents": {"main": {"model": "m", "hooks": {"output": [{"template": "templates/note.md"}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onOutput": [{"template": "templates/note.md"}]}}}}
     with pytest.raises(GoondanConfigError) as error:
         create_goondan(config=config, models={"m": lambda value: None}, directory=str(tmp_path))
-    assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.unsupported", "/agents/main/hooks/output/0/template")]
+    assert [(item["code"], item["path"]) for item in error.value.issues] == [("template.unsupported", "/agents/main/hooks/onOutput/0/template")]
 
 
 def test_validate_config_does_not_read_template_files(tmp_path: Path):

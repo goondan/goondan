@@ -4,5 +4,5 @@ agents:
     extensions:
       policy: {}
     hooks:
-      modelResult:
+      onModelResult:
         - extension: policy

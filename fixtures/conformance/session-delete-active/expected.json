@@ -1,8 +1,24 @@
 {
   "steps": [
-    {"parallel": [
-      [{}],
-      [{}, {"error": {"where": "runtime", "codes": ["runtime_error"], "attempt": 1}}, {}]
-    ]}
+    {
+      "parallel": [
+        [
+          {}
+        ],
+        [
+          {},
+          {
+            "error": {
+              "where": "runtime",
+              "codes": [
+                "runtime_error"
+              ],
+              "attempt": 1
+            }
+          },
+          {}
+        ]
+      ]
+    }
   ]
 }

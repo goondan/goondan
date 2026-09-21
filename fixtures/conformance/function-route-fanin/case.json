@@ -1,0 +1,65 @@
+{
+  "description": "여러 함수 route의 메시지 배열은 함수별 입력 요청 하나로 보존되고, stateful 대상은 두 함수가 끝난 뒤 route 순서로 묶어 한 번 실행한다.",
+  "spec": [
+    "route 진행",
+    "입력 대기열과 턴",
+    "실행 결과"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        {"from": "$input", "to": {"fn": "left"}},
+        {"from": "$input", "to": {"fn": "right"}},
+        {"from": {"fn": "left"}, "to": "main"},
+        {"from": {"fn": "right"}, "to": "main"},
+        {"from": "main", "to": "$output"}
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {"text": "합류 완료"}
+        ]
+      }
+    },
+    "functions": {
+      "left": {
+        "op": "constant",
+        "value": [
+          {
+            "id": "left-message",
+            "role": "assistant",
+            "source": "left",
+            "content": [{"type": "text", "text": "왼쪽"}]
+          }
+        ]
+      },
+      "right": {
+        "op": "constant",
+        "value": [
+          {
+            "id": "right-message",
+            "role": "system",
+            "source": "right",
+            "content": [{"type": "text", "text": "오른쪽"}]
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "fanin",
+        "input": "시작"
+      }
+    }
+  ]
+}

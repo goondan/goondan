@@ -4,9 +4,10 @@ agents:
     tools:
       - echo
     hooks:
-      modelInput:
+      onModelInput:
         - name: mark
           fn: markInput
-      error:
+          role: user
+      onError:
         - name: capture
           fn: captureError

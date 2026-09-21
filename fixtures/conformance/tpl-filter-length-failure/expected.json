@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "modelInput",
+        "where": "onModelInput",
         "codes": [
           "runtime_error"
         ],
@@ -22,7 +22,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

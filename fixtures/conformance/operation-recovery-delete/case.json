@@ -1,0 +1,105 @@
+{
+  "description": "세션 재생은 pending 승인 작업을 보존하고, 삭제된 세션에는 진행 중이던 완료 전달의 늦은 결과가 스트림을 다시 만들지 않는다.",
+  "spec": [
+    "결정과 조회",
+    "완료 전달",
+    "복구",
+    "삭제",
+    "군단 객체 종료와 작업"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            {
+              "tool": "publish",
+              "approval": "required"
+            }
+          ]
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "recover-1",
+                "name": "publish",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "결정 대기"
+          },
+          {
+            "await": "completion",
+            "then": {
+              "text": "늦은 완료"
+            }
+          }
+        ]
+      }
+    },
+    "tools": {
+      "publish": {
+        "results": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "recover",
+        "input": "작업 생성"
+      }
+    },
+    {
+      "close": {}
+    },
+    {
+      "restart": {}
+    },
+    {
+      "decide": {
+        "operation": "<op:recover-1>",
+        "value": {
+          "decision": "rejected"
+        }
+      },
+      "settle": false
+    },
+    {
+      "reach": "completion",
+      "settle": false
+    },
+    {
+      "deleteSession": {
+        "sessionId": "recover"
+      },
+      "settle": false
+    },
+    {
+      "release": "completion"
+    },
+    {
+      "deleteSession": {
+        "sessionId": "recover"
+      }
+    },
+    {
+      "list": {
+        "sessionId": "recover"
+      }
+    }
+  ]
+}

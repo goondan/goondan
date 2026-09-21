@@ -2,25 +2,14 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "memo",
-          "content": [
-            {
-              "type": "text",
-              "text": "마무리"
-            }
-          ]
-        },
+        "output": "마무리",
         "finishReason": "tool",
         "status": "done"
       }
     }
   ],
   "observations": {
-    "toolCalls": [
-
-    ],
+    "toolCalls": [],
     "conversations": {
       "c1/main": [
         {
@@ -31,7 +20,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -41,8 +33,7 @@
               "type": "tool.call",
               "callId": "c-1",
               "name": "lookup",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },

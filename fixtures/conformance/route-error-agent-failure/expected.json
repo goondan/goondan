@@ -22,7 +22,10 @@
               "type": "text",
               "text": "원문"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -47,7 +50,8 @@
           ],
           "meta": {
             "from": "first",
-            "instance": "c1/first"
+            "instance": "c1/first",
+            "kind": "start"
           }
         }
       ]

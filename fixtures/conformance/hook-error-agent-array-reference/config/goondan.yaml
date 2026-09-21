@@ -2,7 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - agent: [helper, ghost]
   helper:
     model: m

@@ -5,6 +5,6 @@ agents:
       - keep
       - fail
     hooks:
-      conversation:
+      onStep:
         - name: tap
           fn: tap

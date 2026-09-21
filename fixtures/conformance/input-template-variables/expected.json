@@ -1,13 +1,36 @@
 {
-  "steps": [{}],
+  "steps": [
+    {}
+  ],
   "observations": {
     "modelInputs": {
-      "m": [{
-        "system": [{"text": "message={\"k\":1}\ntext={\"k\":1}\n", "source": "system:0"}],
-        "messages": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "{\"k\":1}"}]}],
-        "tools": [],
-        "options": {}
-      }]
+      "m": [
+        {
+          "system": [
+            {
+              "text": "message={\"k\":1}\ntext={\"k\":1}\n",
+              "source": "system:0"
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"k\":1}"
+                }
+              ],
+              "meta": {
+                "kind": "start"
+              }
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
     }
   }
 }

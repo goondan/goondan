@@ -14,7 +14,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "output": {
+            "onOutput": {
               "op": "identity"
             }
           }

@@ -17,12 +17,12 @@
       "seed": {
         "definition": {
           "hooks": [
-            "conversation"
+            "onStep"
           ]
         },
         "instance": {
           "hooks": {
-            "conversation": {
+            "onStep": {
               "op": "constant",
               "value": [
                 {

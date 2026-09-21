@@ -2,6 +2,6 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - name: polish
           template: templates/out.md

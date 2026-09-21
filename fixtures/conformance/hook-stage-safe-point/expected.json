@@ -1,9 +1,21 @@
 {
   "steps": [
-    {},
-    {},
-    {},
-    {}
+    {
+      "parallel": [
+        [
+          {}
+        ],
+        [
+          {},
+          {}
+        ],
+        [
+          {},
+          {},
+          {}
+        ]
+      ]
+    }
   ],
   "observations": {
     "conversations": {
@@ -16,35 +28,36 @@
               "type": "text",
               "text": "첫"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
           "source": "model",
           "content": [
             {
-              "type": "text",
-              "text": "답1"
+              "type": "tool.call",
+              "callId": "wait-1",
+              "name": "wait",
+              "args": {}
             }
           ]
         },
         {
-          "role": "user",
-          "source": "main",
+          "role": "tool",
+          "source": "tool",
           "content": [
             {
-              "type": "text",
-              "text": "둘"
-            }
-          ]
-        },
-        {
-          "role": "user",
-          "source": "user",
-          "content": [
-            {
-              "type": "text",
-              "text": "끼어들기"
+              "type": "tool.result",
+              "callId": "wait-1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "계속"
+                }
+              ]
             }
           ]
         },
@@ -57,6 +70,19 @@
               "text": "비동기"
             }
           ]
+        },
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "끼어들기"
+            }
+          ],
+          "meta": {
+            "kind": "steer"
+          }
         },
         {
           "role": "assistant",

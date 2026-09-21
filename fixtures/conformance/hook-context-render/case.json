@@ -1,7 +1,7 @@
 {
   "description": "훅 컨텍스트의 render는 이미 읽은 템플릿을 전달한 변수로 렌더링한 문자열을 반환한다.",
   "spec": [
-    "훅 컨텍스트와 호스트 함수"
+    "실행 컨텍스트와 호스트 함수"
   ],
   "bindings": {
     "models": {
@@ -21,13 +21,17 @@
       "memo": {
         "instance": {
           "hooks": {
-            "input": {
+            "onInput": {
               "op": "chain",
               "ops": [
                 {
                   "op": "render",
                   "template": "templates/greet.md",
-                  "variables": {"agent": {"name": "군단"}}
+                  "variables": {
+                    "agent": {
+                      "name": "군단"
+                    }
+                  }
                 },
                 {
                   "op": "constant",
@@ -36,7 +40,12 @@
                       "id": "rendered",
                       "role": "user",
                       "source": "main",
-                      "content": [{"type": "text", "text": "안녕 군단"}]
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "안녕 군단"
+                        }
+                      ]
                     }
                   ]
                 }

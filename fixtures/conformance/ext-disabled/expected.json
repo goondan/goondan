@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -16,19 +15,13 @@
             }
           },
           "hooks": {
-            "modelInput": [
-
-            ],
-            "output": [
-
-            ]
+            "onModelInput": [],
+            "onOutput": []
           }
         }
       }
     },
-    "extensionLog": [
-
-    ],
+    "extensionLog": [],
     "conversations": {
       "c1/main": [
         {
@@ -39,7 +32,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

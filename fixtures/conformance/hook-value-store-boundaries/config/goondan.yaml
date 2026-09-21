@@ -2,10 +2,10 @@ agents:
   main:
     model: m
     hooks:
-      modelInput:
+      onModelInput:
         - name: hint
           fn: addHint
-          using: input
-      output:
+          role: user
+      onOutput:
         - name: polish
-          fn: polish
+          template: templates/polish.md

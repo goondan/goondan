@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -16,9 +15,7 @@
             }
           },
           "hooks": {
-            "modelInput": [
-
-            ]
+            "onModelInput": []
           }
         },
         "child": {
@@ -29,7 +26,7 @@
             }
           },
           "hooks": {
-            "modelInput": [
+            "onModelInput": [
               {
                 "extension": "memo"
               }
@@ -41,9 +38,7 @@
     "modelInputs": {
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -53,7 +48,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "user",
@@ -66,11 +64,8 @@
               ]
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ]
     }

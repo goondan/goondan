@@ -5,4 +5,4 @@ agents:
       tools: []
       extensions: []
       hooks:
-        output: [x]
+        onOutput: [x]

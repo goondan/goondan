@@ -4,7 +4,7 @@ agents:
     extensions:
       memory: {}
     hooks:
-      modelInput:
+      onModelInput:
         - name: ctx
           extension: memory
         - extension: memory

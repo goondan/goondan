@@ -4,8 +4,8 @@ agents:
     extensions:
       policy: {}
     hooks:
-      conversation:
+      onStep:
         - name: tap
           fn: tap
-      error:
+      onError:
         - extension: policy

@@ -3,4 +3,4 @@ agents:
     model: m
     remove:
       hooks:
-        modelInput: [5]
+        onModelInput: [5]

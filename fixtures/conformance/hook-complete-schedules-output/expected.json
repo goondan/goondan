@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "polish",
-          "content": [
-            {
-              "type": "text",
-              "text": "마무리!"
-            }
-          ]
-        },
+        "output": "마무리",
         "usage": {
           "input": 5,
           "output": 1,
@@ -34,9 +25,7 @@
             "finishReason": "tool",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           }
         ]
       }
@@ -53,7 +42,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -85,11 +77,11 @@
         },
         {
           "role": "assistant",
-          "source": "polish",
+          "source": "memo",
           "content": [
             {
               "type": "text",
-              "text": "마무리!"
+              "text": "마무리"
             }
           ]
         }

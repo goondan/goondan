@@ -5,7 +5,7 @@ agents:
       alpha: {}
       beta: {}
     hooks:
-      input:
+      onInput:
         - fn: mark
-      error:
+      onError:
         - fn: markErr

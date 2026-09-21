@@ -6,6 +6,6 @@ agents:
     extensions:
       memo: {}
     hooks:
-      input:
+      onInput:
         - name: note
           extension: memo

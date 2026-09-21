@@ -4,7 +4,7 @@ agents:
     extensions:
       policy: {}
     hooks:
-      modelInput:
+      onModelInput:
         - extension: policy
-      modelResult:
+      onModelResult:
         - extension: policy

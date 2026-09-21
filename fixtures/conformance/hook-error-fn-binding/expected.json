@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "binding.function",
-        "path": "/agents/main/hooks/output/0/fn"
+        "path": "/agents/main/hooks/onOutput/0/fn"
       }
     ]
   }

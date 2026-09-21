@@ -1,5 +1,8 @@
 {
-  "steps": [{}, {}],
+  "steps": [
+    {},
+    {}
+  ],
   "observations": {
     "functionCalls": [
       {
@@ -7,7 +10,18 @@
         "value": {
           "output": null,
           "text": "hello",
-          "input": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "hello"}]}]
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ]
+            }
+          ]
         }
       },
       {
@@ -15,7 +29,20 @@
         "value": {
           "output": null,
           "text": "{\"kind\":\"object\"}",
-          "input": [{"role": "user", "source": "main", "content": [{"type": "json", "value": {"kind": "object"}}]}]
+          "input": [
+            {
+              "role": "user",
+              "source": "main",
+              "content": [
+                {
+                  "type": "json",
+                  "value": {
+                    "kind": "object"
+                  }
+                }
+              ]
+            }
+          ]
         }
       }
     ]

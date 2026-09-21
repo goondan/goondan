@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "끝"
-            }
-          ]
-        },
+        "output": "끝",
         "usage": {
           "input": 2,
           "output": 2,
@@ -42,7 +33,10 @@
                   "type": "text",
                   "text": "{\"n\":10000000000000000}"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [],
@@ -66,7 +60,11 @@
                   "text": "{\"total\":15000000000000000}"
                 }
               ],
-              "meta": {"from": "first", "instance": "c1/first"}
+              "meta": {
+                "from": "first",
+                "instance": "c1/first",
+                "kind": "start"
+              }
             }
           ],
           "tools": [],
@@ -84,7 +82,10 @@
               "type": "text",
               "text": "{\"n\":10000000000000000}"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -97,7 +98,7 @@
             {
               "type": "json",
               "value": {
-                "total": 1.5e16
+                "total": 15000000000000000
               }
             }
           ]
@@ -117,7 +118,11 @@
               "text": "{\"total\":15000000000000000}"
             }
           ],
-          "meta": {"from": "first", "instance": "c1/first"}
+          "meta": {
+            "from": "first",
+            "instance": "c1/first",
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

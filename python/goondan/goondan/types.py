@@ -6,14 +6,14 @@ import asyncio
 import copy
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 if TYPE_CHECKING:
     from .runtime import Goondan
 
 Json = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
 ValueName = str
-VALUE_NAMES = {"input", "conversation", "modelInput", "modelResult", "toolCall", "toolResult", "output", "error"}
+VALUE_NAMES = {"onInput", "onPrompt", "onStep", "onModelInput", "onModelResult", "onToolCall", "onToolResult", "onOutput", "onError"}
 
 
 class GoondanError(Exception):
@@ -146,34 +146,6 @@ def define_tool(*, name: str, description: str, input: Mapping[str, Any], execut
     return Tool(name, description, input, execute)
 
 
-class ConversationStore(Protocol):
-    async def load(self, session_id: str, agent: str) -> list[dict[str, Any]]: ...
-    async def append(self, session_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
-    async def replace(self, session_id: str, agent: str, messages: list[dict[str, Any]]) -> None: ...
-    async def delete_session(self, session_id: str) -> None: ...
-
-
-class OperationStore(Protocol):
-    """§작업 저장소 프로토콜: the source of truth for approval operations, in six requests.
-
-    An operation is identified by the (session identifier, operation identifier) pair.
-    `transition`, `claim_delivery` and `release_delivery` are each atomic for one operation
-    and change nothing when their condition does not hold, in which case they return `None`.
-    `transition` overwrites only the fields it is given; the runtime always puts `updatedAt`
-    among them. Confirming a delivery is a `transition` to `deliveryStatus` `delivered`, so
-    the protocol has no separate request for it. `list` returns the stored operations in
-    creation order, every returned record is a copy the caller may keep, and an optional
-    field that was stored without a key comes back without one rather than as `null`.
-    """
-
-    async def list(self, session_id: str | None = None) -> list[dict[str, Any]]: ...
-    async def get(self, session_id: str, operation_id: str) -> dict[str, Any] | None: ...
-    async def save(self, operation: dict[str, Any]) -> None: ...
-    async def transition(self, session_id: str, operation_id: str, expected: Sequence[str], updates: Mapping[str, Any]) -> dict[str, Any] | None: ...
-    async def claim_delivery(self, session_id: str, operation_id: str, updated_at: int) -> dict[str, Any] | None: ...
-    async def release_delivery(self, session_id: str, operation_id: str, delivery_id: str, updated_at: int) -> dict[str, Any] | None: ...
-
-
 class _Messages:
     """§훅 컨텍스트와 호스트 함수: `message.user(text, extra)` and `message.system(text, extra)`.
 
@@ -252,6 +224,12 @@ class ModelContext:
     agent: str
     session_id: str
     turn_id: str
+    instance: str
+    execution_id: str
+    parent_execution_id: str | None
+    operation_id: str | None
+    cancelled: bool
+    log: Any
     step: int
     on_text_delta: Callable[[str], None]
 
@@ -266,6 +244,11 @@ class HookContext:
     agent: str
     session_id: str
     turn_id: str
+    instance: str
+    execution_id: str
+    parent_execution_id: str | None
+    operation_id: str | None
+    input_kind: str | None
     step: int | None
     retry_count: int
     input: list[dict[str, Any]]
@@ -280,6 +263,11 @@ class HookContext:
         agent: str,
         session_id: str,
         turn_id: str,
+        instance: str,
+        execution_id: str,
+        parent_execution_id: str | None,
+        operation_id: str | None,
+        input_kind: str | None,
         step: int | None,
         retry_count: int,
         input: list[dict[str, Any]],
@@ -293,6 +281,12 @@ class HookContext:
         self.agent = agent
         self.session_id = session_id
         self.turn_id = turn_id
+        self.instance = instance
+        self.execution_id = execution_id
+        self.parent_execution_id = parent_execution_id
+        self.operation_id = operation_id
+        if input_kind is not None:
+            self.input_kind = input_kind
         self.step = step
         self.retry_count = retry_count
         self.input = input

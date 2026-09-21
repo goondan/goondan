@@ -1,0 +1,118 @@
+{
+  "description": "도구 구현의 부분 배열, 결과 객체와 일반 JSON 값은 같은 호출 정보가 채워진 도구 결과로 정규화된다.",
+  "spec": [
+    "도구",
+    "도구 반환값 정규화"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            "parts",
+            "object",
+            "value",
+            "explicit"
+          ]
+        }
+      },
+      "routes": [
+        "main"
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "parts-1",
+                "name": "parts",
+                "args": {}
+              },
+              {
+                "callId": "object-1",
+                "name": "object",
+                "args": {}
+              },
+              {
+                "callId": "value-1",
+                "name": "value",
+                "args": {}
+              },
+              {
+                "callId": "explicit-1",
+                "name": "explicit",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "parts": {
+        "results": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "부분"
+              }
+            ]
+          }
+        ]
+      },
+      "object": {
+        "results": [
+          {
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "객체"
+                }
+              ],
+              "keep": true
+            }
+          }
+        ]
+      },
+      "value": {
+        "results": [
+          {
+            "value": 7
+          }
+        ]
+      },
+      "explicit": {
+        "results": [
+          {
+            "content": [
+              {
+                "type": "json",
+                "value": {
+                  "content": "데이터"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "tools",
+        "input": "실행"
+      }
+    }
+  ]
+}

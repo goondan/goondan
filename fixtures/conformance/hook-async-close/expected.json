@@ -23,7 +23,10 @@
               "type": "text",
               "text": "첫"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

@@ -51,9 +51,9 @@ describe('ChatHost', () => {
     const statuses: string[] = [];
     const write: Tool = {
       name: 'write_file', description: 'write', input: {},
-      async execute(value, context) {
+      async execute(value, _context) {
         await writeFile(output, String(value), 'utf8');
-        return { callId: context.toolCall.id, name: 'write_file', args: value, content: [{ type: 'text', text: 'written' }] };
+        return { content: [{ type: 'text', text: 'written' }] };
       },
     };
     const model: Model = {
@@ -71,7 +71,52 @@ describe('ChatHost', () => {
     await chat.close();
   });
 
-  it('실행 중 입력은 steer로 다음 단계에 반영한다', async () => {
+  it('승인 작업을 operations API로 조회하고 결정한다', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
+    const config = createDefaultChatConfig(root, 'fake');
+    const entry = config.config.agents['assistant'];
+    if (!entry) throw new Error('Missing default assistant');
+    entry.tools = [{ tool: 'publish', approval: 'required' }];
+    let modelCalls = 0;
+    let toolCalls = 0;
+    const chat = new ChatHost({
+      config,
+      bindings: {
+        models: {
+          fake: {
+            async generate(): Promise<ModelResult> {
+              modelCalls += 1;
+              if (modelCalls === 1) {
+                return assistant([{ type: 'tool.call', callId: 'publish-1', name: 'publish', args: { value: 'draft' } }], 'tool');
+              }
+              return assistant([{ type: 'text', text: 'waiting' }]);
+            },
+          },
+        },
+        tools: {
+          publish: {
+            name: 'publish', description: 'publish', input: { type: 'object' },
+            execute() { toolCalls += 1; return { content: [] }; },
+          },
+        },
+      },
+      sessionId: 'approval',
+      stateDirectory: root,
+    });
+
+    await started(chat.submit('publish'));
+    const pending = await chat.listOperations();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.status).toBe('pending');
+    const operationId = pending[0]?.operationId;
+    if (!operationId) throw new Error('Missing operation id');
+    const cancelled = await chat.decideOperation(operationId, { decision: 'cancelled' });
+    expect(cancelled.status).toBe('cancelled');
+    expect(toolCalls).toBe(0);
+    await chat.close();
+  });
+
+  it('실행 중 추가 run 입력을 다음 안전 지점에 반영한다', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
     let release: (() => void) | undefined;
     let entered: (() => void) | undefined;
@@ -86,27 +131,27 @@ describe('ChatHost', () => {
           return assistant([{ type: 'tool.call', callId: 'call', name: 'noop', args: null }], 'tool');
         }
         expect(textMessages(input)).toContain('more detail');
-        return assistant([{ type: 'text', text: 'steered' }]);
+        return assistant([{ type: 'text', text: 'joined' }]);
       },
     };
-    const noop: Tool = { name: 'noop', description: 'noop', input: {}, execute(_value, context) { return { callId: context.toolCall.id, name: 'noop', args: null, content: [] }; } };
-    const chat = host(root, 'steer', model, { noop });
+    const noop: Tool = { name: 'noop', description: 'noop', input: {}, execute() { return { content: [] }; } };
+    const chat = host(root, 'joined-input', model, { noop });
     const first = chat.submit('start');
     await modelEntered;
-    expect(chat.submit('more detail').kind).toBe('steered');
+    expect(chat.submit('more detail').kind).toBe('joined');
     release?.();
-    expect((await started(first)).text).toBe('steered');
+    expect((await started(first)).text).toBe('joined');
     await chat.close();
   });
 
-  it('병렬 실행 중에는 steer 대상 에이전트 지정 방법을 안내한다', async () => {
+  it('병렬 실행 중에도 agent를 지정한 run 입력을 받는다', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
     const config: LoadedConfig = {
       directory: root,
       templates: new Map(),
       config: {
         version: 1,
-        name: 'parallel-steer',
+        name: 'parallel-input',
         agents: { left: { model: 'left' }, right: { model: 'right' } },
         routes: [
           { from: '$input', to: 'left' },
@@ -144,13 +189,13 @@ describe('ChatHost', () => {
     input.write('start\n');
     await bothEntered;
     input.write('more context\n');
-    input.write('/steer left left-only context\n');
+    input.write('/agent left left-only context\n');
     await new Promise<void>((resolve) => { setImmediate(resolve); });
     release?.();
     input.end();
     await repl;
 
-    expect(stderr).toContain('Use /steer <AGENT> <INPUT> while multiple agents are running.');
+    expect(stderr).toBe('');
   });
 
   it('현재 모델 호출을 취소한다', async () => {
@@ -225,6 +270,43 @@ describe('ChatHost', () => {
 
     expect(stdout).toBe('polished final\n');
     expect(stdout).not.toContain('analysis draft');
+  });
+
+  it('텍스트 조각을 표시한 뒤에도 최종 JSON과 이미지를 출력한다', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gdn-chat-'));
+    let stdout = '';
+    const config = createDefaultChatConfig(root, 'fake');
+    const assistantAgent = config.config.agents['assistant'];
+    if (!assistantAgent) throw new Error('Missing default assistant');
+    assistantAgent.tools = [];
+    const chat = new ChatHost({
+      config,
+      bindings: {
+        models: {
+          fake: {
+            async generate(_input, context): Promise<ModelResult> {
+              context.onTextDelta('streamed');
+              return assistant([
+                { type: 'text', text: 'streamed' },
+                { type: 'json', value: { answer: 42 } },
+                { type: 'image', url: 'https://example.test/result.png', mediaType: 'image/png' },
+              ]);
+            },
+          },
+        },
+      },
+      sessionId: 'rich-output',
+      stateDirectory: root,
+      onTextDelta(delta) { stdout += delta; },
+    });
+    const output = new Writable({ write(chunk, _encoding, callback) { stdout += String(chunk); callback(); } });
+    const error = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+
+    await runChatRepl(chat, { input: Readable.from(['request\n']), output, error, terminal: false });
+
+    expect(stdout).toContain('streamed\n');
+    expect(stdout).toContain('"answer": 42');
+    expect(stdout).toContain('[image image/png] https://example.test/result.png');
   });
 
   it('파이프로 실행한 턴의 실패를 프로세스 진입점까지 전파한다', async () => {

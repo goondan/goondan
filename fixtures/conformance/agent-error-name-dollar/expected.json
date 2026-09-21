@@ -1,3 +1,11 @@
 {
-  "error": {"phase": "load", "issues": [{"code": "schema.propertyNames", "path": "/agents/$worker"}]}
+  "error": {
+    "phase": "load",
+    "issues": [
+      {
+        "code": "schema.propertyNames",
+        "path": "/agents/$worker"
+      }
+    ]
+  }
 }

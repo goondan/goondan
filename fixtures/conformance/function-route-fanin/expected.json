@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "result": {
+        "status": "done",
+        "output": "합류 완료",
+        "runs": [
+          {
+            "agent": "main",
+            "instance": "fanin/main",
+            "executionId": "<execution:1>",
+            "turnId": "<turn:1>",
+            "kind": "turn",
+            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "finishReason": "stop",
+            "status": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "modelInputs": {
+      "m": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "assistant",
+              "source": "left",
+              "meta": {"from": "left", "kind": "start"},
+              "content": [{"type": "text", "text": "왼쪽"}]
+            },
+            {
+              "role": "system",
+              "source": "right",
+              "meta": {"from": "right", "kind": "start"},
+              "content": [{"type": "text", "text": "오른쪽"}]
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
+    }
+  }
+}

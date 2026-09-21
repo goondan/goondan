@@ -2,5 +2,5 @@ agents:
   main:
     model: m
     hooks:
-      modelResult:
+      onModelResult:
         - fn: touch

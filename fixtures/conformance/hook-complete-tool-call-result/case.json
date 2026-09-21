@@ -1,7 +1,6 @@
 {
   "description": "toolCall 훅이 반환한 도구 결과를 처리하는 toolResult 훅이 예약해도 같은 규칙을 적용하므로, 도구를 실행하지 않은 채 예약된 메시지로 실행이 끝난다.",
   "spec": [
-    "`execution.complete`",
     "제어 결과"
   ],
   "bindings": {
@@ -44,7 +43,7 @@
       "memo": {
         "instance": {
           "hooks": {
-            "toolResult": {
+            "onToolResult": {
               "op": "complete",
               "message": {
                 "id": "done-1",

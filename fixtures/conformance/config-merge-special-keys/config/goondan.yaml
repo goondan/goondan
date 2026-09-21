@@ -1,4 +1,4 @@
-extends: base.yaml
+resources: [base.yaml]
 agents:
   constructor:
     model: m

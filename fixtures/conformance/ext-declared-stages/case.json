@@ -21,13 +21,13 @@
       "memo": {
         "definition": {
           "hooks": [
-            "modelInput",
-            "output"
+            "onModelInput",
+            "onOutput"
           ]
         },
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "append",
               "messages": [
                 {

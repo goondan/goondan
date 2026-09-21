@@ -4,5 +4,5 @@ agents:
     extensions:
       memo: {}
     hooks:
-      output:
+      onOutput:
         - extension: memo

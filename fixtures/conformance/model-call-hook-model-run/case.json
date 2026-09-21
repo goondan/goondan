@@ -23,13 +23,13 @@
       "probe": {
         "definition": {
           "hooks": [
-            "conversation",
-            "output"
+            "onStep",
+            "onOutput"
           ]
         },
         "instance": {
           "hooks": {
-            "conversation": {
+            "onStep": {
               "op": "runModel",
               "messages": [
                 {
@@ -45,7 +45,7 @@
                 }
               ]
             },
-            "output": {
+            "onOutput": {
               "op": "runModel",
               "messages": [
                 {

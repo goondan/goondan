@@ -1,38 +1,29 @@
-import { isJsonObject, isRecord } from "./json.ts";
 import { mergeValues } from "./compose.ts";
-import {
-  type Json, type OperationCompletion, type OperationDecision, type OperationStatus,
-  type OperationUpdate, type PendingOperation, type ToolCall,
-} from "./types.ts";
+import { isJsonObject, isRecord, jsonIssues, ownKeys } from "./json.ts";
+import { type Json, type OperationDecision, type OperationStatus, type PendingOperation, type ToolCall } from "./types.ts";
 
-/** The `error` of an operation whose runtime stopped while the tool was running. */
 export const interruptedMessage = "Operation execution outcome is unknown because the runtime stopped";
-/** The `error` of an operation the host's operation validation refused without an error of its own. */
 export const validationFailedMessage = "Operation validation failed";
 
-/** The statuses an operation no longer leaves; only these start a completion delivery. */
-export function isTerminalStatus(status: OperationStatus): status is OperationCompletion["status"] {
+export function isTerminalStatus(status: OperationStatus): status is "completed" | "rejected" | "cancelled" | "failed" {
   return status === "completed" || status === "rejected" || status === "cancelled" || status === "failed";
 }
 
-/** The approval reason the `approval: required` setting of one `tools` entry adds. */
-export function approvalReason(name: string): string {
-  return `Tool ${name} requires approval`;
-}
+export function approvalReason(name: string): string { return `Tool ${name} requires approval`; }
+export function deliveryIdOf(operationId: string): string { return `operation:${operationId}:completion`; }
 
-/** The identifier of the single completion delivery of one operation. */
-export function deliveryIdOf(operationId: string): string {
-  return `operation:${operationId}:completion`;
-}
-
-/**
- * Builds the stored record of a new operation. An optional field is left out when it has no value,
- * so a stored operation never carries a `null` in place of an absent one.
- */
 export function newOperation(input: {
-  operationId: string; agent: string; sessionId: string; turnId: string; instance: string;
-  parentInstance: string | null; parentTurnId: string | null; rootTurnId: string; toolCall: ToolCall;
-  reasons: readonly string[]; execution?: Record<string, Json>; context?: Record<string, Json>; now: number;
+  operationId: string;
+  agent: string;
+  sessionId: string;
+  turnId: string;
+  instance: string;
+  executionId: string;
+  parentExecutionId?: string;
+  toolCall: ToolCall;
+  reasons: readonly string[];
+  execution?: Record<string, Json>;
+  now: number;
 }): PendingOperation {
   const operation: PendingOperation = {
     operationId: input.operationId,
@@ -41,9 +32,7 @@ export function newOperation(input: {
     sessionId: input.sessionId,
     turnId: input.turnId,
     instance: input.instance,
-    parentInstance: input.parentInstance,
-    parentTurnId: input.parentTurnId,
-    rootTurnId: input.rootTurnId,
+    executionId: input.executionId,
     toolCall: structuredClone(input.toolCall),
     reasons: [...input.reasons],
     status: "pending",
@@ -51,76 +40,36 @@ export function newOperation(input: {
     createdAt: input.now,
     updatedAt: input.now,
   };
+  if (input.parentExecutionId !== undefined) operation.parentExecutionId = input.parentExecutionId;
   if (input.execution !== undefined) operation.execution = structuredClone(input.execution);
-  if (input.context !== undefined) operation.context = structuredClone(input.context);
   return operation;
 }
 
-/** The tool result the runtime stores in place of a call that became an operation. */
-export function pendingToolContent(operationId: string): Record<string, Json> {
-  return { status: "pending", operationId };
-}
+export function pendingToolContent(operationId: string): Record<string, Json> { return { status: "pending", operationId }; }
+export function effectiveCall(operation: PendingOperation): ToolCall { return operation.resolvedToolCall ?? operation.toolCall; }
 
-/**
- * The completion input of a terminal operation, with the keys in the order the specification fixes.
- * `result`, `error` and `errorCode` appear only when the operation has them.
- */
-export function completionInput(operation: PendingOperation, status: OperationCompletion["status"]): OperationCompletion {
-  const completion: OperationCompletion = {
-    type: "operation_completion",
-    deliveryId: operation.deliveryId,
-    operationId: operation.operationId,
-    sessionId: operation.sessionId,
-    agent: operation.agent,
-    turnId: operation.turnId,
-    instance: operation.instance,
-    parentInstance: operation.parentInstance,
-    parentTurnId: operation.parentTurnId,
-    rootTurnId: operation.rootTurnId,
-    status,
-    toolCall: structuredClone(operation.toolCall),
-  };
-  if (operation.result !== undefined) completion.result = structuredClone(operation.result);
-  if (operation.error !== undefined) completion.error = operation.error;
-  if (operation.errorCode !== undefined) completion.errorCode = operation.errorCode;
-  return completion;
-}
-
-/** The call an approved operation executes: the input-patched one when a decision supplied a patch. */
-export function effectiveCall(operation: PendingOperation): ToolCall {
-  return operation.resolvedToolCall ?? operation.toolCall;
-}
-
-/** Why a decision value cannot be recorded, or `undefined` when the value itself is usable. */
 export function decisionIssue(resolution: unknown): string | undefined {
   if (!isRecord(resolution)) return "an operation decision is an object";
-  if (resolution.decision !== "approved" && resolution.decision !== "rejected") {
-    return 'an operation decision is "approved" or "rejected"';
+  if (ownKeys(resolution).some((key) => key !== "decision" && key !== "inputPatch")) return "an operation decision has only decision and inputPatch";
+  if (resolution.decision !== "approved" && resolution.decision !== "rejected" && resolution.decision !== "cancelled") {
+    return 'an operation decision is "approved", "rejected", or "cancelled"';
+  }
+  if (resolution.inputPatch !== undefined && (!isRecord(resolution.inputPatch) || jsonIssues(resolution.inputPatch).length > 0)) {
+    return "an operation inputPatch is a JSON object";
   }
   return undefined;
 }
 
-/** Why an input patch cannot be recorded, or `undefined` when the patch is well formed. */
 export function patchIssue(resolution: OperationDecision, operation: PendingOperation): string | undefined {
+  if (resolution.inputPatch === undefined) return undefined;
   if (resolution.decision !== "approved") return "an operation inputPatch belongs to an approval";
   if (!isRecord(resolution.inputPatch)) return "an operation inputPatch is a JSON object";
   if (!isJsonObject(operation.toolCall.args)) return "an input patched tool call takes JSON object arguments";
   return undefined;
 }
 
-/** The call an approved decision resolved: the same `id` and `name` with the merged arguments. */
 export function patchedCall(call: ToolCall, patch: Record<string, Json>): ToolCall | undefined {
   const merged = mergeValues(call.args, patch);
   if (!isJsonObject(merged)) return undefined;
   return { id: call.id, name: call.name, args: merged };
-}
-
-/** The update that records a decision, with the patch fields only when the decision carries one. */
-export function decisionUpdate(decision: "approved" | "rejected", patch?: Record<string, Json>, call?: ToolCall): OperationUpdate {
-  const update: OperationUpdate = { status: decision };
-  if (patch !== undefined && call !== undefined) {
-    update.inputPatch = structuredClone(patch);
-    update.resolvedToolCall = call;
-  }
-  return update;
 }

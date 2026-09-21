@@ -4,7 +4,7 @@ agents:
     params:
       tag: v1
     hooks:
-      conversation:
+      onStep:
         - name: first
           template: templates/system.md
         - name: second

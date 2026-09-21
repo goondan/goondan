@@ -61,7 +61,7 @@ describe("the effective configuration", () => {
   });
 
   it("never creates keys that the merged result did not have", () => {
-    const config = validateConfig({ agents: { a: { model: "m", remove: { tools: [], extensions: [], hooks: { output: ["x"] } } } } });
+    const config = validateConfig({ agents: { a: { model: "m", remove: { tools: [], extensions: [], hooks: { onOutput: ["x"] } } } } });
     expect(config.agents.a).toEqual({ model: "m" });
   });
 
@@ -72,14 +72,14 @@ describe("the effective configuration", () => {
           model: "m",
           tools: ["search", { tool: "write" }, { agent: "helper" }],
           extensions: { audit: {}, memory: {} },
-          hooks: { input: [{ agent: ["x", "y"] }], output: [{ agent: "helper" }, { extension: "audit" }], modelInput: [{ name: "ctx", extension: "memory" }] },
+          hooks: { onPrompt: [{ agent: ["x", "y"] }], onOutput: [{ agent: "helper" }, { extension: "audit" }], onModelInput: [{ name: "ctx", extension: "memory" }] },
         },
         helper: { model: "m" },
         x: { model: "m" },
         y: { model: "m" },
         child: {
           inherit: "base",
-          remove: { tools: ["write", "helper"], extensions: ["audit"], hooks: { input: ["x+y"], output: ["helper"], modelInput: ["memory"] } },
+          remove: { tools: ["write", "helper"], extensions: ["audit"], hooks: { onPrompt: ["x+y"], onOutput: ["helper"], onModelInput: ["memory"] } },
         },
       },
     });
@@ -87,7 +87,7 @@ describe("the effective configuration", () => {
       model: "m",
       tools: ["search"],
       extensions: { memory: {} },
-      hooks: { input: [], output: [], modelInput: [{ name: "ctx", extension: "memory" }] },
+      hooks: { onPrompt: [], onOutput: [], onModelInput: [{ name: "ctx", extension: "memory" }] },
     });
     expect(config.agents.base?.tools).toHaveLength(3);
   });
@@ -95,24 +95,24 @@ describe("the effective configuration", () => {
   it("removes the hooks of a disabled extension only when building the effective config", () => {
     const config = validateConfig({
       agents: {
-        base: { model: "m", extensions: { memo: { enabled: false } }, hooks: { modelInput: [{ extension: "memo" }] } },
+        base: { model: "m", extensions: { memo: { enabled: false } }, hooks: { onModelInput: [{ extension: "memo" }] } },
         child: { inherit: "base", extensions: { memo: { enabled: true } } },
       },
     });
-    expect(config.agents.base?.hooks?.modelInput).toEqual([]);
-    expect(config.agents.child?.hooks?.modelInput).toEqual([{ extension: "memo" }]);
+    expect(config.agents.base?.hooks?.onModelInput).toEqual([]);
+    expect(config.agents.child?.hooks?.onModelInput).toEqual([{ extension: "memo" }]);
     expect(config.agents.base?.extensions).toEqual({ memo: { enabled: false } });
   });
 
   it("matches a template hook identifier by its path inside the configuration directory", () => {
     const root = workspace({
-      "shared/base.yaml": "agents:\n  base: {model: m, hooks: {output: [{template: ./note.md}]}}\n",
+      "shared/base.yaml": "agents:\n  base: {model: m, hooks: {onOutput: [{template: ./note.md}]}}\n",
       "shared/note.md": "note",
-      "goondan.yaml": "resources: [./shared/base.yaml]\nagents:\n  child: {inherit: base, remove: {hooks: {output: [shared/note.md]}}}\n",
+      "goondan.yaml": "resources: [./shared/base.yaml]\nagents:\n  child: {inherit: base, remove: {hooks: {onOutput: [shared/note.md]}}}\n",
     });
     const loaded = loadConfigSync(root);
-    expect(loaded.config.agents.child?.hooks?.output).toEqual([]);
-    expect(loaded.config.agents.base?.hooks?.output).toHaveLength(1);
+    expect(loaded.config.agents.child?.hooks?.onOutput).toEqual([]);
+    expect(loaded.config.agents.base?.hooks?.onOutput).toHaveLength(1);
   });
 });
 
@@ -120,13 +120,13 @@ describe("the reference phase", () => {
   it("collects every reference error at once", () => {
     const issues = issuesOf(() => validateConfig({
       agents: {
-        a: { model: "m", tools: ["x", { tool: "x" }, { agent: "nope" }], extensions: { keep: {} }, hooks: { output: [{ extension: "gone" }, { agent: "missing" }] } },
+        a: { model: "m", tools: ["x", { tool: "x" }, { agent: "nope" }], extensions: { keep: {} }, hooks: { onOutput: [{ extension: "gone" }, { agent: "missing" }] } },
       },
       routes: [{ from: "$input", to: "a" }, { from: "a", to: "ghost" }, { from: "a", to: "$output" }],
     }));
     expect(codes(issues)).toEqual([
-      "/agents/a/hooks/output/0/extension:reference.extension",
-      "/agents/a/hooks/output/1/agent:reference.agent",
+      "/agents/a/hooks/onOutput/0/extension:reference.extension",
+      "/agents/a/hooks/onOutput/1/agent:reference.agent",
       "/agents/a/tools/1:reference.duplicate_tool",
       "/agents/a/tools/2/agent:reference.agent",
       "/routes/1/to:reference.agent",
@@ -150,10 +150,11 @@ describe("the reference phase", () => {
     }))).toMatchObject([{ code: "schema.oneOf", path: "/agents/child/systemMessage" }]);
   });
 
-  it("rejects two async conversation hooks with the same identifier", () => {
-    expect(issuesOf(() => validateConfig({
-      agents: { a: { model: "m", hooks: { conversation: [{ fn: "note", mode: "async" }, { fn: "note", mode: "async" }] } } },
-    }))).toMatchObject([{ code: "reference.duplicate_hook", path: "/agents/a/hooks/conversation/1" }]);
+  it("keeps duplicate asynchronous hook identifiers in declaration order", () => {
+    const config = validateConfig({
+      agents: { a: { model: "m", hooks: { onPrompt: [{ fn: "note", mode: "async" }, { fn: "note", mode: "async" }] } } },
+    });
+    expect(config.agents.a?.hooks?.onPrompt).toHaveLength(2);
   });
 
   it("does not run the reference phase when the schema phase failed", () => {
@@ -179,14 +180,14 @@ describe("the binding phase", () => {
   });
 
   it("reports a port the host did not register and a stage the extension does not declare", () => {
-    const memory = defineExtension({ name: "memory", requires: ["store"], hooks: ["modelInput"], create: () => ({}) });
+    const memory = defineExtension({ name: "memory", requires: ["store"], hooks: ["onModelInput"], create: () => ({}) });
     const issues = issuesOf(() => createGoondan({
       version: 1, name: "t",
-      agents: { a: { model: "main", extensions: { memory: {} }, hooks: { output: [{ extension: "memory" }] } } },
+      agents: { a: { model: "main", extensions: { memory: {} }, hooks: { onOutput: [{ extension: "memory" }] } } },
     }, bindings({ extensions: { memory } })));
     expect(codes(issues)).toEqual([
       "/agents/a/extensions/memory:binding.port",
-      "/agents/a/hooks/output/0/extension:binding.extension_hook",
+      "/agents/a/hooks/onOutput/0/extension:binding.extension_hook",
     ]);
   });
 
@@ -246,12 +247,12 @@ describe("extension instance preparation", () => {
     const quiet = defineExtension({ name: "quiet", create: () => ({}) });
     const runtime = createGoondan({
       version: 1, name: "t",
-      agents: { a: { model: "main", extensions: { quiet: {} }, hooks: { output: [{ extension: "quiet" }] } } },
+      agents: { a: { model: "main", extensions: { quiet: {} }, hooks: { onOutput: [{ extension: "quiet" }] } } },
     }, bindings({ extensions: { quiet } }));
     const failure: unknown = await runtime.run("hello", { sessionId: "c" }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(GoondanConfigError);
     if (failure instanceof GoondanConfigError) {
-      expect(codes(failure.issues)).toEqual(["/agents/a/hooks/output/0/extension:binding.extension_hook"]);
+      expect(codes(failure.issues)).toEqual(["/agents/a/hooks/onOutput/0/extension:binding.extension_hook"]);
     }
     await runtime.close();
   });

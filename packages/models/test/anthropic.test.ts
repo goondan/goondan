@@ -77,7 +77,9 @@ describe("createAnthropicModel (cases from the former CLI provider)", () => {
     expect(deltas).toEqual(["I will ", "read it."]);
     expect(result.finishReason).toBe("tool");
     expect(result.usage).toEqual({ input: 12, output: 9, cacheRead: 3, cacheWrite: 0 });
-    expect(result.message).toMatchObject({ role: "assistant", source: "model" });
+    expect(result.message).toMatchObject({ role: "assistant" });
+    expect(result.message.id).toBeUndefined();
+    expect(result.message.source).toBeUndefined();
     expect(result.message.content).toEqual([
       { type: "text", text: "I will read it." },
       { type: "tool.call", callId: "call-1", name: "read_file", args: { path: "package.json" } },

@@ -2,8 +2,9 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - agent: helper
+          optional: true
   helper:
     model: hm
     input:

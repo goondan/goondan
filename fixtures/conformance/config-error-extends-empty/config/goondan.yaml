@@ -1,4 +1,0 @@
-extends: ''
-agents:
-  main:
-    model: m

@@ -1,11 +1,50 @@
 {
-  "steps": [{}],
+  "steps": [
+    {}
+  ],
   "observations": {
-    "functionCalls": [{"fn": "replaceInput", "value": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "원본"}]}]}],
+    "functionCalls": [
+      {
+        "fn": "replaceInput",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "content": [
+              {
+                "type": "text",
+                "text": "원본"
+              }
+            ],
+            "meta": {
+              "kind": "start"
+            }
+          }
+        ]
+      }
+    ],
     "conversations": {
       "s/main": [
-        {"role": "user", "source": "hook", "content": [{"type": "text", "text": "교체"}]},
-        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "완료"}]}
+        {
+          "role": "user",
+          "source": "hook",
+          "content": [
+            {
+              "type": "text",
+              "text": "교체"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
       ]
     }
   }

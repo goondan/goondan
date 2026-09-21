@@ -7,6 +7,6 @@ agents:
       list: [a, b]
       tags: {items: [x]}
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

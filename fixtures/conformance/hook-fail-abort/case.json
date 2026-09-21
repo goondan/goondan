@@ -14,7 +14,7 @@
       "slow": {
         "instance": {
           "hooks": {
-            "conversation": {
+            "onStep": {
               "op": "await",
               "gate": "never",
               "then": {

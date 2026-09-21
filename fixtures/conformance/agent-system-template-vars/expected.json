@@ -21,7 +21,10 @@
                   "type": "text",
                   "text": "요청"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [

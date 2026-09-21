@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "modelInput",
+        "where": "onModelInput",
         "codes": [
           "hook_error"
         ],
@@ -22,7 +22,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

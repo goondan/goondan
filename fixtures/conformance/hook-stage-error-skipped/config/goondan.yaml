@@ -2,7 +2,7 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - fn: boom
-      error:
+      onError:
         - fn: recordError

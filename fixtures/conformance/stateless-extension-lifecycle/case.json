@@ -26,8 +26,7 @@
     },
     "extensions": {
       "trace": {
-        "instance": {
-        }
+        "instance": {}
       }
     }
   },

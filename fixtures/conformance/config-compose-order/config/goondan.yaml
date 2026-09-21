@@ -1,5 +1,5 @@
-extends: base
 resources:
+  - base
   - r1.yaml
   - r2.yaml
 agents:

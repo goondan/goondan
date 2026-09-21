@@ -2,5 +2,5 @@ agents:
   base:
     model: m
     hooks:
-      output:
+      onOutput:
         - template: templates/note.md

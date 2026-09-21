@@ -2,5 +2,5 @@ agents:
   main:
     model: m
     hooks:
-      output:
+      onOutput:
         - fn: missing

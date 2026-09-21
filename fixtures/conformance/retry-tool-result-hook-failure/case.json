@@ -33,11 +33,11 @@
       "policy": {
         "instance": {
           "hooks": {
-            "toolResult": {
+            "onToolResult": {
               "op": "throw",
               "message": "toolResult 실패"
             },
-            "error": {
+            "onError": {
               "op": "constant",
               "value": {
                 "retry": true,

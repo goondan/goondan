@@ -16,14 +16,12 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "worker",
             "instance": "<instance:1>",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 0,
@@ -33,14 +31,12 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           },
           {
             "agent": "worker",
             "instance": "<instance:2>",
-            "turnId": "<turn:3>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 0,
@@ -50,9 +46,7 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:3>"
           }
         ]
       }
@@ -72,7 +66,10 @@
                   "type": "text",
                   "text": "시작"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [],
@@ -94,7 +91,8 @@
               ],
               "meta": {
                 "from": "split",
-                "instance": "s/split"
+                "instance": "s/split",
+                "kind": "start"
               }
             }
           ],
@@ -115,7 +113,8 @@
               ],
               "meta": {
                 "from": "split",
-                "instance": "s/split"
+                "instance": "s/split",
+                "kind": "start"
               }
             }
           ],
@@ -134,7 +133,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -143,6 +145,60 @@
             {
               "type": "text",
               "text": "분기"
+            }
+          ]
+        }
+      ],
+      "s/worker@<instance:1>": [
+        {
+          "role": "user",
+          "source": "worker",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ],
+          "meta": {
+            "from": "split",
+            "instance": "s/split",
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "첫째"
+            }
+          ]
+        }
+      ],
+      "s/worker@<instance:2>": [
+        {
+          "role": "user",
+          "source": "worker",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ],
+          "meta": {
+            "from": "split",
+            "instance": "s/split",
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "둘째"
             }
           ]
         }

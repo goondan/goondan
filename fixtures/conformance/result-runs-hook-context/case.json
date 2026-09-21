@@ -41,12 +41,12 @@
       "probe": {
         "definition": {
           "hooks": [
-            "modelInput"
+            "onModelInput"
           ]
         },
         "instance": {
           "hooks": {
-            "modelInput": {
+            "onModelInput": {
               "op": "chain",
               "ops": [
                 {

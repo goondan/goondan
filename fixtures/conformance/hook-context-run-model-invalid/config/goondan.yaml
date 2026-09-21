@@ -4,6 +4,6 @@ agents:
     extensions:
       memo: {}
     hooks:
-      modelInput:
+      onModelInput:
         - name: probe
           extension: memo

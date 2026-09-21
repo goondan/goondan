@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "conversation",
+        "where": "onStep",
         "codes": [
           "hook_error"
         ],
@@ -17,7 +17,15 @@
         {
           "role": "user",
           "source": "main",
-          "content": [{"type": "text", "text": "요청"}]
+          "content": [
+            {
+              "type": "text",
+              "text": "요청"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

@@ -25,27 +25,23 @@
         "action": "create",
         "instance": 1,
         "extension": "alpha",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {
-              },
-              "beta": {
-              }
+              "alpha": {},
+              "beta": {}
             },
             "hooks": {
-              "input": [
+              "onInput": [
                 {
                   "fn": "mark"
                 }
               ],
-              "error": [
+              "onError": [
                 {
                   "fn": "markErr"
                 }
@@ -58,27 +54,23 @@
         "action": "create",
         "instance": 2,
         "extension": "beta",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {
-              },
-              "beta": {
-              }
+              "alpha": {},
+              "beta": {}
             },
             "hooks": {
-              "input": [
+              "onInput": [
                 {
                   "fn": "mark"
                 }
               ],
-              "error": [
+              "onError": [
                 {
                   "fn": "markErr"
                 }
@@ -95,27 +87,23 @@
         "action": "create",
         "instance": 3,
         "extension": "alpha",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {
-              },
-              "beta": {
-              }
+              "alpha": {},
+              "beta": {}
             },
             "hooks": {
-              "input": [
+              "onInput": [
                 {
                   "fn": "mark"
                 }
               ],
-              "error": [
+              "onError": [
                 {
                   "fn": "markErr"
                 }
@@ -128,27 +116,23 @@
         "action": "create",
         "instance": 4,
         "extension": "beta",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "alpha": {
-              },
-              "beta": {
-              }
+              "alpha": {},
+              "beta": {}
             },
             "hooks": {
-              "input": [
+              "onInput": [
                 {
                   "fn": "mark"
                 }
               ],
-              "error": [
+              "onError": [
                 {
                   "fn": "markErr"
                 }
@@ -162,12 +146,8 @@
         "instance": 3
       }
     ],
-    "functionCalls": [
-
-    ],
-    "conversations": {
-    },
-    "modelInputs": {
-    }
+    "functionCalls": [],
+    "conversations": {},
+    "modelInputs": {}
   }
 }

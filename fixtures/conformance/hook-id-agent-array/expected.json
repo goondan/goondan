@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -11,7 +10,7 @@
         "base": {
           "model": "m",
           "hooks": {
-            "conversation": [
+            "onStep": [
               {
                 "agent": [
                   "x",
@@ -30,9 +29,7 @@
         "child": {
           "model": "m",
           "hooks": {
-            "conversation": [
-
-            ]
+            "onStep": []
           }
         }
       }
@@ -42,7 +39,15 @@
         {
           "role": "user",
           "source": "base",
-          "content": [{"type": "text", "text": "안녕"}]
+          "content": [
+            {
+              "type": "text",
+              "text": "안녕"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",
@@ -65,7 +70,7 @@
           ]
         }
       ],
-      "c1#<turn:1>#x/x": [
+      "c1/x": [
         {
           "role": "user",
           "source": "base",
@@ -74,7 +79,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -87,7 +95,7 @@
           ]
         }
       ],
-      "c1#<turn:1>#y/y": [
+      "c1/y": [
         {
           "role": "user",
           "source": "base",
@@ -96,7 +104,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

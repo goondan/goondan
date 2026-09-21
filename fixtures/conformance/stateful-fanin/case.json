@@ -45,6 +45,9 @@
     "functions": {
       "keepInput": {
         "op": "identity"
+      },
+      "keepPrompt": {
+        "op": "identity"
       }
     }
   },

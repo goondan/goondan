@@ -5,7 +5,7 @@ agents:
   main:
     model: m
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md
 

@@ -52,12 +52,12 @@ describe("value operations", () => {
     await expect(run({ op: "text" }, 1)).rejects.toThrow(ScriptError);
   });
 
-  it("result builds a control result from the received tool call", async () => {
+  it("result builds a runtime-normalizable control result", async () => {
     const value = await run({ op: "result", content: [{ type: "text", text: "x" }], isError: true }, { id: "c1", name: "lookup", args: { q: 1 } });
     expect(value).toEqual({
-      result: { callId: "c1", name: "lookup", args: { q: 1 }, content: [{ type: "text", text: "x" }], isError: true },
+      result: { content: [{ type: "text", text: "x" }], isError: true },
     });
-    await expect(run({ op: "result", content: [] }, { id: "c1" })).rejects.toThrow(ScriptError);
+    await expect(run({ op: "result", content: [] }, { id: "c1" })).resolves.toEqual({ result: { content: [] } });
   });
 
   it("sequence counts calls per site and repeats the last item", async () => {

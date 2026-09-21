@@ -5,4 +5,4 @@ agents:
     inherit: base
     remove:
       hooks:
-        output: [shared/templates/note.md]
+        onOutput: [shared/templates/note.md]

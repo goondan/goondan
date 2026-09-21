@@ -1,0 +1,68 @@
+{
+  "steps": [
+    {
+      "result": {
+        "status": "done",
+        "output": "완료"
+      }
+    }
+  ],
+  "observations": {
+    "functionCalls": [
+      {
+        "fn": "input",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "meta": {
+              "kind": "start"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "입력"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "fn": "prompt",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "meta": {
+              "kind": "start"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "입력"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "fn": "step",
+        "value": [
+          {
+            "role": "user",
+            "source": "main",
+            "meta": {
+              "kind": "start"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "입력"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

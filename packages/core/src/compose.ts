@@ -129,20 +129,11 @@ function composeFile(file: YamlFile, graph: ResourceGraph, files: string[]): Rec
   try {
     const document = readDocument(realPath);
     const directory = dirname(realPath);
-    // The read phase checks both composition fields of this file before it composes either of them.
-    const extendsReference = Object.hasOwn(document, "extends") ? document.extends : undefined;
     const resourceList = Object.hasOwn(document, "resources") ? document.resources : undefined;
-    const declarationIssues = [
-      ...(extendsReference === undefined ? [] : validateDefinition("extends", extendsReference, ["extends"])),
-      ...(resourceList === undefined ? [] : validateDefinition("resources", resourceList, ["resources"])),
-    ];
+    const declarationIssues = resourceList === undefined ? [] : validateDefinition("resources", resourceList, ["resources"]);
     const firstIssue = declarationIssues[0];
     if (firstIssue) throw new GoondanConfigError([{ ...firstIssue, message: `${realPath}: ${firstIssue.message}` }]);
     let result: Json = {};
-    if (typeof extendsReference === "string") {
-      const target = resolveTargetOrCycle(extendsReference, directory, ["extends"], graph);
-      result = mergeValues(result, composeFile(target, graph, files));
-    }
     if (Array.isArray(resourceList)) {
       resourceList.forEach((reference, index) => {
         if (typeof reference !== "string") raise("load.not_found", ["resources", index], `${realPath} declares an unreadable resource`);
@@ -152,7 +143,7 @@ function composeFile(file: YamlFile, graph: ResourceGraph, files: string[]): Rec
     }
     const own: Record<string, Json> = {};
     for (const key of ownKeys(document)) {
-      if (key === "extends" || key === "resources") continue;
+      if (key === "resources") continue;
       setKey(own, key, document[key] ?? null);
     }
     absolutizeDeclaredPaths(own, directory);

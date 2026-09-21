@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { Json, Tool, ToolContext, ToolResult } from '@goondan/core';
+import type { Json, Tool, ToolContext, ToolResultValue } from '@goondan/core';
 
 const DEFAULT_MAX_OUTPUT_CHARS = 10_000;
 const DEFAULT_MAX_READ_CHARS = 30_000;
@@ -37,17 +37,14 @@ function truncate(text: string, limit: number): string {
   return `${text.slice(0, limit)}\n…(truncated, ${text.length} characters total)`;
 }
 
-function result(ctx: ToolContext, input: Json, text: string, isError = false): ToolResult {
+function result(text: string, isError = false): ToolResultValue {
   return {
-    callId: ctx.toolCall.id,
-    name: ctx.toolCall.name,
-    args: input,
     content: [{ type: 'text', text }],
     ...(isError ? { isError: true } : {}),
   };
 }
 
-function runBash(command: string, options: Required<Pick<LocalToolsOptions, 'cwd' | 'maxOutputChars'>> & Pick<LocalToolsOptions, 'bashTimeoutMs'>, ctx: ToolContext, input: Json): Promise<ToolResult> {
+function runBash(command: string, options: Required<Pick<LocalToolsOptions, 'cwd' | 'maxOutputChars'>> & Pick<LocalToolsOptions, 'bashTimeoutMs'>, ctx: ToolContext): Promise<ToolResultValue> {
   return new Promise((resolvePromise) => {
     let cancelled = false;
     let timedOut = false;
@@ -83,10 +80,10 @@ function runBash(command: string, options: Required<Pick<LocalToolsOptions, 'cwd
             ? `Command timed out after ${options.bashTimeoutMs}ms`
             : error?.message ?? `Command exited with code ${String(code)}`;
         const message = output === '' ? reason : `${output}\n${reason}`;
-        resolvePromise(result(ctx, input, truncate(message, options.maxOutputChars), true));
+        resolvePromise(result(truncate(message, options.maxOutputChars), true));
         return;
       }
-      resolvePromise(result(ctx, input, truncate(output, options.maxOutputChars)));
+      resolvePromise(result(truncate(output, options.maxOutputChars)));
     };
     child.once('error', (error) => finish(error, null));
     child.once('close', (code) => finish(undefined, code));
@@ -130,18 +127,18 @@ export function createLocalTools(options: LocalToolsOptions): Record<string, Too
     'bash',
     `Run a shell command in ${cwd}.`,
     { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
-    (input, ctx) => runBash(requiredString(input, 'command'), { cwd, bashTimeoutMs, maxOutputChars }, ctx, input),
+    (input, ctx) => runBash(requiredString(input, 'command'), { cwd, bashTimeoutMs, maxOutputChars }, ctx),
   );
   const readFileTool = createTool(
     'read_file',
     `Read a UTF-8 file. Relative paths are resolved from ${cwd}.`,
     { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-    async (input, ctx) => {
+    async (input, _ctx) => {
       try {
         const content = await readFile(at(requiredString(input, 'path')), 'utf8');
-        return result(ctx, input, truncate(content, maxReadChars));
+        return result(truncate(content, maxReadChars));
       } catch (error) {
-        return result(ctx, input, error instanceof Error ? error.message : String(error), true);
+        return result(error instanceof Error ? error.message : String(error), true);
       }
     },
   );
@@ -153,17 +150,17 @@ export function createLocalTools(options: LocalToolsOptions): Record<string, Too
       properties: { path: { type: 'string' }, content: { type: 'string' } },
       required: ['path', 'content'],
     },
-    async (input, ctx) => {
+    async (input, _ctx) => {
       try {
         const path = requiredString(input, 'path');
         const content = requiredString(input, 'content');
-        if (content.length > maxWriteChars) return result(ctx, input, `Content exceeds the ${maxWriteChars} character write limit`, true);
+        if (content.length > maxWriteChars) return result(`Content exceeds the ${maxWriteChars} character write limit`, true);
         const absolutePath = at(path);
         await mkdir(dirname(absolutePath), { recursive: true });
         await writeFile(absolutePath, content, 'utf8');
-        return result(ctx, input, `Wrote ${path} (${content.length} characters)`);
+        return result(`Wrote ${path} (${content.length} characters)`);
       } catch (error) {
-        return result(ctx, input, error instanceof Error ? error.message : String(error), true);
+        return result(error instanceof Error ? error.message : String(error), true);
       }
     },
   );
@@ -171,16 +168,16 @@ export function createLocalTools(options: LocalToolsOptions): Record<string, Too
     'list_dir',
     `List a directory. Relative paths are resolved from ${cwd}.`,
     { type: 'object', properties: { path: { type: 'string' } } },
-    async (input, ctx) => {
+    async (input, _ctx) => {
       try {
         const entries = await readdir(at(optionalString(input, 'path', '.')), { withFileTypes: true });
         const output = entries
           .map((entry) => `${entry.isDirectory() ? 'd' : 'f'} ${entry.name}`)
           .sort()
           .join('\n');
-        return result(ctx, input, truncate(output, maxOutputChars));
+        return result(truncate(output, maxOutputChars));
       } catch (error) {
-        return result(ctx, input, error instanceof Error ? error.message : String(error), true);
+        return result(error instanceof Error ? error.message : String(error), true);
       }
     },
   );

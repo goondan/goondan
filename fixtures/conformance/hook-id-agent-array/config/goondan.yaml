@@ -2,7 +2,7 @@ agents:
   base:
     model: m
     hooks:
-      conversation:
+      onStep:
         - agent: [x, y]
   x:
     model: mx
@@ -12,4 +12,4 @@ agents:
     inherit: base
     remove:
       hooks:
-        conversation: ["x+y"]
+        onStep: ["x+y"]

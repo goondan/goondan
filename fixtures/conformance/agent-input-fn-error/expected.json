@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "input",
+        "where": "onInput",
         "codes": [
           "runtime_error"
         ],
@@ -11,24 +11,6 @@
     }
   ],
   "observations": {
-    "events": [
-      {
-        "name": "turn.error",
-        "agent": "main",
-        "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "data": {
-          "where": "input",
-          "codes": [
-            "runtime_error"
-          ]
-        },
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
-      }
-    ],
     "conversations": {}
   }
 }

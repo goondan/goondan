@@ -14,9 +14,9 @@
       },
       {
         "fn": "makeText",
-          "value": {
-            "q": "둘째"
-          }
+        "value": {
+          "q": "둘째"
+        }
       },
       {
         "fn": "makeText",
@@ -33,7 +33,10 @@
               "type": "text",
               "text": "{\"a\":1,\"b\":[1,2]}"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -55,7 +58,10 @@
               "type": "text",
               "text": "직접 문자열"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -77,7 +83,10 @@
               "type": "text",
               "text": "null"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

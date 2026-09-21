@@ -22,7 +22,7 @@
       "policy": {
         "instance": {
           "hooks": {
-            "modelResult": {
+            "onModelResult": {
               "op": "constant",
               "value": {
                 "retry": true,

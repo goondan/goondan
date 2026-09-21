@@ -1,29 +1,68 @@
 {
-  "steps": [{}],
+  "steps": [
+    {}
+  ],
   "observations": {
     "modelInputs": {
-      "firstModel": [{
-        "system": [],
-        "messages": [{"role": "user", "source": "first", "content": [{"type": "text", "text": "시작"}]}],
-        "tools": [],
-        "options": {}
-      }],
-      "secondModel": [{
-        "system": [],
-        "messages": [{
-          "role": "user",
-          "source": "second",
-          "content": [
-            {"type": "image", "url": "memory:image"},
-            {"type": "media", "ref": "note-1", "mediaType": "text/plain"},
-            {"type": "text", "text": "{\"k\":1}"},
-            {"type": "text", "text": "설명"}
+      "firstModel": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "first",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "시작"
+                }
+              ],
+              "meta": {
+                "kind": "start"
+              }
+            }
           ],
-          "meta": {"from": "first", "instance": "s/first"}
-        }],
-        "tools": [],
-        "options": {}
-      }]
+          "tools": [],
+          "options": {}
+        }
+      ],
+      "secondModel": [
+        {
+          "system": [],
+          "messages": [
+            {
+              "role": "user",
+              "source": "second",
+              "content": [
+                {
+                  "type": "image",
+                  "url": "memory:image"
+                },
+                {
+                  "type": "media",
+                  "ref": "note-1",
+                  "mediaType": "text/plain"
+                },
+                {
+                  "type": "text",
+                  "text": "{\"k\":1}"
+                },
+                {
+                  "type": "text",
+                  "text": "설명"
+                }
+              ],
+              "meta": {
+                "from": "first",
+                "instance": "s/first",
+                "kind": "start"
+              }
+            }
+          ],
+          "tools": [],
+          "options": {}
+        }
+      ]
     }
   }
 }

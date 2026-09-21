@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "effectiveConfig": {
@@ -11,7 +10,7 @@
         "base": {
           "model": "m",
           "hooks": {
-            "output": [
+            "onOutput": [
               {
                 "template": "<case>/config/shared/templates/note.md"
               }
@@ -21,9 +20,7 @@
         "child": {
           "model": "m",
           "hooks": {
-            "output": [
-
-            ]
+            "onOutput": []
           }
         }
       }
@@ -38,7 +35,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

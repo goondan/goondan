@@ -1,16 +1,17 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "hookContexts": [
       {
         "extension": "memo",
-        "stage": "modelInput",
+        "stage": "onModelInput",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
         "input": [
           {
             "role": "user",
@@ -20,7 +21,10 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -32,17 +36,23 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 0
       },
       {
         "extension": "memo",
-        "stage": "modelInput",
+        "stage": "onModelInput",
         "agent": "main",
         "sessionId": "c1",
         "turnId": "<turn:1>",
+        "instance": "c1/main",
+        "executionId": "<execution:1>",
+        "step": 1,
         "input": [
           {
             "role": "user",
@@ -52,7 +62,10 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "conversation": [
@@ -64,7 +77,10 @@
                 "type": "text",
                 "text": "안녕"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ],
         "retryCount": 1

@@ -1,6 +1,0 @@
-agents:
-  main:
-    model: m
-    tools:
-      - look
-routes: [main]

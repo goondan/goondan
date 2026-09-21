@@ -5,7 +5,7 @@ agents:
     extensions:
       memo: {}
     hooks:
-      toolResult:
+      onToolResult:
         - name: done
           extension: memo
           optional: true

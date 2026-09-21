@@ -10,13 +10,11 @@
         "toolCall": {
           "id": "f-1",
           "name": "fail",
-          "args": {
-          }
+          "args": {}
         }
       }
     },
-    {
-    }
+    {}
   ],
   "observations": {
     "functionCalls": [
@@ -31,7 +29,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       },
@@ -46,7 +47,10 @@
                 "type": "text",
                 "text": "요청"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           },
           {
             "role": "assistant",
@@ -56,8 +60,7 @@
                 "type": "tool.call",
                 "callId": "k-1",
                 "name": "keep",
-                "args": {
-                }
+                "args": {}
               }
             ]
           },
@@ -85,7 +88,10 @@
                 "type": "text",
                 "text": "다시"
               }
-            ]
+            ],
+            "meta": {
+              "kind": "start"
+            }
           }
         ]
       }
@@ -100,7 +106,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -110,8 +119,7 @@
               "type": "tool.call",
               "callId": "k-1",
               "name": "keep",
-              "args": {
-              }
+              "args": {}
             }
           ]
         },
@@ -139,7 +147,10 @@
               "type": "text",
               "text": "다시"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

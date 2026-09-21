@@ -1,20 +1,53 @@
 {
   "description": "route는 출력 메시지의 image, media, json과 text 부분을 그대로 전달하며 다음 에이전트의 input 규칙은 json 부분만 text로 바꾼다.",
-  "spec": ["route 진행", "입력"],
+  "spec": [
+    "route 진행",
+    "입력"
+  ],
   "bindings": {
     "models": {
       "firstModel": {
-        "responses": [{
-          "content": [
-            {"type": "image", "url": "memory:image"},
-            {"type": "media", "ref": "note-1", "mediaType": "text/plain"},
-            {"type": "json", "value": {"k": 1}},
-            {"type": "text", "text": "설명"}
-          ]
-        }]
+        "responses": [
+          {
+            "content": [
+              {
+                "type": "image",
+                "url": "memory:image"
+              },
+              {
+                "type": "media",
+                "ref": "note-1",
+                "mediaType": "text/plain"
+              },
+              {
+                "type": "json",
+                "value": {
+                  "k": 1
+                }
+              },
+              {
+                "type": "text",
+                "text": "설명"
+              }
+            ]
+          }
+        ]
       },
-      "secondModel": {"responses": [{"text": "완료"}]}
+      "secondModel": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
     }
   },
-  "steps": [{"run": {"sessionId": "s", "input": "시작"}}]
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "시작"
+      }
+    }
+  ]
 }

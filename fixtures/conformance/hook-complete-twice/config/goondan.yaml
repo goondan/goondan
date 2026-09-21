@@ -6,7 +6,7 @@ agents:
       alpha: {}
       beta: {}
     hooks:
-      toolResult:
+      onToolResult:
         - name: first
           extension: alpha
         - name: second

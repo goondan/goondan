@@ -2,6 +2,6 @@ agents:
   main:
     model: m
     hooks:
-      modelResult:
+      onModelResult:
         - name: retryOnce
           fn: retryOnce

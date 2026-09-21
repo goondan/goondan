@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "wrapUp",
-          "content": [
-            {
-              "type": "text",
-              "text": "{\"k\":[1]}"
-            }
-          ]
-        }
+        "output": "완료"
       }
     }
   ],
@@ -26,7 +17,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "user",
@@ -40,11 +34,11 @@
         },
         {
           "role": "assistant",
-          "source": "wrapUp",
+          "source": "model",
           "content": [
             {
               "type": "text",
-              "text": "{\"k\":[1]}"
+              "text": "완료"
             }
           ]
         }

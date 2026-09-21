@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "extensionLog": [
@@ -9,25 +8,17 @@
         "action": "create",
         "instance": 1,
         "extension": "memo",
-        "options": {
-        },
-        "ports": {
-        },
+        "options": {},
+        "ports": {},
         "agent": {
           "name": "main",
           "spec": {
             "model": "m",
             "extensions": {
-              "memo": {
-              }
+              "memo": {}
             }
           }
         }
-      },
-      {
-        "action": "event",
-        "instance": 1,
-        "name": "turn.done"
       }
     ]
   }

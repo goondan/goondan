@@ -1,7 +1,6 @@
 {
   "steps": [
-    {
-    }
+    {}
   ],
   "observations": {
     "toolCalls": [
@@ -15,9 +14,7 @@
     "modelInputs": {
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -27,7 +24,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [
@@ -39,13 +39,10 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         },
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -55,7 +52,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "assistant",
@@ -97,8 +97,7 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         }
       ]
     },
@@ -112,7 +111,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

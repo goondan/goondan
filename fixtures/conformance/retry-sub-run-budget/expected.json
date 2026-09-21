@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "model",
-          "content": [
-            {
-              "type": "text",
-              "text": "완료"
-            }
-          ]
-        },
+        "output": "완료",
         "usage": {
           "input": 7,
           "output": 3,
@@ -34,13 +25,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/main",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "worker",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "tool",
             "usage": {
               "input": 4,
@@ -50,10 +39,9 @@
             },
             "finishReason": "stop",
             "status": "done",
-            "instance": "c1#<turn:1>#worker/worker",
-            "parentInstance": "c1/main",
-            "parentTurnId": "<turn:1>",
-            "rootTurnId": "<root:1>"
+            "instance": "c1/worker",
+            "executionId": "<execution:2>",
+            "parentExecutionId": "<execution:1>"
           }
         ]
       }

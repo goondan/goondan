@@ -1,5 +1,5 @@
-extends: base
 resources:
+  - base
   - frag.YAML
   - sub
 name: resource-targets

@@ -17,9 +17,9 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from goondan import GoondanConfigError, create_goondan, load_config, validate_config
+from goondan import GoondanConfigError, StoreConflictError, StoreInputError, create_goondan, fold, load_config, validate_config
 
-from .bindings import CaseState, RuntimeBindings, project_operation, snapshot
+from .bindings import CaseState, RuntimeBindings, project_event, project_operation, snapshot
 from .casefile import CASE_ID, STEP_ACTIONS, check_case
 from .compare import ABSENT, Difference, diff_listed_keys, diff_values, format_differences
 from .errors import CaseFailure, CaseFormatError, ScriptError, UnsupportedFeature
@@ -29,7 +29,7 @@ from .ops import resolve
 from .values import KIND_NUMBER, json_equal, kind_of
 
 STEP_TIMEOUT = 5.0
-RESULT_KEYS = ("output", "outputs", "usage", "finishReason", "status", "runs")
+RESULT_KEYS = ("turnId", "output", "outputs", "usage", "finishReason", "status", "runs")
 USAGE_KEYS = ("input", "output", "cacheRead", "cacheWrite")
 CASE_FILES = ("case.json", "expected.json")
 CASE_DIRECTORIES = ("config",)
@@ -154,6 +154,36 @@ def check_usage(outcomes: Sequence[Any]) -> list[str]:
     return problems
 
 
+def operation_history(events: Sequence[Any], aliases: Mapping[str, str]) -> dict[str, list[str]]:
+    current: dict[str, tuple[str, str]] = {}
+    history: dict[str, list[str]] = {}
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        operation_id, event_type = event.get("operationId"), event.get("type")
+        if not isinstance(operation_id, str) or not isinstance(event_type, str):
+            continue
+        status, delivery = current.get(operation_id, ("pending", "pending"))
+        status_by_type = {
+            "operation.approved": "approved", "operation.rejected": "rejected",
+            "operation.cancelled": "cancelled", "operation.execution.started": "running",
+            "operation.completed": "completed", "operation.failed": "failed",
+        }
+        status = status_by_type.get(event_type, status)
+        if event_type == "operation.delivery.claimed":
+            delivery = "delivering"
+        elif event_type == "operation.delivery.finished":
+            data = event.get("data")
+            delivery = "delivered" if isinstance(data, Mapping) and data.get("outcome") == "delivered" else "pending"
+        current[operation_id] = (status, delivery)
+        label = aliases.get(operation_id, operation_id)
+        entry = f"{status}/{delivery}"
+        entries = history.setdefault(label, [])
+        if not entries or entries[-1] != entry:
+            entries.append(entry)
+    return history
+
+
 def diff_issues(expected: Sequence[Any], actual: Any, base: Sequence[Any]) -> list[Difference]:
     if not isinstance(actual, list):
         return [Difference(format_pointer(base), expected, actual)]
@@ -196,6 +226,8 @@ class CaseRunner:
         self.loaded: Any = None
         self.document: Any = None
         self.directory: str | None = None
+        self.leases: dict[str, Any] = {}
+        self.deleted_sessions: set[str] = set()
 
     # -- host API access -----------------------------------------------------------------
 
@@ -236,14 +268,11 @@ class CaseRunner:
             "functions": binding.functions,
             "extensions": binding.extensions,
             "ports": binding.ports,
-            "conversation_store": self.state.conversation_store,
-            "operation_store": self.state.operation_store,
+            "store": self.state.store,
             "emit": binding.emit(),
         }
         if self.directory is not None:
             options["directory"] = self.directory
-        if binding.host is not None:
-            options["host"] = binding.host
         bindings = self.state.bindings
         if "maxRetries" in bindings:
             options["max_retries"] = bindings["maxRetries"]
@@ -345,24 +374,62 @@ class CaseRunner:
                 options["start_agent"] = argument["startAgent"]
             result = await resolve(self.call(self.method("run"), "run", options, argument["input"]))
             return {key: snapshot(result[key]) for key in RESULT_KEYS if key in result} if isinstance(result, Mapping) else snapshot(result)
-        if action in ("decide", "cancel"):
-            session_id, operation_id = self.operation_arguments(argument, label)
-            name = f"{action}_operation"
-            arguments = [session_id, operation_id] + ([argument["value"]] if action == "decide" else [])
-            return project_operation(await resolve(self.call(self.method(name), name, {}, *arguments)))
+        if action == "decide":
+            session_id, operation_id = await self.operation_arguments(argument, label)
+            operations = getattr(self.runtime, "operations", None)
+            decide = getattr(operations, "decide", None)
+            if not callable(decide):
+                raise self.state.unsupported_feature("operations.decide()")
+            return project_operation(await resolve(decide(session_id, operation_id, argument["value"])))
         if action == "list":
+            operations = getattr(self.runtime, "operations", None)
+            listing = getattr(operations, "list", None)
+            if not callable(listing):
+                raise self.state.unsupported_feature("operations.list()")
             arguments = [argument["sessionId"]] if "sessionId" in argument else []
-            found = await resolve(self.call(self.method("list_operations"), "list_operations", {}, *arguments))
+            found = await resolve(listing(*arguments))
             return [project_operation(operation) for operation in found] if isinstance(found, list) else snapshot(found)
-        if action == "recover":
-            arguments = [argument["sessionId"]] if "sessionId" in argument else []
-            await resolve(self.call(self.method("recover_operations"), "recover_operations", {}, *arguments))
-            return NO_RESULT
         if action == "abort":
             return await resolve(self.method("abort")(argument["sessionId"]))
-        if action == "steer":
-            options = {"agent": argument["agent"]} if "agent" in argument else {}
-            await resolve(self.call(self.method("steer"), "steer", options, argument["sessionId"], argument["value"]))
+        if action == "acquireLease":
+            lease = await self.state.store.acquire_lease(argument["sessionId"], argument["owner"])
+            if lease is None:
+                return None
+            self.leases[argument["lease"]] = lease
+            return {"token": lease.token, "expiresAt": lease.expires_at}
+        if action == "renewLease":
+            return await self._lease(argument["lease"]).renew()
+        if action == "releaseLease":
+            await self._lease(argument["lease"]).release()
+            return NO_RESULT
+        if action == "appendJournal":
+            options: dict[str, Any] = {}
+            if "lease" in argument:
+                options["token"] = self._lease(argument["lease"]).token
+            if "expected" in argument:
+                options["expected"] = argument["expected"]
+            if "writeId" in argument:
+                options["write_id"] = argument["writeId"]
+            return [project_event(event) for event in await self.state.store.append(argument["events"], **options)]
+        if action == "appendOperationTransition":
+            await self.append_operation_transition(argument, label)
+            return NO_RESULT
+        if action == "scanJournal":
+            options = {}
+            if "sessionId" in argument:
+                options["session_id"] = argument["sessionId"]
+            if "fromSeq" in argument:
+                options["from_seq"] = argument["fromSeq"]
+            if "limit" in argument:
+                options["limit"] = argument["limit"]
+            return [project_event(event) async for event in self.state.store.scan(**options)]
+        if action == "headJournal":
+            return await self.state.store.head(argument["sessionId"])
+        if action == "deleteStoreSession":
+            await self.state.store.delete_session(
+                argument["sessionId"], token=self._lease(argument["lease"]).token
+            )
+            self.deleted_sessions.add(argument["sessionId"])
             return NO_RESULT
         if action == "deleteSession":
             sessions = getattr(self.runtime, "sessions", None)
@@ -370,22 +437,92 @@ class CaseRunner:
             if not callable(delete):
                 raise self.state.unsupported_feature("goondan.sessions.delete()")
             await resolve(delete(argument["sessionId"]))
+            self.deleted_sessions.add(argument["sessionId"])
             return NO_RESULT
         raise CaseFailure(f"the step {label} uses the unknown action {action!r}")
 
-    def operation_arguments(self, argument: Mapping[str, Any], label: str) -> tuple[str, str]:
+    def _lease(self, alias: str) -> Any:
+        lease = self.leases.get(alias)
+        if lease is None:
+            raise CaseFailure(f"the case has no acquired lease named {alias!r}")
+        return lease
+
+    async def append_operation_transition(self, argument: Mapping[str, Any], label: str) -> None:
+        session_id = argument["sessionId"]
+        events = [event async for event in self.state.store.scan(session_id=session_id)]
+        state = fold(session_id, events)
+        operations = state.get("operations", [])
+        self.state.record_operations(operations)
+        wanted = argument["operation"]
+        matches = [operation for operation in operations if isinstance(operation, Mapping)
+                   and self.state.operation_aliases.get(str(operation.get("operationId"))) == wanted]
+        if not matches:
+            raise CaseFailure(f"the step {label} refers to {wanted}, which the journal does not have")
+        operation = matches[0]
+        status = argument["status"]
+        valid = (
+            status in ("approved", "rejected") and operation.get("status") == "pending"
+        ) or (
+            status == "running" and operation.get("status") == "approved"
+        ) or (
+            status == "delivering" and operation.get("status") == "rejected"
+            and operation.get("deliveryStatus") == "pending"
+        )
+        if not valid:
+            raise CaseFailure(
+                f"the step {label} cannot move {wanted} to {status!r} from "
+                f"{operation.get('status')!r}/{operation.get('deliveryStatus')!r}"
+            )
+        event_types = {
+            "approved": "operation.approved",
+            "running": "operation.execution.started",
+            "rejected": "operation.rejected",
+            "delivering": "operation.delivery.claimed",
+        }
+        event = {
+            "version": 1,
+            "type": event_types[status],
+            "sessionId": session_id,
+            "agent": operation["agent"],
+            "instance": operation["instance"],
+            "turnId": operation["turnId"],
+            "executionId": operation["executionId"],
+            "operationId": operation["operationId"],
+            "data": {"updatedAt": operation["updatedAt"] + 1},
+        }
+        if "parentExecutionId" in operation:
+            event["parentExecutionId"] = operation["parentExecutionId"]
+        lease = await self.state.store.acquire_lease(session_id, f"fixture-{status}")
+        if lease is None:
+            raise CaseFailure(f"the step {label} cannot acquire the {session_id!r} fixture lease")
+        try:
+            head = await self.state.store.head(session_id)
+            await self.state.store.append(
+                [event], expected=head, token=lease.token,
+                write_id=f"fixture-{operation['operationId']}-{status}",
+            )
+        finally:
+            await lease.release()
+
+    async def operation_arguments(self, argument: Mapping[str, Any], label: str) -> tuple[str, str]:
         wanted = argument["operation"]
         if not wanted.startswith("<op:"):
             if "sessionId" not in argument:
                 raise CaseFailure(f"the step {label} needs a sessionId for the operation {wanted!r}")
             return argument["sessionId"], wanted
-        store = self.state.operation_store
-        aliases = store.aliases()
-        found = [key for key in store.keys() if aliases.get(key[1]) == wanted]
-        if not found:
+        operations = getattr(self.runtime, "operations", None)
+        listing = getattr(operations, "list", None)
+        if not callable(listing):
+            raise self.state.unsupported_feature("operations.list()")
+        found = await resolve(listing())
+        records = found if isinstance(found, list) else []
+        self.state.record_operations(records)
+        matched = [item for item in records if isinstance(item, Mapping)
+                   and self.state.operation_aliases.get(str(item.get("operationId"))) == wanted]
+        if not matched:
             raise CaseFailure(f"the step {label} refers to {wanted}, which the operation store does not have")
-        session_id, operation_id = found[0]
-        return argument.get("sessionId", session_id), operation_id
+        operation = matched[0]
+        return argument.get("sessionId", operation["sessionId"]), operation["operationId"]
 
     def project_error(self, error: Exception, label: str) -> dict[str, Any]:
         if isinstance(error, GoondanConfigError):
@@ -393,6 +530,8 @@ class CaseRunner:
             return {"issues": [dict(issue) for issue in error.issues]}
         if isinstance(error, ScriptError):
             return {"scriptError": error.script_message}
+        if isinstance(error, (StoreConflictError, StoreInputError)):
+            return {"storeError": type(error).__name__}
         where, codes, attempt = getattr(error, "where", None), getattr(error, "codes", None), getattr(error, "attempt", None)
         if isinstance(where, str) and isinstance(codes, list) and attempt is not None:
             projected: dict[str, Any] = {"where": where, "codes": list(codes), "attempt": attempt}
@@ -425,17 +564,75 @@ class CaseRunner:
 
     async def collect(self) -> None:
         """Build every observation section before any runtime is closed (README step 6)."""
+        stored = [snapshot(event) async for event in self.state.store.scan()]
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for event in stored:
+            if not isinstance(event, Mapping) or not isinstance(event.get("sessionId"), str):
+                continue
+            values = grouped.setdefault(event["sessionId"], [])
+            expected_seq = len(values) + 1
+            if event.get("seq") != expected_seq:
+                self.problems.append(
+                    f"journal {event['sessionId']} expected seq {expected_seq}, found {event.get('seq')!r}"
+                )
+            values.append(dict(event))
+        states = {session_id: fold(session_id, events) for session_id, events in grouped.items()}
+        conversations: dict[str, Any] = {}
+        operations: list[Any] = []
+        for session_id, state in states.items():
+            for conversation in state.get("conversations", []):
+                if not isinstance(conversation, Mapping):
+                    continue
+                agent, instance = conversation.get("agent"), conversation.get("instance")
+                if not isinstance(agent, str) or not isinstance(instance, str):
+                    continue
+                stable = instance == f"{session_id}/{agent}"
+                key = f"{session_id}/{agent}" if stable else f"{session_id}/{agent}@{instance}"
+                conversations[key] = snapshot(conversation.get("messages", []))
+            operations.extend(state.get("operations", []))
+        operations.sort(key=lambda item: (
+            item.get("createdAt", 0), item.get("sessionId", "")
+        ) if isinstance(item, Mapping) else (0, ""))
+        self.state.record_operations(operations)
+        history = operation_history(stored, self.state.operation_aliases)
         if self.runtimes:
             try:
-                found = await resolve(self.method("list_operations")())
+                api = getattr(self.runtime, "operations", None)
+                listing = getattr(api, "list", None)
+                found = await resolve(listing()) if callable(listing) else None
             except Exception:
                 found = None
             if isinstance(found, list):
                 self.problems.extend(check_operations(found))
-                self.operations = [project_operation(operation) for operation in found]
+                self.state.record_operations(found)
+                self.operations = [project_operation(operation) for operation in operations]
             else:
-                self.operations = found
-        self.observations = snapshot(self.state.observation_document(self.effective_config, self.operations))
+                self.operations = [project_operation(operation) for operation in operations]
+        self.check_event_delivery(stored)
+        self.observations = snapshot(self.state.observation_document(
+            self.effective_config,
+            [project_event(event) for event in stored],
+            states,
+            conversations,
+            self.operations,
+            history,
+        ))
+
+    def check_event_delivery(self, stored: Sequence[Any]) -> None:
+        indexed = {
+            (event.get("sessionId"), event.get("seq")): project_event(event)
+            for event in stored if isinstance(event, Mapping)
+        }
+        for event in self.state.observations.raw_events:
+            if event.get("observational") is True:
+                if "seq" in event:
+                    self.problems.append("an observational event must not have seq")
+                continue
+            key = (event.get("sessionId"), event.get("seq"))
+            if key not in indexed or not json_equal(project_event(event), indexed[key]):
+                if event.get("sessionId") in self.deleted_sessions:
+                    continue
+                self.problems.append(f"execution event {key!r} does not match the stored journal event")
 
     async def teardown(self) -> None:
         for index in range(len(self.runtimes)):
@@ -448,7 +645,7 @@ class CaseRunner:
     def build_document(self) -> dict[str, Any]:
         observations = self.observations
         if observations is None:
-            observations = snapshot(self.state.observation_document(self.effective_config, self.operations))
+            observations = {}
         return {"steps": self.outcomes, "observations": observations}
 
     def compare(self) -> list[str]:
@@ -465,7 +662,7 @@ class CaseRunner:
         normalized = normalize_document(
             document,
             case_paths=[str(self.case_dir), os.path.realpath(self.case_dir)],
-            operation_aliases=self.state.operation_store.aliases(),
+            operation_aliases=self.state.operation_aliases,
         )
         differences: list[Difference] = []
         if "steps" in self.expected:

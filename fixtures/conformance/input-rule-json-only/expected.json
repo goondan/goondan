@@ -1,16 +1,54 @@
 {
-  "steps": [{}],
+  "steps": [
+    {}
+  ],
   "observations": {
-    "functionCalls": [{"fn": "renderJson", "value": {"k": 1}}],
+    "functionCalls": [
+      {
+        "fn": "renderJson",
+        "value": {
+          "k": 1
+        }
+      }
+    ],
     "conversations": {
       "s/main": [
-        {"role": "user", "source": "main", "content": [
-          {"type": "text", "text": "T"},
-          {"type": "image", "url": "memory:image"},
-          {"type": "text", "text": "변환"},
-          {"type": "media", "ref": "memory:media", "mediaType": "text/plain"}
-        ]},
-        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "완료"}]}
+        {
+          "role": "user",
+          "source": "main",
+          "content": [
+            {
+              "type": "text",
+              "text": "T"
+            },
+            {
+              "type": "image",
+              "url": "memory:image"
+            },
+            {
+              "type": "text",
+              "text": "변환"
+            },
+            {
+              "type": "media",
+              "ref": "memory:media",
+              "mediaType": "text/plain"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "완료"
+            }
+          ]
+        }
       ]
     }
   }

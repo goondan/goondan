@@ -6,6 +6,6 @@ agents:
       negative: false
       zero: 0
     hooks:
-      conversation:
+      onStep:
         - name: t
           template: templates/system.md

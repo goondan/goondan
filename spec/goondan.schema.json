@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://goondan.dev/schema/config-v1.json",
   "title": "Goondan Config v1",
-  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 최상위 문서 하나는 군단(goondan) 하나를 정의한다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. extends, resources와 variant로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 extends와 resources를 $defs/extends와 $defs/resources로 검사한다. $defs/message와 $defs/part는 구성이 아니라 단계 값의 메시지 형식이다.",
+  "description": "합성을 마친 Goondan 구성 문서와 유효 구성의 구조다. 최상위 문서 하나는 군단(goondan) 하나를 정의한다. 스키마 단계는 version과 name의 기본값만 채운 합성 결과를, 참조 단계는 상속과 제거를 적용한 유효 구성을 이 스키마로 검사한다. resources와 variant로 합성하는 개별 YAML 파일은 부분 구성일 수 있으므로 파일마다 이 스키마를 적용하지 않는다. 읽기 단계는 각 파일의 resources를 $defs/resources로 검사한다. $defs/message, $defs/part, $defs/journalEvent와 $defs/journalState는 구성 밖에서 쓰는 실행 값의 형식이다.",
   "$comment": "두 호스트의 검사기가 같은 결과를 내도록 draft 2020-12 키워드 가운데 $schema, $id, $comment, title, description, default, $defs, 로컬 $ref, type, const, enum, properties, required, additionalProperties, propertyNames, minProperties, items, minItems, uniqueItems, minLength, pattern, exclusiveMinimum, oneOf, anyOf, allOf, not, dependentSchemas만 사용한다. pattern에는 ECMA-262와 Python re에서 같게 동작하는 식만 쓴다. Python의 $는 문자열 끝의 줄바꿈 앞에서도 일치하므로 문자열 끝은 (?![\\s\\S])로 나타낸다.",
   "type": "object",
   "required": [
@@ -46,11 +46,6 @@
   },
   "$defs": {
     "nonEmptyString": {
-      "type": "string",
-      "minLength": 1
-    },
-    "extends": {
-      "description": "읽기 단계가 각 파일의 extends를 검사하는 정의다. 합성을 마친 구성 문서에는 extends가 없다.",
       "type": "string",
       "minLength": 1
     },
@@ -261,75 +256,83 @@
     },
     "phase": {
       "enum": [
-        "input",
-        "conversation",
-        "modelInput",
-        "modelResult",
-        "toolCall",
-        "toolResult",
-        "output",
-        "error"
+        "onInput",
+        "onPrompt",
+        "onStep",
+        "onModelInput",
+        "onModelResult",
+        "onToolCall",
+        "onToolResult",
+        "onOutput",
+        "onError"
       ]
     },
     "hooks": {
-      "description": "값 처리 단계 이름을 키로, 그 단계의 훅 배열을 값으로 갖는다. mode: async는 conversation 단계에서만, role은 conversation과 modelInput 단계에서만 선언할 수 있다.",
+      "description": "처리 시점 이름을 키로, 그 시점의 훅 배열을 값으로 갖는다. 비동기 훅은 모든 시점에 허용한다.",
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/phase"
       },
       "properties": {
-        "input": {
+        "onInput": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/transformHook"
           }
         },
-        "conversation": {
+        "onPrompt": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/hook"
+            "$ref": "#/$defs/promptHook"
           }
         },
-        "modelInput": {
+        "onStep": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHook"
+            "$ref": "#/$defs/promptHook"
           }
         },
-        "modelResult": {
+        "onModelInput": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/promptHook"
           }
         },
-        "toolCall": {
+        "onModelResult": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/transformHook"
           }
         },
-        "toolResult": {
+        "onToolCall": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/transformHook"
           }
         },
-        "output": {
+        "onToolResult": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/transformHook"
           }
         },
-        "error": {
+        "onOutput": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/syncHookWithoutRole"
+            "$ref": "#/$defs/outputHook"
+          }
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transformHook"
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     "hook": {
-      "description": "훅은 extension, fn, agent, template 가운데 하나 이상을 선언한다. extension 훅에는 fn, agent, template, role을 함께 선언할 수 없고, timeout을 선언한 훅은 동기 훅이어야 한다.",
+      "description": "훅은 extension, fn, agent, template 가운데 정확히 하나를 선언한다.",
       "type": "object",
       "properties": {
         "extension": {
@@ -359,19 +362,6 @@
         "name": {
           "$ref": "#/$defs/nonEmptyString"
         },
-        "using": {
-          "oneOf": [
-            {
-              "enum": [
-                "input",
-                "conversation"
-              ]
-            },
-            {
-              "$ref": "#/$defs/fnRef"
-            }
-          ]
-        },
         "when": {
           "$ref": "#/$defs/fnRef"
         },
@@ -379,10 +369,12 @@
           "enum": [
             "sync",
             "async"
-          ]
+          ],
+          "default": "sync"
         },
         "optional": {
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "role": {
           "enum": [
@@ -396,7 +388,7 @@
         }
       },
       "additionalProperties": false,
-      "anyOf": [
+      "oneOf": [
         {
           "required": [
             "extension"
@@ -426,31 +418,27 @@
             "template": false,
             "role": false
           }
-        },
-        "timeout": {
-          "properties": {
-            "mode": {
-              "const": "sync"
-            }
-          }
         }
       }
     },
-    "syncHook": {
+    "asyncHook": {
       "allOf": [
         {
           "$ref": "#/$defs/hook"
         },
         {
+          "required": [
+            "mode"
+          ],
           "properties": {
             "mode": {
-              "const": "sync"
+              "const": "async"
             }
           }
         }
       ]
     },
-    "syncHookWithoutRole": {
+    "syncTransformHook": {
       "allOf": [
         {
           "$ref": "#/$defs/hook"
@@ -460,9 +448,84 @@
             "mode": {
               "const": "sync"
             },
+            "agent": false,
+            "template": false,
             "role": false
           }
         }
+      ]
+    },
+    "syncMessageHook": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/hook"
+        },
+        {
+          "required": [
+            "role"
+          ],
+          "properties": {
+            "mode": {
+              "const": "sync"
+            },
+            "extension": false
+          }
+        }
+      ]
+    },
+    "syncAgentMessageHook": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/hook"
+        },
+        {
+          "properties": {
+            "mode": {
+              "const": "sync"
+            },
+            "extension": false,
+            "fn": false,
+            "role": false
+          }
+        }
+      ]
+    },
+    "syncOutputHook": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/hook"
+        },
+        {
+          "properties": {
+            "mode": {
+              "const": "sync"
+            },
+            "extension": false,
+            "fn": false,
+            "role": false
+          }
+        }
+      ]
+    },
+    "transformHook": {
+      "oneOf": [
+        {"$ref": "#/$defs/asyncHook"},
+        {"$ref": "#/$defs/syncTransformHook"}
+      ]
+    },
+    "promptHook": {
+      "oneOf": [
+        {"$ref": "#/$defs/asyncHook"},
+        {"$ref": "#/$defs/syncTransformHook"},
+        {"$ref": "#/$defs/syncMessageHook"},
+        {"$ref": "#/$defs/syncAgentMessageHook"}
+      ]
+    },
+    "outputHook": {
+      "oneOf": [
+        {"$ref": "#/$defs/asyncHook"},
+        {"$ref": "#/$defs/syncTransformHook"},
+        {"$ref": "#/$defs/syncOutputHook"}
       ]
     },
     "fnRef": {
@@ -524,7 +587,7 @@
       }
     },
     "route": {
-      "description": "from은 에이전트 이름 또는 $input, to는 에이전트 이름 또는 $output이다. when을 생략하면 항상 일치한다.",
+      "description": "from과 to는 예약 이름, 에이전트 이름 또는 함수 노드다. when을 생략하면 항상 일치한다.",
       "type": "object",
       "required": [
         "from",
@@ -532,10 +595,16 @@
       ],
       "properties": {
         "from": {
-          "$ref": "#/$defs/nonEmptyString"
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyString"},
+            {"$ref": "#/$defs/fnRef"}
+          ]
         },
         "to": {
-          "$ref": "#/$defs/nonEmptyString"
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyString"},
+            {"$ref": "#/$defs/fnRef"}
+          ]
         },
         "when": {
           "$ref": "#/$defs/routeWhen"
@@ -738,6 +807,1392 @@
           "additionalProperties": false
         }
       ]
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "exclusiveMinimum": -1
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "nullableString": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "toolCall": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "args"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "args": true
+      },
+      "additionalProperties": false
+    },
+    "toolResult": {
+      "type": "object",
+      "required": [
+        "callId",
+        "name",
+        "args",
+        "content"
+      ],
+      "properties": {
+        "callId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "args": true,
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/part"
+          }
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "keep": {
+          "type": "boolean"
+        },
+        "meta": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "required": [
+        "input",
+        "cacheRead",
+        "cacheWrite",
+        "output"
+      ],
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "cacheRead": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "cacheWrite": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "output": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentRun": {
+      "type": "object",
+      "required": [
+        "agent",
+        "instance",
+        "executionId",
+        "turnId",
+        "kind",
+        "usage",
+        "status"
+      ],
+      "properties": {
+        "agent": {"$ref": "#/$defs/nonEmptyString"},
+        "instance": {"$ref": "#/$defs/nonEmptyString"},
+        "executionId": {"$ref": "#/$defs/nonEmptyString"},
+        "turnId": {"$ref": "#/$defs/nonEmptyString"},
+        "parentExecutionId": {"$ref": "#/$defs/nonEmptyString"},
+        "operationId": {"$ref": "#/$defs/nonEmptyString"},
+        "kind": {"enum": ["turn", "tool", "hook"]},
+        "usage": {"$ref": "#/$defs/usage"},
+        "finishReason": {"enum": ["stop", "tool", "length", "other"]},
+        "status": {"enum": ["done", "failed"]}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {"not": {"required": ["parentExecutionId", "operationId"]}},
+        {
+          "oneOf": [
+            {
+              "required": ["finishReason"],
+              "properties": {"status": {"const": "done"}}
+            },
+            {
+              "properties": {
+                "status": {"const": "failed"},
+                "finishReason": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "turnResult": {
+      "type": "object",
+      "required": [
+        "turnId",
+        "outputs",
+        "usage",
+        "status",
+        "runs"
+      ],
+      "properties": {
+        "turnId": {"$ref": "#/$defs/nonEmptyString"},
+        "output": {"type": "string"},
+        "outputs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/message"}
+        },
+        "usage": {"$ref": "#/$defs/usage"},
+        "finishReason": {"enum": ["stop", "tool", "length", "other"]},
+        "status": {"const": "done"},
+        "runs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/agentRun"}
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "outputs": {"const": []},
+            "output": false,
+            "finishReason": false
+          }
+        },
+        {
+          "required": ["output", "finishReason"],
+          "properties": {
+            "outputs": {"minItems": 1}
+          }
+        }
+      ]
+    },
+    "executionError": {
+      "type": "object",
+      "required": [
+        "where",
+        "codes",
+        "message",
+        "attempt"
+      ],
+      "properties": {
+        "where": {
+          "enum": [
+            "onInput",
+            "onPrompt",
+            "onStep",
+            "onModelInput",
+            "onModelResult",
+            "onToolCall",
+            "onToolResult",
+            "onOutput",
+            "onError",
+            "model",
+            "tool",
+            "runtime"
+          ]
+        },
+        "codes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "attempt": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "toolCall": {
+          "$ref": "#/$defs/toolCall"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationStatus": {
+      "enum": [
+        "pending",
+        "approved",
+        "running",
+        "completed",
+        "rejected",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "operationDeliveryStatus": {
+      "enum": [
+        "pending",
+        "delivering",
+        "delivered"
+      ]
+    },
+    "operationErrorCode": {
+      "enum": [
+        "validation_failed",
+        "execution_failed",
+        "execution_interrupted"
+      ]
+    },
+    "pendingOperation": {
+      "description": "승인 작업 이벤트를 fold하여 얻은 작업 기록이다.",
+      "type": "object",
+      "required": [
+        "operationId",
+        "deliveryId",
+        "agent",
+        "sessionId",
+        "turnId",
+        "instance",
+        "executionId",
+        "toolCall",
+        "reasons",
+        "status",
+        "deliveryStatus",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "deliveryId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "instance": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "executionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "parentExecutionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "toolCall": {
+          "$ref": "#/$defs/toolCall"
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/operationStatus"
+        },
+        "deliveryStatus": {
+          "$ref": "#/$defs/operationDeliveryStatus"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "execution": {
+          "type": "object"
+        },
+        "inputPatch": {
+          "type": "object"
+        },
+        "resolvedToolCall": {
+          "$ref": "#/$defs/toolCall"
+        },
+        "result": {
+          "$ref": "#/$defs/toolResult"
+        },
+        "error": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "errorCode": {
+          "$ref": "#/$defs/operationErrorCode"
+        },
+        "deliveredAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversationMessageAppendedData": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "index": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversationMessageReplacedData": {
+      "type": "object",
+      "required": [
+        "messageId",
+        "message"
+      ],
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "message": {
+          "$ref": "#/$defs/message"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversationMessageRemovedData": {
+      "type": "object",
+      "required": [
+        "messageId"
+      ],
+      "properties": {
+        "messageId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversationTruncatedData": {
+      "type": "object",
+      "required": [
+        "keepLast"
+      ],
+      "properties": {
+        "keepLast": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationCreatedData": {
+      "type": "object",
+      "required": [
+        "operation"
+      ],
+      "properties": {
+        "operation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/pendingOperation"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "pending"
+                },
+                "deliveryStatus": {
+                  "const": "pending"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationApprovedData": {
+      "type": "object",
+      "required": [
+        "updatedAt"
+      ],
+      "properties": {
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "inputPatch": {
+          "type": "object"
+        },
+        "resolvedToolCall": {
+          "$ref": "#/$defs/toolCall"
+        }
+      },
+      "additionalProperties": false,
+      "dependentSchemas": {
+        "inputPatch": {
+          "required": [
+            "resolvedToolCall"
+          ]
+        },
+        "resolvedToolCall": {
+          "required": [
+            "inputPatch"
+          ]
+        }
+      }
+    },
+    "operationUpdatedData": {
+      "type": "object",
+      "required": [
+        "updatedAt"
+      ],
+      "properties": {
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationCompletedData": {
+      "type": "object",
+      "required": [
+        "updatedAt",
+        "result"
+      ],
+      "properties": {
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "result": {
+          "$ref": "#/$defs/toolResult"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationFailedData": {
+      "type": "object",
+      "required": [
+        "updatedAt",
+        "error",
+        "errorCode"
+      ],
+      "properties": {
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "error": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "errorCode": {
+          "$ref": "#/$defs/operationErrorCode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationDeliveryFinishedData": {
+      "type": "object",
+      "required": [
+        "updatedAt",
+        "outcome"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "deliveredAt"
+          ],
+          "properties": {
+            "outcome": {
+              "const": "delivered"
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "enum": [
+                "failed",
+                "interrupted"
+              ]
+            },
+            "deliveredAt": false
+          }
+        }
+      ],
+      "properties": {
+        "updatedAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "outcome": {
+          "enum": [
+            "delivered",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "deliveredAt": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "turnStartedData": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "inputReceivedData": {
+      "type": "object",
+      "required": [
+        "input"
+      ],
+      "properties": {
+        "input": true,
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "startAgent": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "agent",
+          "startAgent"
+        ]
+      }
+    },
+    "turnDoneData": {
+      "type": "object",
+      "required": [
+        "result"
+      ],
+      "properties": {
+        "result": {"$ref": "#/$defs/turnResult"}
+      },
+      "additionalProperties": false
+    },
+    "turnErrorData": {
+      "type": "object",
+      "required": [
+        "status",
+        "error"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "failed",
+            "aborted"
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/executionError"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentStartData": {
+      "type": "object",
+      "required": [
+        "kind",
+        "input"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "turn",
+            "tool",
+            "hook"
+          ]
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentDoneData": {
+      "type": "object",
+      "required": [
+        "output",
+        "finishReason",
+        "usage"
+      ],
+      "properties": {
+        "output": {
+          "$ref": "#/$defs/message"
+        },
+        "finishReason": {
+          "enum": [
+            "stop",
+            "tool",
+            "length",
+            "other"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentErrorData": {
+      "type": "object",
+      "required": [
+        "status",
+        "error",
+        "usage"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "failed",
+            "aborted"
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/executionError"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "routeFunctionData": {
+      "type": "object",
+      "required": [
+        "route",
+        "fn",
+        "status",
+        "input"
+      ],
+      "properties": {
+        "route": {"$ref": "#/$defs/nonNegativeInteger"},
+        "fn": {"$ref": "#/$defs/nonEmptyString"},
+        "status": {"enum": ["done", "error"]},
+        "input": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/message"}
+        },
+        "output": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/message"}
+        },
+        "error": {"$ref": "#/$defs/executionError"}
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "status": {"const": "done"},
+            "error": false
+          }
+        },
+        {
+          "required": ["error"],
+          "properties": {
+            "status": {"const": "error"},
+            "output": false
+          }
+        }
+      ]
+    },
+    "journalConversation": {
+      "type": "object",
+      "required": [
+        "sessionId",
+        "agent",
+        "instance",
+        "messages"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "instance": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "journalTurn": {
+      "type": "object",
+      "required": [
+        "turnId",
+        "sessionId",
+        "status",
+        "inputs"
+      ],
+      "properties": {
+        "turnId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "aborted"
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journalInput"
+          }
+        },
+        "result": {"$ref": "#/$defs/turnResult"},
+        "error": {
+          "$ref": "#/$defs/executionError"
+        }
+      },
+      "additionalProperties": false
+    },
+    "journalInput": {
+      "type": "object",
+      "required": [
+        "inputId",
+        "input"
+      ],
+      "properties": {
+        "inputId": {"$ref": "#/$defs/nonEmptyString"},
+        "input": true,
+        "agent": {"$ref": "#/$defs/nonEmptyString"},
+        "startAgent": {"$ref": "#/$defs/nonEmptyString"},
+        "operationId": {"$ref": "#/$defs/nonEmptyString"}
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": ["agent", "startAgent"]
+      }
+    },
+    "journalExecution": {
+      "type": "object",
+      "required": [
+        "sessionId",
+        "agent",
+        "instance",
+        "executionId",
+        "turnId",
+        "kind",
+        "status",
+        "input"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "instance": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "executionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "turnId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "parentExecutionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "operationId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "kind": {
+          "enum": [
+            "turn",
+            "tool",
+            "hook"
+          ]
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "aborted"
+          ]
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        },
+        "output": {
+          "$ref": "#/$defs/message"
+        },
+        "finishReason": {
+          "enum": [
+            "stop",
+            "tool",
+            "length",
+            "other"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "error": {
+          "$ref": "#/$defs/executionError"
+        }
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "parentExecutionId",
+          "operationId"
+        ]
+      }
+    },
+    "journalState": {
+      "description": "한 세션 스트림을 fold한 결정적 상태다.",
+      "type": "object",
+      "required": [
+        "version",
+        "sessionId",
+        "head",
+        "conversations",
+        "operations",
+        "turns",
+        "executions"
+      ],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "head": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conversations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journalConversation"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pendingOperation"
+          }
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journalTurn"
+          }
+        },
+        "executions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journalExecution"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "snapshotSavedData": {
+      "type": "object",
+      "required": [
+        "throughSeq",
+        "state"
+      ],
+      "properties": {
+        "throughSeq": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "state": {
+          "$ref": "#/$defs/journalState"
+        }
+      },
+      "additionalProperties": false
+    },
+    "journalEvent": {
+      "description": "세션 저널에 저장되며 append 뒤 실행 이벤트로도 내보내는 상태 이벤트 봉투다.",
+      "type": "object",
+      "required": [
+        "seq",
+        "version",
+        "type",
+        "sessionId",
+        "at",
+        "data",
+        "writeId"
+      ],
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "version": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "type": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "instance": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "turnId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "executionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "inputId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "parentExecutionId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "operationId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "at": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "data": true,
+        "writeId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "skippable": {
+          "const": true
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "agent",
+            "instance",
+            "executionId",
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "conversation.message.appended"
+            },
+            "data": {
+              "$ref": "#/$defs/conversationMessageAppendedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "executionId",
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "conversation.message.replaced"
+            },
+            "data": {
+              "$ref": "#/$defs/conversationMessageReplacedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "executionId",
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "conversation.message.removed"
+            },
+            "data": {
+              "$ref": "#/$defs/conversationMessageRemovedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "executionId",
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "conversation.truncated"
+            },
+            "data": {
+              "$ref": "#/$defs/conversationTruncatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.created"
+            },
+            "data": {
+              "$ref": "#/$defs/operationCreatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.approved"
+            },
+            "data": {
+              "$ref": "#/$defs/operationApprovedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.rejected"
+            },
+            "data": {
+              "$ref": "#/$defs/operationUpdatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.cancelled"
+            },
+            "data": {
+              "$ref": "#/$defs/operationUpdatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.execution.started"
+            },
+            "data": {
+              "$ref": "#/$defs/operationUpdatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.completed"
+            },
+            "data": {
+              "$ref": "#/$defs/operationCompletedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.failed"
+            },
+            "data": {
+              "$ref": "#/$defs/operationFailedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.delivery.claimed"
+            },
+            "data": {
+              "$ref": "#/$defs/operationUpdatedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId",
+            "operationId"
+          ],
+          "properties": {
+            "type": {
+              "const": "operation.delivery.finished"
+            },
+            "data": {
+              "$ref": "#/$defs/operationDeliveryFinishedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "turn.start"
+            },
+            "data": {
+              "$ref": "#/$defs/turnStartedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "turnId",
+            "inputId"
+          ],
+          "properties": {
+            "type": {
+              "const": "input.received"
+            },
+            "data": {
+              "$ref": "#/$defs/inputReceivedData"
+            }
+          }
+        },
+        {
+          "required": [
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "turn.done"
+            },
+            "data": {
+              "$ref": "#/$defs/turnDoneData"
+            }
+          }
+        },
+        {
+          "required": [
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "turn.error"
+            },
+            "data": {
+              "$ref": "#/$defs/turnErrorData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId"
+          ],
+          "properties": {
+            "type": {
+              "const": "agent.start"
+            },
+            "data": {
+              "$ref": "#/$defs/agentStartData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId"
+          ],
+          "properties": {
+            "type": {
+              "const": "agent.done"
+            },
+            "data": {
+              "$ref": "#/$defs/agentDoneData"
+            }
+          }
+        },
+        {
+          "required": [
+            "agent",
+            "instance",
+            "turnId",
+            "executionId"
+          ],
+          "properties": {
+            "type": {
+              "const": "agent.error"
+            },
+            "data": {
+              "$ref": "#/$defs/agentErrorData"
+            }
+          }
+        },
+        {
+          "required": [
+            "turnId"
+          ],
+          "properties": {
+            "type": {
+              "const": "route.function"
+            },
+            "data": {
+              "$ref": "#/$defs/routeFunctionData"
+            }
+          }
+        },
+        {
+          "required": [
+            "skippable"
+          ],
+          "properties": {
+            "type": {
+              "const": "snapshot.saved"
+            },
+            "data": {
+              "$ref": "#/$defs/snapshotSavedData"
+            },
+            "skippable": {
+              "const": true
+            }
+          }
+        },
+        {
+          "required": [
+            "skippable"
+          ],
+          "properties": {
+            "type": {
+              "not": {
+                "enum": [
+                  "conversation.message.appended",
+                  "conversation.message.replaced",
+                  "conversation.message.removed",
+                  "conversation.truncated",
+                  "operation.created",
+                  "operation.approved",
+                  "operation.rejected",
+                  "operation.cancelled",
+                  "operation.execution.started",
+                  "operation.completed",
+                  "operation.failed",
+                  "operation.delivery.claimed",
+                  "operation.delivery.finished",
+                  "turn.start",
+                  "input.received",
+                  "turn.done",
+                  "turn.error",
+                  "agent.start",
+                  "agent.done",
+                  "agent.error",
+                  "route.function",
+                  "snapshot.saved"
+                ]
+              }
+            },
+            "data": true,
+            "skippable": {
+              "const": true
+            }
+          }
+        }
+      ],
+      "not": {
+        "required": [
+          "parentExecutionId",
+          "operationId"
+        ]
+      }
     }
   }
 }

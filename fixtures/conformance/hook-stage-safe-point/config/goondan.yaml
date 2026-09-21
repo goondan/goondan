@@ -1,9 +1,9 @@
 agents:
   main:
     model: m
+    tools: [wait]
     hooks:
-      conversation:
+      onStep:
         - name: note
           fn: asyncNote
           mode: async
-          using: input

@@ -1,5 +1,5 @@
 {
-  "description": "routes를 선언한 흐름에서 startAgent를 from으로 하는 route가 없으면 에이전트를 실행하지 않고 흐름 오류로 실패한다.",
+  "description": "routes를 선언한 흐름에서도 startAgent는 지정한 에이전트를 실행하며, 그 에이전트에서 출발하는 route가 없으면 출력 없이 갈래를 정상 종료한다.",
   "spec": [
     "시작 에이전트와 단일 에이전트 실행"
   ],
@@ -12,7 +12,11 @@
         "responses": []
       },
       "ml": {
-        "responses": []
+        "responses": [
+          {
+            "text": "응답"
+          }
+        ]
       }
     }
   },

@@ -2,16 +2,7 @@
   "steps": [
     {
       "result": {
-        "output": {
-          "role": "assistant",
-          "source": "goondan",
-          "content": [
-            {
-              "type": "text",
-              "text": "C\n\nB"
-            }
-          ]
-        },
+        "output": "C\n\nB",
         "outputs": [
           {
             "role": "assistant",
@@ -56,13 +47,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/split",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:1>"
           },
           {
             "agent": "a",
-            "turnId": "<turn:2>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -73,13 +62,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/a",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:2>"
           },
           {
             "agent": "b",
-            "turnId": "<turn:3>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -90,13 +77,11 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/b",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:3>"
           },
           {
             "agent": "c",
-            "turnId": "<turn:4>",
+            "turnId": "<turn:1>",
             "kind": "turn",
             "usage": {
               "input": 1,
@@ -107,9 +92,7 @@
             "finishReason": "stop",
             "status": "done",
             "instance": "c1/c",
-            "parentInstance": null,
-            "parentTurnId": null,
-            "rootTurnId": "<root:1>"
+            "executionId": "<execution:4>"
           }
         ]
       }
@@ -126,7 +109,10 @@
               "type": "text",
               "text": "시작"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",
@@ -151,7 +137,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c1/split"
+            "instance": "c1/split",
+            "kind": "start"
           }
         },
         {
@@ -177,7 +164,8 @@
           ],
           "meta": {
             "from": "a",
-            "instance": "c1/a"
+            "instance": "c1/a",
+            "kind": "start"
           }
         },
         {
@@ -203,7 +191,8 @@
           ],
           "meta": {
             "from": "split",
-            "instance": "c1/split"
+            "instance": "c1/split",
+            "kind": "start"
           }
         },
         {

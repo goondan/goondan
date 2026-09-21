@@ -77,7 +77,7 @@
       "policy": {
         "instance": {
           "hooks": {
-            "error": {
+            "onError": {
               "op": "constant",
               "value": {
                 "retry": true,

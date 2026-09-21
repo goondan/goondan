@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "result": {
+        "status": "done",
+        "output": "완료"
+      }
+    }
+  ],
+  "observations": {
+    "toolCalls": [
+      {
+        "tool": "parts",
+        "args": {}
+      },
+      {
+        "tool": "object",
+        "args": {}
+      },
+      {
+        "tool": "value",
+        "args": {}
+      },
+      {
+        "tool": "explicit",
+        "args": {}
+      }
+    ]
+  }
+}

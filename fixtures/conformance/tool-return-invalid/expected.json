@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "onToolResult",
+        "codes": [
+          "value_invalid"
+        ],
+        "attempt": 1
+      }
+    }
+  ]
+}

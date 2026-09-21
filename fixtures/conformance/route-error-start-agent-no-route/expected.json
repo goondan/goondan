@@ -1,17 +1,39 @@
 {
   "steps": [
     {
-      "error": {
-        "where": "runtime",
-        "codes": [
-          "route_error"
-        ],
-        "attempt": 1
+      "result": {
+        "outputs": [],
+        "status": "done"
       }
     }
   ],
   "observations": {
-    "events": [],
-    "conversations": {}
+    "conversations": {
+      "c1/lone": [
+        {
+          "role": "user",
+          "source": "lone",
+          "content": [
+            {
+              "type": "text",
+              "text": "질문"
+            }
+          ],
+          "meta": {
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "응답"
+            }
+          ]
+        }
+      ]
+    }
   }
 }

@@ -4,7 +4,7 @@ agents:
     extensions:
       slow: {}
     hooks:
-      modelInput:
+      onModelInput:
         - name: hold
           extension: slow
           timeout: 20

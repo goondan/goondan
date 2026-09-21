@@ -5,8 +5,10 @@ agents:
   join:
     model: joinModel
     hooks:
-      input:
+      onInput:
         - fn: keepInput
+      onPrompt:
+        - fn: keepPrompt
 routes:
   - {from: $input, to: split}
   - {from: split, to: a}

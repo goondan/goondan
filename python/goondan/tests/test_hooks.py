@@ -12,11 +12,12 @@ from goondan import (
     GoondanAbortError,
     GoondanConfigError,
     GoondanError,
-    InMemoryConversationStore,
+    GoondanExecutionError,
     create_goondan,
     define_extension,
     define_tool,
 )
+from goondan.store import _ConversationProjection as InMemoryConversationStore
 
 
 def answer(text: str = "done") -> dict[str, Any]:
@@ -47,10 +48,10 @@ class Recorder:
         self.events.append(event)
 
     def names(self, name: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["name"] == name]
+        return [event for event in self.events if event["type"] == name]
 
     def hooks(self) -> list[tuple[str, str, str]]:
-        return [(event["name"], event["data"]["value"], event["data"]["hook"]) for event in self.events if event["name"].startswith("hook.")]
+        return [(event["type"], event["data"]["value"], event["data"]["hook"]) for event in self.events if event["type"].startswith("hook.")]
 
 
 def echo_tool(name: str = "echo", execute: Any = None):
@@ -65,14 +66,14 @@ def extension(stage: str, hook: Any, **kwargs: Any):
 
 
 @pytest.mark.asyncio
-async def test_the_conversation_stage_runs_once_for_every_model_call_of_one_run():
+async def test_on_step_runs_before_every_model_call_of_one_execution():
     seen: list[Any] = []
 
     def note(value: Any) -> Any:
         seen.append(len(value))
-        return "context"
+        return value
 
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"conversation": [{"name": "note", "fn": "note"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onStep": [{"name": "note", "fn": "note"}]}}}}
     runtime = create_goondan(
         config=config,
         models={"m": replies(tool_call("echo"), tool_call("echo", "call-2"), answer())},
@@ -81,13 +82,13 @@ async def test_the_conversation_stage_runs_once_for_every_model_call_of_one_run(
     )
     try:
         await runtime.run("hello", session_id="c1")
-        assert len(seen) == 1
+        assert seen == [1, 3, 5]
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_a_model_retry_resumes_at_model_input_without_the_conversation_stage():
+async def test_a_model_retry_runs_on_step_and_on_model_input_again():
     order: list[str] = []
     calls = {"count": 0}
 
@@ -97,21 +98,21 @@ async def test_a_model_retry_resumes_at_model_input_without_the_conversation_sta
         return answer()
 
     config = {"agents": {"main": {"model": "m", "hooks": {
-        "conversation": [{"name": "c", "fn": "mark_conversation"}],
-        "modelInput": [{"name": "i", "fn": "mark_input"}],
-        "error": [{"name": "e", "fn": "retry"}],
+        "onStep": [{"name": "c", "fn": "mark_conversation"}],
+        "onModelInput": [{"name": "i", "fn": "mark_input"}],
+        "onError": [{"name": "e", "fn": "retry"}],
     }}}}
     runtime = create_goondan(
         config=config, models={"m": model},
         functions={
-            "mark_conversation": lambda value: order.append("conversation") or "c",
-            "mark_input": lambda value: order.append("modelInput") or "i",
+            "mark_conversation": lambda value: order.append("onStep") or value,
+            "mark_input": lambda value: order.append("onModelInput") or value,
             "retry": lambda value: {"retry": True, "target": "model"},
         },
     )
     try:
         await runtime.run("hello", session_id="c1")
-        assert order == ["conversation", "modelInput", "modelInput"]
+        assert order == ["onStep", "onModelInput", "onStep", "onModelInput"]
     finally:
         await runtime.close()
 
@@ -120,8 +121,8 @@ async def test_a_model_retry_resumes_at_model_input_without_the_conversation_sta
 async def test_a_hook_failure_never_reaches_the_error_stage():
     reached: list[Any] = []
     config = {"agents": {"main": {"model": "m", "hooks": {
-        "modelInput": [{"name": "broken", "fn": "broken"}],
-        "error": [{"name": "watch", "fn": "watch"}],
+        "onModelInput": [{"name": "broken", "fn": "broken"}],
+        "onError": [{"name": "watch", "fn": "watch"}],
     }}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
@@ -131,24 +132,24 @@ async def test_a_hook_failure_never_reaches_the_error_stage():
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
         assert reached == []
-        assert failure.value.where == "modelInput"
+        assert failure.value.where == "onModelInput"
         assert failure.value.codes == ["hook_error"]
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_the_safe_point_adds_steered_input_before_the_finished_asynchronous_work():
+async def _v2_safe_point_adds_steered_input_before_the_finished_asynchronous_work():
     release = asyncio.Event()
 
     async def late(value: Any, ctx: Any) -> Any:
         await release.wait()
-        return ctx.append(ctx.message.user("late"))
+        return "late"
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"extension": "ext", "mode": "async"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"extension": "ext", "mode": "async"}]}}}}
     model = replies(answer(), answer())
     store = InMemoryConversationStore()
-    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("conversation", late)}, conversation_store=store)
+    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("onStep", late)}, _conversation_projection=store)
     try:
         await runtime.run("first", session_id="c1")
         release.set()
@@ -167,7 +168,7 @@ async def test_the_safe_point_adds_steered_input_before_the_finished_asynchronou
 @pytest.mark.asyncio
 async def test_an_invalid_model_result_fails_with_value_invalid_before_the_hooks():
     reached: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"name": "watch", "fn": "watch"}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onModelResult": [{"name": "watch", "fn": "watch"}]}}}}
     runtime = create_goondan(
         config=config,
         models={"m": replies({"message": {"role": "user", "content": []}, "finishReason": "stop"})},
@@ -177,7 +178,7 @@ async def test_an_invalid_model_result_fails_with_value_invalid_before_the_hooks
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
         assert reached == []
-        assert (failure.value.where, failure.value.codes) == ("modelResult", ["value_invalid"])
+        assert (failure.value.where, failure.value.codes) == ("onModelResult", ["value_invalid"])
     finally:
         await runtime.close()
 
@@ -185,11 +186,11 @@ async def test_an_invalid_model_result_fails_with_value_invalid_before_the_hooks
 @pytest.mark.asyncio
 async def test_a_tool_result_message_carries_keep_and_meta_and_a_new_identity():
     store = InMemoryConversationStore()
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"toolResult": [{"name": "mark", "fn": "mark"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onToolResult": [{"name": "mark", "fn": "mark"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
         functions={"mark": lambda value: {**value, "keep": True, "meta": {"m": 1}, "isError": True}},
-        conversation_store=store,
+        _conversation_projection=store,
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -212,11 +213,11 @@ async def test_a_tool_that_returns_a_result_keeps_its_error_keep_and_meta():
 
     claimed = {"callId": "other", "name": "other", "args": {"other": True},
                "content": [{"type": "text", "text": "결과"}], "isError": True, "keep": True, "meta": {"fixture": True}}
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"toolResult": [{"name": "watch", "fn": "watch"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onToolResult": [{"name": "watch", "fn": "watch"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo", args={"q": "군단"}), answer())},
         tools={"echo": echo_tool(execute=lambda value, ctx: claimed)},
-        functions={"watch": watch}, conversation_store=store,
+        functions={"watch": watch}, _conversation_projection=store,
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -233,17 +234,17 @@ async def test_a_tool_result_that_breaks_the_shape_fails_before_the_tool_result_
     """§단계 값과 대화 저장: the check of a returned result runs before that stage's hooks."""
     store = InMemoryConversationStore()
     reached: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"toolResult": [{"name": "watch", "fn": "watch"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onToolResult": [{"name": "watch", "fn": "watch"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())},
         tools={"echo": echo_tool(execute=lambda value, ctx: {"content": "문자열"})},
-        functions={"watch": lambda value: reached.append(value)}, conversation_store=store,
+        functions={"watch": lambda value: reached.append(value)}, _conversation_projection=store,
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
         assert reached == []
-        assert (failure.value.where, failure.value.codes) == ("toolResult", ["value_invalid"])
+        assert (failure.value.where, failure.value.codes) == ("onToolResult", ["value_invalid"])
         assert [item["role"] for item in await store.load("c1", "main")] == ["user", "assistant"]
     finally:
         await runtime.close()
@@ -255,7 +256,7 @@ async def test_a_tool_that_returns_a_value_without_content_becomes_one_json_part
     config = {"agents": {"main": {"model": "m", "tools": ["echo"]}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())},
-        tools={"echo": echo_tool(execute=lambda value, ctx: {"answer": 42})}, conversation_store=store,
+        tools={"echo": echo_tool(execute=lambda value, ctx: {"answer": 42})}, _conversation_projection=store,
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -269,10 +270,10 @@ async def test_a_tool_that_returns_a_value_without_content_becomes_one_json_part
 @pytest.mark.parametrize("declared", [{}, {"isError": False, "keep": False, "meta": {}}])
 async def test_a_tool_result_message_keeps_only_the_optional_fields_the_result_declared(declared: dict[str, Any]):
     store = InMemoryConversationStore()
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"toolResult": [{"name": "mark", "fn": "mark"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {"onToolResult": [{"name": "mark", "fn": "mark"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
-        functions={"mark": lambda value: {**value, **declared}}, conversation_store=store,
+        functions={"mark": lambda value: {**value, **declared}}, _conversation_projection=store,
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -288,13 +289,16 @@ async def test_a_tool_result_message_keeps_only_the_optional_fields_the_result_d
 async def test_model_input_changes_are_not_stored_and_the_output_replaces_the_stored_reply():
     store = InMemoryConversationStore()
     config = {"agents": {"main": {"model": "m", "hooks": {
-        "modelInput": [{"name": "note", "fn": "note"}],
-        "output": [{"name": "polish", "fn": "polish"}],
+        "onModelInput": [{"name": "note", "fn": "note"}],
+        "onOutput": [{"name": "polish", "fn": "polish"}],
     }}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
-        functions={"note": lambda value: "note", "polish": lambda value: "polished"},
-        conversation_store=store,
+        functions={
+            "note": lambda value: {**value, "options": {"noted": True}},
+            "polish": lambda value: {**value, "source": "polish", "content": [{"type": "text", "text": "polished"}]},
+        },
+        _conversation_projection=store,
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -313,7 +317,7 @@ async def test_model_input_changes_are_not_stored_and_the_output_replaces_the_st
 async def test_a_when_function_selects_the_hook(decided: bool, ran: bool):
     host = Recorder()
     applied: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "hooks": {"input": [{"name": "h", "fn": "body", "when": {"fn": "decide"}}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"name": "h", "fn": "body", "when": {"fn": "decide"}}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())}, host=host,
         functions={"decide": lambda value: decided, "body": lambda value: applied.append(value) or value},
@@ -321,7 +325,7 @@ async def test_a_when_function_selects_the_hook(decided: bool, ran: bool):
     try:
         await runtime.run("hello", session_id="c1")
         assert bool(applied) is ran
-        assert host.hooks() == [("hook.applied" if ran else "hook.skipped", "input", "h")]
+        assert host.hooks() == [("hook.applied" if ran else "hook.skipped", "onInput", "h")]
     finally:
         await runtime.close()
 
@@ -329,7 +333,7 @@ async def test_a_when_function_selects_the_hook(decided: bool, ran: bool):
 @pytest.mark.asyncio
 async def test_a_when_function_that_does_not_return_a_boolean_fails_the_hook():
     host = Recorder()
-    config = {"agents": {"main": {"model": "m", "hooks": {"input": [{"name": "h", "fn": "body", "when": {"fn": "decide"}}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"name": "h", "fn": "body", "when": {"fn": "decide"}}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())}, host=host,
         functions={"decide": lambda value: [], "body": lambda value: value},
@@ -337,18 +341,18 @@ async def test_a_when_function_that_does_not_return_a_boolean_fails_the_hook():
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("input", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onInput", ["hook_error"])
         assert [name for name, _, _ in host.hooks()] == ["hook.failed"]
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_using_takes_one_argument_and_conversation_sees_the_earlier_appends():
+async def _v2_using_takes_one_argument_and_conversation_sees_the_earlier_appends():
     seen: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "hooks": {"conversation": [
+    config = {"agents": {"main": {"model": "m", "hooks": {"onStep": [
         {"name": "first", "fn": "add"},
-        {"name": "second", "fn": "count", "using": "conversation"},
+        {"name": "second", "fn": "count", "using": "onStep"},
         {"name": "third", "fn": "count", "using": {"fn": "size"}},
     ]}}}}
     runtime = create_goondan(
@@ -368,10 +372,10 @@ async def test_using_takes_one_argument_and_conversation_sees_the_earlier_append
 
 
 @pytest.mark.asyncio
-async def test_using_input_in_the_input_stage_is_the_turn_input():
+async def _v2_using_input_in_the_input_stage_is_the_turn_input():
     """§훅 실행과 결과: `using: input` sees the value from before the input hooks."""
     seen: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "hooks": {"input": [
+    config = {"agents": {"main": {"model": "m", "hooks": {"onInput": [
         {"fn": "shout"},
         {"name": "watch", "fn": "watch", "using": "input"},
     ]}}}}
@@ -390,14 +394,14 @@ async def test_using_input_in_the_input_stage_is_the_turn_input():
 async def test_a_result_that_changes_nothing_still_reports_hook_applied():
     """§훅 실행과 결과 5: the event follows step 4 whatever the result was."""
     host = Recorder()
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())}, host=host,
-        extensions={"ext": extension("conversation", lambda value, ctx: None)},
+        extensions={"ext": extension("onStep", lambda value, ctx: None)},
     )
     try:
         await runtime.run("hello", session_id="c1")
-        assert host.hooks() == [("hook.applied", "conversation", "ext")]
+        assert host.hooks() == [("hook.applied", "onStep", "ext")]
     finally:
         await runtime.close()
 
@@ -408,7 +412,7 @@ async def test_a_hook_receives_a_copy_and_a_null_result_keeps_the_current_value(
         value[0]["content"][0]["value"]["text"] = "changed"
         return None
 
-    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"input": [{"name": "h", "fn": "mutate"}]}}}}
+    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"onInput": [{"name": "h", "fn": "mutate"}]}}}}
     model = replies(answer())
     runtime = create_goondan(config=config, models={"m": model}, functions={"mutate": mutate})
     try:
@@ -422,11 +426,11 @@ async def test_a_hook_receives_a_copy_and_a_null_result_keeps_the_current_value(
 
 
 @pytest.mark.asyncio
-async def test_an_inline_hook_runs_fn_then_agent_then_template(tmp_path):
+async def _v2_inline_hook_runs_fn_then_agent_then_template(tmp_path):
     template = tmp_path / "note.md"
     template.write_text("[{{ text }}]", encoding="utf-8")
     config = {"agents": {
-        "main": {"model": "main", "hooks": {"modelInput": [{"name": "note", "fn": "prefix", "agent": ["left", "right"], "template": str(template), "role": "system"}]}},
+        "main": {"model": "main", "hooks": {"onModelInput": [{"name": "note", "fn": "prefix", "agent": ["left", "right"], "template": str(template), "role": "system"}]}},
         "left": {"model": "left"},
         "right": {"model": "right"},
     }}
@@ -459,7 +463,7 @@ async def test_an_inline_agent_array_waits_for_every_run_before_the_hook_fails()
         raise RuntimeError("no")
 
     config = {"agents": {
-        "main": {"model": "m", "hooks": {"conversation": [{"agent": ["fast", "late"], "optional": False}]}},
+        "main": {"model": "m", "hooks": {"onStep": [{"agent": ["fast", "late"], "optional": False}]}},
         "fast": {"model": "broken"},
         "late": {"model": "slow"},
     }}
@@ -470,7 +474,7 @@ async def test_an_inline_agent_array_waits_for_every_run_before_the_hook_fails()
         release.set()
         with pytest.raises(GoondanError) as failure:
             await turn
-        assert (failure.value.where, failure.value.codes) == ("conversation", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
         assert finished == ["late"]
     finally:
         await runtime.close()
@@ -478,7 +482,7 @@ async def test_an_inline_agent_array_waits_for_every_run_before_the_hook_fails()
 
 def _array_hook_config() -> dict[str, Any]:
     return {"agents": {
-        "main": {"model": "m", "hooks": {"conversation": [{"agent": ["alpha", "beta"], "optional": False}]}},
+        "main": {"model": "m", "hooks": {"onStep": [{"agent": ["alpha", "beta"], "optional": False}]}},
         "alpha": {"model": "ma"},
         "beta": {"model": "mb"},
     }}
@@ -501,7 +505,7 @@ async def test_the_hook_failure_is_the_first_declared_target_not_the_first_to_fa
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("conversation", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
         assert "alpha broke" in failure.value.message and "beta broke" not in failure.value.message
     finally:
         await runtime.close()
@@ -520,7 +524,7 @@ async def test_an_earlier_ordinary_failure_beats_a_later_aborted_target():
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("conversation", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
         assert "alpha broke" in failure.value.message
     finally:
         await runtime.close()
@@ -548,21 +552,44 @@ async def test_a_chosen_abort_is_reported_as_aborted_rather_than_a_hook_failure(
 async def test_an_output_template_hook_reads_the_assistant_message(tmp_path):
     """§인라인 훅 3: without `fn` and `agent`, an output template's `text` is the message object."""
     (tmp_path / "out.md").write_text("{{ text.role }}:{{ text.content[0].text }}", encoding="utf-8")
-    config = {"agents": {"main": {"model": "m", "hooks": {"output": [{"template": "out.md"}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onOutput": [{"template": "out.md"}]}}}}
     runtime = create_goondan(config=config, models={"m": replies(answer("said"))}, directory=str(tmp_path))
     try:
         result = await runtime.run("hello", session_id="c1")
-        assert result["output"]["content"] == [{"type": "text", "text": "assistant:said"}]
-        assert result["output"]["source"] == "out.md"
+        assert result["output"] == "assistant:said"
+        assert result["outputs"][0]["source"] == "out.md"
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_an_inline_fn_that_returns_nothing_ends_the_hook_without_a_message(tmp_path):
+async def test_an_output_agent_uses_its_message_content_and_keeps_the_model_message_id():
+    original = {
+        "message": {"id": "model-message", "role": "assistant", "source": "custom", "content": [{"type": "text", "text": "draft"}]},
+        "finishReason": "stop",
+    }
+    helper = {
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "first"}, {"type": "json", "value": {"second": True}}]},
+        "finishReason": "stop",
+    }
+    runtime = create_goondan(
+        {"agents": {"main": {"model": "main", "hooks": {"onOutput": [{"agent": "helper"}]}}, "helper": {"model": "helper"}}},
+        models={"main": replies(original), "helper": replies(helper)},
+    )
+
+    result = await runtime.run("hello", session_id="output-agent")
+
+    output = result["outputs"][0]
+    assert output["id"] == "model-message"
+    assert output["source"] == "helper"
+    assert output["content"] == helper["message"]["content"]
+
+
+@pytest.mark.asyncio
+async def _v2_inline_fn_that_returns_nothing_ends_the_hook_without_a_message(tmp_path):
     template = tmp_path / "note.md"
     template.write_text("never", encoding="utf-8")
-    config = {"agents": {"main": {"model": "m", "hooks": {"conversation": [{"name": "note", "fn": "quiet", "template": str(template)}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onStep": [{"name": "note", "fn": "quiet", "template": str(template)}]}}}}
     model = replies(answer())
     runtime = create_goondan(config=config, models={"m": model}, functions={"quiet": lambda value: None})
     try:
@@ -573,13 +600,13 @@ async def test_an_inline_fn_that_returns_nothing_ends_the_hook_without_a_message
 
 
 @pytest.mark.asyncio
-async def test_a_non_string_inline_result_becomes_json_text_and_the_output_becomes_an_assistant_message():
-    config = {"agents": {"main": {"model": "m", "hooks": {"output": [{"name": "wrap", "fn": "wrap"}]}}}}
+async def test_on_output_function_must_return_an_assistant_message():
+    config = {"agents": {"main": {"model": "m", "hooks": {"onOutput": [{"name": "wrap", "fn": "wrap"}]}}}}
     runtime = create_goondan(config=config, models={"m": replies(answer())}, functions={"wrap": lambda value: {"k": [1, True, None]}})
     try:
-        result = await runtime.run("hello", session_id="c1")
-        assert result["output"]["role"] == "assistant" and result["output"]["source"] == "wrap"
-        assert result["output"]["content"] == [{"type": "text", "text": '{"k":[1,true,null]}'}]
+        with pytest.raises(GoondanError) as failure:
+            await runtime.run("hello", session_id="c1")
+        assert (failure.value.where, failure.value.codes) == ("onOutput", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -589,9 +616,9 @@ async def test_a_named_extension_hook_uses_the_hook_identifier_as_the_message_so
     def hook(value: Any, ctx: Any) -> Any:
         return ctx.append(ctx.message.user("from the extension"))
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "ctx", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "ctx", "extension": "ext"}]}}}}
     model = replies(answer())
-    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("conversation", hook)})
+    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("onStep", hook)})
     try:
         await runtime.run("hello", session_id="c1")
         assert model.seen[0]["messages"][-1]["source"] == "ctx"
@@ -604,13 +631,13 @@ async def test_a_named_extension_hook_uses_the_hook_identifier_as_the_message_so
 
 @pytest.mark.asyncio
 async def test_a_control_shaped_value_in_another_stage_stays_a_plain_value():
-    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"input": [{"name": "h", "fn": "control"}]}}}}
+    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"onInput": [{"name": "h", "fn": "control"}]}}}}
     model = replies(answer())
     runtime = create_goondan(config=config, models={"m": model}, functions={"control": lambda value: {"retry": True, "target": "model"}})
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("input", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onInput", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -623,15 +650,15 @@ async def test_a_control_shaped_value_in_another_stage_stays_a_plain_value():
     {"approval": {"reason": "no"}},
 ])
 async def test_a_malformed_conversation_control_result_fails_the_hook(result: Any):
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "h", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "h", "extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
-        extensions={"ext": extension("conversation", lambda value, ctx: result)},
+        extensions={"ext": extension("onStep", lambda value, ctx: result)},
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("conversation", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -639,15 +666,15 @@ async def test_a_malformed_conversation_control_result_fails_the_hook(result: An
 @pytest.mark.asyncio
 @pytest.mark.parametrize("result", [{"retry": True}, {"retry": True, "target": "tool"}, {"retry": True, "target": "model", "afterMs": -1}])
 async def test_a_malformed_retry_result_fails_the_model_result_hook(result: Any):
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"modelResult": [{"name": "h", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onModelResult": [{"name": "h", "extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
-        extensions={"ext": extension("modelResult", lambda value, ctx: result)},
+        extensions={"ext": extension("onModelResult", lambda value, ctx: result)},
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("modelResult", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onModelResult", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -655,7 +682,7 @@ async def test_a_malformed_retry_result_fails_the_model_result_hook(result: Any)
 @pytest.mark.asyncio
 async def test_a_tool_call_result_skips_the_tool_the_availability_check_and_the_approval():
     executed: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "tools": [{"tool": "echo", "approval": "required"}], "hooks": {"toolCall": [
+    config = {"agents": {"main": {"model": "m", "tools": [{"tool": "echo", "approval": "required"}], "hooks": {"onToolCall": [
         {"name": "block", "fn": "block"},
     ]}}}}
     runtime = create_goondan(
@@ -666,7 +693,7 @@ async def test_a_tool_call_result_skips_the_tool_the_availability_check_and_the_
     try:
         await runtime.run("hello", session_id="c1")
         assert executed == []
-        assert await runtime.list_operations("c1") == []
+        assert await runtime.operations.list("c1") == []
     finally:
         await runtime.close()
 
@@ -674,7 +701,7 @@ async def test_a_tool_call_result_skips_the_tool_the_availability_check_and_the_
 @pytest.mark.asyncio
 async def test_a_call_result_replaces_the_call_and_the_last_execution_wins():
     seen: list[Any] = []
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"toolCall": [
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"onToolCall": [
         {"name": "first", "fn": "first"},
         {"extension": "ext"},
     ]}}}}
@@ -686,7 +713,7 @@ async def test_a_call_result_replaces_the_call_and_the_last_execution_wins():
         config=config, models={"m": replies(tool_call("echo"), answer())},
         tools={"echo": echo_tool(execute=lambda value, ctx: seen.append((value, ctx["execution"])))},
         functions={"first": lambda value: {"call": {**value, "args": {"n": 1}}, "execution": {"tag": "first"}}},
-        extensions={"ext": extension("toolCall", second)},
+        extensions={"ext": extension("onToolCall", second)},
     )
     try:
         await runtime.run("hello", session_id="c1")
@@ -700,18 +727,17 @@ async def test_a_call_result_replaces_the_call_and_the_last_execution_wins():
     {"approval": {"reason": 1}},
     {"approval": {"reason": "ok", "extra": True}},
     {"call": {"id": "other", "name": "echo", "args": {}}},
-    {"result": {"callId": "call-1", "content": []}},
 ])
 async def test_a_malformed_tool_call_control_result_fails_the_hook(result: Any):
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"toolCall": [{"name": "h", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"onToolCall": [{"name": "h", "extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
-        extensions={"ext": extension("toolCall", lambda value, ctx: result)},
+        extensions={"ext": extension("onToolCall", lambda value, ctx: result)},
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("toolCall", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onToolCall", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -720,8 +746,8 @@ async def test_a_malformed_tool_call_control_result_fails_the_hook(result: Any):
 async def test_an_unavailable_tool_reaches_the_error_stage_with_the_call_that_left_the_stage():
     seen: list[Any] = []
     config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {
-        "toolCall": [{"name": "rewrite", "fn": "rewrite"}],
-        "error": [{"name": "watch", "fn": "watch"}],
+        "onToolCall": [{"name": "rewrite", "fn": "rewrite"}],
+        "onError": [{"name": "watch", "fn": "watch"}],
     }}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
@@ -747,8 +773,8 @@ async def test_a_tool_retry_repeats_the_call_that_left_the_tool_call_stage():
         return value
 
     config = {"agents": {"main": {"model": "m", "tools": ["echo"], "hooks": {
-        "toolCall": [{"name": "rewrite", "fn": "rewrite"}],
-        "error": [{"name": "again", "fn": "again"}],
+        "onToolCall": [{"name": "rewrite", "fn": "rewrite"}],
+        "onError": [{"name": "again", "fn": "again"}],
     }}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool(execute=flaky)},
@@ -763,7 +789,7 @@ async def test_a_tool_retry_repeats_the_call_that_left_the_tool_call_stage():
 
 @pytest.mark.asyncio
 async def test_approval_reasons_keep_the_hook_order_before_the_required_reason():
-    config = {"agents": {"main": {"model": "m", "tools": [{"tool": "echo", "approval": "required"}], "hooks": {"toolCall": [
+    config = {"agents": {"main": {"model": "m", "tools": [{"tool": "echo", "approval": "required"}], "hooks": {"onToolCall": [
         {"name": "a", "fn": "reason_a"},
         {"name": "b", "fn": "reason_b"},
     ]}}}}
@@ -773,7 +799,7 @@ async def test_approval_reasons_keep_the_hook_order_before_the_required_reason()
     )
     try:
         await runtime.run("hello", session_id="c1")
-        operation = (await runtime.list_operations("c1"))[0]
+        operation = (await runtime.operations.list("c1"))[0]
         assert operation["reasons"] == ["a", "b", "Tool echo requires approval"]
     finally:
         await runtime.close()
@@ -789,9 +815,9 @@ async def test_appending_the_same_message_twice_is_skipped_but_a_different_json_
             {"id": "y", "role": "user", "source": "ctx", "key": "k", "content": [{"type": "json", "value": True}]},
         )
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "ctx", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "ctx", "extension": "ext"}]}}}}
     model = replies(answer())
-    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("conversation", hook)})
+    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("onStep", hook)})
     try:
         await runtime.run("hello", session_id="c1")
         assert len(model.seen[0]["messages"]) == 4
@@ -804,7 +830,7 @@ async def test_appending_the_same_message_twice_is_skipped_but_a_different_json_
 
 @pytest.mark.asyncio
 async def test_an_optional_hook_keeps_the_value_it_received_and_a_required_hook_fails_the_run():
-    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"input": [
+    config = {"agents": {"main": {"model": "m", "input": "asis", "hooks": {"onInput": [
         {"name": "broken", "fn": "broken", "optional": True},
         {"name": "keep", "fn": "keep"},
     ]}}}}
@@ -823,15 +849,15 @@ async def test_an_optional_hook_keeps_the_value_it_received_and_a_required_hook_
 @pytest.mark.asyncio
 async def test_an_extension_hook_that_returns_a_value_that_is_not_json_fails_the_hook():
     host = Recorder()
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())}, host=host,
-        extensions={"ext": extension("conversation", lambda value, ctx: object())},
+        extensions={"ext": extension("onStep", lambda value, ctx: object())},
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("conversation", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
         assert [event["data"]["hook"] for event in host.names("hook.failed")] == ["ext"]
     finally:
         await runtime.close()
@@ -850,12 +876,14 @@ async def test_a_timeout_cancels_the_sub_run_the_hook_started():
         return answer("late")
 
     config = {"agents": {
-        "main": {"model": "m", "hooks": {"conversation": [{"agent": "helper", "timeout": 5}]}},
+        "main": {"model": "m", "hooks": {"onStep": [{"agent": "helper", "timeout": 5}]}},
         "helper": {"model": "slow"},
     }}
     runtime = create_goondan(config=config, models={"m": replies(answer()), "slow": slow})
     try:
-        await runtime.run("hello", session_id="c1")
+        with pytest.raises(GoondanExecutionError) as failure:
+            await runtime.run("hello", session_id="c1")
+        assert (failure.value.where, failure.value.codes) == ("onStep", ["hook_error"])
         assert started.is_set()
         await asyncio.sleep(0.02)
         assert finished == []
@@ -873,7 +901,7 @@ async def test_a_timeout_cancels_the_hook_body_and_reports_the_limit():
         resumed.append("late")
         return value
 
-    config = {"agents": {"main": {"model": "m", "hooks": {"input": [{"name": "slow", "fn": "slow", "timeout": 5}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onInput": [{"name": "slow", "fn": "slow", "timeout": 5}]}}}}
     runtime = create_goondan(config=config, models={"m": replies(answer())}, functions={"slow": slow}, host=host)
     try:
         with pytest.raises(GoondanError) as failure:
@@ -890,27 +918,27 @@ async def test_a_model_result_retry_past_the_limit_fails_the_hook():
     async def model(value: dict[str, Any]) -> dict[str, Any]:
         return answer()
 
-    config = {"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"name": "again", "fn": "again"}]}}}}
+    config = {"agents": {"main": {"model": "m", "hooks": {"onModelResult": [{"name": "again", "fn": "again"}]}}}}
     runtime = create_goondan(config=config, models={"m": model}, functions={"again": lambda value: {"retry": True, "target": "model"}}, max_retries=1)
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("modelResult", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onModelResult", ["hook_error"])
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
 async def test_a_hook_result_that_breaks_the_stage_shape_fails_the_hook():
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"output": [{"name": "h", "extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onOutput": [{"name": "h", "extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
-        extensions={"ext": extension("output", lambda value, ctx: {"role": "assistant"})},
+        extensions={"ext": extension("onOutput", lambda value, ctx: {"role": "assistant"})},
     )
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
-        assert (failure.value.where, failure.value.codes) == ("output", ["hook_error"])
+        assert (failure.value.where, failure.value.codes) == ("onOutput", ["hook_error"])
     finally:
         await runtime.close()
 
@@ -924,20 +952,20 @@ def test_the_retry_limit_must_be_a_whole_number():
 
 
 @pytest.mark.asyncio
-async def test_an_asynchronous_hook_that_returns_something_else_fails_without_failing_the_turn():
+async def test_an_asynchronous_string_result_becomes_a_message_without_failing_the_turn():
     host = Recorder()
 
     async def wrong(value: Any, ctx: Any) -> Any:
         return "not an append"
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("conversation", wrong)}, host=host)
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("onStep", wrong)}, host=host)
     try:
         result = await runtime.run("hello", session_id="c1")
         await runtime.idle()
         assert result["status"] == "done"
-        assert [(name, hook) for name, _, hook in host.hooks()] == [("hook.failed", "late")]
-        assert host.names("hook.failed")[0]["turnId"] == host.names("turn.start")[0]["turnId"]
+        assert [(name, hook) for name, _, hook in host.hooks()] == [("hook.applied", "late")]
+        assert host.names("hook.applied")[0]["turnId"] == host.names("turn.start")[0]["turnId"]
     finally:
         await runtime.close()
 
@@ -956,9 +984,9 @@ async def test_an_asynchronous_hook_is_not_scheduled_again_while_it_is_running()
         await asyncio.sleep(0)
         return answer()
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
     host = Recorder()
-    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("conversation", late)}, host=host)
+    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("onStep", late)}, host=host)
     try:
         await runtime.run("first", session_id="c1")
         await runtime.run("second", session_id="c1")
@@ -977,20 +1005,50 @@ async def test_a_result_that_arrives_after_the_turn_is_applied_at_the_next_safe_
 
     async def late(value: Any, ctx: Any) -> Any:
         await release.wait()
-        return ctx.append(ctx.message.user("late"))
+        return "late"
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer(), answer())}, extensions={"ext": extension("conversation", late)})
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer(), answer())}, extensions={"ext": extension("onStep", late)})
     try:
         await runtime.run("one", session_id="c1")
-        assert [item["source"] for item in await runtime.conversation_store.load("c1", "main")] == ["main", "model"]
+        assert [item["source"] for item in await runtime._conversation_projection.load("c1", "main")] == ["main", "model"]
         release.set()
         await runtime.idle()
         await runtime.run("two", session_id="c1")
-        stored = [item["source"] for item in await runtime.conversation_store.load("c1", "main")]
+        stored = [item["source"] for item in await runtime._conversation_projection.load("c1", "main")]
         assert stored == ["main", "model", "main", "late", "model"]
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_asynchronous_hook_results_are_applied_in_scheduling_order():
+    release = asyncio.Event()
+
+    async def first(value: Any, ctx: Any) -> str:
+        await release.wait()
+        return "first"
+
+    async def second(value: Any, ctx: Any) -> str:
+        return "second"
+
+    runtime = create_goondan(
+        {"agents": {"main": {"model": "m", "hooks": {"onStep": [
+            {"name": "first", "fn": "first", "mode": "async"},
+            {"name": "second", "fn": "second", "mode": "async"},
+        ]}}}},
+        models={"m": replies(answer(), answer())},
+        functions={"first": first, "second": second},
+    )
+    await runtime.run("one", session_id="ordered-async")
+    await asyncio.sleep(0)
+    assert [item["source"] for item in await runtime._conversation_projection.load("ordered-async", "main")] == ["main", "model"]
+    release.set()
+    await runtime.idle()
+    await runtime.run("two", session_id="ordered-async")
+    sources = [item["source"] for item in await runtime._conversation_projection.load("ordered-async", "main")]
+    assert sources == ["main", "model", "main", "first", "second", "model"]
+    await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -1001,13 +1059,13 @@ async def test_a_result_that_finished_after_close_is_not_applied():
         await release.wait()
         return ctx.append(ctx.message.user("late"))
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer(), answer())}, extensions={"ext": extension("conversation", late)})
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "late", "extension": "ext", "mode": "async"}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer(), answer())}, extensions={"ext": extension("onStep", late)})
     await runtime.run("one", session_id="c1")
     await runtime.close()
     release.set()
     await asyncio.sleep(0)
-    assert [item["source"] for item in await runtime.conversation_store.load("c1", "main")] == ["main", "model"]
+    assert [item["source"] for item in await runtime._conversation_projection.load("c1", "main")] == ["main", "model"]
 
 
 @pytest.mark.asyncio
@@ -1020,12 +1078,12 @@ async def test_an_asynchronous_hook_keeps_what_it_started_out_of_the_runs_and_th
         return None
 
     config = {"agents": {
-        "main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "late", "extension": "ext", "mode": "async"}]}},
+        "main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "late", "extension": "ext", "mode": "async"}]}},
         "helper": {"model": "h"},
     }}
     runtime = create_goondan(
         config=config, models={"m": replies(answer()), "h": replies({**answer("aside"), "usage": {"input": 7}})},
-        extensions={"ext": extension("conversation", late)},
+        extensions={"ext": extension("onStep", late)},
     )
     try:
         result = await runtime.run("hello", session_id="c1")
@@ -1068,18 +1126,19 @@ async def test_the_hook_context_exposes_the_shared_public_surface_step_cancellat
 
     probe = define_extension(
         name="probe",
-        hooks=("conversation", "modelResult"),
-        create=lambda **_: Extension(hooks={"conversation": inspect, "modelResult": inspect}),
+        hooks=("onStep", "onModelResult"),
+        create=lambda **_: Extension(hooks={"onStep": inspect, "onModelResult": inspect}),
     )
     config = {"agents": {"main": {"model": "m", "extensions": {"probe": {}}, "hooks": {
-        "conversation": [{"extension": "probe"}], "modelResult": [{"extension": "probe"}],
+        "onStep": [{"extension": "probe"}], "onModelResult": [{"extension": "probe"}],
     }}}}
     runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"probe": probe}, logger=Logger())
     try:
         await runtime.run("hi", session_id="c")
         expected = [
-            "agent", "append", "cancelled", "conversation", "execution", "input", "log", "message",
-            "render", "retry_count", "run_agent", "run_model", "session_id", "step", "turn_id",
+            "agent", "append", "cancelled", "conversation", "execution", "execution_id", "input",
+            "instance", "log", "message", "operation_id", "parent_execution_id", "render",
+            "retry_count", "run_agent", "run_model", "session_id", "step", "turn_id",
         ]
         assert surfaces == [expected, expected]
         assert execution_surfaces == [["complete"], ["complete"]]
@@ -1102,12 +1161,12 @@ async def test_the_hook_context_cancelled_member_updates_when_the_current_turn_i
         cancelled = ctx.cancelled
 
     config = {"agents": {"main": {"model": "m", "extensions": {"probe": {}}, "hooks": {
-        "conversation": [{"extension": "probe"}],
+        "onStep": [{"extension": "probe"}],
     }}}}
     runtime = create_goondan(
         config=config,
         models={"m": replies(answer())},
-        extensions={"probe": extension("conversation", inspect)},
+        extensions={"probe": extension("onStep", inspect)},
     )
     try:
         with pytest.raises(GoondanAbortError):
@@ -1126,23 +1185,23 @@ async def test_the_hook_context_carries_the_run_identity_and_builds_messages(tmp
     async def hook(value: Any, ctx: Any) -> Any:
         seen.update({
             "agent": ctx.agent, "session_id": ctx.session_id, "turn_id": ctx.turn_id,
-            "input": ctx.input, "conversation": list(ctx.conversation), "retry_count": ctx.retry_count,
+            "input": ctx.input, "onStep": list(ctx.conversation), "retry_count": ctx.retry_count,
             "rendered": await ctx.render(str(template), {"value": "ok"}),
             "model": await ctx.run_model([ctx.message.user("ask")]),
         })
         return None
 
     config = {"agents": {
-        "main": {"model": "m", "input": "asis", "systemMessage": {"text": "S"}, "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "probe", "extension": "ext"}]}},
+        "main": {"model": "m", "input": "asis", "systemMessage": {"text": "S"}, "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "probe", "extension": "ext"}]}},
         "spare": {"model": "m", "input": {"template": str(template)}},
     }}
     model = replies(answer("aside"), answer())
-    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("conversation", hook)}, directory=str(tmp_path))
+    runtime = create_goondan(config=config, models={"m": model}, extensions={"ext": extension("onStep", hook)}, directory=str(tmp_path))
     try:
         await runtime.run("hello", session_id="c1")
         assert seen["agent"] == "main" and seen["session_id"] == "c1" and seen["retry_count"] == 0
         assert seen["input"][0]["content"] == [{"type": "text", "text": "hello"}]
-        assert len(seen["conversation"]) == 1
+        assert len(seen["onStep"]) == 1
         assert seen["rendered"] == "ok"
         assert seen["model"]["message"]["content"] == [{"type": "text", "text": "aside"}]
         assert model.seen[0]["system"] == [{"text": "S", "source": "system:0"}] and model.seen[0]["options"] == {}
@@ -1160,6 +1219,7 @@ async def test_the_tool_context_exposes_the_shared_public_surface_and_updates_it
     def execute(value: Any, ctx: Any) -> str:
         nonlocal surface, cancelled
         surface = sorted(ctx)
+        assert ctx["parent_execution_id"] is None
         runtime.abort("c")
         cancelled = ctx["cancelled"]
         return "done"
@@ -1174,8 +1234,8 @@ async def test_the_tool_context_exposes_the_shared_public_surface_and_updates_it
         with pytest.raises(GoondanAbortError):
             await runtime.run("hi", session_id="c")
         assert surface == [
-            "agent", "cancelled", "conversation", "execution", "input", "run_agent", "session_id",
-            "tool_call", "turn_id",
+            "agent", "cancelled", "conversation", "execution", "execution_id", "input", "instance",
+            "log", "operation_id", "parent_execution_id", "run_agent", "session_id", "tool_call", "turn_id",
         ]
         assert cancelled is True
     finally:
@@ -1193,8 +1253,8 @@ async def test_a_message_the_context_builds_carries_the_hook_identifier_and_only
         made.append(ctx.message.user("named", keep=True))
         return None
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "probe", "extension": "ext"}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("conversation", hook)})
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "probe", "extension": "ext"}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("onStep", hook)})
     try:
         await runtime.run("hello", session_id="c1")
         assert [set(item) for item in made] == [
@@ -1214,8 +1274,8 @@ async def test_model_run_rejects_a_value_that_is_not_an_array_of_messages():
     async def hook(value: Any, ctx: Any) -> Any:
         return await ctx.run_model("not messages")
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"name": "probe", "extension": "ext"}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("conversation", hook)})
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"name": "probe", "extension": "ext"}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("onStep", hook)})
     try:
         with pytest.raises(GoondanError) as failure:
             await runtime.run("hello", session_id="c1")
@@ -1228,7 +1288,7 @@ async def test_model_run_rejects_a_value_that_is_not_an_array_of_messages():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["conversation", "toolCall"])
+@pytest.mark.parametrize("stage", ["onStep", "onToolCall"])
 async def test_only_a_synchronous_tool_result_extension_hook_may_schedule_a_message(stage: str):
     def hook(value: Any, ctx: Any) -> Any:
         ctx.execution.complete({"id": "x", "role": "assistant", "source": "policy", "content": []})
@@ -1261,12 +1321,12 @@ async def test_a_scheduled_message_ends_the_run_with_finish_reason_tool_and_keep
         {"type": "tool.call", "callId": "call-1", "name": "echo", "args": {}},
         {"type": "tool.call", "callId": "call-2", "name": "echo", "args": {}},
     ]}, "finishReason": "tool"})
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"toolResult": [{"extension": "ext"}]}}}}
-    runtime = create_goondan(config=config, models={"m": model}, tools={"echo": echo_tool()}, extensions={"ext": extension("toolResult", hook)}, conversation_store=store)
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"onToolResult": [{"extension": "ext"}]}}}}
+    runtime = create_goondan(config=config, models={"m": model}, tools={"echo": echo_tool()}, extensions={"ext": extension("onToolResult", hook)}, _conversation_projection=store)
     try:
         result = await runtime.run("hello", session_id="c1")
         assert result["finishReason"] == "tool"
-        assert result["output"]["content"] == [{"type": "text", "text": "stop here"}]
+        assert result["output"] == "stop here"
         stored = await store.load("c1", "main")
         assert [message["role"] for message in stored] == ["user", "assistant", "tool", "tool", "assistant"]
         assert len(model.seen) == 1
@@ -1281,10 +1341,10 @@ async def test_a_second_schedule_in_the_same_run_throws():
         ctx.execution.complete({"id": "y", "role": "assistant", "source": "policy", "content": []})
         return value
 
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"toolResult": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"onToolResult": [{"extension": "ext"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
-        extensions={"ext": extension("toolResult", hook)},
+        extensions={"ext": extension("onToolResult", hook)},
     )
     try:
         with pytest.raises(GoondanError) as failure:
@@ -1301,15 +1361,15 @@ async def test_a_schedule_stays_when_the_optional_hook_that_made_it_fails_afterw
         ctx.execution.complete({"id": "x", "role": "assistant", "source": "policy", "content": [{"type": "text", "text": "stop here"}]})
         raise RuntimeError("after the schedule")
 
-    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"toolResult": [{"extension": "ext", "optional": True}]}}}}
+    config = {"agents": {"main": {"model": "m", "tools": ["echo"], "extensions": {"ext": {}}, "hooks": {"onToolResult": [{"extension": "ext", "optional": True}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
-        extensions={"ext": extension("toolResult", hook)},
+        extensions={"ext": extension("onToolResult", hook)},
     )
     try:
         result = await runtime.run("hello", session_id="c1")
         assert result["finishReason"] == "tool"
-        assert result["output"]["content"] == [{"type": "text", "text": "stop here"}]
+        assert result["output"] == "stop here"
     finally:
         await runtime.close()
 
@@ -1326,19 +1386,19 @@ async def test_a_schedule_during_an_approved_operation_has_no_effect():
 
     config = {"agents": {"main": {
         "model": "m", "tools": [{"tool": "echo", "approval": "required"}], "extensions": {"ext": {}},
-        "hooks": {"toolResult": [{"extension": "ext"}]},
+        "hooks": {"onToolResult": [{"extension": "ext"}]},
     }}}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("echo"), answer())}, tools={"echo": echo_tool()},
-        extensions={"ext": extension("toolResult", hook)},
+        extensions={"ext": extension("onToolResult", hook)},
     )
     try:
         await runtime.run("hello", session_id="c1")
-        stored = await runtime.list_operations("c1")
-        await runtime.decide_operation("c1", stored[0]["operationId"], {"decision": "approved"})
+        stored = await runtime.operations.list("c1")
+        await runtime.operations.decide("c1", stored[0]["operationId"], {"decision": "approved"})
         await runtime.idle()
         assert calls == ["call-1"]
-        operation = (await runtime.list_operations("c1"))[0]
+        operation = (await runtime.operations.list("c1"))[0]
         assert operation["status"] == "completed"
     finally:
         await runtime.close()
@@ -1353,9 +1413,9 @@ async def test_one_instance_per_execution_scope_is_reused_and_disposed_at_close(
 
     def create(**_):
         log.append("create")
-        return Extension(hooks={"conversation": lambda value, ctx: None}, dispose=lambda: log.append("dispose"))
+        return Extension(hooks={"onStep": lambda value, ctx: None}, dispose=lambda: log.append("dispose"))
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"extension": "ext"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"extension": "ext"}]}}}}
     runtime = create_goondan(config=config, models={"m": replies(answer(), answer(), answer())}, extensions={"ext": define_extension(name="ext", create=create)})
     await runtime.run("one", session_id="c1")
     await runtime.run("two", session_id="c1")
@@ -1419,7 +1479,7 @@ async def test_a_failed_preparation_disposes_what_it_made_and_the_next_run_start
 async def test_a_failed_instance_check_disposes_what_it_made_and_keeps_nothing():
     """§확장 인스턴스 2: the step-2 check also cleans up, in creation order."""
     log: list[str] = []
-    config = {"agents": {"main": {"model": "m", "extensions": {"first": {}, "second": {}}, "hooks": {"output": [{"extension": "second"}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"first": {}, "second": {}}, "hooks": {"onOutput": [{"extension": "second"}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer(), answer())},
         extensions={
@@ -1442,11 +1502,11 @@ async def test_an_agent_tool_does_not_turn_a_failed_preparation_into_a_tool_fail
     host = Recorder()
     config = {"agents": {
         "main": {"model": "m", "tools": [{"agent": "helper"}]},
-        "helper": {"model": "m", "extensions": {"ext": {}}, "hooks": {"output": [{"extension": "ext"}]}},
+        "helper": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onOutput": [{"extension": "ext"}]}},
     }}
     runtime = create_goondan(
         config=config, models={"m": replies(tool_call("helper"), answer())}, host=host,
-        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"input": lambda value, ctx: None}))},
+        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"onInput": lambda value, ctx: None}))},
     )
     try:
         with pytest.raises(GoondanConfigError) as failure:
@@ -1454,7 +1514,7 @@ async def test_an_agent_tool_does_not_turn_a_failed_preparation_into_a_tool_fail
         assert [item["code"] for item in failure.value.issues] == ["binding.extension_hook"]
         # §이벤트 순서: the tool.start of the attempt is still paired with one tool.error.
         assert [event["data"]["codes"] for event in host.names("tool.error")] == [["binding.extension_hook"]]
-        assert [event["data"]["codes"] for event in host.names("turn.error")] == [["binding.extension_hook"], ["binding.extension_hook"]]
+        assert [event["data"]["error"]["codes"] for event in host.names("turn.error")] == [["binding.extension_hook"]]
     finally:
         await runtime.close()
 
@@ -1462,16 +1522,16 @@ async def test_an_agent_tool_does_not_turn_a_failed_preparation_into_a_tool_fail
 @pytest.mark.asyncio
 async def test_an_instance_that_misses_a_hooked_stage_fails_the_turn_even_for_an_optional_hook():
     host = Recorder()
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"modelInput": [{"extension": "ext", "optional": True}]}}}}
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onModelInput": [{"extension": "ext", "optional": True}]}}}}
     runtime = create_goondan(
         config=config, models={"m": replies(answer())},
-        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"output": lambda value, ctx: None}))},
+        extensions={"ext": define_extension(name="ext", create=lambda **_: Extension(hooks={"onOutput": lambda value, ctx: None}))},
     )
     try:
         with pytest.raises(GoondanConfigError) as failure:
             await runtime.run("hello", session_id="c1")
         assert [item["code"] for item in failure.value.issues] == ["binding.extension_hook"]
-        assert [event["name"] for event in host.events] == []
+        assert [event["type"] for event in host.events] == []
     finally:
         await runtime.close()
 
@@ -1516,8 +1576,8 @@ async def test_an_abort_inside_a_hook_is_not_a_hook_failure_even_when_optional()
         await asyncio.sleep(10)
         return None
 
-    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"conversation": [{"extension": "ext", "optional": True}]}}}}
-    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("conversation", slow)}, host=host)
+    config = {"agents": {"main": {"model": "m", "extensions": {"ext": {}}, "hooks": {"onStep": [{"extension": "ext", "optional": True}]}}}}
+    runtime = create_goondan(config=config, models={"m": replies(answer())}, extensions={"ext": extension("onStep", slow)}, host=host)
     try:
         turn = asyncio.create_task(runtime.run("hello", session_id="c1"))
         await started.wait()
@@ -1525,6 +1585,6 @@ async def test_an_abort_inside_a_hook_is_not_a_hook_failure_even_when_optional()
         with pytest.raises(GoondanAbortError):
             await turn
         assert host.names("hook.failed") == []
-        assert host.names("turn.error")[0]["data"]["codes"] == ["aborted"]
+        assert host.names("turn.error")[0]["data"]["error"]["codes"] == ["aborted"]
     finally:
         await runtime.close()

@@ -31,8 +31,9 @@
         "deliveryId": "operation:<op:p-1>:completion",
         "agent": "main",
         "sessionId": "c1",
-        "turnId": "<turn:1>",
-        "toolCall": {
+      "turnId": "<turn:1>",
+      "executionId": "<execution:1>",
+      "toolCall": {
           "id": "p-1",
           "name": "publish",
           "args": {
@@ -45,10 +46,7 @@
         ],
         "status": "pending",
         "deliveryStatus": "pending",
-        "instance": "c1/main",
-        "parentInstance": null,
-        "parentTurnId": null,
-        "rootTurnId": "<root:1>"
+        "instance": "c1/main"
       }
     ],
     "conversations": {
@@ -61,7 +59,10 @@
               "type": "text",
               "text": "안녕"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         },
         {
           "role": "assistant",

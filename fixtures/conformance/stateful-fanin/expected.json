@@ -1,63 +1,222 @@
 {
   "steps": [
-    {"parallel": [
-      [{"result": {"output": {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "합침"}]}}}],
-      [{}, {}, {}, {}]
-    ]}
+    {
+      "parallel": [
+        [
+          {
+            "result": {
+              "output": "합침"
+            }
+          }
+        ],
+        [
+          {},
+          {},
+          {},
+          {}
+        ]
+      ]
+    }
   ],
   "observations": {
     "functionCalls": [
       {
         "fn": "keepInput",
         "value": [
-          {"role": "user", "source": "join", "content": [{"type": "text", "text": "A"}], "meta": {"from": "a", "instance": "s/a"}},
-          {"role": "user", "source": "join", "content": [{"type": "text", "text": "B"}], "meta": {"from": "b", "instance": "s/b"}}
+          {
+            "role": "user",
+            "source": "join",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ],
+            "meta": {
+              "from": "a",
+              "instance": "s/a",
+              "kind": "start"
+            }
+          }
+        ]
+      },
+      {
+        "fn": "keepInput",
+        "value": [
+          {
+            "role": "user",
+            "source": "join",
+            "content": [
+              {
+                "type": "text",
+                "text": "B"
+              }
+            ],
+            "meta": {
+              "from": "b",
+              "instance": "s/b",
+              "kind": "start"
+            }
+          }
+        ]
+      },
+      {
+        "fn": "keepPrompt",
+        "value": [
+          {
+            "role": "user",
+            "source": "join",
+            "content": [
+              {
+                "type": "text",
+                "text": "A"
+              }
+            ],
+            "meta": {
+              "from": "a",
+              "instance": "s/a",
+              "kind": "start"
+            }
+          },
+          {
+            "role": "user",
+            "source": "join",
+            "content": [
+              {
+                "type": "text",
+                "text": "B"
+              }
+            ],
+            "meta": {
+              "from": "b",
+              "instance": "s/b",
+              "kind": "start"
+            }
+          }
         ]
       }
     ],
-      "conversations": {
-        "s/split": [
-          {
-            "role": "user",
-            "source": "split",
-            "content": [{"type": "text", "text": "시작"}]
-          },
-          {
-            "role": "assistant",
-            "source": "model",
-            "content": [{"type": "text", "text": "분기"}]
+    "conversations": {
+      "s/split": [
+        {
+          "role": "user",
+      "source": "split",
+      "meta": {
+        "kind": "start"
+      },
+          "content": [
+            {
+              "type": "text",
+              "text": "시작"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ]
+        }
+      ],
+      "s/a": [
+        {
+          "role": "user",
+          "source": "a",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ],
+      "meta": {
+        "from": "split",
+        "instance": "s/split",
+        "kind": "start"
           }
-        ],
-        "s/a": [
-          {
-            "role": "user",
-            "source": "a",
-            "content": [{"type": "text", "text": "분기"}],
-            "meta": {"from": "split", "instance": "s/split"}
-          },
-          {
-            "role": "assistant",
-            "source": "model",
-            "content": [{"type": "text", "text": "A"}]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ]
+        }
+      ],
+      "s/b": [
+        {
+          "role": "user",
+          "source": "b",
+          "content": [
+            {
+              "type": "text",
+              "text": "분기"
+            }
+          ],
+      "meta": {
+        "from": "split",
+        "instance": "s/split",
+        "kind": "start"
           }
-        ],
-        "s/b": [
-          {
-            "role": "user",
-            "source": "b",
-            "content": [{"type": "text", "text": "분기"}],
-            "meta": {"from": "split", "instance": "s/split"}
-          },
-          {
-            "role": "assistant",
-            "source": "model",
-            "content": [{"type": "text", "text": "B"}]
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "B"
+            }
+          ]
+        }
+      ],
+      "s/join": [
+        {
+          "role": "user",
+          "source": "join",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ],
+          "meta": {
+            "from": "a",
+            "instance": "s/a",
+            "kind": "start"
           }
-        ],
-        "s/join": [
-        {"role": "user", "source": "join", "content": [{"type": "text", "text": "A"}], "meta": {"from": "a", "instance": "s/a"}},
-        {"role": "user", "source": "join", "content": [{"type": "text", "text": "B"}], "meta": {"from": "b", "instance": "s/b"}},
-        {"role": "assistant", "source": "model", "content": [{"type": "text", "text": "합침"}]}
+        },
+        {
+          "role": "user",
+          "source": "join",
+          "content": [
+            {
+              "type": "text",
+              "text": "B"
+            }
+          ],
+          "meta": {
+            "from": "b",
+            "instance": "s/b",
+            "kind": "start"
+          }
+        },
+        {
+          "role": "assistant",
+          "source": "model",
+          "content": [
+            {
+              "type": "text",
+              "text": "합침"
+            }
+          ]
+        }
       ]
     }
   }

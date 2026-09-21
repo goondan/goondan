@@ -3,9 +3,10 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createGoondan, loadConfig, textOf, type RuntimeBindings } from '@goondan/core';
+import { createGoondan, loadConfig, type RuntimeBindings } from '@goondan/core';
 import { stringify } from 'yaml';
 import { parseChatOptions, runChat } from './chat/command.js';
+import { renderOutputs } from './chat/host.js';
 import { parseRunInput } from './run-input.js';
 
 interface Options { command: string; directory: string; bindings: string; input?: string; inputFile?: string; sessionId: string; agent?: string; variants: string[] }
@@ -23,7 +24,8 @@ function usage(): string {
     'The bindings module exports `bindings` or a default RuntimeBindings object.',
     '`--variant` may be repeated and applies in the given order.',
     '`gdn run` reads the input from standard input when neither --input nor --input-file is given.',
-    '`gdn chat` uses `/steer <AGENT> <INPUT>` to target additional input during parallel runs.',
+    '`gdn chat` uses `/agent <AGENT> <INPUT>` to target an agent.',
+    '`gdn chat` manages approvals with `/operations`, `/approve`, `/reject`, and `/cancel`.',
   ].join('\n');
 }
 
@@ -72,7 +74,8 @@ async function main(): Promise<void> {
   const goondan = createGoondan(loaded, candidate);
   try {
     const result = await goondan.run(parseRunInput(raw), { sessionId: options.sessionId, agent: options.agent });
-    process.stdout.write(`${textOf(result.output.content)}\n`);
+    const output = renderOutputs(result.outputs, true);
+    if (output.length > 0) process.stdout.write(`${output}\n`);
   } finally { await goondan.close(); }
 }
 

@@ -140,10 +140,7 @@ class OpRunner:
         return _text_of(value) + op["suffix"]
 
     async def _op_result(self, op, value, site, owner, hook):
-        if not isinstance(value, Mapping) or not isinstance(value.get("id"), str) or not isinstance(value.get("name"), str):
-            raise ScriptError("the result operation needs a tool call with a string id and name")
-        result = {"callId": value["id"], "name": value["name"], "args": copy.deepcopy(value.get("args")),
-                  "content": copy.deepcopy(op["content"])}
+        result = {"content": copy.deepcopy(op["content"])}
         if "isError" in op:
             result["isError"] = op["isError"]
         return {"result": result}

@@ -4,6 +4,6 @@ agents:
     tools:
       - echo
     hooks:
-      modelResult:
+      onModelResult:
         - name: retryOnce
           fn: retryOnce

@@ -1,4 +1,4 @@
-import type { Model, ModelResult } from "@goondan/core";
+import type { Model, ModelResponse } from "@goondan/core";
 import { ModelError, PROVIDER_LABEL, findRequestId, httpStatusError, invalidResponse, type ModelProvider } from "./errors.ts";
 import type { JsonObject } from "./json.ts";
 import type { FetchFunction } from "./options.ts";
@@ -11,7 +11,7 @@ export type ModelCallContext = Parameters<Model["generate"]>[1];
 export interface StreamAssembler {
   /** Handles one event; returns true when the provider signalled the end and reading should stop. */
   accept(data: string): boolean;
-  result(): ModelResult;
+  result(): ModelResponse;
 }
 
 export interface StreamCall {
@@ -150,7 +150,7 @@ function deliver(provider: ModelProvider, assembler: StreamAssembler, events: re
   return false;
 }
 
-function finish(provider: ModelProvider, assembler: StreamAssembler): ModelResult {
+function finish(provider: ModelProvider, assembler: StreamAssembler): ModelResponse {
   try {
     return assembler.result();
   } catch (error) {
@@ -159,7 +159,7 @@ function finish(provider: ModelProvider, assembler: StreamAssembler): ModelResul
   }
 }
 
-async function runAttempt(call: StreamCall, payload: string, control: AttemptControl, emit: (delta: string) => void): Promise<ModelResult> {
+async function runAttempt(call: StreamCall, payload: string, control: AttemptControl, emit: (delta: string) => void): Promise<ModelResponse> {
   const response = await control.wait(call.fetch(call.url, { method: "POST", headers: call.headers, body: payload, signal: control.signal }));
   if (!response.ok) {
     let text = "";
@@ -196,7 +196,7 @@ async function runAttempt(call: StreamCall, payload: string, control: AttemptCon
  * Sends a streaming request and assembles the result.
  * Retryable failures are resent up to `maxRetries` times, but only while no text chunk has reached the caller.
  */
-export async function streamModel(call: StreamCall): Promise<ModelResult> {
+export async function streamModel(call: StreamCall): Promise<ModelResponse> {
   const signal = call.ctx.signal;
   const payload = JSON.stringify(call.body);
   let emitted = false;

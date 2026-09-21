@@ -1,16 +1,85 @@
 {
   "description": "run 입력은 메시지 배열, 부분 배열, 문자열, 그 밖의 JSON과 빈 메시지 배열을 각각 규격의 메시지 배열로 바꾼다.",
-  "spec": ["입력", "단계 값과 대화 저장"],
+  "spec": [
+    "입력",
+    "단계 값과 대화 저장"
+  ],
   "bindings": {
-    "models": {"m": {"responses": [
-      {"text": "메시지"}, {"text": "부분"}, {"text": "문자열"}, {"text": "JSON"}, {"text": "빈 배열"}
-    ]}}
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "메시지"
+          },
+          {
+            "text": "부분"
+          },
+          {
+            "text": "문자열"
+          },
+          {
+            "text": "JSON"
+          },
+          {
+            "text": "빈 배열"
+          }
+        ]
+      }
+    }
   },
   "steps": [
-    {"run": {"sessionId": "message", "input": [{"id": "host-1", "role": "system", "source": "host", "content": [{"type": "text", "text": "지시"}]}]}},
-    {"run": {"sessionId": "parts", "input": [{"type": "image", "url": "memory:image"}, {"type": "text", "text": "설명"}]}},
-    {"run": {"sessionId": "string", "input": "문자열 입력"}},
-    {"run": {"sessionId": "json", "input": {"answer": 42}}},
-    {"run": {"sessionId": "empty", "input": []}}
+    {
+      "run": {
+        "sessionId": "message",
+        "input": [
+          {
+            "id": "host-1",
+            "role": "system",
+            "source": "host",
+            "content": [
+              {
+                "type": "text",
+                "text": "지시"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "run": {
+        "sessionId": "parts",
+        "input": [
+          {
+            "type": "image",
+            "url": "memory:image"
+          },
+          {
+            "type": "text",
+            "text": "설명"
+          }
+        ]
+      }
+    },
+    {
+      "run": {
+        "sessionId": "string",
+        "input": "문자열 입력"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "json",
+        "input": {
+          "answer": 42
+        }
+      }
+    },
+    {
+      "run": {
+        "sessionId": "empty",
+        "input": []
+      }
+    }
   ]
 }

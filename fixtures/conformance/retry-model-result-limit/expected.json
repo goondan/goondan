@@ -2,7 +2,7 @@
   "steps": [
     {
       "error": {
-        "where": "modelResult",
+        "where": "onModelResult",
         "codes": [
           "hook_error"
         ],
@@ -21,7 +21,10 @@
               "type": "text",
               "text": "요청"
             }
-          ]
+          ],
+          "meta": {
+            "kind": "start"
+          }
         }
       ]
     }

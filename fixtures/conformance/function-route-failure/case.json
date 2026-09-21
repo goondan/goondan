@@ -1,0 +1,31 @@
+{
+  "description": "route 함수가 실패하면 route.function 오류 이벤트를 기록하고 턴을 route_error로 실패시킨다.",
+  "spec": [
+    "route 진행",
+    "저널 이벤트 종류",
+    "실행 오류"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {"model": "m"}
+      },
+      "routes": [
+        {"from": "$input", "to": {"fn": "explode"}}
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {"responses": []}
+    },
+    "functions": {
+      "explode": {"op": "throw", "message": "함수 실패"}
+    }
+  },
+  "steps": [
+    {
+      "run": {"sessionId": "failure", "input": "시작"}
+    }
+  ]
+}

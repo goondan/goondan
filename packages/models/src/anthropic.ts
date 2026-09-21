@@ -1,6 +1,5 @@
-import type { Block, Json, Message, Model, ModelInput, ModelResult, Part, ToolDefinition, Usage } from "@goondan/core";
+import type { Block, DraftMessage, Json, Message, Model, ModelInput, ModelResponse, ModelResult, Part, ToolDefinition, Usage } from "@goondan/core";
 import { ModelError, invalidRequest, invalidResponse, streamError, unsupportedContent } from "./errors.ts";
-import { newMessageId } from "./ids.ts";
 import { cloneJson, isJsonObject, jsonEqual, mergeObjects, own, setKey, toJson, type JsonObject } from "./json.ts";
 import {
   PDF_TYPE,
@@ -479,7 +478,7 @@ class AnthropicStreamAssembler implements StreamAssembler {
     this.#readUsage(own(event, "usage"));
   }
 
-  result(): ModelResult {
+  result(): ModelResponse {
     if (!this.#stopped) throw new ModelError("Anthropic stream ended before message_stop", { provider: PROVIDER, code: "network" });
     const blocks: JsonObject[] = [];
     for (const [, state] of [...this.#blocks.entries()].sort(([left], [right]) => left - right)) {
@@ -508,10 +507,10 @@ class AnthropicStreamAssembler implements StreamAssembler {
     const meta: JsonObject = { id: this.#id ?? null, model: this.#model ?? null, stopReason: this.#stopReason ?? null };
     if (this.#stopDetails !== undefined) meta.stopDetails = this.#stopDetails;
     if (needsBlocks) meta.content = blocks;
-    const message: Message = { id: newMessageId(), role: "assistant", source: "model", content: partsFromBlocks(blocks), meta: { [PROVIDER]: meta } };
+    const message: DraftMessage = { role: "assistant", content: partsFromBlocks(blocks), meta: { [PROVIDER]: meta } };
     const usage = this.#usage;
     const reported = Object.keys(usage).length > 0;
-    const result: ModelResult = { message, finishReason: anthropicFinishReason(this.#stopReason) };
+    const result: ModelResponse = { message, finishReason: anthropicFinishReason(this.#stopReason) };
     if (reported) result.usage = { input: usage.input ?? 0, output: usage.output ?? 0, cacheRead: usage.cacheRead ?? 0, cacheWrite: usage.cacheWrite ?? 0 };
     return result;
   }

@@ -4,5 +4,5 @@ agents:
     extensions:
       opts: {}
     hooks:
-      modelInput:
+      onModelInput:
         - extension: opts

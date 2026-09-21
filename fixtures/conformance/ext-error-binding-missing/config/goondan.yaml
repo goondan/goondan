@@ -4,5 +4,5 @@ agents:
     extensions:
       memo: {}
     hooks:
-      modelInput:
+      onModelInput:
         - extension: memo

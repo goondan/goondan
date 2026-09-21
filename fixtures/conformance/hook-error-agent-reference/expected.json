@@ -4,7 +4,7 @@
     "issues": [
       {
         "code": "reference.agent",
-        "path": "/agents/main/hooks/output/0/agent"
+        "path": "/agents/main/hooks/onOutput/0/agent"
       }
     ]
   }

@@ -1,7 +1,31 @@
 {
-  "description": "mode: async 훅은 timeout을 선언할 수 없으므로 mode 위치의 스키마 단계 구성 오류다.",
+  "description": "mode: async 훅은 timeout을 선언할 수 있으며, 제한 시간을 넘긴 작업의 실패는 턴을 실패시키지 않는다.",
   "spec": [
     "훅 선언"
   ],
-  "steps": []
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "완료"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "note": {
+        "op": "constant",
+        "value": "메모"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "요청"
+      }
+    }
+  ]
 }

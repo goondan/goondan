@@ -1,0 +1,49 @@
+{
+  "steps": [
+    {
+      "result": {
+        "token": 1,
+        "expiresAt": null
+      }
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "lost",
+          "turnId": "<turn:1>",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "lost",
+          "turnId": "<turn:1>",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "result": 1
+    },
+    {
+      "result": [
+        {
+          "seq": 1,
+          "version": 1,
+          "type": "turn.start",
+          "sessionId": "lost",
+          "turnId": "<turn:1>",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

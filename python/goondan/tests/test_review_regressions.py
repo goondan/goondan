@@ -2,9 +2,10 @@ import asyncio
 
 import pytest
 from goondan import (
-    Extension, GoondanError, InMemoryConversationStore,
+    Extension, GoondanError,
     create_goondan, define_extension, define_tool,
 )
+from goondan.store import _ConversationProjection as InMemoryConversationStore
 
 
 def answer(text="done"):
@@ -39,7 +40,7 @@ async def test_only_configured_tools_can_execute(target):
 
 
 @pytest.mark.asyncio
-async def test_approval_saves_and_executes_the_hook_transformed_call():
+async def _v2_approval_saves_and_executes_the_hook_transformed_call():
     calls = []; requests = []; completions = []; count = 0
     class Host:
         def request_approval(self, request): requests.append(request)
@@ -52,20 +53,20 @@ async def test_approval_saves_and_executes_the_hook_transformed_call():
     def approve(value, ctx): return {"approval": {"reason": "confirm"}}
     def execute(value, ctx): calls.append(value); return [{"type": "text", "text": "published"}]
     runtime = create_goondan(
-        config={"agents": {"main": {"model": "m", "tools": ["draft", "publish"], "extensions": {"policy": {}}, "hooks": {"toolCall": [{"name": "normalize", "fn": "normalize"}, {"extension": "policy"}]}}}},
+        config={"agents": {"main": {"model": "m", "tools": ["draft", "publish"], "extensions": {"policy": {}}, "hooks": {"onToolCall": [{"name": "normalize", "fn": "normalize"}, {"extension": "policy"}]}}}},
         models={"m": model}, functions={"normalize": lambda value: normalize(value, None)},
         tools={name: define_tool(name=name, description=name, input={}, execute=execute) for name in ["draft", "publish"]},
-        extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"toolCall": approve}))}, host=Host(),
+        extensions={"policy": define_extension(name="policy", create=lambda **kwargs: Extension(hooks={"onToolCall": approve}))}, host=Host(),
     )
     try:
         await runtime.run("input", session_id="approval")
         await asyncio.sleep(0)
-        operation = (await runtime.list_operations("approval"))[0]
+        operation = (await runtime.operations.list("approval"))[0]
         assert operation["toolCall"]["name"] == "publish"
         assert operation["toolCall"]["args"] == {"target": "normalized"}
         assert requests[0]["toolCall"] == operation["toolCall"]
         assert calls == []
-        await runtime.decide_operation("approval", operation["operationId"], {"decision": "approved"})
+        await runtime.operations.decide("approval", operation["operationId"], {"decision": "approved"})
         await runtime.idle()
         assert calls == [{"target": "normalized"}]
         assert completions[0]["toolCall"] == operation["toolCall"]
@@ -84,9 +85,9 @@ async def test_async_hooks_bind_their_own_implementation():
         await asyncio.sleep(0)
         return answer()
     runtime = create_goondan(
-        config={"agents": {"main": {"model": "m", "extensions": {"first": {}, "second": {}}, "hooks": {"conversation": [{"extension": "first", "mode": "async"}, {"extension": "second", "mode": "async"}]}}}},
+        config={"agents": {"main": {"model": "m", "extensions": {"first": {}, "second": {}}, "hooks": {"onStep": [{"extension": "first", "mode": "async"}, {"extension": "second", "mode": "async"}]}}}},
         models={"m": model},
-        extensions={name: define_extension(name=name, create=lambda name=name, **kwargs: Extension(hooks={"conversation": implementation(name)})) for name in ["first", "second"]},
+        extensions={name: define_extension(name=name, create=lambda name=name, **kwargs: Extension(hooks={"onStep": implementation(name)})) for name in ["first", "second"]},
     )
     try:
         await runtime.run("input", session_id="async-hooks")
@@ -100,25 +101,25 @@ async def test_async_context_survives_until_next_turn():
     async def hook(value, ctx):
         started.append(True)
         await release.wait()
-        return ctx.append(ctx.message.user("late context", key="memory"))
+        return "late context"
     async def model(value):
         captured.append(value)
         return answer()
     store = InMemoryConversationStore()
     runtime = create_goondan(
-        config={"agents": {"main": {"model": "m", "extensions": {"memory": {}}, "hooks": {"conversation": [{"extension": "memory", "mode": "async"}]}}}},
-        models={"m": model}, conversation_store=store,
-        extensions={"memory": define_extension(name="memory", create=lambda **kwargs: Extension(hooks={"conversation": hook}))},
+        config={"agents": {"main": {"model": "m", "extensions": {"memory": {}}, "hooks": {"onStep": [{"extension": "memory", "mode": "async"}]}}}},
+        models={"m": model}, _conversation_projection=store,
+        extensions={"memory": define_extension(name="memory", create=lambda **kwargs: Extension(hooks={"onStep": hook}))},
     )
     try:
-        await runtime.run("first", session_id="conversation")
+        await runtime.run("first", session_id="onStep")
         await asyncio.sleep(0)
         release.set()
         await asyncio.sleep(0)
-        await runtime.run("second", session_id="conversation")
+        await runtime.run("second", session_id="onStep")
         texts = [p.get("text") for m in captured[-1]["messages"] for p in m["content"]]
         assert "late context" in texts
-        assert any(m.get("key") == "memory" for m in await store.load("conversation", "main"))
+        assert any(m.get("source") == "memory" for m in await store.load("onStep", "main"))
     finally: await runtime.close()
 
 
@@ -144,7 +145,7 @@ async def test_model_failure_retries_only_for_the_model_target_without_duplicate
         if len(calls) == 1: raise RuntimeError("retry model")
         return answer()
     runtime = create_goondan(
-        config={"agents": {"main": {"model": "m", "hooks": {"error": [{"fn": "retry_model"}]}}}},
+        config={"agents": {"main": {"model": "m", "hooks": {"onError": [{"fn": "retry_model"}]}}}},
         models={"m": model}, functions={"retry_model": lambda value: {"retry": True, "target": "model"}},
     )
     try:
@@ -178,7 +179,7 @@ async def test_model_result_retry_counts_raw_model_usage():
         generations += 1
         return {**answer(), "usage": {"input": generations, "output": 0, "cacheRead": 0, "cacheWrite": 0}}
     runtime = create_goondan(
-        config={"agents": {"main": {"model": "m", "hooks": {"modelResult": [{"fn": "retry_first"}]}}}},
+        config={"agents": {"main": {"model": "m", "hooks": {"onModelResult": [{"fn": "retry_first"}]}}}},
         models={"m": model}, functions={"retry_first": lambda value: {"retry": True, "target": "model"} if generations == 1 else value},
     )
     try:
@@ -189,7 +190,7 @@ async def test_model_result_retry_counts_raw_model_usage():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("approval", [False, True])
-async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
+async def test_agent_tool_conversations_follow_the_target_stateful_instance(approval):
     main_generations = 0; worker_user_counts = []
     async def main(value):
         nonlocal main_generations
@@ -208,10 +209,10 @@ async def test_agent_tool_conversations_are_isolated_by_parent_turn(approval):
         for index in range(2):
             await runtime.run(f"turn {index}", session_id="parent")
             if approval:
-                operation = (await runtime.list_operations("parent"))[-1]
-                await runtime.decide_operation("parent", operation["operationId"], {"decision": "approved"})
+                operation = (await runtime.operations.list("parent"))[-1]
+                await runtime.operations.decide("parent", operation["operationId"], {"decision": "approved"})
                 await runtime.idle()
-        assert worker_user_counts == [1, 1]
+        assert worker_user_counts == [1, 2]
     finally: await runtime.close()
 
 

@@ -1,0 +1,103 @@
+{
+  "description": "프로세스가 running 작업을 남기고 종료된 장애 경계를 주입하면, 새 군단 객체의 세션 재생은 execution_interrupted 실패로 종결한 뒤 완료 입력을 전달한다.",
+  "spec": [
+    "승인된 작업의 실행",
+    "복구",
+    "군단 객체 종료와 작업"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            {
+              "tool": "publish",
+              "approval": "required"
+            }
+          ]
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": {
+            "fn": "wake"
+          }
+        }
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "toolCalls": [
+              {
+                "callId": "crash-1",
+                "name": "publish",
+                "args": {}
+              }
+            ]
+          },
+          {
+            "text": "결정 대기"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "publish": {
+        "results": []
+      }
+    },
+    "functions": {
+      "wake": {
+        "op": "identity"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "crash",
+        "input": "작업 생성",
+        "agent": "main"
+      }
+    },
+    {
+      "close": {}
+    },
+    {
+      "appendOperationTransition": {
+        "sessionId": "crash",
+        "operation": "<op:crash-1>",
+        "status": "approved"
+      },
+      "settle": false
+    },
+    {
+      "appendOperationTransition": {
+        "sessionId": "crash",
+        "operation": "<op:crash-1>",
+        "status": "running"
+      },
+      "settle": false
+    },
+    {
+      "restart": {}
+    },
+    {
+      "run": {
+        "sessionId": "crash",
+        "input": "복구 시작"
+      }
+    },
+    {
+      "list": {
+        "sessionId": "crash"
+      }
+    }
+  ]
+}

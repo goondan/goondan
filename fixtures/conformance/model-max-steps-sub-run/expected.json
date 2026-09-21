@@ -17,9 +17,7 @@
     "modelInputs": {
       "w": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -29,21 +27,19 @@
                   "type": "text",
                   "text": "{\"q\":\"정리\"}"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
-          "tools": [
-
-          ],
-          "options": {
-          }
+          "tools": [],
+          "options": {}
         }
       ],
       "m": [
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -53,7 +49,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             }
           ],
           "tools": [
@@ -65,13 +64,10 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         },
         {
-          "system": [
-
-          ],
+          "system": [],
           "messages": [
             {
               "role": "user",
@@ -81,7 +77,10 @@
                   "type": "text",
                   "text": "안녕"
                 }
-              ]
+              ],
+              "meta": {
+                "kind": "start"
+              }
             },
             {
               "role": "assistant",
@@ -123,13 +122,10 @@
               }
             }
           ],
-          "options": {
-          }
+          "options": {}
         }
       ]
     },
-    "toolCalls": [
-
-    ]
+    "toolCalls": []
   }
 }

@@ -57,6 +57,10 @@ function messagesOf(body: Json | undefined): Json[] {
 }
 
 describe("createAnthropicModel (cases from the former CLI provider)", () => {
+  it("exposes the provider identifier used by execution events", () => {
+    expect(createAnthropicModel({ model: MODEL, apiKey: "test-key", env: {} }).provider).toBe("anthropic");
+  });
+
   it("renders prior tool use and results and assembles split text and tool deltas", async () => {
     const stream = sse(
       { type: "message_start", message: { usage: { input_tokens: 12, cache_read_input_tokens: 3 } } },

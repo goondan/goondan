@@ -16,6 +16,10 @@ function inputOf(messages: Message[]): ModelInput {
 }
 
 describe("OpenAI configuration", () => {
+  it("exposes the provider identifier used by execution events", () => {
+    expect(createOpenAIChatModel({ model: MODEL, apiKey: "sk-test", env: {} }).provider).toBe("openai");
+  });
+
   it("posts to {baseUrl}/chat/completions with a bearer API key", async () => {
     const { fetch, requests } = scriptedFetch([sseResponse(openAITextStream("hi"))]);
     await createOpenAIChatModel({ model: MODEL, apiKey: "sk-test", env: {}, fetch }).generate(userInput("hi"), context());

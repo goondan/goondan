@@ -1,0 +1,87 @@
+{
+  "description": "operation.failed는 기존 작업 상태 필드와 함께 구조화된 실행 오류 cause를 저널에 보존하며 fold는 작업 상태를 같은 방식으로 산출한다.",
+  "spec": ["저널 이벤트 종류", "작업 기록과 상태"],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {"model": "m"}
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {"responses": []}
+    }
+  },
+  "steps": [
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "operation.created",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "operation-fixed",
+            "data": {
+              "operation": {
+                "operationId": "operation-fixed",
+                "deliveryId": "operation:operation-fixed:completion",
+                "agent": "main",
+                "sessionId": "cause",
+                "turnId": "turn-fixed",
+                "instance": "cause/main",
+                "executionId": "execution-fixed",
+                "toolCall": {"id": "call-fixed", "name": "publish", "args": {}},
+                "reasons": ["승인이 필요합니다."],
+                "status": "pending",
+                "deliveryStatus": "pending",
+                "createdAt": 1,
+                "updatedAt": 1
+              }
+            }
+          },
+          {
+            "version": 1,
+            "type": "operation.approved",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "operation-fixed",
+            "data": {"updatedAt": 2}
+          },
+          {
+            "version": 1,
+            "type": "operation.failed",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "operation-fixed",
+            "data": {
+              "updatedAt": 3,
+              "error": "게시 작업이 실패했습니다.",
+              "errorCode": "execution_failed",
+              "cause": {
+                "where": "tool",
+                "codes": ["tool_error"],
+                "message": "도구가 실패했습니다.",
+                "attempt": 2,
+                "toolCall": {"id": "call-fixed", "name": "publish", "args": {}}
+              }
+            }
+          }
+        ],
+        "expected": 0,
+        "writeId": "cause-write"
+      },
+      "settle": false
+    }
+  ]
+}

@@ -55,6 +55,7 @@
         "sessionId": "route-1",
         "turnId": "<turn:1>",
         "data": {
+          "routeCall": 1,
           "route": 0,
           "fn": "normalize",
           "status": "done",
@@ -144,6 +145,7 @@
         "sessionId": "route-2",
         "turnId": "<turn:2>",
         "data": {
+          "routeCall": 1,
           "route": 0,
           "fn": "normalize",
           "status": "done",

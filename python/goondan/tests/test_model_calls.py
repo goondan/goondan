@@ -291,7 +291,10 @@ async def test_text_chunks_are_reported_in_order_between_step_start_and_step_don
         await (await runtime.run("hello", session_id="c1")).result
         names = [event["type"] for event in host.events if event["type"].startswith("step.")]
         assert names == ["step.start", "step.textDelta", "step.textDelta", "step.done"]
-        assert [event["data"] for event in host.names("step.textDelta")] == [{"step": 1, "delta": "a"}, {"step": 1, "delta": "b"}]
+        assert [event["data"] for event in host.names("step.textDelta")] == [
+            {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "delta": "a"},
+            {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "delta": "b"},
+        ]
     finally:
         await runtime.close()
 
@@ -318,7 +321,7 @@ async def test_chunks_delivered_after_the_call_returned_are_not_reported():
 
 
 @pytest.mark.asyncio
-async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_counts_usage_on_the_current_run():
+async def test_model_run_keeps_the_run_identity_reports_step_events_and_counts_usage_on_the_current_run():
     host = Host()
     first = answer("first")
     first["usage"] = {"input": 2}
@@ -345,14 +348,15 @@ async def test_model_run_keeps_the_run_identity_reports_no_step_event_and_counts
     )
     try:
         result = await (await runtime.run("hello", session_id="c1")).result
-        # §모델 호출: model.run uses the last started call number and never increases it.
+        # §모델 호출: hook model.run은 같은 실행에서 독립된 modelCall 순번을 사용한다.
         assert [ctx.step for ctx in seen] == [0, 1]
         assert {ctx.agent for ctx in seen} == {"main"} and {ctx.session_id for ctx in seen} == {"c1"}
         assert len({ctx.execution_id for ctx in model.contexts}) == 1
         assert len({ctx.instance for ctx in model.contexts}) == 1
-        assert [event["data"]["step"] for event in host.names("step.start")] == [1]
-        # §텍스트 조각: only the run's own call reports its chunks.
-        assert [event["data"]["delta"] for event in host.names("step.textDelta")] == ["chunk"]
+        assert [event["data"]["step"] for event in host.names("step.start")] == [0, 1, 1]
+        assert [event["data"]["source"] for event in host.names("step.start")] == ["hook", "agent", "hook"]
+        assert [event["data"]["modelCall"] for event in host.names("step.start")] == [1, 2, 3]
+        assert [event["data"]["delta"] for event in host.names("step.textDelta")] == ["chunk", "chunk", "chunk"]
         assert result["output"] == "second"
         assert len(result["runs"]) == 1
         assert result["runs"][0]["usage"] == {"input": 2, "output": 3, "cacheRead": 5, "cacheWrite": 0}

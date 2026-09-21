@@ -88,7 +88,18 @@ export function projectEvent(event: Json): Json {
     "seq", "version", "type", "sessionId", "agent", "instance", "turnId", "executionId", "inputId",
     "parentExecutionId", "operationId", "data", "skippable", "observational",
   ]) {
-    if (Object.hasOwn(event, key)) projected[key] = event[key] ?? null;
+    if (Object.hasOwn(event, key)) projected[key] = snapshot(event[key] ?? null);
+  }
+  const data = projected["data"];
+  if (isJsonObject(data) && isString(projected["type"]) && projected["type"].startsWith("operation.")) {
+    delete data["updatedAt"];
+    delete data["deliveredAt"];
+    const operation = data["operation"];
+    if (isJsonObject(operation)) {
+      delete operation["createdAt"];
+      delete operation["updatedAt"];
+      delete operation["deliveredAt"];
+    }
   }
   return projected;
 }
@@ -254,6 +265,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
   const models: Record<string, unknown> = {};
   for (const [name, script] of scripts.bindings.models) {
     models[name] = {
+      ...(script.provider === undefined ? {} : { provider: script.provider }),
       async generate(input: unknown, ctx: unknown): Promise<unknown> {
         const inputs = observations.modelInputs.get(name) ?? [];
         inputs.push(snapshot(input));

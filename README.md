@@ -582,13 +582,15 @@ TypeScript 실행 핸들은 `sessionId`, `turnId`, `inputId`, `result: Promise<T
 
 TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 실행 이벤트를 받습니다. 저장된 저널 이벤트는 append 직후 같은 봉투로 전달됩니다. 저널에 남지 않는 진행 이벤트는 `observational: true`를 가지며 전달 유실이 복구 결과에 영향을 주지 않습니다.
 
-저널 이벤트에는 `turn.start`, `input.received`, `agent.start`, `agent.done`, `agent.error`, `route.function`, `operation.created` 등이 있습니다. 진행 이벤트에는 `step.start`, `step.textDelta`, `step.done`, `step.error`, `tool.start`, `tool.done`, `tool.error`, `hook.applied`, `hook.skipped`, `hook.failed` 등이 있습니다. 에이전트 실행은 `agent.*`, 군단 턴은 `turn.*`로 구분합니다.
+저널 이벤트에는 `turn.start`, `input.received`, `agent.start`, `agent.done`, `agent.error`, `route.function`, `operation.created` 등이 있습니다. 진행 이벤트에는 `step.*`, `tool.*`, `hook.start`, `hook.applied`, `hook.skipped`, `hook.failed`, `hook.cancelled`, `route.function.start` 등이 있습니다. 에이전트 실행은 `agent.*`, 군단 턴은 `turn.*`로 구분합니다.
 
 이벤트는 범위에 따라 `sessionId`, `turnId`, `instance`, `executionId`, `inputId`, `parentExecutionId`, `operationId`를 사용합니다. 저널 이벤트에는 `seq`, `version`, `writeId`가 있고 관측 전용 이벤트에는 `observational: true`가 있습니다. 수신자 실패는 실행과 저널을 바꾸지 않습니다.
 
+호출 이벤트의 `modelCall`·`hookCall`은 `executionId` 안에서, `routeCall`은 `turnId` 안에서 증가하는 양의 정수입니다. 모델·도구·훅 이벤트는 `retryCount`와 1부터 시작하는 `attempt`를 제공하며, `step.start`는 등록 모델 이름과 선택적인 제공자 식별자를 제공합니다. `step.done.data.usage`가 없으면 제공자가 사용량을 보고하지 않은 호출이고, `tool.done.data.result.isError`가 없으면 `false`로 해석합니다. 이러한 관측 전용 이벤트는 실시간 trace·span·metric·log 연동에 사용할 수 있지만, 저널 재생만으로 복원되는 데이터로 간주할 수는 없습니다.
+
 ### 구현 계약
 
-**모델.** TypeScript 모델은 `generate(input, ctx)`를 가진 객체입니다. Python 모델은 `generate(model_input, ctx)`를 가진 객체이거나 모델 입력 하나만 받는 호출 가능 객체입니다. 작성용 응답의 assistant 메시지는 `id`와 `source`를 생략할 수 있으며 런타임이 정규화합니다.
+**모델.** TypeScript 모델은 `generate(input, ctx)`를 가진 객체입니다. Python 모델은 `generate(model_input, ctx)`를 가진 객체이거나 모델 입력 하나만 받는 호출 가능 객체입니다. 구현은 관측용 제공자 식별자인 선택 필드 `provider`를 제공할 수 있습니다. 작성용 응답의 assistant 메시지는 `id`와 `source`를 생략할 수 있으며 런타임이 정규화합니다.
 
 **도구.** TypeScript 도구는 `name`, `description`, `input`, `execute(args, ctx)`를 가집니다. Python 도구는 `define_tool`로 만듭니다. 두 언어 모두 [도구 반환값](#도구-반환값)의 세 형식을 사용합니다.
 

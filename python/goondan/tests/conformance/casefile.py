@@ -333,7 +333,9 @@ class _Check:
             for name, script in value["models"].items():
                 at = f"{path}/models/{name}"
                 if self.mapping(script, at):
-                    self.keys(script, at, ("responses",), ("responses",))
+                    self.keys(script, at, ("responses", "provider"), ("responses",))
+                    if "provider" in script:
+                        self.text(script["provider"], f"{at}/provider")
                     if self.array(script.get("responses"), f"{at}/responses"):
                         for index, response in enumerate(script["responses"]):
                             self.model_response(response, f"{at}/responses/{index}")

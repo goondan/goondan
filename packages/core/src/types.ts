@@ -108,7 +108,7 @@ export interface ToolContext extends ExecutionContext {
 }
 export interface Tool { name: string; description: string; input: Record<string, Json>; execute(input: Json, ctx: ToolContext): Promise<ToolReturn> | ToolReturn }
 export interface ModelContext extends ExecutionContext { step: number; onTextDelta(delta: string): void }
-export interface Model { generate(input: ModelInput, ctx: ModelContext): Promise<ModelResponse> }
+export interface Model { provider?: string; generate(input: ModelInput, ctx: ModelContext): Promise<ModelResponse> }
 
 export type OperationStatus = "pending" | "approved" | "running" | "completed" | "rejected" | "cancelled" | "failed";
 export type OperationDeliveryStatus = "pending" | "delivering" | "delivered";
@@ -301,7 +301,8 @@ export interface RunHandle {
 export type ObservationalEventName =
   | "step.start" | "step.done" | "step.error" | "step.textDelta"
   | "tool.start" | "tool.done" | "tool.error"
-  | "hook.applied" | "hook.skipped" | "hook.failed" | "operation.completion.orphaned";
+  | "hook.start" | "hook.applied" | "hook.skipped" | "hook.failed" | "hook.cancelled"
+  | "route.function.start" | "operation.completion.orphaned";
 export type RuntimeEventName = JournalEventType | ObservationalEventName;
 export interface ObservationalEvent {
   type: ObservationalEventName;

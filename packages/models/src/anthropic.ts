@@ -552,6 +552,7 @@ export function createAnthropicModel(config: AnthropicModelConfig): Model {
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const idleTimeoutMs = config.idleTimeoutMs;
   return {
+    provider: PROVIDER,
     async generate(input, ctx) {
       if (ctx.signal.aborted) throw abortReason(ctx.signal);
       let body: JsonObject;

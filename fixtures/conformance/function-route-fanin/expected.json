@@ -1,25 +1,72 @@
 {
   "steps": [
     {
-      "result": {
-        "status": "done",
-        "output": "합류 완료",
-        "runs": [
+      "parallel": [
+        [
           {
-            "agent": "main",
-            "instance": "fanin/main",
-            "executionId": "<execution:1>",
-            "turnId": "<turn:1>",
-            "kind": "turn",
-            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-            "finishReason": "stop",
-            "status": "done"
+            "result": {
+              "status": "done",
+              "output": "합류 완료",
+              "runs": [
+                {
+                  "agent": "main",
+                  "instance": "fanin/main",
+                  "executionId": "<execution:1>",
+                  "turnId": "<turn:1>",
+                  "kind": "turn",
+                  "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                  "finishReason": "stop",
+                  "status": "done"
+                }
+              ]
+            }
           }
-        ]
-      }
+        ],
+        [{}, {}, {}, {}]
+      ]
     }
   ],
   "observations": {
+    "events": [
+      {"seq": 1, "version": 1, "type": "turn.start", "sessionId": "fanin", "turnId": "<turn:1>", "data": {}},
+      {"seq": 2, "version": 1, "type": "input.received", "sessionId": "fanin", "turnId": "<turn:1>", "inputId": "<input:1>", "data": {"input": "시작"}},
+      {"type": "route.function.start", "sessionId": "fanin", "turnId": "<turn:1>", "data": {"routeCall": 1, "route": 0, "fn": "left"}, "observational": true},
+      {"type": "route.function.start", "sessionId": "fanin", "turnId": "<turn:1>", "data": {"routeCall": 2, "route": 1, "fn": "right"}, "observational": true},
+      {
+        "seq": 3, "version": 1, "type": "route.function", "sessionId": "fanin", "turnId": "<turn:1>",
+        "data": {"routeCall": 1, "route": 0, "fn": "left", "status": "done", "input": [{"role": "user", "content": [{"type": "text", "text": "시작"}], "source": "input"}], "output": [{"role": "assistant", "source": "left", "content": [{"type": "text", "text": "왼쪽"}]}]}
+      },
+      {
+        "seq": 4, "version": 1, "type": "route.function", "sessionId": "fanin", "turnId": "<turn:1>",
+        "data": {"routeCall": 2, "route": 1, "fn": "right", "status": "done", "input": [{"role": "user", "content": [{"type": "text", "text": "시작"}], "source": "input"}], "output": [{"role": "system", "source": "right", "content": [{"type": "text", "text": "오른쪽"}]}]}
+      },
+      {
+        "seq": 5, "version": 1, "type": "agent.start", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>",
+        "data": {"kind": "turn", "input": [{"role": "assistant", "source": "left", "content": [{"type": "text", "text": "왼쪽"}], "meta": {"from": "left", "kind": "start"}}, {"role": "system", "source": "right", "content": [{"type": "text", "text": "오른쪽"}], "meta": {"from": "right", "kind": "start"}}], "inputKind": "start"}
+      },
+      {
+        "seq": 6, "version": 1, "type": "conversation.message.appended", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>",
+        "data": {"message": {"role": "assistant", "source": "left", "content": [{"type": "text", "text": "왼쪽"}], "meta": {"from": "left", "kind": "start"}}}
+      },
+      {
+        "seq": 7, "version": 1, "type": "conversation.message.appended", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>",
+        "data": {"message": {"role": "system", "source": "right", "content": [{"type": "text", "text": "오른쪽"}], "meta": {"from": "right", "kind": "start"}}}
+      },
+      {"type": "step.start", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "model": "m"}, "observational": true},
+      {"type": "step.done", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "finishReason": "stop"}, "observational": true},
+      {
+        "seq": 8, "version": 1, "type": "conversation.message.appended", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>",
+        "data": {"message": {"role": "assistant", "content": [{"type": "text", "text": "합류 완료"}], "source": "model"}}
+      },
+      {
+        "seq": 9, "version": 1, "type": "agent.done", "sessionId": "fanin", "agent": "main", "instance": "fanin/main", "turnId": "<turn:1>", "executionId": "<execution:1>",
+        "data": {"output": {"role": "assistant", "content": [{"type": "text", "text": "합류 완료"}], "source": "model"}, "finishReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "retryCount": 0}
+      },
+      {
+        "seq": 10, "version": 1, "type": "turn.done", "sessionId": "fanin", "turnId": "<turn:1>",
+        "data": {"result": {"turnId": "<turn:1>", "outputs": [{"role": "assistant", "content": [{"type": "text", "text": "합류 완료"}], "source": "model"}], "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "status": "done", "runs": [{"agent": "main", "instance": "fanin/main", "executionId": "<execution:1>", "turnId": "<turn:1>", "kind": "turn", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": "stop", "status": "done"}], "output": "합류 완료", "finishReason": "stop"}}
+      }
+    ],
     "modelInputs": {
       "m": [
         {

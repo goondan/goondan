@@ -3,6 +3,23 @@
     {}
   ],
   "observations": {
+    "events": [
+      {"seq": 1, "version": 1, "type": "turn.start", "sessionId": "c1", "turnId": "<turn:1>", "data": {}},
+      {"seq": 2, "version": 1, "type": "input.received", "sessionId": "c1", "turnId": "<turn:1>", "inputId": "<input:1>", "data": {"input": "안녕"}},
+      {"seq": 3, "version": 1, "type": "agent.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"kind": "turn", "input": [{"role": "user", "source": "main", "content": [{"type": "text", "text": "안녕"}], "meta": {"kind": "start"}}], "inputKind": "start"}},
+      {"seq": 4, "version": 1, "type": "conversation.message.appended", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"message": {"role": "user", "source": "main", "content": [{"type": "text", "text": "안녕"}], "meta": {"kind": "start"}}}},
+      {"type": "step.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "model": "m"}, "observational": true},
+      {"type": "step.done", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 1, "source": "agent", "step": 1, "retryCount": 0, "attempt": 1, "finishReason": "stop"}, "observational": true},
+      {"type": "hook.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"hookCall": 1, "value": "onModelResult", "hook": "retryOnce", "mode": "sync", "retryCount": 0, "attempt": 1}, "observational": true},
+      {"type": "hook.applied", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"hookCall": 1, "value": "onModelResult", "hook": "retryOnce", "mode": "sync", "retryCount": 0, "attempt": 1}, "observational": true},
+      {"type": "step.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 2, "source": "agent", "step": 2, "retryCount": 1, "attempt": 2, "model": "m"}, "observational": true},
+      {"type": "step.done", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"modelCall": 2, "source": "agent", "step": 2, "retryCount": 1, "attempt": 2, "finishReason": "stop"}, "observational": true},
+      {"type": "hook.start", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"hookCall": 2, "value": "onModelResult", "hook": "retryOnce", "mode": "sync", "retryCount": 1, "attempt": 2}, "observational": true},
+      {"type": "hook.applied", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"hookCall": 2, "value": "onModelResult", "hook": "retryOnce", "mode": "sync", "retryCount": 1, "attempt": 2}, "observational": true},
+      {"seq": 5, "version": 1, "type": "conversation.message.appended", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"message": {"role": "assistant", "content": [{"type": "text", "text": "둘째 응답"}], "source": "model"}}},
+      {"seq": 6, "version": 1, "type": "agent.done", "sessionId": "c1", "agent": "main", "instance": "c1/main", "turnId": "<turn:1>", "executionId": "<execution:1>", "data": {"output": {"role": "assistant", "content": [{"type": "text", "text": "둘째 응답"}], "source": "model"}, "finishReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "retryCount": 1}},
+      {"seq": 7, "version": 1, "type": "turn.done", "sessionId": "c1", "turnId": "<turn:1>", "data": {"result": {"turnId": "<turn:1>", "outputs": [{"role": "assistant", "content": [{"type": "text", "text": "둘째 응답"}], "source": "model"}], "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "status": "done", "runs": [{"agent": "main", "instance": "c1/main", "executionId": "<execution:1>", "turnId": "<turn:1>", "kind": "turn", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "finishReason": "stop", "status": "done"}], "output": "둘째 응답", "finishReason": "stop"}}}
+    ],
     "modelContexts": {
       "m": [
         {

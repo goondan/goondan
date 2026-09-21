@@ -57,7 +57,7 @@
 
 ### 모델 스크립트
 
-`models.<이름>`은 `{"responses":[응답,...]}`이다. 모델이 호출될 때마다 다음 응답을 소비한다. 훅 컨텍스트의 `model.run`도 같은 배열을 소비한다.
+`models.<이름>`은 `{"responses":[응답,...]}`이며 선택적인 비어 있지 않은 `provider`로 모델 구현의 관측용 제공자 식별자를 지정한다. 모델이 호출될 때마다 다음 응답을 소비한다. 훅 컨텍스트의 `model.run`도 같은 배열을 소비한다.
 
 응답은 다음 동작 키 가운데 하나를 가진다.
 
@@ -183,7 +183,7 @@
 | `operations` | 저널 fold의 현재 작업 배열이다. |
 | `operationHistory` | 작업별 상태와 전달 상태의 변화다. |
 
-`events`의 저널 이벤트는 `type`, `seq`, `version`, 범위 식별자와 `data`를 가진다. 관측 전용 이벤트는 `type`, 범위 식별자, `data`, `observational:true`를 가진다. `at`과 `writeId`는 투영에서 제외한다. 두 종류는 같은 배열 안에서 명확히 구분된다. `journalEvents`에는 저널 이벤트만 있다.
+`events`의 저널 이벤트는 `type`, `seq`, `version`, 범위 식별자와 `data`를 가진다. 관측 전용 이벤트는 `type`, 범위 식별자, `data`, `observational:true`를 가진다. `at`, `writeId`와 작업 이벤트의 시각 필드는 투영에서 제외한다. 두 종류는 같은 배열 안에서 명확히 구분된다. `journalEvents`에는 저널 이벤트만 있다.
 
 컨텍스트 투영은 공통 실행 컨텍스트의 `agent`, `sessionId`, `turnId`, `instance`, `executionId`, 선택적인 `parentExecutionId` 또는 `operationId`를 포함한다. 모델 컨텍스트는 `step`, 도구 컨텍스트는 `toolCall`, `input`, `conversation`, `execution`, 훅 컨텍스트는 `inputKind`, `step`, `input`, `conversation`, `retryCount`를 추가한다.
 

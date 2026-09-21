@@ -1,5 +1,5 @@
 {
-  "description": "훅 컨텍스트의 model.run 호출에서 전달한 텍스트 조각은 알리지 않고, 에이전트 실행의 모델 호출이 전달한 조각만 step.textDelta 이벤트가 된다.",
+  "description": "훅 컨텍스트의 model.run 호출도 source가 hook인 step 이벤트와 텍스트 조각을 내보내며, usage가 보고된 호출에만 usage를 싣는다.",
   "spec": [
     "텍스트 조각"
   ],

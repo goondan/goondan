@@ -1,0 +1,84 @@
+{
+  "steps": [{}],
+  "observations": {
+    "journalEvents": [
+      {
+        "seq": 1,
+        "version": 1,
+        "type": "operation.created",
+        "sessionId": "cause",
+        "agent": "main",
+        "instance": "cause/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "operationId": "<op:call-fixed>",
+        "data": {
+          "operation": {
+            "operationId": "<op:call-fixed>",
+            "deliveryId": "operation:<op:call-fixed>:completion",
+            "agent": "main",
+            "sessionId": "cause",
+            "turnId": "<turn:1>",
+            "instance": "cause/main",
+            "executionId": "<execution:1>",
+            "toolCall": {"id": "call-fixed", "name": "publish", "args": {}},
+            "reasons": ["승인이 필요합니다."],
+            "status": "pending",
+            "deliveryStatus": "pending"
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "version": 1,
+        "type": "operation.approved",
+        "sessionId": "cause",
+        "agent": "main",
+        "instance": "cause/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "operationId": "<op:call-fixed>",
+        "data": {}
+      },
+      {
+        "seq": 3,
+        "version": 1,
+        "type": "operation.failed",
+        "sessionId": "cause",
+        "agent": "main",
+        "instance": "cause/main",
+        "turnId": "<turn:1>",
+        "executionId": "<execution:1>",
+        "operationId": "<op:call-fixed>",
+        "data": {
+          "error": "게시 작업이 실패했습니다.",
+          "errorCode": "execution_failed",
+          "cause": {
+            "where": "tool",
+            "codes": ["tool_error"],
+            "message": "도구가 실패했습니다.",
+            "attempt": 2,
+            "toolCall": {"id": "call-fixed", "name": "publish", "args": {}}
+          }
+        }
+      }
+    ],
+    "operations": [
+      {
+        "operationId": "<op:call-fixed>",
+        "deliveryId": "operation:<op:call-fixed>:completion",
+        "agent": "main",
+        "sessionId": "cause",
+        "turnId": "<turn:1>",
+        "instance": "cause/main",
+        "executionId": "<execution:1>",
+        "toolCall": {"id": "call-fixed", "name": "publish", "args": {}},
+        "reasons": ["승인이 필요합니다."],
+        "status": "failed",
+        "deliveryStatus": "pending",
+        "error": "게시 작업이 실패했습니다.",
+        "errorCode": "execution_failed"
+      }
+    ]
+  }
+}

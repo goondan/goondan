@@ -533,6 +533,8 @@ class AnthropicModel:
     `build_request(model_input)` returns the same request body without sending anything.
     """
 
+    provider = PROVIDER
+
     def __init__(self, config: HttpModelConfig, settings: _Settings, headers: dict[str, str], httpx_module: Any):
         self._config = config
         self._settings = settings

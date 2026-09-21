@@ -39,6 +39,11 @@ async def generate(scripted: ScriptedClient, ctx: Context | None = None, **setti
     return await model.generate(user_input("hi"), ctx if ctx is not None else Context())
 
 
+def test_official_models_expose_provider_identifiers():
+    assert anthropic_model(model=MODEL, api_key="k", env={}, http_client=object()).provider == "anthropic"
+    assert openai_chat_model(model=MODEL, api_key="k", env={}, http_client=object()).provider == "openai"
+
+
 async def test_retries_an_overloaded_response_and_honours_retry_after():
     scripted = ScriptedClient([
         json_response(529, {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}, {"retry-after": "0"}),

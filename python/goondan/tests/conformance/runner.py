@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from goondan import GoondanConfigError, StoreConflictError, StoreInputError, create_goondan, fold, load_config, validate_config
+from goondan._schema import validate_definition
 
 from .bindings import CaseState, RuntimeBindings, project_event, project_operation, snapshot
 from .casefile import CASE_ID, STEP_ACTIONS, check_case
@@ -647,6 +648,9 @@ class CaseRunner:
             for event in stored if isinstance(event, Mapping)
         }
         for event in self.state.observations.raw_events:
+            issues = validate_definition("executionEvent", event)
+            if issues:
+                self.problems.append(f"event {event.get('type')!r} does not satisfy executionEvent: {issues!r}")
             if event.get("observational") is True:
                 if "seq" in event:
                     self.problems.append("an observational event must not have seq")

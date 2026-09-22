@@ -5,9 +5,27 @@ build-backend = "hatchling.build"
 [project]
 name = "goondan"
 version = "0.1.0"
-description = "Native Python runtime for portable Goondan configurations"
+description = "Goondan runtime for Python: runs YAML-declared agents, routes and hooks over a per-session journal"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["goondan", "agent", "runtime", "llm", "yaml"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Typing :: Typed",
+]
 dependencies = ["Jinja2>=3.1,<4", "PyYAML>=6,<7"]
+
+[project.urls]
+Homepage = "https://github.com/goondan/goondan#readme"
+Repository = "https://github.com/goondan/goondan"
+Issues = "https://github.com/goondan/goondan/issues"
 
 [project.optional-dependencies]
 # `goondan.models`, the official Anthropic and OpenAI adapters, sends its requests with httpx.

@@ -1,7 +1,24 @@
 {
   "name": "@goondan/cli",
-  "version": "0.0.3-alpha29",
-  "description": "Goondan CLI (gdn)",
+  "version": "0.1.0",
+  "description": "Goondan CLI (gdn): run a goondan.yaml, inspect the effective config and chat with a legion from the terminal",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goondan/goondan.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/goondan/goondan#readme",
+  "bugs": {
+    "url": "https://github.com/goondan/goondan/issues"
+  },
+  "keywords": [
+    "goondan",
+    "agent",
+    "runtime",
+    "llm",
+    "yaml"
+  ],
   "type": "module",
   "bin": {
     "gdn": "dist/goondan-bin.js"

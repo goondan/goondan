@@ -661,3 +661,7 @@ pnpm gdn chat --provider openai --base-url http://localhost:11434/v1 --model lla
 ```
 
 모델 요청과 셸 실행에는 기본 시간 제한이 없습니다. 호스트는 필요한 시간 제한, 취소 정책과 사용량 관측을 적용해야 합니다.
+
+## 라이선스
+
+Apache-2.0. 전문은 [`LICENSE`](./LICENSE)에 있습니다.

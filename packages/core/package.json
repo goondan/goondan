@@ -1,6 +1,24 @@
 {
   "name": "@goondan/core",
-  "version": "0.0.3-alpha29",
+  "version": "0.1.0",
+  "description": "Goondan runtime for TypeScript: runs YAML-declared agents, routes and hooks over a per-session journal",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goondan/goondan.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/goondan/goondan#readme",
+  "bugs": {
+    "url": "https://github.com/goondan/goondan/issues"
+  },
+  "keywords": [
+    "goondan",
+    "agent",
+    "runtime",
+    "llm",
+    "yaml"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,6 +1,6 @@
 {
   "name": "@goondan/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Goondan CLI (gdn): run a goondan.yaml, inspect the effective config and chat with a legion from the terminal",
   "license": "Apache-2.0",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@goondan/models",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official Goondan model adapters for the Anthropic Messages and OpenAI Chat Completions APIs, specified by spec/model-adapters.md and verified by shared fixtures in both hosts",
   "license": "Apache-2.0",
   "repository": {

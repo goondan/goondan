@@ -10,6 +10,21 @@ Goondan은 YAML로 에이전트 구성과 연결을 표현하고 TypeScript와 P
 4. 호스트 API나 사용자 동작이 바뀌면 `README.md`를 함께 갱신합니다.
 5. `pnpm build`, `pnpm test`, `pnpm typecheck`로 검증합니다. `pnpm test`는 두 호스트의 단위 검사와 공통 실행 사례를 모두 실행합니다.
 
+## 커밋과 릴리스
+
+Conventional Commits는 커밋 제목의 접두사로 변경 종류와 호환성 영향을 표현하는 규칙입니다.
+
+릴리스 PR은 다음 버전과 변경 이력을 함께 제안하는 자동 Pull Request입니다.
+
+규범 버전은 `spec/goondan.md`가 정의하는 실행 계약의 버전이며 패키지 버전과 별도로 관리합니다.
+
+- 기본 브랜치에 남는 커밋 제목은 Conventional Commits 형식으로 작성합니다. 기능은 `feat:`, 버그 수정은 `fix:`, 호환성을 깨는 변경은 `feat!:` 또는 `BREAKING CHANGE:`를 사용합니다. `chore:`, `refactor:`, `ci:`는 그 변경만으로 새 버전을 만들지 않습니다.
+- release-please는 각 커밋이 바꾼 경로로 릴리스할 패키지를 판단합니다. 사람이 변경 범위를 파악하기 쉽도록 `fix(python): ...`, `feat(core): ...`처럼 범위를 명시하며, 이 표기는 강제하지 않습니다.
+- release-please는 패키지별 버전과 `CHANGELOG.md`를 갱신하되 여러 패키지의 항목을 릴리스 PR 하나에 모읍니다. `@goondan/core`가 바뀌면 `node-workspace`가 내부 의존 관계를 따라 이를 사용하는 npm 패키지도 patch 버전으로 릴리스합니다.
+- 실행 계약을 바꾸는 Pull Request에서는 `spec/goondan.md`의 규범 버전과 TypeScript·Python의 `SPEC_VERSION`을 함께 올립니다. 두 호스트의 일치 검사가 누락을 차단합니다.
+- 릴리스할 때에는 패키지별 버전과 변경 이력을 확인한 뒤 릴리스 PR을 병합합니다. 병합하면 `core-v<version>`, `models-v<version>`, `cli-v<version>`, `goondan-v<version>` 형식의 해당 태그와 GitHub Release가 생성되고, 기존 게이트를 통과한 버전이 npm과 PyPI에 게시됩니다.
+- 발행 실패를 복구할 때에는 `release` 워크플로를 수동으로 다시 실행합니다. 각 레지스트리에 이미 게시된 패키지는 건너뜁니다.
+
 ## 구조
 
 - `packages/core`: TypeScript 코어 런타임과 공개 타입

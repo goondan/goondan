@@ -1,3 +1,5 @@
+export const SPEC_VERSION = "0.1";
+
 export { loadConfig, loadConfigSync, validateConfig } from "./config.ts";
 export {
   GoondanConfigError, GoondanExecutionError, formatConfigIssues,

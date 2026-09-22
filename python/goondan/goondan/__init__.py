@@ -26,10 +26,12 @@ from .types import (
     define_tool,
 )
 
+SPEC_VERSION = "0.1"
+
 __all__ = [
     "Extension", "ExtensionDefinition", "HookContext", "ModelContext", "NoLog", "RunHandle", "RunResult",
     "InMemoryStore", "Store", "StoreConflictError", "StoreError", "StoreInputError",
-    "FOLD_VERSION", "FoldError", "UnsupportedJournalVersionError", "fold",
+    "FOLD_VERSION", "SPEC_VERSION", "FoldError", "UnsupportedJournalVersionError", "fold",
     "GoondanAbortError", "GoondanConfig", "GoondanConfigError", "GoondanError",
     "GoondanExecutionError", "Goondan", "Tool",
     "create_goondan", "define_extension", "define_tool", "load_config", "validate_config",

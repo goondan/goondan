@@ -1,11 +1,12 @@
 name: release
 
-# 태그를 밀면 두 레지스트리에 같은 커밋의 결과물이 올라간다. 수동 실행은 태그를 다시
-# 만들지 않고 발행만 다시 시도할 때 쓴다.
+# release-please가 GitHub Release를 만들면 이 워크플로를 호출해 같은 커밋의 결과물을
+# 두 레지스트리에 올린다. 태그 푸시는 수동 복구 경로로 유지한다.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "*-v*"]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

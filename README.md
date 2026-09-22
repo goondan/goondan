@@ -4,6 +4,14 @@ Goondan은 여러 에이전트를 하나의 군단(goondan)으로 구성하고 �
 
 이 문서는 YAML 작성법과 두 호스트의 공개 API를 설명합니다. 모든 구성 필드와 실행 규칙은 [YAML과 동작 규격](spec/goondan.md), 편집기와 검증기가 사용하는 구조는 [JSON Schema](spec/goondan.schema.json), 공식 모델 어댑터의 요청 변환 규칙은 [모델 어댑터 규격](spec/model-adapters.md)에 있습니다.
 
+## 호스트 호환성
+
+규범 버전은 [YAML과 동작 규격](spec/goondan.md)이 정의하는 실행 계약의 버전입니다. 규범 버전이 같은 TypeScript와 Python 호스트는 같은 YAML을 같은 의미로 실행하며, 각 호스트는 이 값을 `SPEC_VERSION`으로 공개합니다. 저장소의 `main`에서는 공통 실행 사례와 규범 버전 일치 검사가 두 호스트에 같은 규범을 강제합니다. 패키지는 독립적으로 릴리스하되 각 패키지의 major 버전을 규범의 major 버전과 같게 유지합니다. 규범 버전은 실행 계약을 바꾸는 Pull Request에서 사람이 갱신합니다.
+
+| 규범 버전 | `@goondan/core` | `goondan` (PyPI) |
+|---|---|---|
+| 0.1 | 0.1.0 | 0.1.0 |
+
 ## 핵심 개념
 
 군단은 입력을 받아 하나 이상의 에이전트를 실행하고 출력 메시지를 반환하는 단위입니다. 에이전트는 선언 이름으로 식별하며, `routes`는 군단의 진입점 `$input`에서 에이전트나 함수 노드를 거쳐 선택적인 종료점 `$output`으로 이어집니다.
@@ -602,7 +610,7 @@ TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 실행 이�
 
 구성 오류는 두 호스트 모두 `GoondanConfigError`로 보고합니다. 실행 오류는 `where`, `codes`, `message`, `attempt`를 가지며 도구 오류에는 실패한 호출도 들어 있습니다. Python은 일반 실행 오류를 `GoondanExecutionError`, 중단된 실행을 `GoondanAbortError`로 던집니다. 오류 코드 전체는 [규격의 오류 코드](spec/goondan.md#오류-코드)를 따릅니다.
 
-TypeScript `@goondan/core`의 주요 공개 이름은 `Goondan`, `createGoondan`, 구성 로더와 검사기, `MemoryStore`, 저장소 오류, `fold`, 정의 도우미, 오류 클래스와 공개 타입입니다. Python `goondan`의 주요 공개 이름은 `Goondan`, `create_goondan`, 구성 로더와 검사기, `InMemoryStore`, 저장소·fold 오류, 정의 도우미와 공개 타입입니다. 정확한 목록은 `packages/core/src/index.ts`와 `python/goondan/goondan/__init__.py`를 기준으로 삼습니다.
+TypeScript `@goondan/core`의 주요 공개 이름은 `SPEC_VERSION`, `Goondan`, `createGoondan`, 구성 로더와 검사기, `MemoryStore`, 저장소 오류, `fold`, 정의 도우미, 오류 클래스와 공개 타입입니다. Python `goondan`의 주요 공개 이름은 `SPEC_VERSION`, `Goondan`, `create_goondan`, 구성 로더와 검사기, `InMemoryStore`, 저장소·fold 오류, 정의 도우미와 공개 타입입니다. 정확한 목록은 `packages/core/src/index.ts`와 `python/goondan/goondan/__init__.py`를 기준으로 삼습니다.
 
 ## 공식 모델 어댑터
 

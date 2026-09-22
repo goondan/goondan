@@ -32,7 +32,7 @@ jobs:
       - run: pnpm test
 
   npm:
-    name: npm 단계형 발행
+    name: npm 발행
     needs: gate
     runs-on: ubuntu-latest
     # 신뢰 게시(OIDC)는 이 권한으로 단기 신원 증명을 받는다. 보관하는 토큰이 없다.
@@ -51,13 +51,14 @@ jobs:
       - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      # npm은 단계형 발행(staged publish)을 쓴다. 워크플로는 버전을 레지스트리에 올려 두기만
-      # 하고, 공개는 관리자가 npmjs.com이나 `npm stage approve`로 승인해야 이루어진다.
-      # GitHub 쪽(릴리스 PR 병합, 워크플로)이 뚫려도 npm 계정의 승인 없이는 공개되지 않는다.
-      # 공개된 버전이 이미 있으면 건너뛰고, 이미 대기 중인 버전을 다시 올리려 하면 npm이
-      # 거부하므로 그 경우도 건너뛴다. 타르볼은 pnpm이 만든다(workspace: 의존을 실제 버전으로
-      # 바꿈). 업로드는 npm이 한다(OIDC 교환을 npm CLI가 처리함).
-      - name: 단계형 발행
+      # core가 먼저 올라가야 models와 cli의 의존이 레지스트리에 존재한다.
+      # 이미 같은 버전이 있으면 건너뛰므로 발행을 다시 시도해도 실패하지 않는다.
+      # 있는지는 버전 문서를 직접 조회해 판단한다. 새 버전이 패키지 목록에 반영되기까지
+      # 몇 분이 걸릴 수 있어서, 목록을 읽는 `npm view`로는 방금 올린 버전을 놓친다.
+      # 타르볼은 pnpm이 만든다(workspace: 의존을 실제 버전으로 바꿈). 업로드는 npm이 한다
+      # (OIDC 교환을 npm CLI가 처리함). npmjs.com의 신뢰 게시자 설정에서 세 패키지 모두
+      # 직접 `npm publish`를 허용해 두었다.
+      - name: 발행
         run: |
           set -euo pipefail
           mkdir -p /tmp/tarballs
@@ -66,26 +67,13 @@ jobs:
             version=$(node -p "require('./packages/$pkg/package.json').version")
             code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$name/$version")
             if [ "$code" = "200" ]; then
-              echo "$name@$version 이미 공개됨 — 건너뜀"
-              continue
-            fi
-            if npm stage list "$name" --json 2>/dev/null | grep -q "\"$version\""; then
-              echo "$name@$version 이미 승인 대기 중 — 건너뜀"
+              echo "$name@$version 이미 발행됨 — 건너뜀"
               continue
             fi
             (cd "packages/$pkg" && pnpm pack --pack-destination /tmp/tarballs >/dev/null)
             tgz=$(ls /tmp/tarballs/goondan-$pkg-$version.tgz)
-            if out=$(npm stage publish "$tgz" --access public 2>&1); then
-              echo "$out" | tail -5
-              echo "$name@$version 승인 대기 상태로 올림"
-            elif echo "$out" | grep -qiE "already (exists|staged)|staged version"; then
-              echo "$name@$version 이미 승인 대기 중 — 건너뜀"
-            else
-              echo "$out"; exit 1
-            fi
+            npm publish "$tgz" --access public
           done
-          echo
-          echo "승인: npmjs.com의 각 패키지 Staged 탭에서 승인하거나, 관리자 계정으로 'npm stage list <패키지>'로 id를 확인한 뒤 'npm stage approve <id>'"
 
   pypi:
     name: PyPI 발행

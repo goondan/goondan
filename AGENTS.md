@@ -22,8 +22,7 @@ Conventional Commits는 커밋 제목의 접두사로 변경 종류와 호환성
 - release-please는 각 커밋이 바꾼 경로로 릴리스할 패키지를 판단합니다. 사람이 변경 범위를 파악하기 쉽도록 `fix(python): ...`, `feat(core): ...`처럼 범위를 명시하며, 이 표기는 강제하지 않습니다.
 - release-please는 패키지별 버전과 `CHANGELOG.md`를 갱신하되 여러 패키지의 항목을 릴리스 PR 하나에 모읍니다. `@goondan/core`가 바뀌면 `node-workspace`가 내부 의존 관계를 따라 이를 사용하는 npm 패키지도 patch 버전으로 릴리스합니다.
 - 실행 계약을 바꾸는 Pull Request에서는 `spec/goondan.md`의 규범 버전과 TypeScript·Python의 `SPEC_VERSION`을 함께 올립니다. 두 호스트의 일치 검사가 누락을 차단합니다.
-- 릴리스할 때에는 패키지별 버전과 변경 이력을 확인한 뒤 릴리스 PR을 병합합니다. 병합하면 `core-v<version>`, `models-v<version>`, `cli-v<version>`, `goondan-v<version>` 형식의 해당 태그와 GitHub Release가 생성되고, 기존 게이트를 통과한 버전이 PyPI에 게시되며 npm에는 승인 대기 상태로 올라갑니다.
-- npm은 단계형 발행입니다. 워크플로가 올려 둔 버전은 관리자가 승인해야 공개됩니다. npmjs.com의 각 패키지 Staged 탭에서 승인하거나, 관리자 계정으로 `npm stage list <패키지>`로 id를 확인한 뒤 `npm stage approve <id>`를 실행합니다(2FA 필요). 릴리스 PR 병합과 별개로 npm 계정이 한 번 더 확인하므로, GitHub 쪽이 뚫려도 npm 공개는 막힙니다.
+- 릴리스할 때에는 패키지별 버전과 변경 이력을 확인한 뒤 릴리스 PR을 병합합니다. 병합하면 `core-v<version>`, `models-v<version>`, `cli-v<version>`, `goondan-v<version>` 형식의 해당 태그와 GitHub Release가 생성되고, 기존 게이트를 통과한 버전이 npm과 PyPI에 게시됩니다. npm 신뢰 게시자 설정은 세 패키지 모두 직접 `npm publish`를 허용합니다.
 - 발행 실패를 복구할 때에는 `release` 워크플로를 수동으로 다시 실행합니다. 각 레지스트리에 이미 게시된 패키지는 건너뜁니다.
 
 ## 구조

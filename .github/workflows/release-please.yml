@@ -25,11 +25,17 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  publish:
-    name: 레지스트리 발행
+  # release-please가 GITHUB_TOKEN으로 만든 태그와 Release는 push·release 이벤트로 다른
+  # 워크플로를 깨우지 못한다. workflow_dispatch는 그 예외라, 발행 워크플로를 직접 띄운다.
+  # 재사용 워크플로(workflow_call)로 부르지 않는 이유는 release.yml 머리말에 있다.
+  dispatch-publish:
+    name: 발행 워크플로 실행
     needs: release-please
     if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/release.yml
+      actions: write
+    steps:
+      - run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

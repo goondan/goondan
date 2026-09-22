@@ -13,6 +13,7 @@ from test_models_support import (
     input_of,
     sse,
     sse_response,
+    stalled_response,
     text_response,
     user_input,
 )
@@ -415,3 +416,12 @@ async def test_a_text_stream_reports_usage_from_message_start_and_message_delta(
     assert result["usage"] == {"input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0}
     assert result["message"]["meta"]["anthropic"] == {"id": "msg_test", "model": "claude-test", "stopReason": "end_turn"}
     await scripted.aclose()
+
+async def test_returns_at_message_stop_while_transport_remains_open():
+    scripted = ScriptedClient([stalled_response(anthropic_text_stream("done"))])
+    model = anthropic_model(model=MODEL, api_key="test-key", env={}, max_retries=0, idle_timeout_ms=100, http_client=scripted.client)
+    try:
+        result = await model.generate(user_input("hi"), Context())
+        assert result["message"]["content"] == [{"type": "text", "text": "done"}]
+    finally:
+        await scripted.aclose()

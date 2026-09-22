@@ -398,7 +398,7 @@ hooks:
     - {fn: compactConversation}
 ```
 
-`mode: async`인 훅은 아홉 시점에서 모두 사용할 수 있습니다. 비동기 훅은 현재 값을 막거나 바꾸지 않으며, 완료한 결과 메시지는 같은 stateful 인스턴스의 다음 안전한 대화 처리 지점에 예약 순서대로 반영됩니다. 실행이 끝난 뒤 완료되면 다음 실행의 첫 `onStep` 직전에 반영됩니다. stateless 인스턴스가 끝난 뒤 완료된 결과는 저장하지 않고 완료 이벤트만 알립니다.
+`mode: async`인 훅은 아홉 시점에서 모두 사용할 수 있습니다. 비동기 훅은 현재 값을 막거나 바꾸지 않으며, 완료한 결과 메시지는 같은 stateful 인스턴스의 다음 안전한 대화 처리 지점에 예약 순서대로 반영됩니다. 실행이 끝난 뒤 완료되면 다음 실행의 첫 `onStep` 직전에 반영됩니다. stateless 인스턴스가 끝난 뒤 완료된 결과는 저장하지 않고 완료 이벤트만 알립니다. 확장 인스턴스는 해당 비동기 훅이 끝나거나 종료 요청으로 취소된 뒤 정리합니다.
 
 업무상 반드시 지켜야 하는 조건은 프롬프트 문구에만 맡기지 말고 훅, 확장 또는 함수 route의 코드로 검사해야 합니다. 예를 들어 문서 검색의 페이지네이션은 `onPrompt` 확장이 다음 커서를 끝까지 소비하도록 구현하고, 부수 효과의 중복 제거는 도구 확장이 도메인 멱등 키를 검사하게 하며, 현재 commit 확인은 배포 함수 노드가 예상 SHA와 실제 SHA를 비교한 뒤에만 다음 route로 진행하게 합니다.
 
@@ -613,6 +613,8 @@ TypeScript는 `host.emit`, Python은 `emit` 또는 `host.emit`으로 실행 이�
 TypeScript `@goondan/core`의 주요 공개 이름은 `SPEC_VERSION`, `Goondan`, `createGoondan`, 구성 로더와 검사기, `MemoryStore`, 저장소 오류, `fold`, 정의 도우미, 오류 클래스와 공개 타입입니다. Python `goondan`의 주요 공개 이름은 `SPEC_VERSION`, `Goondan`, `create_goondan`, 구성 로더와 검사기, `InMemoryStore`, 저장소·fold 오류, 정의 도우미와 공개 타입입니다. 정확한 목록은 `packages/core/src/index.ts`와 `python/goondan/goondan/__init__.py`를 기준으로 삼습니다.
 
 ## 공식 모델 어댑터
+
+`image` 부분의 `mediaType`은 생략할 수 있습니다. 생략하면 Anthropic 어댑터는 base64 data URL에 적힌 미디어 유형을 사용합니다.
 
 공식 어댑터는 Anthropic Messages API와 OpenAI Chat Completions API 호환 엔드포인트를 지원합니다. 두 언어의 어댑터는 같은 설정과 모델 입력에서 같은 요청 본문, 결과, 텍스트 조각과 오류 코드를 만듭니다.
 

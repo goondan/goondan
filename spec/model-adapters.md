@@ -261,7 +261,7 @@ Anthropic 응답에 Goondan 부분으로 표현할 수 없는 블록이 있으�
 | `content_block_delta` | `index` 위치의 블록을 `delta.type`에 따라 갱신한다. `text_delta`는 `text`를 블록 텍스트에 붙이고 텍스트 조각으로 전달한다. `input_json_delta`는 `partial_json`을 인수 문자열에 붙인다. `thinking_delta`는 `thinking`에, `signature_delta`는 `signature`에 붙이며, `citations_delta`는 `citation`을 `citations` 배열에 추가한다. 그 밖의 `delta.type`은 무시한다. |
 | `content_block_stop` | 무시한다. |
 | `message_delta` | `delta.stop_reason`, `delta.stop_details`, `usage`를 갱신한다. |
-| `message_stop` | 응답이 끝났음을 기록한다. |
+| `message_stop` | 응답이 끝났음을 기록하고 스트림 읽기를 종료한다. |
 | `ping` | 무시한다. |
 | `error` | `error` 객체로 분류한 `ModelError`를 던진다. |
 

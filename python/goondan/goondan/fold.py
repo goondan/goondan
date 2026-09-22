@@ -6,6 +6,8 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ._schema import json_equal, validate_definition
+
 
 FOLD_VERSION = 1
 
@@ -104,7 +106,7 @@ def fold(
         executions = {item["executionId"]: item for item in state["executions"]}
         input_ids = {item["inputId"] for turn in state["turns"] for item in turn["inputs"]}
 
-    for raw in events:
+    for index, raw in enumerate(events):
         if not isinstance(raw, Mapping):
             raise FoldError("journal events must be objects")
         event = copy.deepcopy(dict(raw))
@@ -126,13 +128,12 @@ def fold(
             else:
                 raise FoldError(f"journal seq must be contiguous: expected {expected_seq}, found {seq}")
         expected_seq = seq + 1
-        state["head"] = seq
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             raise FoldError("journal version must be a positive integer")
-        state["version"] = max(state["version"], version)
 
         if version > supported_version or event_type not in _KNOWN_TYPES:
             if event.get("skippable") is True:
+                state["head"] = seq
                 continue
             raise UnsupportedJournalVersionError(f"unsupported journal event: {event_type} version {version}")
         data = event["data"]
@@ -146,11 +147,19 @@ def fold(
                 raise FoldError("snapshot state does not match its scope")
             if not isinstance(through, int) or through >= seq:
                 raise FoldError("snapshot throughSeq must precede the snapshot event")
+            if validate_definition("journalState", snapshot) or event.get("skippable") is not True:
+                raise FoldError("snapshot state is invalid")
+            state["conversations"].sort(key=lambda item: (item["agent"], item["instance"]))
+            if index > 0 and not json_equal(snapshot, state):
+                raise FoldError("snapshot does not match folded state")
             state = copy.deepcopy(dict(snapshot))
             state["head"] = seq
             state["version"] = max(int(state.get("version", 1)), version)
             rebuild_indexes()
             continue
+
+        state["head"] = seq
+        state["version"] = max(state["version"], version)
 
         if event_type.startswith("conversation."):
             key = _conversation_key(event)

@@ -125,7 +125,7 @@ function readPart(value: Json): Part {
     case "json":
       return { type: "json", value: raw.value === undefined ? fail("json part needs a value") : raw.value };
     case "image":
-      return { type: "image", url: text(raw.url, "url"), mediaType: text(raw.mediaType, "mediaType") };
+      return { type: "image", url: text(raw.url, "url"), ...(raw.mediaType === undefined ? {} : { mediaType: text(raw.mediaType, "mediaType") }) };
     case "media":
       return { type: "media", ref: text(raw.ref, "ref"), mediaType: text(raw.mediaType, "mediaType") };
     case "tool.call":

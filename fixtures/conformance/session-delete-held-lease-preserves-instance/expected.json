@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {},
+    {},
+    {
+      "error": {
+        "where": "runtime",
+        "codes": [
+          "runtime_error"
+        ],
+        "attempt": 1
+      }
+    },
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "trace",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "spec": {
+            "model": "m",
+            "extensions": {
+              "trace": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      }
+    ]
+  }
+}

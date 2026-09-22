@@ -1,0 +1,55 @@
+{
+  "description": "활성 임대가 있는 스트림은 토큰을 생략한 쓰기를 거부한다.",
+  "spec": [
+    "동시 쓰기",
+    "스트림과 저장소 계약"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "acquireLease": {
+        "sessionId": "s",
+        "owner": "external",
+        "lease": "l"
+      }
+    },
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "s",
+            "turnId": "t",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "headJournal": {
+        "sessionId": "s"
+      }
+    },
+    {
+      "releaseLease": {
+        "lease": "l"
+      }
+    }
+  ]
+}

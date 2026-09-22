@@ -451,6 +451,9 @@ class Goondan:
         self.max_retries = max_retries
         self._operation_projection = _operation_projection or _OperationProjection()
         self.directory = self.config.directory
+        self._extension_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._journal_locks: dict[str, asyncio.Lock] = {}
+        self._session_tasks: dict[str, set[asyncio.Task[Any]]] = {}
         self._agent_sessions: dict[tuple[str, str], _AgentSession] = {}
         self.sessions = _Sessions(self)
         self.operations = _Operations(self)
@@ -565,35 +568,45 @@ class Goondan:
         has_operation_work = any(stored_session == session_id for stored_session, _ in self._in_flight)
         if self._turn_counts.get(session_id, 0) or self._runs.get(session_id) or self._steering.get(session_id) or has_operation_work:
             raise GoondanExecutionError("runtime", ["runtime_error"], "the session has an active or waiting turn")
-        for key, session in list(self._agent_sessions.items()):
-            stored_session = key[1]
-            if stored_session != session_id:
-                continue
-            tasks = list(session.pending.values())
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            await self._dispose(session.extensions)
-            self._agent_sessions.pop(key, None)
-        self._steering.pop(session_id, None)
-        for key in [key for key in self._agent_locks if key[0] == session_id]:
-            self._agent_locks.pop(key, None)
         lease = await self.store.acquire_lease(session_id, self._journal_owner)
         if lease is None:
             raise GoondanExecutionError("runtime", ["runtime_error"], "the session lease is held by another writer")
-        events = [event async for event in self.store.scan(session_id=session_id)]
-        state = fold(session_id, events)
-        if any(turn["status"] == "running" for turn in state["turns"]) or any(operation["status"] == "running" or operation["deliveryStatus"] == "delivering" for operation in state["operations"]):
+        try:
+            events = [event async for event in self.store.scan(session_id=session_id)]
+            state = fold(session_id, events)
+            if any(turn["status"] == "running" for turn in state["turns"]) or any(operation["status"] == "running" or operation["deliveryStatus"] == "delivering" for operation in state["operations"]):
+                raise GoondanExecutionError("runtime", ["runtime_error"], "the session journal has active work")
+            for key, session in list(self._agent_sessions.items()):
+                if key[1] != session_id:
+                    continue
+                tasks = list(session.pending.values())
+                for task in tasks:
+                    task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                await self._dispose(session.extensions)
+                self._agent_sessions.pop(key, None)
+            await self.store.delete_session(session_id, token=lease.token)
+            await self._conversation_projection.delete_session(session_id)
+            self._operation_projection.operations = {key: value for key, value in self._operation_projection.operations.items() if key[0] != session_id}
+            self._recovered_sessions.discard(session_id)
+            self._steering.pop(session_id, None)
+            for key in [key for key in self._agent_locks if key[0] == session_id]:
+                self._agent_locks.pop(key, None)
+        finally:
             await lease.release()
-            raise GoondanExecutionError("runtime", ["runtime_error"], "the session journal has active work")
-        await self.store.delete_session(session_id, token=lease.token)
-        await self._conversation_projection.delete_session(session_id)
 
     # --- extension instances ------------------------------------------------------------------
 
     async def _session(self, agent_name: str, session_id: str) -> _AgentSession:
         """§확장 인스턴스: prepare this execution scope's instances, once, in declaration order."""
+        if self.config["agents"][agent_name].get("stateful", True) is not True:
+            return await self._create_session(agent_name, session_id)
+        lock = self._extension_locks.setdefault((agent_name, session_id), asyncio.Lock())
+        async with lock:
+            return await self._create_session(agent_name, session_id)
+
+    async def _create_session(self, agent_name: str, session_id: str) -> _AgentSession:
         key = (agent_name, session_id)
         agent = self.config["agents"][agent_name]
         stateful = agent.get("stateful", True) is True
@@ -658,13 +671,25 @@ class Goondan:
         current = self._journal_writers.get(session_id)
         if current is not None:
             return current
+        lock = self._journal_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            current = self._journal_writers.get(session_id)
+            if current is not None:
+                return current
+            return await self._initialize_journal(session_id)
+
+    async def _initialize_journal(self, session_id: str) -> _JournalWriter:
         while True:
             lease = await self.store.acquire_lease(session_id, self._journal_owner)
             if lease is not None:
                 break
             await asyncio.sleep(0)
-        events = [event async for event in self.store.scan(session_id=session_id)]
-        journal_state = fold(session_id, events)
+        try:
+            events = [event async for event in self.store.scan(session_id=session_id)]
+            journal_state = fold(session_id, events)
+        except BaseException:
+            await lease.release()
+            raise
         await self._conversation_projection.delete_session(session_id)
         for conversation in journal_state["conversations"]:
             await self._conversation_projection.replace(session_id, conversation["agent"], conversation["messages"])
@@ -709,8 +734,7 @@ class Goondan:
                 stream = [event async for event in self.store.scan(session_id=session_id)]
                 journal_state = fold(session_id, stream)
             task = asyncio.create_task(self._recover_session_operations(session_id, journal_state["operations"]))
-            self._delivery_tasks.add(task)
-            task.add_done_callback(self._delivery_tasks.discard)
+            self._track_session_task(task, session_id)
         return writer
 
     async def _renew_lease(self, session_id: str, writer: _JournalWriter) -> None:
@@ -743,6 +767,9 @@ class Goondan:
         turn = self._turn_tasks.get(session_id)
         if turn is not None and not turn.done():
             turn.cancel()
+        for task in self._session_tasks.get(session_id, ()):
+            if task is not asyncio.current_task() and not task.done():
+                task.cancel()
 
     async def _recover_session_operations(self, session_id: str, operations: Sequence[Mapping[str, Any]]) -> None:
         """재생한 작업 목록을 저장 순서대로 이어서 처리합니다."""
@@ -1105,6 +1132,11 @@ class Goondan:
             found = stage_error(stage, outcome, call_id)
             if found: raise GoondanError(f"a {stage} hook result {found}")
             return outcome
+        if control.kind == "append":
+            messages = result.value["messages"] if stage == "onModelInput" else result.value
+            updated, _ = append_messages(messages, control.value)
+            if not is_message_array(updated):
+                raise GoondanError("appended messages must have distinct ids")
         if control.kind == "retry" and stage == "onModelResult" and state.retry_count >= self.max_retries:
             raise GoondanError(f"the retry limit of {self.max_retries} was already reached")
         return control
@@ -1675,10 +1707,12 @@ class Goondan:
     async def _finish_stateless_session(self, session: _AgentSession) -> None:
         """stateless 비동기 훅은 완료 이벤트까지 실행하고 결과 메시지는 폐기합니다."""
         tasks = list(session.pending.values())
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        session.pending.clear()
-        await self._dispose(session.extensions)
+        try:
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            session.pending.clear()
+            await self._dispose(session.extensions)
 
     async def _run_stages(self, state: _RunState) -> dict[str, Any]:
         """입력 묶음 훅을 적용한 뒤 모델·도구 반복을 실행합니다."""
@@ -2488,8 +2522,19 @@ class Goondan:
         root = self._root
         root._hold(key)
         task = asyncio.create_task(self._released(work, key))
-        root._delivery_tasks.add(task)
-        task.add_done_callback(root._delivery_tasks.discard)
+        root._track_session_task(task, key[0])
+
+    def _track_session_task(self, task: asyncio.Task[Any], session_id: str) -> None:
+        self._delivery_tasks.add(task)
+        tasks = self._session_tasks.setdefault(session_id, set())
+        tasks.add(task)
+        def finished(done: asyncio.Task[Any]) -> None:
+            self._delivery_tasks.discard(done)
+            tasks.discard(done)
+            if not tasks and self._session_tasks.get(session_id) is tasks:
+                self._session_tasks.pop(session_id, None)
+            _consume_task_result(done)
+        task.add_done_callback(finished)
 
     async def _released(self, work: Any, key: tuple[str, str]) -> None:
         try:

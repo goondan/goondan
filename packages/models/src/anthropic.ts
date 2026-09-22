@@ -123,7 +123,7 @@ function textBlock(text: string): JsonObject {
 function imageBlock(part: Extract<Part, { type: "image" }>): JsonObject {
   const match = BASE64_DATA_URL.exec(part.url);
   if (match !== null) {
-    const mediaType = part.mediaType === "" ? match[1] ?? "" : part.mediaType;
+    const mediaType = part.mediaType || match[1] || "";
     return { type: "image", source: { type: "base64", media_type: mediaType, data: match[2] ?? "" } };
   }
   if (HTTP_URL.test(part.url)) return { type: "image", source: { type: "url", url: part.url } };
@@ -396,7 +396,7 @@ class AnthropicStreamAssembler implements StreamAssembler {
         break;
       case "message_stop":
         this.#stopped = true;
-        break;
+        return true;
       case "error":
         throw streamError(PROVIDER, own(event, "error"), this.#requestId ?? stringOf(own(event, "request_id")));
       default:

@@ -1,0 +1,98 @@
+{
+  "description": "삭제한 세션 ID로 새 스트림을 만든 뒤에도 삭제된 승인 작업은 결정할 수 없다.",
+  "spec": [
+    "세션",
+    "삭제",
+    "결정과 조회"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "before"
+          },
+          {
+            "text": "after"
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "operation.created",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "operation-fixed",
+            "data": {
+              "operation": {
+                "operationId": "operation-fixed",
+                "deliveryId": "operation:operation-fixed:completion",
+                "agent": "main",
+                "sessionId": "cause",
+                "turnId": "turn-fixed",
+                "instance": "cause/main",
+                "executionId": "execution-fixed",
+                "toolCall": {
+                  "id": "call-fixed",
+                  "name": "publish",
+                  "args": {}
+                },
+                "reasons": [
+                  "승인이 필요합니다."
+                ],
+                "status": "pending",
+                "deliveryStatus": "pending",
+                "createdAt": 1,
+                "updatedAt": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "run": {
+        "sessionId": "cause",
+        "input": "one"
+      }
+    },
+    {
+      "deleteSession": {
+        "sessionId": "cause"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "cause",
+        "input": "two"
+      }
+    },
+    {
+      "decide": {
+        "sessionId": "cause",
+        "operation": "operation-fixed",
+        "value": {
+          "decision": "rejected"
+        }
+      }
+    }
+  ]
+}

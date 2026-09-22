@@ -245,6 +245,7 @@ export interface ExtensionScript {
 }
 
 export interface CaseBindings {
+  emit?: Map<string, Op>;
   models: Map<string, ModelScript>;
   tools: Map<string, ToolScript>;
   functions: Map<string, Op>;
@@ -274,6 +275,8 @@ export type Step =
   | { action: "appendJournal"; settle: boolean; events: Json[]; lease?: string; expected?: number; writeId?: string }
   | { action: "appendOperationTransition"; settle: boolean; sessionId: string; operation: string; status: "approved" | "running" | "rejected" | "delivering" }
   | { action: "scanJournal"; settle: boolean; sessionId?: string; fromSeq?: number; limit?: number }
+  | { action: "leaseRenewal"; settle: boolean; sessionId: string; succeeds: boolean }
+  | { action: "foldJournal"; settle: boolean; sessionId: string; events: Json[] }
   | { action: "headJournal"; settle: boolean; sessionId: string }
   | { action: "deleteStoreSession"; settle: boolean; sessionId: string; lease: string }
   | { action: "parallel"; settle: boolean; branches: Step[][] };
@@ -716,7 +719,7 @@ function parseExtensionScript(raw: Json | undefined, pointer: string, name: stri
 
 function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
   const object = readObject(raw, pointer);
-  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "maxRetries"]);
+  requireKeys(object, pointer, ["models", "tools", "functions", "extensions", "ports", "maxRetries", "emit"]);
   const bindings: CaseBindings = {
     models: new Map(),
     tools: new Map(),
@@ -724,6 +727,12 @@ function parseBindings(raw: Json | undefined, pointer: string): CaseBindings {
     extensions: new Map(),
     ports: new Map(),
   };
+  if (Object.hasOwn(object, "emit")) {
+    bindings.emit = new Map();
+    for (const [name, op] of Object.entries(readObject(object["emit"], at(pointer, "emit")))) {
+      bindings.emit.set(name, parseOp(op, at(at(pointer, "emit"), name), "value", `emit.${name}`));
+    }
+  }
   if (Object.hasOwn(object, "models")) {
     const models = readObject(object["models"], at(pointer, "models"));
     for (const [name, value] of Object.entries(models)) {
@@ -797,6 +806,8 @@ const STEP_ACTIONS = [
   "appendOperationTransition",
   "scanJournal",
   "headJournal",
+  "foldJournal",
+  "leaseRenewal",
   "deleteStoreSession",
   "parallel",
 ] as const;
@@ -954,6 +965,16 @@ function parseStep(raw: Json | undefined, pointer: string, inBranch: boolean): S
       if (Object.hasOwn(payload, "fromSeq")) step.fromSeq = readNonNegativeInteger(payload["fromSeq"], at(valuePointer, "fromSeq"));
       if (Object.hasOwn(payload, "limit")) step.limit = readNonNegativeInteger(payload["limit"], at(valuePointer, "limit"));
       return step;
+    }
+    case "leaseRenewal": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "succeeds"]);
+      return { action, settle, sessionId: readString(payload["sessionId"], at(valuePointer, "sessionId")), succeeds: readBoolean(payload["succeeds"], at(valuePointer, "succeeds")) };
+    }
+    case "foldJournal": {
+      const payload = readObject(value, valuePointer);
+      requireKeys(payload, valuePointer, ["sessionId", "events"]);
+      return { action, settle, sessionId: readString(payload["sessionId"], at(valuePointer, "sessionId")), events: readArray(payload["events"], at(valuePointer, "events")) };
     }
     case "headJournal": {
       const payload = readObject(value, valuePointer);
@@ -1141,7 +1162,7 @@ export function parseExpected(raw: Json, caseFile: CaseFile): ExpectedFile {
     }
     if (
       step.kind === "result" &&
-      !["run", "awaitRun", "decide", "list", "abort", "acquireLease", "renewLease", "appendJournal", "scanJournal", "headJournal"].includes(actual.action)
+      !["run", "awaitRun", "decide", "list", "abort", "acquireLease", "renewLease", "appendJournal", "scanJournal", "headJournal", "foldJournal"].includes(actual.action)
     ) {
       fail(`/steps/${String(index)}/result`, `step ${actual.action} has no return value`);
     }

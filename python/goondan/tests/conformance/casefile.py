@@ -72,7 +72,7 @@ HOOK_OPS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 
 STEP_ACTIONS = (
     "run", "awaitRun", "decide", "list", "abort", "deleteSession", "restart", "close", "release", "reach",
-    "acquireLease", "renewLease", "releaseLease", "appendJournal", "scanJournal", "headJournal",
+    "acquireLease", "renewLease", "releaseLease", "appendJournal", "scanJournal", "headJournal", "foldJournal", "leaseRenewal",
     "appendOperationTransition", "deleteStoreSession", "parallel",
 )
 
@@ -328,7 +328,10 @@ class _Check:
     def bindings(self, value: Any, path: str) -> None:
         if not self.mapping(value, path):
             return
-        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "maxRetries"))
+        self.keys(value, path, ("models", "tools", "functions", "extensions", "ports", "maxRetries", "emit"))
+        if "emit" in value and self.mapping(value["emit"], f"{path}/emit"):
+            for name, op in value["emit"].items():
+                self.op(op, f"{path}/emit/{name}", hooks=False)
         if "models" in value and self.mapping(value["models"], f"{path}/models"):
             for name, script in value["models"].items():
                 at = f"{path}/models/{name}"
@@ -396,6 +399,8 @@ class _Check:
             "appendJournal": (("events", "lease", "expected", "writeId"), ("events",)),
             "appendOperationTransition": (("sessionId", "operation", "status"), ("sessionId", "operation", "status")),
             "scanJournal": (("sessionId", "fromSeq", "limit"), ()),
+            "leaseRenewal": (("sessionId", "succeeds"), ("sessionId", "succeeds")),
+            "foldJournal": (("sessionId", "events"), ("sessionId", "events")),
             "headJournal": (("sessionId",), ("sessionId",)),
             "deleteStoreSession": (("sessionId", "lease"), ("sessionId", "lease")),
         }
@@ -404,6 +409,8 @@ class _Check:
         for key in ("sessionId", "operation", "status", "agent", "startAgent", "owner", "lease", "writeId"):
             if key in argument:
                 self.text(argument[key], f"{at}/{key}")
+        if action == "leaseRenewal":
+            self.boolean(argument.get("succeeds"), f"{at}/succeeds")
         if action == "run":
             if "handle" in argument:
                 self.text(argument["handle"], f"{at}/handle")
@@ -422,7 +429,7 @@ class _Check:
             "approved", "running", "rejected", "delivering"
         ):
             self.add(f"{at}/status", "must be 'approved', 'running', 'rejected' or 'delivering'")
-        if action == "appendJournal":
+        if action in ("appendJournal", "foldJournal"):
             self.array(argument.get("events"), f"{at}/events")
         operation = argument.get("operation")
         if isinstance(operation, str) and not operation.startswith("<op:") and "sessionId" not in argument:

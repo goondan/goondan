@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "error": {
+        "where": "onError",
+        "codes": [
+          "hook_error"
+        ],
+        "attempt": 1
+      }
+    }
+  ]
+}

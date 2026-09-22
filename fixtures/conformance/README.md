@@ -53,7 +53,7 @@
 
 ### 바인딩
 
-`bindings`는 `models`, `tools`, `functions`, `extensions`, `ports`, `maxRetries`를 선택적으로 가진다. 러너는 사례마다 기록 기능을 더한 메모리 저널 저장소 하나를 `store`로 주입한다. 저장소는 `append`, `scan`, `head`, `watch`, `acquireLease`, `deleteSession`을 제공한다. 실행 이벤트 수신 함수도 주입한다. 사례는 실제 네트워크, 환경 변수와 사례 밖의 파일을 사용하지 않는다.
+`bindings`는 `models`, `tools`, `functions`, `extensions`, `ports`, `maxRetries`, `emit`을 선택적으로 가진다. `emit`은 이벤트 종류에서 연산으로 가는 맵이며, 해당 이벤트를 기록한 뒤 연산을 기다린다. 러너는 사례마다 기록 기능을 더한 메모리 저널 저장소 하나를 `store`로 주입한다. 저장소는 `append`, `scan`, `head`, `watch`, `acquireLease`, `deleteSession`을 제공한다. 실행 이벤트 수신 함수도 주입한다. 사례는 실제 네트워크, 환경 변수와 사례 밖의 파일을 사용하지 않는다.
 
 ### 모델 스크립트
 
@@ -139,6 +139,8 @@
 | `appendJournal` | `{events,lease?,expected?,writeId?}` | 저장된 이벤트 배열을 반환한다. |
 | `appendOperationTransition` | `{sessionId,operation,status}` | 종료된 런타임이 남긴 작업을 장애 주입용으로 `approved`, `running`, `rejected`, `delivering` 상태까지 전이한다. |
 | `scanJournal` | `{sessionId?,fromSeq?,limit?}` | 저장된 이벤트 배열을 반환한다. |
+| `leaseRenewal` | `{sessionId,succeeds}` | 해당 세션의 이후 임대에 100ms 만료를 설정하고 갱신 성공 여부를 제어한다. 실패한 갱신은 임대를 해제한다. |
+| `foldJournal` | `{sessionId,events}` | 주어진 저장 이벤트의 fold 결과를 반환하며, 저널 검증에 실패하면 `{foldError:true}`를 반환한다. 저장소는 변경하지 않는다. |
 | `headJournal` | `{sessionId}` | 현재 head를 반환한다. |
 | `deleteStoreSession` | `{sessionId,lease}` | 저장소에서 세션을 직접 삭제한다. |
 

@@ -440,3 +440,10 @@ describe("Anthropic cancellation and idle timeout", () => {
     expectModelError(await rejectionOf(createAnthropicModel({ model: MODEL, apiKey: "k", env: {}, fetch, idleTimeoutMs: 30, maxRetries: 0 }).generate(userInput("hi"), context())), "timeout");
   });
 });
+
+ it("returns at message_stop while the transport remains open", async () => {
+  const { fetch } = scriptedFetch([new Response(stalledStream(anthropicTextStream("done")))]);
+  const model = createAnthropicModel({ model: MODEL, apiKey: "test-key", env: {}, maxRetries: 0, idleTimeoutMs: 100, fetch });
+  const result = await model.generate(userInput("hi"), context());
+  expect(result.message.content).toEqual([{ type: "text", text: "done" }]);
+});

@@ -7,6 +7,8 @@ objects for one runtime, so every call can be traced back to the runtime it belo
 
 from __future__ import annotations
 
+import time
+
 import copy
 from typing import Any, Callable, Mapping, Sequence
 
@@ -111,6 +113,34 @@ class Observations:
         self.extension_log: list[dict[str, Any]] = []
 
 
+class FixtureStore(InMemoryStore):
+    """Fault injection for the shared lease-renewal cases."""
+    def __init__(self):
+        super().__init__()
+        self.renewals = {}
+
+    async def acquire_lease(self, session_id, owner):
+        held = await super().acquire_lease(session_id, owner)
+        if held is None or session_id not in self.renewals:
+            return held
+        store = self
+        class ExpiringLease:
+            def __init__(self):
+                self.token = held.token
+                self.expires_at = time.time_ns() // 1_000_000 + 100
+            async def renew(self):
+                if not store.renewals[session_id]:
+                    await held.release()
+                    return False
+                if not await held.renew():
+                    return False
+                self.expires_at = time.time_ns() // 1_000_000 + 100
+                return True
+            async def release(self):
+                await held.release()
+        return ExpiringLease()
+
+
 class CaseState:
     """Everything one case shares between its runtimes."""
 
@@ -120,7 +150,7 @@ class CaseState:
         self.gates = Gates()
         self.ops = OpRunner(self.gates)
         self.observations = Observations()
-        self.store = InMemoryStore()
+        self.store = FixtureStore()
         self.operation_aliases: dict[str, str] = {}
         self.operation_records: dict[str, Any] = {}
         self.model_cursor: dict[str, int] = {}
@@ -444,5 +474,8 @@ class RuntimeBindings:
             value = snapshot(event)
             state.observations.raw_events.append(value)
             state.observations.events.append(project_event(event))
+            op = state.bindings.get("emit", {}).get(event.get("type"))
+            if op is not None:
+                await state.ops.run(op, event, site=f"emit/{event['type']}", owner=self.owner)
 
         return receive

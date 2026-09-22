@@ -1,0 +1,51 @@
+{
+  "description": "이벤트 봉투가 잘못된 배치는 이벤트를 추가하지 않고 거부한다.",
+  "spec": [
+    "이벤트 봉투와 범위",
+    "저널 이벤트 종류"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "s",
+            "turnId": "t",
+            "data": {}
+          },
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "s",
+            "turnId": "t",
+            "data": {},
+            "agent": 42
+          }
+        ]
+      }
+    },
+    {
+      "headJournal": {
+        "sessionId": "s"
+      }
+    }
+  ]
+}

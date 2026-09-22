@@ -1,0 +1,185 @@
+{
+  "description": "재생한 승인 작업의 동시 결정은 세션 작성자와 stateful 확장 초기화를 공유한다.",
+  "spec": [
+    "확장 인스턴스",
+    "복구",
+    "동시 쓰기"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            "work1",
+            "work2"
+          ],
+          "extensions": {
+            "trace": {}
+          }
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "work1": {
+        "results": [
+          {
+            "await": "work1",
+            "then": {
+              "text": "done"
+            }
+          }
+        ]
+      },
+      "work2": {
+        "results": [
+          {
+            "await": "work2",
+            "then": {
+              "text": "done"
+            }
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "trace": {
+        "definition": {
+          "validateOptions": {
+            "op": "await",
+            "gate": "init",
+            "then": {
+              "op": "constant",
+              "value": {}
+            }
+          }
+        },
+        "instance": {}
+      }
+    }
+  },
+  "steps": [
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "operation.created",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "review-operation-1",
+            "data": {
+              "operation": {
+                "operationId": "review-operation-1",
+                "deliveryId": "operation:review-operation-1:completion",
+                "agent": "main",
+                "sessionId": "cause",
+                "turnId": "turn-fixed",
+                "instance": "cause/main",
+                "executionId": "execution-fixed",
+                "toolCall": {
+                  "id": "review-call-1",
+                  "name": "work1",
+                  "args": {}
+                },
+                "reasons": [
+                  "승인이 필요합니다."
+                ],
+                "status": "pending",
+                "deliveryStatus": "pending",
+                "createdAt": 1,
+                "updatedAt": 1
+              }
+            }
+          },
+          {
+            "version": 1,
+            "type": "operation.created",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "review-operation-2",
+            "data": {
+              "operation": {
+                "operationId": "review-operation-2",
+                "deliveryId": "operation:review-operation-2:completion",
+                "agent": "main",
+                "sessionId": "cause",
+                "turnId": "turn-fixed",
+                "instance": "cause/main",
+                "executionId": "execution-fixed",
+                "toolCall": {
+                  "id": "review-call-2",
+                  "name": "work2",
+                  "args": {}
+                },
+                "reasons": [
+                  "승인이 필요합니다."
+                ],
+                "status": "pending",
+                "deliveryStatus": "pending",
+                "createdAt": 1,
+                "updatedAt": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "parallel": [
+        [
+          {
+            "decide": {
+              "sessionId": "cause",
+              "operation": "review-operation-1",
+              "value": {
+                "decision": "approved"
+              }
+            }
+          }
+        ],
+        [
+          {
+            "decide": {
+              "sessionId": "cause",
+              "operation": "review-operation-2",
+              "value": {
+                "decision": "approved"
+              }
+            }
+          }
+        ]
+      ],
+      "settle": false
+    },
+    {
+      "reach": "init"
+    },
+    {
+      "release": "init",
+      "settle": false
+    },
+    {
+      "reach": "work1"
+    },
+    {
+      "reach": "work2"
+    },
+    {
+      "close": {}
+    }
+  ]
+}

@@ -1,0 +1,225 @@
+{
+  "config": {
+    "model": "claude-sonnet-5",
+    "apiKey": "test-key"
+  },
+  "input": {
+    "system": [
+      {
+        "text": "You are a lookup agent.",
+        "cache": true,
+        "source": "system:0"
+      },
+      {
+        "text": "  \n",
+        "cache": true,
+        "source": "system:1"
+      },
+      {
+        "text": "Answer briefly.",
+        "source": "system:2"
+      }
+    ],
+    "messages": [
+      {
+        "id": "s0",
+        "role": "system",
+        "source": "carry",
+        "content": [
+          {
+            "type": "text",
+            "text": "leading operator note"
+          }
+        ]
+      },
+      {
+        "id": "u1",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "image",
+            "url": "data:image/png;base64,iVBORw0KGgo="
+          }
+        ]
+      },
+      {
+        "id": "a1",
+        "role": "assistant",
+        "source": "model",
+        "content": [
+          {
+            "type": "text",
+            "text": "Looking."
+          },
+          {
+            "type": "tool.call",
+            "callId": "c1",
+            "name": "lookup",
+            "args": {
+              "q": 1
+            }
+          },
+          {
+            "type": "tool.call",
+            "callId": "c2",
+            "name": "lookup",
+            "args": {
+              "q": 2
+            }
+          }
+        ],
+        "meta": {
+          "anthropic": {
+            "id": "msg_prev",
+            "model": "claude-sonnet-5",
+            "stopReason": "tool_use",
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig"
+              },
+              {
+                "type": "text",
+                "text": "Looking."
+              },
+              {
+                "type": "tool_use",
+                "id": "c1",
+                "name": "lookup",
+                "input": {
+                  "q": 1
+                }
+              },
+              {
+                "type": "tool_use",
+                "id": "c2",
+                "name": "lookup",
+                "input": {
+                  "q": 2
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "t1",
+        "role": "tool",
+        "source": "tool",
+        "content": [
+          {
+            "type": "tool.result",
+            "callId": "c1",
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "t2",
+        "role": "tool",
+        "source": "tool",
+        "content": [
+          {
+            "type": "tool.result",
+            "callId": "c2",
+            "isError": true,
+            "content": [
+              {
+                "type": "json",
+                "value": {
+                  "ok": false,
+                  "n": 1.5,
+                  "s": "\u00e9\u2028"
+                }
+              },
+              {
+                "type": "image",
+                "url": "data:image/png;base64,iVBORw0KGgo=",
+                "mediaType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a2",
+        "role": "assistant",
+        "source": "model",
+        "content": [
+          {
+            "type": "tool.call",
+            "callId": "orphan",
+            "name": "lookup",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "id": "u2",
+        "role": "user",
+        "source": "input",
+        "content": [
+          {
+            "type": "text",
+            "text": "steer"
+          },
+          {
+            "type": "text",
+            "text": " \t"
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "role": "system",
+        "source": "hook",
+        "content": [
+          {
+            "type": "text",
+            "text": "be brief"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Look up",
+        "input": {
+          "properties": {
+            "q": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    ],
+    "options": {
+      "maxTokens": 100,
+      "temperature": 0,
+      "stop": [
+        "END"
+      ],
+      "toolChoice": "auto",
+      "anthropic": {
+        "thinking": {
+          "type": "adaptive"
+        }
+      },
+      "openai": {
+        "seed": 7
+      }
+    }
+  }
+}

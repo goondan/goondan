@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {
+      "error": {
+        "storeError": "StoreInputError"
+      }
+    },
+    {
+      "result": 0
+    }
+  ]
+}

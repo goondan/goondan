@@ -148,8 +148,12 @@ export class MemoryStore implements Store {
       while (!options.signal?.aborted) {
         if (!watcher.pending) {
           await new Promise<void>((resolve) => {
-            watcher.wake = resolve;
-            options.signal?.addEventListener("abort", () => resolve(), { once: true });
+            const wake = (): void => {
+              options.signal?.removeEventListener("abort", wake);
+              resolve();
+            };
+            watcher.wake = wake;
+            options.signal?.addEventListener("abort", wake, { once: true });
           });
         }
         watcher.wake = undefined;

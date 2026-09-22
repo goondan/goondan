@@ -1,0 +1,63 @@
+{
+  "description": "병렬 함수 분기가 실패하면 함께 실행 중인 함수도 취소되어 턴이 끝난다.",
+  "spec": [
+    "route 진행",
+    "실행 중단"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": "main"
+        },
+        {
+          "from": "main",
+          "to": {
+            "fn": "hold"
+          }
+        },
+        {
+          "from": "main",
+          "to": {
+            "fn": "fail"
+          }
+        }
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "start"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "hold": {
+        "op": "await",
+        "gate": "never"
+      },
+      "fail": {
+        "op": "throw",
+        "message": "branch failed"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "input": "hi",
+        "sessionId": "s"
+      }
+    }
+  ]
+}

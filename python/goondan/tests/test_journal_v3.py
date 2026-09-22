@@ -74,7 +74,7 @@ async def test_store_expected_conflict_does_not_append():
     store = InMemoryStore()
     await store.append([new_event()], expected=0)
     with pytest.raises(StoreConflictError):
-        await store.append([new_event("turn.done", data={"result": {}})], expected=0)
+        await store.append([new_event("input.received", inputId="i", data={"input": "hi"})], expected=0)
     assert await store.head("s") == 1
 
 

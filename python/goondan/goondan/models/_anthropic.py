@@ -407,6 +407,7 @@ class _AnthropicStreamAssembler:
             self._message_delta(event)
         elif kind == "message_stop":
             self._stopped = True
+            return True
         elif kind == "error":
             raise stream_error(PROVIDER, event.get("error"), self._request_id or non_empty_text(event.get("request_id")))
         return False

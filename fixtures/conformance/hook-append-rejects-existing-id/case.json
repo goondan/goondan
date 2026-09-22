@@ -1,0 +1,71 @@
+{
+  "description": "훅이 기존 대화의 메시지 ID를 재사용하면 저널 기록 전에 hook_error로 거부한다.",
+  "spec": [
+    "훅 실패",
+    "제어 결과",
+    "단계 값과 대화 저장"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "hooks": {
+            "onStep": [
+              {
+                "fn": "bad"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "functions": {
+      "bad": {
+        "op": "constant",
+        "value": {
+          "append": [
+            {
+              "id": "same",
+              "role": "user",
+              "source": "host",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "different"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "input": [
+          {
+            "id": "same",
+            "role": "user",
+            "source": "host",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "sessionId": "s"
+      }
+    }
+  ]
+}

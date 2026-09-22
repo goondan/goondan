@@ -1,3 +1,4 @@
+import { FixtureStore } from "./conformance-store.ts";
 /**
  * Adapter between the runner and the TypeScript host API.
  *
@@ -64,11 +65,7 @@ export async function createGoondan(config: unknown, bindings: unknown): Promise
 }
 
 export function newStore(): object {
-  const ctor = member(core, "MemoryStore");
-  if (!isFunction(ctor)) throw new UnsupportedError("MemoryStore");
-  const store: unknown = Reflect.construct(ctor, []);
-  if (!isObjectLike(store)) throw new UnsupportedError("MemoryStore");
-  return store;
+  return new FixtureStore();
 }
 
 export async function foldJournal(sessionId: string, events: Json[]): Promise<Json> {

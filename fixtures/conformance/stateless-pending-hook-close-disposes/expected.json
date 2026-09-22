@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "trace",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "spec": {
+            "model": "m",
+            "stateful": false,
+            "extensions": {
+              "trace": {}
+            },
+            "hooks": {
+              "onOutput": [
+                {
+                  "extension": "trace",
+                  "mode": "async"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      }
+    ]
+  }
+}

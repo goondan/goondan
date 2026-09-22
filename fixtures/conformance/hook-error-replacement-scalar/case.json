@@ -1,0 +1,48 @@
+{
+  "description": "onError 훅이 스칼라를 반환하면 hook_error로 거부한다.",
+  "spec": [
+    "훅 실패",
+    "단계 값과 대화 저장"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "hooks": {
+            "onError": [
+              {
+                "fn": "bad"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "failed"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "bad": {
+        "op": "constant",
+        "value": 42
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "input": "hi",
+        "sessionId": "s"
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { JournalFoldError } from "../../src/index.ts";
 /**
  * The conformance runner: case discovery, execution and comparison.
  *
@@ -446,6 +447,16 @@ async function callRuntimeStep(
       const value = callMethod(store, "scan", [options], "store.scan");
       return { kind: "value", value: await collectValues(value) };
     }
+    case "leaseRenewal":
+      callMethod(store, "leaseRenewal", [step.sessionId, step.succeeds], "fixture store.leaseRenewal");
+      return { kind: "none" };
+    case "foldJournal": {
+      try { return { kind: "value", value: await foldJournal(step.sessionId, step.events) }; }
+      catch (error) {
+        if (!(error instanceof JournalFoldError)) throw error;
+        return { kind: "value", value: { foldError: true } };
+      }
+    }
     case "headJournal":
       return { kind: "value", value: await awaited(callMethod(store, "head", [step.sessionId], "store.head")) };
     case "deleteStoreSession": {
@@ -649,6 +660,7 @@ function projectReturnValue(step: Step, value: unknown, failures: string[]): Jso
     case "acquireLease":
     case "renewLease":
     case "headJournal":
+    case "foldJournal":
       return snapshot(value);
     case "appendJournal":
     case "scanJournal": {

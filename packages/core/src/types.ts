@@ -7,7 +7,7 @@ export type Role = "system" | "user" | "assistant" | "tool";
 export type Part =
   | { type: "text"; text: string }
   | { type: "json"; value: Json }
-  | { type: "image"; url: string; mediaType: string }
+  | { type: "image"; url: string; mediaType?: string }
   | { type: "media"; ref: string; mediaType: string }
   | { type: "tool.call"; callId: string; name: string; args: Json }
   | { type: "tool.result"; callId: string; content: Part[]; isError?: boolean };

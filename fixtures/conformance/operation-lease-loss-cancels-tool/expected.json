@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "operationHistory": {
+      "<op:call-fixed>": [
+        "pending/pending",
+        "approved/pending",
+        "running/pending"
+      ]
+    }
+  }
+}

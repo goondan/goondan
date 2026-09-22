@@ -1,0 +1,107 @@
+{
+  "description": "임대를 잃은 승인 작업은 실행 중인 도구를 취소하고 이후 종료 이벤트를 기록하지 않는다.",
+  "spec": [
+    "동시 쓰기",
+    "승인된 작업의 실행"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "tools": [
+            "publish"
+          ]
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    },
+    "tools": {
+      "publish": {
+        "results": [
+          {
+            "await": "work",
+            "then": {
+              "text": "done"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "appendJournal": {
+        "events": [
+          {
+            "version": 1,
+            "type": "operation.created",
+            "sessionId": "cause",
+            "agent": "main",
+            "instance": "cause/main",
+            "turnId": "turn-fixed",
+            "executionId": "execution-fixed",
+            "operationId": "operation-fixed",
+            "data": {
+              "operation": {
+                "operationId": "operation-fixed",
+                "deliveryId": "operation:operation-fixed:completion",
+                "agent": "main",
+                "sessionId": "cause",
+                "turnId": "turn-fixed",
+                "instance": "cause/main",
+                "executionId": "execution-fixed",
+                "toolCall": {
+                  "id": "call-fixed",
+                  "name": "publish",
+                  "args": {}
+                },
+                "reasons": [
+                  "승인이 필요합니다."
+                ],
+                "status": "pending",
+                "deliveryStatus": "pending",
+                "createdAt": 1,
+                "updatedAt": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "leaseRenewal": {
+        "sessionId": "cause",
+        "succeeds": true
+      }
+    },
+    {
+      "decide": {
+        "sessionId": "cause",
+        "operation": "operation-fixed",
+        "value": {
+          "decision": "approved"
+        }
+      },
+      "settle": false
+    },
+    {
+      "reach": "work"
+    },
+    {
+      "leaseRenewal": {
+        "sessionId": "cause",
+        "succeeds": false
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

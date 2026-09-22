@@ -1,0 +1,53 @@
+{
+  "steps": [
+    {},
+    {
+      "parallel": [
+        [
+          {}
+        ],
+        [
+          {}
+        ]
+      ]
+    },
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "observations": {
+    "extensionLog": [
+      {
+        "action": "validateOptions",
+        "extension": "trace",
+        "options": {}
+      },
+      {
+        "action": "create",
+        "instance": 1,
+        "extension": "trace",
+        "options": {},
+        "ports": {},
+        "agent": {
+          "name": "main",
+          "spec": {
+            "model": "m",
+            "tools": [
+              "work1",
+              "work2"
+            ],
+            "extensions": {
+              "trace": {}
+            }
+          }
+        }
+      },
+      {
+        "action": "dispose",
+        "instance": 1
+      }
+    ]
+  }
+}

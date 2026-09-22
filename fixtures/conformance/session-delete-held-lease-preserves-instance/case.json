@@ -1,0 +1,72 @@
+{
+  "description": "다른 작성자의 임대로 삭제가 거절되면 기존 확장 인스턴스를 유지한다.",
+  "spec": [
+    "세션",
+    "확장 인스턴스"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "extensions": {
+            "trace": {}
+          }
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "first"
+          },
+          {
+            "text": "second"
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "trace": {
+        "instance": {}
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "one"
+      }
+    },
+    {
+      "acquireLease": {
+        "sessionId": "s",
+        "owner": "external",
+        "lease": "l"
+      }
+    },
+    {
+      "deleteSession": {
+        "sessionId": "s"
+      }
+    },
+    {
+      "releaseLease": {
+        "lease": "l"
+      }
+    },
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "two"
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

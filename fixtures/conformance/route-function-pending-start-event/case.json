@@ -1,0 +1,78 @@
+{
+  "description": "함수 route는 시작 이벤트 수신자가 대기하는 동안 턴을 유지한다.",
+  "spec": [
+    "route 진행",
+    "이벤트 형식과 전달"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      },
+      "routes": [
+        {
+          "from": "$input",
+          "to": "main"
+        },
+        {
+          "from": "main",
+          "to": {
+            "fn": "pass"
+          }
+        },
+        {
+          "from": {
+            "fn": "pass"
+          },
+          "to": "$output"
+        }
+      ]
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "text": "done"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "pass": {
+        "op": "identity"
+      }
+    },
+    "emit": {
+      "route.function.start": {
+        "op": "await",
+        "gate": "event"
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "sessionId": "s",
+        "input": "hi",
+        "awaitResult": false,
+        "handle": "turn"
+      },
+      "settle": false
+    },
+    {
+      "reach": "event"
+    },
+    {
+      "release": "event"
+    },
+    {
+      "awaitRun": {
+        "handle": "turn"
+      }
+    }
+  ]
+}

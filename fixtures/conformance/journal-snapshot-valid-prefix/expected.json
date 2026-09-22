@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "result": {
+        "version": 1,
+        "sessionId": "s",
+        "head": 2,
+        "conversations": [],
+        "operations": [],
+        "turns": [
+          {
+            "turnId": "<turn:1>",
+            "sessionId": "s",
+            "status": "running",
+            "inputs": []
+          }
+        ],
+        "executions": []
+      }
+    }
+  ]
+}

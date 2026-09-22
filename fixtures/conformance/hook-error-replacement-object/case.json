@@ -1,0 +1,50 @@
+{
+  "description": "onError 훅이 필수 오류 필드를 생략한 객체를 반환하면 hook_error로 거부한다.",
+  "spec": [
+    "훅 실패",
+    "단계 값과 대화 저장"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m",
+          "hooks": {
+            "onError": [
+              {
+                "fn": "bad"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {
+            "error": "failed"
+          }
+        ]
+      }
+    },
+    "functions": {
+      "bad": {
+        "op": "constant",
+        "value": {
+          "message": "broken"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "run": {
+        "input": "hi",
+        "sessionId": "s"
+      }
+    }
+  ]
+}

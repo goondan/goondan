@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ._json import json_text
-from ._schema import json_equal, json_type
+from ._schema import json_equal, json_type, validate_definition
 
 ROLES = ("system", "user", "assistant", "tool")
 FINISH_REASONS = ("stop", "tool", "length", "other")
@@ -100,7 +100,7 @@ def is_message(value: Any, role: str | None = None) -> bool:
 
 
 def is_message_array(value: Any) -> bool:
-    return isinstance(value, list) and all(is_message(item) for item in value)
+    return isinstance(value, list) and all(is_message(item) for item in value) and len({item["id"] for item in value}) == len(value)
 
 
 def is_system_block(value: Any) -> bool:
@@ -166,7 +166,7 @@ def stage_error(stage: str, value: Any, call_id: str | None = None) -> str | Non
     if stage == "onInput":
         return None if is_message_array(value) else "must be an array of messages"
     if stage == "onError":
-        return None if is_json(value) else "must be a JSON value"
+        return None if not validate_definition("executionError", value) else "must be an execution error"
     if stage in ("onPrompt", "onStep"):
         return None if is_message_array(value) else "must be an array of messages"
     if stage == "onModelInput":

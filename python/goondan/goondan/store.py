@@ -10,6 +10,8 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ._schema import validate_definition
+
 
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
@@ -92,6 +94,9 @@ def _validate_new_event(event: Mapping[str, Any]) -> None:
     forbidden = {"seq", "at", "writeId"}.intersection(event)
     if forbidden:
         raise StoreInputError(f"new event contains storage fields: {', '.join(sorted(forbidden))}")
+    candidate = {**event, "seq": 1, "at": 0, "writeId": "validation"}
+    if validate_definition("journalEvent", candidate):
+        raise StoreInputError("event does not satisfy the journal schema")
     if "parentExecutionId" in event and "operationId" in event:
         raise StoreInputError("event cannot have both parentExecutionId and operationId")
 
@@ -161,7 +166,7 @@ class InMemoryStore:
         async with self._lock:
             generation = self._generations.get(session_id, 0)
             active = self._leases.get(session_id)
-            if token is not None and (token < generation or active is None or active.token != token):
+            if (active is not None and token != active.token) or (token is not None and (token < generation or active is None)):
                 raise StoreConflictError("the fencing token is not current")
 
             actual_write_id = write_id or uuid.uuid4().hex

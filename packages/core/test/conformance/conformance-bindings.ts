@@ -293,7 +293,8 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
         fn: name,
         context: projectContext(ctx, ["location", "route", "inputKind", "step", "retryCount", "input", "conversation"]),
       });
-      return runOp(op, value, { gates: scripts.gates, counters: scripts.counters, owner });
+      const signal = member(ctx, "signal");
+      return runOp(op, value, { gates: scripts.gates, counters: scripts.counters, owner, ...(signal instanceof AbortSignal ? { signal } : {}) });
     };
   }
   if (scripts.bindings.functions.size > 0) bindings["functions"] = functions;
@@ -310,7 +311,7 @@ export function buildBindings(options: RuntimeBindingOptions): JsonObjectLike {
     bindings["ports"] = ports;
   }
 
-  bindings["host"] = buildHost(scripts);
+  bindings["host"] = buildHost(scripts, owner);
   if (scripts.bindings.maxRetries) bindings["maxRetries"] = scripts.bindings.maxRetries.value;
   return bindings;
 }
@@ -531,13 +532,16 @@ function buildExtension(name: string, script: ExtensionScript, scripts: CaseScri
   return extension;
 }
 
-function buildHost(scripts: CaseScripts): Record<string, unknown> {
+function buildHost(scripts: CaseScripts, owner: object): Record<string, unknown> {
   const observations = scripts.observations;
   return {
-    emit: (event: unknown): void => {
+    emit: async (event: unknown): Promise<void> => {
       const value = snapshot(event);
       observations.rawEvents.push(value);
       observations.events.push(projectEvent(value));
+      const type = member(event, "type");
+      const op = typeof type === "string" ? scripts.bindings.emit?.get(type) : undefined;
+      if (op) await runOp(op, event, { gates: scripts.gates, counters: scripts.counters, owner });
     },
   };
 }

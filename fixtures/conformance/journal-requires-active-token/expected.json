@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {},
+    {
+      "error": {
+        "storeError": "StoreConflictError"
+      }
+    },
+    {
+      "result": 0
+    },
+    {}
+  ]
+}

@@ -237,6 +237,7 @@ export class Goondan {
   readonly #store;
   readonly #renderer: TemplateRenderer;
   readonly #sessions = new Map<string, SessionRuntime>();
+  readonly #extensionInitializations = new Map<string, Deferred<Map<string, ExtensionInstance>>>();
   readonly #instances = new Map<string, Map<string, ExtensionInstance>>();
   readonly #pendingByInstance = new Map<string, Map<string, AsyncHookTask>>();
   readonly #tasks = new Set<Promise<void>>();
@@ -905,12 +906,13 @@ export class Goondan {
         const pending = state.pendingHooks;
         if (pending.size === 0) this.#pendingByInstance.delete(actor.instance);
         else {
-          const discard = Promise.allSettled([...pending.values()].map((task) => task.promise)).then(() => {
+          const discard = Promise.allSettled([...pending.values()].map((task) => task.promise)).then(async () => {
             if (this.#pendingByInstance.get(actor.instance) === pending) this.#pendingByInstance.delete(actor.instance);
+            await this.#dispose(extensions);
           });
           this.#track(discard);
         }
-        await this.#dispose(extensions);
+        if (pending.size === 0) await this.#dispose(extensions);
       }
     }
   }
@@ -1736,7 +1738,12 @@ export class Goondan {
     if (cache) {
       const found = this.#instances.get(key);
       if (found) return found;
+      const pending = this.#extensionInitializations.get(key);
+      if (pending) return pending.promise;
     }
+    const initializing = new Deferred<Map<string, ExtensionInstance>>();
+    void initializing.promise.catch(() => undefined);
+    if (cache) this.#extensionInitializations.set(key, initializing);
     const instances = new Map<string, ExtensionInstance>();
     try {
       for (const name of enabledExtensions(spec)) {
@@ -1755,9 +1762,13 @@ export class Goondan {
       raiseIssues(instanceIssues(agent, spec, this.#bindings, provided));
     } catch (error) {
       await this.#dispose(instances);
+      initializing.reject(error);
       throw error;
+    } finally {
+      if (cache) this.#extensionInitializations.delete(key);
     }
     if (cache) this.#instances.set(key, instances);
+    initializing.resolve(instances);
     void instanceId;
     return instances;
   }
@@ -1875,18 +1886,18 @@ export class Goondan {
     if (!fn) throw routeFailure(`Function ${fnName} is not bound`);
     turn.routeCall += 1;
     const routeCall = turn.routeCall;
-    await this.#emit({
-      type: "route.function.start",
-      sessionId: turn.session.sessionId,
-      turnId: turn.turnId,
-      at: Date.now(),
-      data: { routeCall, route: routeIndex, fn: fnName },
-      observational: true,
-    });
     turn.activity += 1;
     const functionKey = `@fn:${fnName}`;
     turn.functions.set(functionKey, (turn.functions.get(functionKey) ?? 0) + 1);
     try {
+      await this.#emit({
+        type: "route.function.start",
+        sessionId: turn.session.sessionId,
+        turnId: turn.turnId,
+        at: Date.now(),
+        data: { routeCall, route: routeIndex, fn: fnName },
+        observational: true,
+      });
       let output: Message[] | undefined;
       try {
         const returned = await fn(cloneMessages(input), { sessionId: turn.session.sessionId, turnId: turn.turnId, route: routeIndex, signal: turn.controller.signal, log: this.#bindings.logger ?? noLog });
@@ -1999,6 +2010,7 @@ export class Goondan {
   #failTurn(turn: ActiveTurn, error: unknown): void {
     if (turn.failed !== undefined) return;
     turn.failed = error;
+    turn.controller.abort(this.#asExecutionError(error));
     for (const actor of turn.actors.values()) {
       const retained: InputRequest[] = [];
       for (const request of actor.queue) {

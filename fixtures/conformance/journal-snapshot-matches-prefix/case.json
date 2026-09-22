@@ -1,0 +1,63 @@
+{
+  "description": "선행 이벤트의 재생 결과와 다른 스냅샷은 거부한다.",
+  "spec": [
+    "fold",
+    "저널 이벤트 종류"
+  ],
+  "config": {
+    "document": {
+      "agents": {
+        "main": {
+          "model": "m"
+        }
+      }
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "foldJournal": {
+        "sessionId": "s",
+        "events": [
+          {
+            "version": 1,
+            "type": "turn.start",
+            "sessionId": "s",
+            "turnId": "snapshot-turn",
+            "data": {},
+            "seq": 1,
+            "at": 0,
+            "writeId": "w"
+          },
+          {
+            "version": 1,
+            "type": "snapshot.saved",
+            "sessionId": "s",
+            "seq": 2,
+            "at": 0,
+            "writeId": "snap",
+            "skippable": true,
+            "data": {
+              "throughSeq": 1,
+              "state": {
+                "version": 1,
+                "sessionId": "s",
+                "head": 1,
+                "conversations": [],
+                "operations": [],
+                "turns": [],
+                "executions": []
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

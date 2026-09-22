@@ -1,6 +1,6 @@
 {
-  "packages/core": "0.1.1",
-  "packages/models": "0.1.1",
-  "packages/cli": "0.1.1",
+  "packages/core": "0.1.2",
+  "packages/models": "0.1.2",
+  "packages/cli": "0.1.2",
   "python/goondan": "0.1.1"
 }

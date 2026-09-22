@@ -52,6 +52,10 @@ await goondan.close();
 - [저장소와 README](https://github.com/goondan/goondan#readme)
 - [실행 규격](https://github.com/goondan/goondan/blob/main/spec/goondan.md)
 
+## 버전 안내
+
+`0.1.1`은 npm에 존재하지 않습니다. 이 이름의 이전 프로젝트가 2026년 2월에 같은 번호를 발행했다가 내렸고, npm은 한 번 내린 버전 번호를 다시 쓰지 못하게 합니다. 0.1.0 다음 버전은 `0.1.2`입니다.
+
 ## 라이선스
 
 Apache-2.0

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3](https://github.com/goondan/goondan/compare/cli-v0.1.2...cli-v0.1.3) (2026-09-27)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @goondan/core bumped to 0.2.0
+    * @goondan/models bumped to 0.1.3
+
 ## [0.1.2](https://github.com/goondan/goondan/compare/cli-v0.1.1...cli-v0.1.2) (2026-09-22)
 
 

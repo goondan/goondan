@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.3](https://github.com/goondan/goondan/compare/models-v0.1.2...models-v0.1.3) (2026-09-27)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * @goondan/core bumped to 0.2.0
+  * peerDependencies
+    * @goondan/core bumped to 0.2.0
+
 ## [0.1.2](https://github.com/goondan/goondan/compare/models-v0.1.1...models-v0.1.2) (2026-09-22)
 
 

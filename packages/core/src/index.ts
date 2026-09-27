@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "0.1";
+export const SPEC_VERSION = "0.2";
 
 export { loadConfig, loadConfigSync, validateConfig } from "./config.ts";
 export {

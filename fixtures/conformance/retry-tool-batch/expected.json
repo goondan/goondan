@@ -13,19 +13,19 @@
         "args": {}
       },
       {
-        "tool": "b",
-        "args": {}
-      },
-      {
-        "tool": "c",
-        "args": {}
-      },
-      {
         "tool": "c",
         "args": {}
       },
       {
         "tool": "d",
+        "args": {}
+      },
+      {
+        "tool": "b",
+        "args": {}
+      },
+      {
+        "tool": "c",
         "args": {}
       }
     ],
@@ -96,6 +96,22 @@
           "content": [
             {
               "type": "tool.result",
+              "callId": "c-4",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "D"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "source": "tool",
+          "content": [
+            {
+              "type": "tool.result",
               "callId": "c-2",
               "content": [
                 {
@@ -117,22 +133,6 @@
                 {
                   "type": "text",
                   "text": "C"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "role": "tool",
-          "source": "tool",
-          "content": [
-            {
-              "type": "tool.result",
-              "callId": "c-4",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "D"
                 }
               ]
             }

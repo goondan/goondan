@@ -194,7 +194,7 @@ async def test_a_pending_operation_needs_no_host_callback_and_reaches_no_error_h
 # --- attempt numbering ---------------------------------------------------------------------------
 
 
-async def test_attempt_counts_the_retries_this_run_already_followed():
+async def test_concurrent_tool_attempts_keep_the_retry_count_at_start():
     seen: list[tuple[str, int]] = []
     failures = {"b": 0, "c": 0}
 
@@ -217,7 +217,7 @@ async def test_attempt_counts_the_retries_this_run_already_followed():
     )
     try:
         result = await (await runtime.run("hello", session_id="c1")).result
-        assert seen == [("b", 1), ("c", 2)]
+        assert seen == [("b", 1), ("c", 1)]
         assert result["output"] == "ready"
     finally:
         await runtime.close()

@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {"parallel": [
+      [{"result": {"status": "done", "output": "완료"}}],
+      [{}, {}, {}, {}]
+    ]}
+  ],
+  "observations": {
+    "toolCalls": [
+      {"tool": "first", "args": {}},
+      {"tool": "second", "args": {}}
+    ]
+  }
+}

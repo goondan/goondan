@@ -1250,6 +1250,45 @@ async def test_the_tool_context_exposes_the_shared_public_surface_and_updates_it
 
 
 @pytest.mark.asyncio
+async def test_abort_reports_an_error_for_each_running_tool_in_one_response():
+    started = asyncio.Event()
+    waiting = asyncio.Event()
+    events: list[dict[str, Any]] = []
+
+    class Host:
+        def emit(self, event: dict[str, Any]) -> None:
+            events.append(event)
+
+    async def execute(value: Any, ctx: Any) -> Any:
+        if sum(event["type"] == "tool.start" for event in events) == 2:
+            started.set()
+        await waiting.wait()
+        return value
+
+    model = replies({"message": {"role": "assistant", "content": [
+        {"type": "tool.call", "callId": "c1", "name": "first", "args": {}},
+        {"type": "tool.call", "callId": "c2", "name": "second", "args": {}},
+    ]}, "finishReason": "tool"})
+    runtime = create_goondan(
+        config={"agents": {"main": {"model": "m", "tools": ["first", "second"]}}},
+        models={"m": model},
+        tools={name: echo_tool(name, execute) for name in ("first", "second")},
+        host=Host(),
+    )
+    try:
+        handle = await runtime.run("go", session_id="abort-batch")
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert runtime.abort("abort-batch") is True
+        with pytest.raises(GoondanAbortError):
+            await handle.result
+        assert sorted(event["data"]["callId"] for event in events if event["type"] == "tool.start") == ["c1", "c2"]
+        assert sorted(event["data"]["callId"] for event in events if event["type"] == "tool.error") == ["c1", "c2"]
+    finally:
+        waiting.set()
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_a_message_the_context_builds_carries_the_hook_identifier_and_only_the_named_extras():
     """§훅 컨텍스트와 호스트 함수: `extra` is a mapping or the same names as keyword arguments."""
     made: list[dict[str, Any]] = []

@@ -57,6 +57,105 @@ class ExpiringStore extends MemoryStore {
 }
 
 describe("v3 runtime", () => {
+  it("selects the last declared tool completion even when it finishes first", async () => {
+    let releaseFirst = (): void => undefined;
+    const firstMayFinish = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["first", "second"], hooks: {
+      onToolResult: [{ name: "complete", fn: "complete" }],
+    } } } }, {
+      models: { m: { generate: async () => ({ message: { role: "assistant", content: [
+        { type: "tool.call", callId: "c1", name: "first", args: {} },
+        { type: "tool.call", callId: "c2", name: "second", args: {} },
+      ] }, finishReason: "tool" }) } },
+      tools: {
+        first: { name: "first", description: "first", input: { type: "object" }, execute: async () => { await firstMayFinish; return "first"; } },
+        second: { name: "second", description: "second", input: { type: "object" }, execute: () => { releaseFirst(); return "second"; } },
+      },
+      functions: { complete: (value: { callId: string }) => ({ complete: {
+        id: `done-${value.callId}`, role: "assistant", source: "complete", content: [{ type: "text", text: value.callId }],
+      } }) },
+    });
+    try {
+      const result = await runResult(runtime.run("go", { sessionId: "completion-order" }));
+      expect(result.output).toBe("c2");
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("keeps a tool hook failure on its original attempt while another tool retries", async () => {
+    let retryStarted = (): void => undefined;
+    const retried = new Promise<void>((resolve) => { retryStarted = resolve; });
+    let firstAttempts = 0;
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["first", "second"], hooks: {
+      onError: [{ name: "retry", fn: "retry" }],
+      onToolResult: [{ name: "failSecond", fn: "failSecond" }],
+    } } } }, {
+      models: { m: { generate: async () => ({ message: { role: "assistant", content: [
+        { type: "tool.call", callId: "c1", name: "first", args: {} },
+        { type: "tool.call", callId: "c2", name: "second", args: {} },
+      ] }, finishReason: "tool" }) } },
+      tools: {
+        first: { name: "first", description: "first", input: { type: "object" }, execute: () => {
+          if (++firstAttempts === 1) throw new Error("retry me");
+          retryStarted();
+          return "first";
+        } },
+        second: { name: "second", description: "second", input: { type: "object" }, execute: () => "second" },
+      },
+      functions: {
+        retry: () => ({ retry: true, target: "tool" }),
+        failSecond: async (value: { callId: string }) => {
+          if (value.callId === "c2") { await retried; throw new Error("hook failed"); }
+          return value;
+        },
+      },
+    });
+    try {
+      await expect(runResult(runtime.run("go", { sessionId: "parallel-attempt" }))).rejects.toMatchObject({
+        where: "onToolResult", attempt: 1,
+      });
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("starts every tool call from one model response before waiting for either result", async () => {
+    let startSecond = (): void => undefined;
+    const secondStarted = new Promise<void>((resolve) => { startSecond = resolve; });
+    const first: Tool = {
+      name: "first", description: "first", input: { type: "object" },
+      execute: async () => {
+        await Promise.race([
+          secondStarted,
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("second tool did not start")), 500)),
+        ]);
+        return "first";
+      },
+    };
+    const second: Tool = {
+      name: "second", description: "second", input: { type: "object" },
+      execute: () => { startSecond(); return "second"; },
+    };
+    let generation = 0;
+    const runtime = createGoondan({ agents: { main: { model: "m", tools: ["first", "second"] } } }, {
+      models: { m: { generate: async () => ++generation === 1
+        ? { message: { role: "assistant", content: [
+          { type: "tool.call", callId: "c1", name: "first", args: {} },
+          { type: "tool.call", callId: "c2", name: "second", args: {} },
+        ] }, finishReason: "tool" }
+        : response("done") } },
+      tools: { first, second },
+    });
+    try {
+      const result = await runResult(runtime.run("go", { sessionId: "parallel-tools" }));
+      expect(result.output).toBe("done");
+      expect(result.outputs[0]?.content).toEqual([{ type: "text", text: "done" }]);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("returns a non-thenable handle whose result can be awaited repeatedly", async () => {
     const runtime = createGoondan({ agents: { main: { model: "m" } } }, {
       models: { m: { generate: async () => response("done") } },

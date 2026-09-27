@@ -1,0 +1,37 @@
+{
+  "description": "한 모델 응답의 두 도구가 서로 다른 게이트에 도달한 뒤 첫 번째 도구를 해제해도 두 번째 도구는 이미 실행 중이다.",
+  "spec": ["단계 실행 순서"],
+  "config": {
+    "document": {
+      "agents": {"main": {"model": "m", "tools": ["first", "second"]}}
+    }
+  },
+  "bindings": {
+    "models": {
+      "m": {
+        "responses": [
+          {"toolCalls": [
+            {"callId": "c1", "name": "first", "args": {}},
+            {"callId": "c2", "name": "second", "args": {}}
+          ]},
+          {"text": "완료"}
+        ]
+      }
+    },
+    "tools": {
+      "first": {"results": [{"await": "first-ready", "then": {"text": "첫째"}}]},
+      "second": {"results": [{"await": "second-ready", "then": {"text": "둘째"}}]}
+    }
+  },
+  "steps": [
+    {"parallel": [
+      [{"run": {"sessionId": "c1", "input": "시작"}}],
+      [
+        {"reach": "first-ready"},
+        {"reach": "second-ready"},
+        {"release": "first-ready"},
+        {"release": "second-ready"}
+      ]
+    ]}
+  ]
+}

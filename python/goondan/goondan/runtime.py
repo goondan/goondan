@@ -323,7 +323,8 @@ class _RunState:
     model_call: int = 0
     hook_call: int = 0
     # §이벤트 순서: the model call or tool execution to report as aborted if the run is stopped.
-    in_flight: tuple[str, dict[str, Any]] | None = None
+    in_flight: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    conversation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def aborted(self) -> bool:
         return self.run is not None and self.run.aborted
@@ -891,17 +892,20 @@ class Goondan:
             event["operationId"] = state.lineage.operation_id
         return event
 
-    async def _append_conversation(self, state: _RunState, messages: Sequence[Mapping[str, Any]]) -> None:
+    async def _append_conversation(self, state: _RunState, messages: Sequence[Mapping[str, Any]], *, update_state: bool = False) -> None:
         if not messages:
             return
         copied = [copy.deepcopy(dict(message)) for message in messages]
-        await self._journal(state.session, [
-            self._conversation_event(state, "conversation.message.appended", {"message": message})
-            for message in copied
-        ])
-        state.recorded_conversation.extend(copy.deepcopy(copied))
-        if state.stateful:
-            await self._conversation_projection.append(state.session_id, state.agent_name, copied)
+        async with state.conversation_lock:
+            await self._journal(state.session, [
+                self._conversation_event(state, "conversation.message.appended", {"message": message})
+                for message in copied
+            ])
+            state.recorded_conversation.extend(copy.deepcopy(copied))
+            if state.stateful:
+                await self._conversation_projection.append(state.session_id, state.agent_name, copied)
+            if update_state:
+                state.conversation.extend(copy.deepcopy(copied))
 
     async def _replace_conversation(self, state: _RunState, messages: Sequence[Mapping[str, Any]]) -> None:
         before = state.recorded_conversation
@@ -1031,7 +1035,7 @@ class Goondan:
         if state.aborted():
             raise GoondanAbortError("aborted")
 
-    async def _pipeline(self, stage: ValueName, value: Any, state: _RunState, *, call_id: str | None = None, persist: bool = True) -> _Stage:
+    async def _pipeline(self, stage: ValueName, value: Any, state: _RunState, *, call_id: str | None = None, persist: bool = True, attempt: int | None = None) -> _Stage:
         """§훅 실행과 결과: run the stage's hooks in declaration order over the current value."""
         # §실행 중단: an aborted run starts no stage, so a stage without hooks stores nothing either.
         self._running(state)
@@ -1092,7 +1096,7 @@ class Goondan:
             except Exception as error:
                 await self._emit(state.session, "hook.failed", state.agent_name, state.session_id, state.turn_id, {**hook_data, "where": stage, "codes": ["hook_error"], "error": str(error)}, instance=state.instance, lineage=state.lineage)
                 if optional: continue
-                raise GoondanExecutionError(stage, ["hook_error"], str(error), state.retry_count + 1, cause=error) from error
+                raise GoondanExecutionError(stage, ["hook_error"], str(error), attempt or state.retry_count + 1, cause=error) from error
             if outcome is _SCHEDULED: continue
             if outcome is _SKIPPED:
                 await self._emit(state.session, "hook.skipped", state.agent_name, state.session_id, state.turn_id, hook_data, instance=state.instance, lineage=state.lineage)
@@ -1166,8 +1170,6 @@ class Goondan:
             result.value = outcome.value
             if outcome.execution is not None: result.execution = outcome.execution
             return
-        if outcome.kind == "complete":
-            state.completion.message = copy.deepcopy(outcome.value)
         result.control = outcome
 
     # --- asynchronous hooks -------------------------------------------------------------------
@@ -1747,8 +1749,8 @@ class Goondan:
             stage = await self._pipeline("onModelResult", result, state)
             if stage.control is not None:
                 # §재시도: the message of a retried model result is not stored.
-                state.retry_count += 1
                 await self._wait(stage.control.value["afterMs"], state)
+                state.retry_count += 1
                 continue
             result = stage.value
             assistant = copy.deepcopy(result["message"])
@@ -1805,7 +1807,7 @@ class Goondan:
             "retryCount": state.retry_count,
             "attempt": state.retry_count + 1,
         }
-        state.in_flight = ("step", dict(call_data))
+        state.in_flight.append(("step", call_data))
         deltas = _Deltas(self, state, call_data)
         ctx = ModelContext(
             agent_name,
@@ -1838,12 +1840,12 @@ class Goondan:
             # §이벤트 순서: a call that was in progress when the abort was signalled reports
             # step.error with the code `aborted`, whatever the model did in the meantime.
             if state.aborted(): raise GoondanAbortError("aborted") from None
-            state.in_flight = None
+            state.in_flight = [(kind, data) for kind, data in state.in_flight if data is not call_data]
             failure = GoondanExecutionError("model", _model_codes(broken), str(broken), state.retry_count + 1, cause=broken)
             await self._emit(session, "step.error", agent_name, session_id, turn_id, {**call_data, "where": failure.where, "codes": failure.codes, "error": failure.message}, instance=state.instance, lineage=state.lineage)
             if await self._recovered(state, failure, "model"): return None
             raise failure from broken
-        state.in_flight = None
+        state.in_flight = [(kind, data) for kind, data in state.in_flight if data is not call_data]
         await deltas.close()
         if state.aborted():
             # §실행 중단: a model result that arrives after the abort is not used.
@@ -1874,8 +1876,10 @@ class Goondan:
         control = stage.control
         if control is None or not retryable or control.value["target"] != target or state.retry_count >= self.max_retries:
             return False
-        state.retry_count += 1
         await self._wait(control.value["afterMs"], state)
+        if state.retry_count >= self.max_retries:
+            return False
+        state.retry_count += 1
         return True
 
     async def _wait(self, after: Any, state: _RunState) -> None:
@@ -1890,8 +1894,9 @@ class Goondan:
         self._running(state)
 
     async def _run_calls(self, state: _RunState, calls: list[dict[str, Any]]) -> None:
-        """§단계 실행 순서 4: process the response's calls one at a time, in order."""
-        for part in calls:
+        """§단계 실행 순서 5: start every call and wait for the whole response batch."""
+        batch_retry_count = state.retry_count
+        async def run_one(part: dict[str, Any]) -> dict[str, Any] | None:
             call: dict[str, Any] = {"id": part["callId"], "name": part["name"], "args": part.get("args")}
             stage = await self._pipeline("onToolCall", call, state, call_id=call["id"])
             call = stage.value
@@ -1899,26 +1904,34 @@ class Goondan:
             if stage.control is not None:
                 # §제어 결과: a hook result skips the availability check and any approval.
                 claimed = _claimed_result(stage.control.value)
-                await self._finish_call(state, call, _tool_result(call, claimed), started=False)
-                continue
-            await self._process_call(state, call, stage.execution, reasons)
+                return await self._finish_call(state, call, _tool_result(call, claimed), started=False, attempt=batch_retry_count + 1)
+            return await self._process_call(state, call, stage.execution, reasons, initial_retry_count=batch_retry_count)
 
-    async def _process_call(self, state: _RunState, call: dict[str, Any], execution: dict[str, Any] | None, reasons: list[str]) -> None:
+        outcomes = await asyncio.gather(*(run_one(part) for part in calls), return_exceptions=True)
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                raise outcome
+        for outcome in outcomes:
+            if isinstance(outcome, Mapping):
+                state.completion.message = outcome
+
+    async def _process_call(self, state: _RunState, call: dict[str, Any], execution: dict[str, Any] | None, reasons: list[str], *, initial_retry_count: int | None = None) -> dict[str, Any] | None:
         """§승인 작업 생성, §재시도: check, approve or run one call until it has a result."""
+        call_retry_count = state.retry_count if initial_retry_count is None else initial_retry_count
         while True:
             call_data = {
                 "tool": call["name"],
                 "callId": call["id"],
                 "args": call["args"],
-                "retryCount": state.retry_count,
-                "attempt": state.retry_count + 1,
+                "retryCount": call_retry_count,
+                "attempt": call_retry_count + 1,
             }
             # §이벤트 순서: a call that reports no tool.start reports no tool.error either.
             started = False
             # §재시도: a call whose tool result is already stored follows no retry request.
             stored = False
             try:
-                configured = self._available(state, call)
+                configured = self._available(state, call, call_data["attempt"])
                 approvals = [*reasons, f"Tool {call['name']} requires approval"] if configured.get("approval") == "required" else list(reasons)
                 if approvals:
                     await self._create_operation(state, call, execution, approvals)
@@ -1926,15 +1939,14 @@ class Goondan:
                     return
                 started = True
                 result = await self._execute_call(state, call, call_data, configured, execution)
-                await self._finish_call(state, call, result, started=True, call_data=call_data)
-                return
+                return await self._finish_call(state, call, result, started=True, call_data=call_data)
             except GoondanAbortError:
                 raise
             except Exception as broken:
                 # §이벤트 순서: a tool execution that was in progress when the abort was
                 # signalled reports tool.error with the code `aborted`, so `in_flight` stays.
                 if state.aborted(): raise GoondanAbortError("aborted") from None
-                state.in_flight = None
+                state.in_flight = [(kind, data) for kind, data in state.in_flight if data is not call_data]
                 if isinstance(broken, GoondanConfigError):
                     # §확장 인스턴스: a configuration error is neither a tool failure nor a hook
                     # failure, so it reaches no `error` stage; §이벤트 순서 still pairs the
@@ -1944,28 +1956,30 @@ class Goondan:
                         await self._emit(state.session, "tool.error", state.agent_name, state.session_id, state.turn_id, {**call_data, "where": value["where"], "codes": value["codes"], "error": value["message"]}, instance=state.instance, lineage=state.lineage)
                     raise
                 # §도구: a failed tool implementation is `["tool_error"]` and adds no second code.
-                failure = broken if isinstance(broken, GoondanExecutionError) else GoondanExecutionError("tool", ["tool_error"], str(broken), state.retry_count + 1, call, broken)
+                failure = broken if isinstance(broken, GoondanExecutionError) else GoondanExecutionError("tool", ["tool_error"], str(broken), call_data["attempt"], call, broken)
                 if started:
                     await self._emit(state.session, "tool.error", state.agent_name, state.session_id, state.turn_id, {**call_data, "where": failure.where, "codes": failure.codes, "error": failure.message}, instance=state.instance, lineage=state.lineage)
                 # §실행 오류: a hook failure or an invalid tool result is not a tool failure,
                 # so it ends the run without reaching the error stage.
-                if failure.where == "tool" and await self._recovered(state, failure, "tool", not stored): continue
+                if failure.where == "tool" and await self._recovered(state, failure, "tool", not stored):
+                    call_retry_count = state.retry_count
+                    continue
                 if failure is broken: raise
                 raise failure from broken
 
-    def _available(self, state: _RunState, call: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _available(self, state: _RunState, call: Mapping[str, Any], attempt: int) -> Mapping[str, Any]:
         """§도구: only a name in the agent's effective `tools` list can be called."""
         try:
             return self._configured_tool(state.agent_name, call["name"])
         except GoondanError as unavailable:
-            raise GoondanExecutionError("tool", ["tool_unavailable"], str(unavailable), state.retry_count + 1, call, unavailable) from unavailable
+            raise GoondanExecutionError("tool", ["tool_unavailable"], str(unavailable), attempt, call, unavailable) from unavailable
 
     async def _execute_call(self, state: _RunState, call: dict[str, Any], call_data: dict[str, Any], configured: Mapping[str, Any], execution: dict[str, Any] | None) -> dict[str, Any]:
         """Run an agent tool or a host/extension tool and build the tool result."""
         session, agent_name, session_id, turn_id = state.session, state.agent_name, state.session_id, state.turn_id
         # §실행 중단: an aborted run starts no tool execution, so it reports no tool event either.
         self._running(state)
-        state.in_flight = ("tool", call_data)
+        state.in_flight.append(("tool", call_data))
         await self._emit(session, "tool.start", agent_name, session_id, turn_id, dict(call_data), instance=state.instance, lineage=state.lineage)
         if "agent" in configured:
             try:
@@ -1986,7 +2000,7 @@ class Goondan:
                 raise
             except Exception as broken:
                 # §에이전트 도구: the target run's failure becomes this call's tool failure.
-                raise GoondanExecutionError("tool", ["tool_error"], str(broken), state.retry_count + 1, call, broken) from broken
+                raise GoondanExecutionError("tool", ["tool_error"], str(broken), call_data["attempt"], call, broken) from broken
             claimed: Mapping[str, Any] = {"content": child["output"]["content"]}
         else:
             tool = self.tools.get(call["name"]) or session.tools[call["name"]]
@@ -1997,7 +2011,7 @@ class Goondan:
             )
             output = await _await(tool.execute(copy.deepcopy(call["args"]), context))
             claimed = _claimed_result(output)
-        state.in_flight = None
+        state.in_flight = [(kind, data) for kind, data in state.in_flight if data is not call_data]
         if state.aborted():
             await self._emit(session, "tool.error", agent_name, session_id, turn_id, {**call_data, "where": "runtime", "codes": ["aborted"], "error": "aborted"}, instance=state.instance, lineage=state.lineage)
             raise GoondanAbortError("aborted")
@@ -2005,20 +2019,20 @@ class Goondan:
         found = stage_error("onToolResult", result, call["id"])
         if found:
             # §단계 값과 대화 저장: an invalid tool result never reaches the error stage.
-            raise GoondanExecutionError("onToolResult", ["value_invalid"], f"the tool result {found}", state.retry_count + 1)
+            raise GoondanExecutionError("onToolResult", ["value_invalid"], f"the tool result {found}", call_data["attempt"])
         return result
 
-    async def _finish_call(self, state: _RunState, call: Mapping[str, Any], result: dict[str, Any], *, started: bool, call_data: Mapping[str, Any] | None = None) -> None:
+    async def _finish_call(self, state: _RunState, call: Mapping[str, Any], result: dict[str, Any], *, started: bool, call_data: Mapping[str, Any] | None = None, attempt: int | None = None) -> dict[str, Any] | None:
         """§단계 값과 대화 저장: the toolResult stage, and the tool result message it stores."""
-        stage = await self._pipeline("onToolResult", result, state, call_id=call["id"])
+        stage = await self._pipeline("onToolResult", result, state, call_id=call["id"], attempt=attempt or (call_data["attempt"] if call_data is not None else None))
         result = stage.value
         message = _tool_message(result)
-        state.conversation = [*state.conversation, message]
-        await self._append_conversation(state, [message])
+        await self._append_conversation(state, [message], update_state=True)
         if started:
             # §이벤트 종류: tool.done follows the stored tool result message.
             data = dict(call_data or {"tool": call["name"], "callId": call["id"], "args": call["args"], "retryCount": state.retry_count, "attempt": state.retry_count + 1})
             await self._emit(state.session, "tool.done", state.agent_name, state.session_id, state.turn_id, {**data, "result": result}, instance=state.instance, lineage=state.lineage)
+        return copy.deepcopy(stage.control.value) if stage.control is not None and stage.control.kind == "complete" else None
 
     async def _create_operation(self, state: _RunState, call: dict[str, Any], execution: dict[str, Any] | None, reasons: list[str]) -> None:
         """승인 작업과 대기 중인 도구 결과를 한 저널 배치에 기록합니다."""
@@ -2050,12 +2064,13 @@ class Goondan:
         operation_event.pop("parentExecutionId", None)
         operation_event["operationId"] = operation_id
         conversation_event = self._conversation_event(state, "conversation.message.appended", {"message": message})
-        await self._journal(session, [operation_event, conversation_event])
-        await self._operation_projection.save(operation)
-        state.conversation = [*state.conversation, message]
-        state.recorded_conversation.append(copy.deepcopy(message))
-        if state.stateful:
-            await self._conversation_projection.append(session_id, agent_name, [message])
+        async with state.conversation_lock:
+            await self._journal(session, [operation_event, conversation_event])
+            await self._operation_projection.save(operation)
+            state.recorded_conversation.append(copy.deepcopy(message))
+            if state.stateful:
+                await self._conversation_projection.append(session_id, agent_name, [message])
+            state.conversation.append(copy.deepcopy(message))
 
     async def _fail(self, error: BaseException, state: _RunState) -> None:
         """§실행 오류: record the failure and report `turn.error` with its own codes.
@@ -2066,10 +2081,10 @@ class Goondan:
         value = _execution_error(error)
         # §이벤트 순서: the model call or tool execution still running when the abort was
         # signalled reports step.error or tool.error with the code `aborted`.
-        if isinstance(error, GoondanAbortError) and state.in_flight is not None:
-            kind, payload = state.in_flight
-            state.in_flight = None
-            await self._emit(state.session, "step.error" if kind == "step" else "tool.error", state.agent_name, state.session_id, state.turn_id, {**payload, "where": "runtime", "codes": ["aborted"], "error": "aborted"}, instance=state.instance, lineage=state.lineage)
+        if isinstance(error, GoondanAbortError):
+            for kind, payload in state.in_flight:
+                await self._emit(state.session, "step.error" if kind == "step" else "tool.error", state.agent_name, state.session_id, state.turn_id, {**payload, "where": "runtime", "codes": ["aborted"], "error": "aborted"}, instance=state.instance, lineage=state.lineage)
+            state.in_flight.clear()
         status = "aborted" if isinstance(error, GoondanAbortError) else "failed"
         await self._journal(state.session, [{
             "version": 1,

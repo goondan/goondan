@@ -187,6 +187,7 @@ interface ExecutionState {
   input: Message[];
   startInput: Message[];
   conversation: Message[];
+  conversationMutex: Mutex;
   inputKind: "start" | "steer";
   step: number;
   modelCall: number;
@@ -860,6 +861,7 @@ export class Goondan {
       input: [],
       startInput: [],
       conversation,
+      conversationMutex: new Mutex(),
       inputKind: "start",
       step: 0,
       modelCall: 0,
@@ -896,7 +898,7 @@ export class Goondan {
       failRun(node, state.usage);
       await this.#append(turn.session, [this.#event(turn.session.sessionId, "agent.error", {
         status: error.codes.includes("aborted") ? "aborted" : "failed",
-        error: detail(error, state.retryCount + 1),
+        error: detail(error, error.attempt),
         usage: state.usage,
         retryCount: state.retryCount,
       }, this.#scope(state))]);
@@ -1052,10 +1054,14 @@ export class Goondan {
         return this.#finish(state, modelResult.message, modelResult.finishReason);
       }
       let completion: Message | undefined;
-      for (const part of calls) {
-        const result = await this.#processTool({ id: part.callId, name: part.name, args: part.args }, state);
-        if (result.complete !== undefined) completion = result.complete;
+      const batchRetryCount = state.retryCount;
+      const outcomes = await Promise.allSettled(calls.map((part) =>
+        this.#processTool({ id: part.callId, name: part.name, args: part.args }, state, batchRetryCount)));
+      for (const outcome of outcomes) {
+        if (outcome.status === "rejected") throw outcome.reason;
+        if (outcome.value.complete !== undefined) completion = outcome.value.complete;
       }
+      completion ??= state.completion;
       if (completion) {
         await this.#safePoint(state);
         return this.#finish(state, completion, "tool", true);
@@ -1151,60 +1157,63 @@ export class Goondan {
     return { system, messages: cloneMessages(state.conversation), tools, options: {} };
   }
 
-  async #processTool(original: ToolCall, state: ExecutionState): Promise<{ complete?: Message }> {
+  async #processTool(original: ToolCall, state: ExecutionState, batchRetryCount: number): Promise<{ complete?: Message }> {
     const callStage = await this.#hooks("onToolCall", original, state, original.id);
     const call = isToolCall(callStage.value) ? callStage.value : original;
     if (callStage.result !== undefined) {
       const normalized = normalizeToolReturn(callStage.result, call);
-      if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", state.retryCount + 1, call);
-      const accepted = await this.#acceptToolResult(normalized.value, state, call);
+      if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", batchRetryCount + 1, call);
+      const accepted = await this.#acceptToolResult(normalized.value, state, call, batchRetryCount + 1);
       return accepted.complete === undefined ? {} : { complete: accepted.complete };
     }
     const entries = await this.#tools(state);
     const entry = entries.find((item) => item.name === call.name);
-    if (!entry) return this.#executeTool(call, state, undefined, callStage.execution);
+    if (!entry) return this.#executeTool(call, state, undefined, batchRetryCount, callStage.execution);
     const reasons = [...callStage.approvals];
     if (entry.approval) reasons.push(approvalReason(entry.name));
     if (reasons.length > 0) {
       await this.#createOperation(state, call, reasons, callStage.execution);
       return {};
     }
-    return this.#executeTool(call, state, entry, callStage.execution);
+    return this.#executeTool(call, state, entry, batchRetryCount, callStage.execution);
   }
 
-  async #executeTool(call: ToolCall, state: ExecutionState, entry: ToolEntry | undefined, execution?: Record<string, Json>): Promise<{ complete?: Message }> {
+  async #executeTool(call: ToolCall, state: ExecutionState, entry: ToolEntry | undefined, batchRetryCount: number, execution?: Record<string, Json>): Promise<{ complete?: Message }> {
+    let callRetryCount = batchRetryCount;
     while (true) {
       let started = false;
-      const attemptData = { retryCount: state.retryCount, attempt: state.retryCount + 1 };
+      const attemptData = { retryCount: callRetryCount, attempt: callRetryCount + 1 };
       try {
-        if (!entry) throw executionFailure("tool", "tool_unavailable", `Tool ${call.name} is not available`, state.retryCount + 1, call);
+        if (!entry) throw executionFailure("tool", "tool_unavailable", `Tool ${call.name} is not available`, attemptData.attempt, call);
         await this.#observed("tool.start", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData });
         started = true;
         const returned = entry.agent
           ? { content: (await this.#callAgent(state, entry.agent, call.args, "tool", this.#executionContext(state).signal)).content }
           : await entry.host?.execute(call.args, this.#toolContext(state, call, execution));
         const normalized = normalizeToolReturn(returned, call);
-        if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", state.retryCount + 1);
-        const accepted = await this.#acceptToolResult(normalized.value, state, call);
+        if (!normalized.value) throw executionFailure("onToolResult", "value_invalid", normalized.issue ?? "invalid tool result", attemptData.attempt);
+        const accepted = await this.#acceptToolResult(normalized.value, state, call, attemptData.attempt);
         await this.#observed("tool.done", state, { tool: call.name, callId: call.id, args: call.args, result: accepted.result, ...attemptData });
         return accepted.complete === undefined ? {} : { complete: accepted.complete };
       } catch (error) {
         const failure = state.group.turn.controller.signal.aborted || state.group.controller.signal.aborted ? abortFailure(error)
           : error instanceof GoondanExecutionError && (error.where === "onToolResult" || error.where === "tool" || error.codes.includes("aborted"))
-          ? error : executionFailure("tool", "tool_error", reason(error), state.retryCount + 1, call, error);
+          ? error : executionFailure("tool", "tool_error", reason(error), attemptData.attempt, call, error);
         if (started) await this.#observed("tool.error", state, { tool: call.name, callId: call.id, args: call.args, ...attemptData, where: failure.where, codes: failure.codes, error: failure.message });
         if (failure.where === "onToolResult" || failure.codes.includes("aborted")) throw failure;
         const handled = await this.#handleError(failure, state);
         if (!handled || state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw failure;
         await this.#waitRetry(handled.afterMs, state);
+        if (state.retryCount >= (this.#bindings.maxRetries ?? 3)) throw failure;
         state.retryCount += 1;
+        callRetryCount = state.retryCount;
       }
     }
   }
 
-  async #acceptToolResult(result: ToolResult, state: ExecutionState, call: ToolCall): Promise<{ complete?: Message; result: ToolResult }> {
-    const stage = await this.#hooks("onToolResult", result, state, call.id);
-    if (!isToolResult(stage.value)) throw executionFailure("onToolResult", "value_invalid", "onToolResult did not return a tool result", state.retryCount + 1);
+  async #acceptToolResult(result: ToolResult, state: ExecutionState, call: ToolCall, attempt: number): Promise<{ complete?: Message; result: ToolResult }> {
+    const stage = await this.#hooks("onToolResult", result, state, call.id, attempt);
+    if (!isToolResult(stage.value)) throw executionFailure("onToolResult", "value_invalid", "onToolResult did not return a tool result", attempt);
     const accepted = stage.value;
     const message: Message = {
       id: id(),
@@ -1215,13 +1224,13 @@ export class Goondan {
     if (accepted.keep !== undefined) message.keep = accepted.keep;
     if (accepted.meta !== undefined) message.meta = accepted.meta;
     await this.#appendMessages(state, [message]);
-    const complete = stage.complete ?? state.completion;
+    const complete = stage.complete;
     return complete === undefined ? { result: accepted } : { complete, result: accepted };
   }
 
   async #handleError(error: GoondanExecutionError, state: ExecutionState): Promise<{ target: "model" | "tool"; afterMs?: number } | undefined> {
     if (error.codes.includes("aborted")) return undefined;
-    const stage = await this.#hooks("onError", detail(error, state.retryCount + 1), state, error.toolCall?.id);
+    const stage = await this.#hooks("onError", detail(error, error.attempt), state, error.toolCall?.id);
     if (!stage.retry) return undefined;
     if ((error.where === "model" && stage.retry.target !== "model") || (error.where === "tool" && stage.retry.target !== "tool")) return undefined;
     return stage.retry;
@@ -1236,7 +1245,7 @@ export class Goondan {
     });
   }
 
-  async #hooks(name: ValueName, initial: unknown, state: ExecutionState, callId?: string): Promise<HookStageResult> {
+  async #hooks(name: ValueName, initial: unknown, state: ExecutionState, callId?: string, attempt?: number): Promise<HookStageResult> {
     let current = structuredClone(initial);
     const result: HookStageResult = { value: current, approvals: [] };
     for (const spec of state.spec.hooks?.[name] ?? []) {
@@ -1300,7 +1309,7 @@ export class Goondan {
           await this.#observed("hook.cancelled", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
           throw failure;
         }
-        const failure = executionFailure(name, "hook_error", reason(error), state.retryCount + 1, undefined, error);
+        const failure = executionFailure(name, "hook_error", reason(error), attempt ?? state.retryCount + 1, undefined, error);
         await this.#observed("hook.failed", state, { ...hookData, where: failure.where, codes: failure.codes, error: failure.message });
         if (spec.optional === true) { current = before; result.value = before; continue; }
         throw failure;
@@ -1779,9 +1788,11 @@ export class Goondan {
 
   async #appendMessages(state: ExecutionState, messages: readonly Message[]): Promise<void> {
     if (messages.length === 0) return;
-    const events = messages.map((message) => this.#event(state.group.turn.session.sessionId, "conversation.message.appended", { message }, this.#scope(state)));
-    await this.#append(state.group.turn.session, events);
-    state.conversation.push(...cloneMessages(messages));
+    await state.conversationMutex.run(async () => {
+      const events = messages.map((message) => this.#event(state.group.turn.session.sessionId, "conversation.message.appended", { message }, this.#scope(state)));
+      await this.#append(state.group.turn.session, events);
+      state.conversation.push(...cloneMessages(messages));
+    });
   }
 
   async #replaceMessage(state: ExecutionState, messageId: string, message: Message): Promise<void> {
@@ -2099,11 +2110,13 @@ export class Goondan {
       content: [{ type: "tool.result", callId: call.id, content: pending.content }],
       meta: pending.meta,
     };
-    await this.#append(state.group.turn.session, [
-      this.#operationEvent(operation, "operation.created", { operation }),
-      this.#event(operation.sessionId, "conversation.message.appended", { message }, this.#scope(state)),
-    ]);
-    state.conversation.push(message);
+    await state.conversationMutex.run(async () => {
+      await this.#append(state.group.turn.session, [
+        this.#operationEvent(operation, "operation.created", { operation }),
+        this.#event(operation.sessionId, "conversation.message.appended", { message }, this.#scope(state)),
+      ]);
+      state.conversation.push(message);
+    });
   }
 
   #operationEvent(operation: PendingOperation, type: string, data: unknown): NewJournalEvent {
@@ -2199,7 +2212,7 @@ export class Goondan {
     const state: ExecutionState = {
       group, agent: operation.agent, spec, instance: actor.instance, executionId: operation.executionId,
       turnId: operation.turnId, operationId: operation.operationId, input: [], startInput: [], conversation, inputKind: "start",
-      step: 0, modelCall: 0, hookCall: 0, retryCount: 0, usage: zeroUsage(), extensions, pendingHooks: this.#pending(actor.instance),
+      step: 0, modelCall: 0, hookCall: 0, retryCount: 0, usage: zeroUsage(), extensions, pendingHooks: this.#pending(actor.instance), conversationMutex: new Mutex(),
       runNode: { record: { agent: operation.agent, instance: actor.instance, executionId: operation.executionId, turnId: operation.turnId, operationId: operation.operationId, kind: "tool", usage: zeroUsage(), status: "failed" }, children: [] },
     };
     return state;

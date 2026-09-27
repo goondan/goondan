@@ -26,7 +26,7 @@ from .types import (
     define_tool,
 )
 
-SPEC_VERSION = "0.1"
+SPEC_VERSION = "0.2"
 
 __all__ = [
     "Extension", "ExtensionDefinition", "HookContext", "ModelContext", "NoLog", "RunHandle", "RunResult",

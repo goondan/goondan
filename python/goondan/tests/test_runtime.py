@@ -185,6 +185,125 @@ class ScriptedModel:
         }
 
 
+@pytest.mark.asyncio
+async def test_last_declared_tool_completion_wins_when_it_finishes_first():
+    first_may_finish = asyncio.Event()
+
+    async def first(value, context):
+        await first_may_finish.wait()
+        return "first"
+
+    def second(value, context):
+        first_may_finish.set()
+        return "second"
+
+    def complete(value, context):
+        call_id = value["callId"]
+        return {"complete": {"id": f"done-{call_id}", "role": "assistant", "source": "complete", "content": [{"type": "text", "text": call_id}]}}
+
+    model = ScriptedModel([[
+        {"type": "tool.call", "callId": "c1", "name": "first", "args": {}},
+        {"type": "tool.call", "callId": "c2", "name": "second", "args": {}},
+    ]])
+    runtime = create_goondan(
+        config={"agents": {"main": {"model": "m", "tools": ["first", "second"], "hooks": {"onToolResult": [{"name": "complete", "fn": "complete"}]}}}},
+        models={"m": model},
+        tools={
+            "first": define_tool(name="first", description="first", input={"type": "object"}, execute=first),
+            "second": define_tool(name="second", description="second", input={"type": "object"}, execute=second),
+        },
+        functions={"complete": complete},
+    )
+    try:
+        result = await (await runtime.run("go", session_id="completion-order")).result
+        assert result["output"] == "c2"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_hook_failure_keeps_original_attempt_while_another_tool_retries():
+    retried = asyncio.Event()
+    first_attempts = 0
+
+    def first(value, context):
+        nonlocal first_attempts
+        first_attempts += 1
+        if first_attempts == 1:
+            raise RuntimeError("retry me")
+        retried.set()
+        return "first"
+
+    def second(value, context):
+        return "second"
+
+    async def fail_second(value, context):
+        if value["callId"] == "c2":
+            await retried.wait()
+            raise RuntimeError("hook failed")
+        return value
+
+    def retry(value, context):
+        return {"retry": True, "target": "tool"}
+
+    model = ScriptedModel([[
+        {"type": "tool.call", "callId": "c1", "name": "first", "args": {}},
+        {"type": "tool.call", "callId": "c2", "name": "second", "args": {}},
+    ]])
+    runtime = create_goondan(
+        config={"agents": {"main": {"model": "m", "tools": ["first", "second"], "hooks": {
+            "onError": [{"name": "retry", "fn": "retry"}],
+            "onToolResult": [{"name": "failSecond", "fn": "failSecond"}],
+        }}}},
+        models={"m": model},
+        tools={
+            "first": define_tool(name="first", description="first", input={"type": "object"}, execute=first),
+            "second": define_tool(name="second", description="second", input={"type": "object"}, execute=second),
+        },
+        functions={"retry": retry, "failSecond": fail_second},
+    )
+    try:
+        with pytest.raises(Exception) as failure:
+            await (await runtime.run("go", session_id="parallel-attempt")).result
+        assert (failure.value.where, failure.value.attempt) == ("onToolResult", 1)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_one_model_response_starts_all_tools_before_waiting_for_results():
+    second_started = asyncio.Event()
+
+    async def first(value, context):
+        await asyncio.wait_for(second_started.wait(), timeout=0.5)
+        return "first"
+
+    def second(value, context):
+        second_started.set()
+        return "second"
+
+    model = ScriptedModel([
+        [
+            {"type": "tool.call", "callId": "c1", "name": "first", "args": {}},
+            {"type": "tool.call", "callId": "c2", "name": "second", "args": {}},
+        ],
+        [{"type": "text", "text": "done"}],
+    ])
+    runtime = create_goondan(
+        config={"agents": {"main": {"model": "m", "tools": ["first", "second"]}}},
+        models={"m": model},
+        tools={
+            "first": define_tool(name="first", description="first", input={"type": "object"}, execute=first),
+            "second": define_tool(name="second", description="second", input={"type": "object"}, execute=second),
+        },
+    )
+    try:
+        result = await (await runtime.run("go", session_id="parallel-tools")).result
+        assert result["output"] == "done"
+    finally:
+        await runtime.close()
+
+
 def write_config(tmp_path: Path) -> Path:
     (tmp_path / "templates").mkdir()
     (tmp_path / "templates" / "system.md").write_text("Agent {{ agent.name }} / {{ params.lang }}\n", encoding="utf-8")

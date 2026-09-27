@@ -6,7 +6,7 @@
         "codes": [
           "tool_error"
         ],
-        "attempt": 2,
+        "attempt": 1,
         "toolCall": {
           "id": "c-3",
           "name": "c",
@@ -26,11 +26,11 @@
         "args": {}
       },
       {
-        "tool": "b",
+        "tool": "c",
         "args": {}
       },
       {
-        "tool": "c",
+        "tool": "b",
         "args": {}
       }
     ],

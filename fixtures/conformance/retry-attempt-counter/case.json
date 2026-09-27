@@ -1,5 +1,5 @@
 {
-  "description": "실행 오류의 attempt는 그 시점까지 따른 재시도 횟수에 1을 더한 값이므로, 한 번 재시도한 뒤의 실패는 attempt가 2다.",
+  "description": "동시에 시작한 도구 호출의 실행 오류 attempt는 각 호출을 시작할 때 정해진 값을 유지한다.",
   "spec": [
     "재시도",
     "실행 오류"
@@ -67,7 +67,8 @@
                   "op": "constant",
                   "value": {
                     "retry": true,
-                    "target": "tool"
+                    "target": "tool",
+                    "afterMs": 20
                   }
                 },
                 {

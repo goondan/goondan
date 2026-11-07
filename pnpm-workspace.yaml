@@ -1,2 +1,6 @@
 packages:
   - "packages/*"
+
+# pnpm 10은 이 설치 스크립트를 경고만 하고 건너뛰었다. 같은 동작을 유지한다
+allowBuilds:
+  esbuild: false
